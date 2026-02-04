@@ -1,0 +1,21 @@
+name: AI Auto-Fix
+on: [push]
+jobs:
+  check-and-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with: {python-version: '3.10'}
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Run Tests
+        id: tests
+        run: pytest > test_log.txt 2>&1
+        continue-on-error: true
+      - name: Ask Gemini to Fix
+        if: steps.tests.outcome == 'failure'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python .github/scripts/ai_fix_script.py
