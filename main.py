@@ -1,6 +1,11 @@
 import asyncio
 from aiogram import Bot, Dispatcher, types
 
+
+# Ошибка: мы не импортировали types, но пытаемся его использовать
+async def handle_message(message: types.Message): 
+    pass
+
 # Токен пока оставим пустым для теста
 TOKEN = "123:ABC" 
 
