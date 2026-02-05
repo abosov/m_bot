@@ -1,21 +1,33 @@
 import asyncio
+import logging
 from aiogram import Bot, Dispatcher, types
+from database import init_db  # Импортируем нашу функцию из нового файла
 
+# Настраиваем логирование, чтобы видеть, что происходит
+logging.basicConfig(level=logging.INFO)
 
-# Ошибка: мы не импортировали types, но пытаемся его использовать
-async def handle_message(message: types.Message): 
-    pass
-
-# Токен пока оставим пустым для теста
-TOKEN = "123:ABC" 
+# Токен пока оставим тестовым
+TOKEN = "123:ABC"
 
 async def main():
+    # 1. Инициализируем базу данных (создаем таблицы)
+    logging.info("Инициализация базы данных...")
+    await init_db()
+    
+    # 2. Запускаем бота
     bot = Bot(token=TOKEN)
     dp = Dispatcher()
-    print("Бот готов к запуску (тестовый режим)")
+    
+    logging.info("Бот готов к запуску (тестовый режим)")
+    
+    # В асинхронном режиме используем polling
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except Exception:
-        pass
+    except KeyboardInterrupt:
+        print("Бот выключен")
