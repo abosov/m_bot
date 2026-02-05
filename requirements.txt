@@ -1,4 +1,4 @@
 aiogram
 pytest
 pytest-asyncio
-google-generativeai
+google-genai
