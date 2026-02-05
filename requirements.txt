@@ -2,3 +2,8 @@ aiogram
 pytest
 pytest-asyncio
 google-genai
+# Database & Config
+sqlalchemy
+asyncpg
+python-dotenv
+greenlet
