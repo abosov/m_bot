@@ -7,9 +7,9 @@ client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 with open("test_log.txt", "r") as f:
     error_log = f.read()
 
-# Промпт для модели Gemini 2.0 Flash
+# Замените gemini-2.0-flash на gemini-1.5-flash
 response = client.models.generate_content(
-    model='gemini-2.0-flash',
+    model='gemini-1.5-flash', 
     contents=f"Мой бот упал с ошибкой:\n{error_log}\nПроанализируй код и напиши, как его исправить."
 )
 
