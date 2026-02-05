@@ -7,7 +7,7 @@ from typing import Optional, List
 from dotenv import load_dotenv
 from sqlalchemy import (
     BigInteger, Boolean, String, ForeignKey, DateTime, Time, 
-    Integer, Text, Enum as SAEnum, func
+    Integer, Text, Enum as SAEnum, func, Float
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -16,9 +16,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 # Загрузка переменных окружения
 load_dotenv()
 
-# Получение URL БД. Для локальной разработки можно использовать sqlite, 
-# но для продакшена (MVP) в schema.md подразумевается Postgres.
-# Пример: postgresql+asyncpg://user:pass@localhost/dbname
+# Получение URL БД
 DATABASE_URL = os.getenv("DB_URL", "sqlite+aiosqlite:///./mvp.db")
 
 # --- Настройка движка ---
@@ -29,7 +27,7 @@ async_session_factory = async_sessionmaker(engine, expire_on_commit=False, class
 class Base(DeclarativeBase):
     pass
 
-# --- ENUMS (согласно 40_data_model/enums.md) ---
+# --- ENUMS ---
 
 class SpecialistStatus(str, enum.Enum):
     onboarding = "onboarding"
@@ -64,7 +62,11 @@ class OAuthStateType(str, enum.Enum):
     google_connect = "google_connect"
     google_reconnect = "google_reconnect"
 
-# --- MODELS (согласно 40_data_model/schema.md) ---
+class LogDirection(str, enum.Enum):
+    IN = "IN"
+    OUT = "OUT"
+
+# --- MODELS ---
 
 class Specialist(Base):
     __tablename__ = "specialist"
@@ -105,7 +107,7 @@ class SpecialistProfile(Base):
     public_name: Mapped[str] = mapped_column(Text, nullable=False)
     owner_tg_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     owner_tg_username: Mapped[Optional[str]] = mapped_column(String)
-    specialist_timezone: Mapped[str] = mapped_column(String, nullable=False) # IANA timezone
+    specialist_timezone: Mapped[str] = mapped_column(String, nullable=False)
     session_duration_min: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     cancel_window_hours: Mapped[int] = mapped_column(Integer, default=12, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -118,10 +120,9 @@ class TelegramBot(Base):
     __tablename__ = "telegram_bot"
 
     telegram_bot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # Nullable для master_bot, если решим хранить его здесь же, но FK указывает на specialist
     specialist_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=True, index=True)
     
-    bot_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False) # GetMe.id
+    bot_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     bot_username: Mapped[str] = mapped_column(String, nullable=False)
     bot_name: Mapped[str] = mapped_column(String, nullable=False)
     bot_token_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
@@ -171,7 +172,7 @@ class WeeklyAvailability(Base):
 
     weekly_availability_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=False, index=True)
-    weekday: Mapped[int] = mapped_column(Integer, nullable=False) # 0..6
+    weekday: Mapped[int] = mapped_column(Integer, nullable=False)
     is_working: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     
     interval_1_start: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
@@ -182,9 +183,6 @@ class WeeklyAvailability(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     specialist: Mapped["Specialist"] = relationship(back_populates="weekly_availability")
-    
-    # Unique Constraint (specialist_id, weekday) should be handled via TableArgs if needed, 
-    # but SQLAlchemy allows defining it here too. For logic, we will enforce in code or simple UniqueConstraint.
 
 
 class Client(Base):
@@ -240,6 +238,24 @@ class OAuthState(Base):
     specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MessageLog(Base):
+    __tablename__ = "message_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    specialist_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=True)
+    bot_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    tg_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    direction: Mapped[LogDirection] = mapped_column(SAEnum(LogDirection), nullable=False)
+    message_type: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_error: Mapped[bool] = mapped_column(Boolean, default=False)
+    error_details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    processing_time: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    handler_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
 
 # --- Dependency Helper ---
 

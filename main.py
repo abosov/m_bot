@@ -12,9 +12,12 @@ from dotenv import load_dotenv
 from handlers.master_onboarding import router as master_onboarding_router
 from database import init_db
 
+# Импортируем Middleware
+from logging_middleware import StructLoggingMiddleware
+
 load_dotenv()
 
-# Настройка логирования
+# Настройка логирования (базовый уровень stdout)
 logging.basicConfig(level=logging.INFO)
 
 async def main():
@@ -29,6 +32,10 @@ async def main():
     # Инициализация бота и диспетчера
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
     dp = Dispatcher()
+
+    # --- Подключение Middleware ---
+    # outer_middleware срабатывает ДО фильтров, что позволяет логировать все входящие апдейты
+    dp.update.outer_middleware(StructLoggingMiddleware())
 
     # Регистрируем роутеры
     dp.include_router(master_onboarding_router)
