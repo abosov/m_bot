@@ -20,6 +20,8 @@ from database import (
     SpecialistCalendar, # Placeholder if needed later
 )
 from services.crypto import encrypt_token
+# Импорт логирования исходящих сообщений
+from logging_middleware import log_outbound_message
 
 router = Router()
 
@@ -67,16 +69,21 @@ async def cmd_start(message: types.Message, state: FSMContext):
             session.add(new_auth)
             await session.commit()
             
-            await message.answer(
+            text_out = (
                 "Добро пожаловать в платформу записи клиентов!\n"
                 "Давайте настроим вашего личного бота.\n\n"
-                "Нажмите кнопку ниже, чтобы начать.",
+                "Нажмите кнопку ниже, чтобы начать."
+            )
+            await message.answer(
+                text_out,
                 reply_markup=types.ReplyKeyboardMarkup(
                     keyboard=[[types.KeyboardButton(text="Стать специалистом")]],
                     resize_keyboard=True,
                     one_time_keyboard=True
                 )
             )
+            await log_outbound_message(message.bot, tg_user_id, text_out)
+
         else:
             # Специалист уже есть, проверяем статус
             # Загружаем специалиста чтобы проверить статус
@@ -85,15 +92,19 @@ async def cmd_start(message: types.Message, state: FSMContext):
             specialist = spec_result.scalar_one()
 
             if specialist.status == SpecialistStatus.active:
-                await message.answer("Вы уже зарегистрированы и ваш бот активен!")
+                text_out = "Вы уже зарегистрированы и ваш бот активен!"
+                await message.answer(text_out)
+                await log_outbound_message(message.bot, tg_user_id, text_out)
             else:
+                text_out = "Вы в процессе регистрации. Нажмите кнопку, чтобы продолжить."
                 await message.answer(
-                    "Вы в процессе регистрации. Нажмите кнопку, чтобы продолжить.",
+                    text_out,
                     reply_markup=types.ReplyKeyboardMarkup(
                         keyboard=[[types.KeyboardButton(text="Стать специалистом")]],
                         resize_keyboard=True
                     )
                 )
+                await log_outbound_message(message.bot, tg_user_id, text_out)
 
 
 @router.message(F.text == "Стать специалистом")
@@ -102,11 +113,15 @@ async def start_flow(message: types.Message, state: FSMContext):
     Переход к вводу публичного имени.
     """
     await state.set_state(OnboardingStates.waiting_for_public_name)
-    await message.answer(
+    text_out = (
         "Шаг 1 из 3. Введите ваше публичное имя.\n"
-        "Так вы будете отображаться клиентам (например: «Психолог Анна» или «Иван Иванов»).",
+        "Так вы будете отображаться клиентам (например: «Психолог Анна» или «Иван Иванов»)."
+    )
+    await message.answer(
+        text_out,
         reply_markup=types.ReplyKeyboardRemove()
     )
+    await log_outbound_message(message.bot, message.from_user.id, text_out)
 
 
 @router.message(OnboardingStates.waiting_for_public_name)
@@ -149,13 +164,15 @@ async def process_public_name(message: types.Message, state: FSMContext):
         await session.commit()
 
     await state.set_state(OnboardingStates.waiting_for_bot_token)
-    await message.answer(
+    text_out = (
         "Отлично! Шаг 2 из 3.\n\n"
         "Теперь создайте своего бота через @BotFather:\n"
         "1. Напишите ему /newbot\n"
         "2. Укажите имя и username бота\n"
         "3. Скопируйте полученный **API Token** и пришлите его сюда."
     )
+    await message.answer(text_out)
+    await log_outbound_message(message.bot, tg_user_id, text_out)
 
 
 @router.message(OnboardingStates.waiting_for_bot_token)
@@ -172,10 +189,12 @@ async def process_bot_token(message: types.Message, state: FSMContext):
         bot_info = await temp_bot.get_me()
     except Exception as e:
         await session.close() if 'session' in locals() else None # cleanup
-        await message.answer(
+        text_out = (
             f"❌ Неверный токен или ошибка API Telegram.\n"
             f"Проверьте токен и попробуйте снова.\nДетали: {e}"
         )
+        await message.answer(text_out)
+        await log_outbound_message(message.bot, tg_user_id, text_out)
         return
     finally:
         await temp_bot.session.close()
@@ -197,11 +216,13 @@ async def process_bot_token(message: types.Message, state: FSMContext):
             allowed_updates=["message", "callback_query"]
         )
     except Exception as e:
-        await message.answer(
+        text_out = (
             f"❌ Не удалось установить Webhook.\n"
             f"Убедитесь, что URL {BASE_URL} доступен из интернета (SSL обязателен).\n"
             f"Ошибка: {e}"
         )
+        await message.answer(text_out)
+        await log_outbound_message(message.bot, tg_user_id, text_out)
         await temp_bot_webhook.session.close()
         return
     finally:
@@ -231,11 +252,11 @@ async def process_bot_token(message: types.Message, state: FSMContext):
         )
         
         # Проверяем нет ли уже бота (UPSERT логика для MVP упрощена: удаляем старый если был или кидаем ошибку)
-        # В MVP предполагаем, что это первый бот. Если user_id бота совпадет с существующим - упадет UniqueConstraint
-        # Лучше проверить:
         check_bot = select(TelegramBot).where(TelegramBot.bot_user_id == bot_info.id)
         if (await session.execute(check_bot)).scalar_one_or_none():
-            await message.answer("Этот бот уже зарегистрирован в системе.")
+            text_out = "Этот бот уже зарегистрирован в системе."
+            await message.answer(text_out)
+            await log_outbound_message(message.bot, tg_user_id, text_out)
             return
 
         session.add(new_bot)
@@ -244,9 +265,11 @@ async def process_bot_token(message: types.Message, state: FSMContext):
     # Сбрасываем состояние
     await state.clear()
 
-    await message.answer(
+    text_out = (
         f"✅ Бот **@{bot_info.username}** успешно подключен!\n\n"
         f"Следующий шаг: **Подключение Google Calendar**.\n"
         f"(Эта часть будет реализована в следующих задачах).\n\n"
         f"Пока что ваш статус регистрации: `onboarding`."
     )
+    await message.answer(text_out)
+    await log_outbound_message(message.bot, tg_user_id, text_out)
