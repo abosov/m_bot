@@ -1,0 +1,5 @@
+mvp.db
+__pycache__/
+services/__pycache__/
+handlers/__pycache__/
+.env
