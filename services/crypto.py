@@ -3,6 +3,7 @@ from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 
 load_dotenv()
+load_dotenv(".env.local")
 
 # Получаем ключ из переменных окружения.
 # Для генерации ключа можно использовать: Fernet.generate_key().decode()
