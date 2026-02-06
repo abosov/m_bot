@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 # 1. Сначала загружаем env, чтобы импорты не падали из-за отсутствия ключей
 load_dotenv()
+load_dotenv(".env.local")
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
