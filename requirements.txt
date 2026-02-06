@@ -2,8 +2,12 @@ aiogram
 pytest
 pytest-asyncio
 google-genai
-# Database & Config
 sqlalchemy
 asyncpg
 python-dotenv
-greenlet
+cryptography
+# New dependencies
+fastapi
+uvicorn
+google-auth-oauthlib
+requests

@@ -3,6 +3,7 @@
 import asyncio
 import os
 import logging
+import uvicorn
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -15,40 +16,55 @@ from database import init_db
 # Импортируем Middleware
 from logging_middleware import StructLoggingMiddleware
 
+# Импортируем веб-сервер
+from web_server import app as fastapi_app
+
 load_dotenv()
 
 # Настройка логирования (базовый уровень stdout)
 logging.basicConfig(level=logging.INFO)
 
-async def main():
-    # Инициализация БД (создание таблиц для MVP)
+async def start_web_server():
+    """Запуск uvicorn в асинхронном режиме"""
+    config = uvicorn.Config(
+        app=fastapi_app, 
+        host="0.0.0.0", 
+        port=8000,
+        log_level="info"
+    )
+    server = uvicorn.Server(config)
+    await server.serve()
+
+async def start_bot():
+    """Запуск Telegram бота"""
+    # Инициализация БД
     await init_db()
     
-    # Master Bot Token
     token = os.getenv("MASTER_BOT_TOKEN")
     if not token:
         raise ValueError("MASTER_BOT_TOKEN not set")
 
-    # Инициализация бота и диспетчера
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
     dp = Dispatcher()
 
-    # --- Подключение Middleware ---
-    # outer_middleware срабатывает ДО фильтров, что позволяет логировать все входящие апдейты
     dp.update.outer_middleware(StructLoggingMiddleware())
-
-    # Регистрируем роутеры
     dp.include_router(master_onboarding_router)
 
-    # Удаляем вебхук для Master Bot и запускаем поллинг (для dev-режима Master Bot)
-    # В проде для Master Bot тоже будет вебхук, но для тестов поллинг удобнее
+    # Удаляем вебхук для Master Bot (для режима polling)
     await bot.delete_webhook(drop_pending_updates=True)
     
-    print("🚀 Master Bot запущен...")
+    print("🚀 Master Bot запущен в режиме Polling...")
     await dp.start_polling(bot)
+
+async def main():
+    # Запускаем параллельно и бота, и веб-сервер
+    await asyncio.gather(
+        start_bot(),
+        start_web_server()
+    )
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        print("Bot stopped")
+        print("Application stopped")
