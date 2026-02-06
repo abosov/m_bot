@@ -4,10 +4,14 @@ import asyncio
 import os
 import logging
 import uvicorn
+from dotenv import load_dotenv
+
+# 1. Сначала загружаем env, чтобы импорты не падали из-за отсутствия ключей
+load_dotenv()
+
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from dotenv import load_dotenv
 
 # Импортируем роутер онбординга
 from handlers.master_onboarding import router as master_onboarding_router
@@ -19,10 +23,9 @@ from logging_middleware import StructLoggingMiddleware
 # Импортируем веб-сервер
 from web_server import app as fastapi_app
 
-load_dotenv()
-
-# Настройка логирования (базовый уровень stdout)
+# Настройка логирования
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 async def start_web_server():
     """Запуск uvicorn в асинхронном режиме"""
@@ -33,7 +36,11 @@ async def start_web_server():
         log_level="info"
     )
     server = uvicorn.Server(config)
-    await server.serve()
+    logger.info("🌍 Web server starting on port 8000...")
+    try:
+        await server.serve()
+    except asyncio.CancelledError:
+        logger.info("🌍 Web server stopping...")
 
 async def start_bot():
     """Запуск Telegram бота"""
@@ -47,24 +54,49 @@ async def start_bot():
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
     dp = Dispatcher()
 
+    # Подключаем Middleware и Роутер
     dp.update.outer_middleware(StructLoggingMiddleware())
     dp.include_router(master_onboarding_router)
 
-    # Удаляем вебхук для Master Bot (для режима polling)
+    # Удаляем вебхук для Master Bot (для режима polling в dev)
     await bot.delete_webhook(drop_pending_updates=True)
     
-    print("🚀 Master Bot запущен в режиме Polling...")
-    await dp.start_polling(bot)
+    logger.info("🤖 Master Bot starting polling...")
+    try:
+        await dp.start_polling(bot)
+    except asyncio.CancelledError:
+        logger.info("🤖 Bot polling cancelled...")
+    finally:
+        await bot.session.close()
+        logger.info("🤖 Bot session closed.")
 
 async def main():
-    # Запускаем параллельно и бота, и веб-сервер
-    await asyncio.gather(
-        start_bot(),
-        start_web_server()
-    )
+    """Точка входа: запускает бота и веб-сервер параллельно"""
+    
+    # Создаем задачи
+    bot_task = asyncio.create_task(start_bot())
+    server_task = asyncio.create_task(start_web_server())
+    
+    # Ожидаем завершения (или отмены)
+    try:
+        await asyncio.gather(bot_task, server_task)
+    except asyncio.CancelledError:
+        logger.info("Main tasks cancelled, shutting down...")
+    except Exception as e:
+        logger.error(f"Unexpected error in main loop: {e}")
+    finally:
+        # Корректное завершение при ошибке или отмене
+        if not bot_task.done():
+            bot_task.cancel()
+        if not server_task.done():
+            server_task.cancel()
+        
+        # Даем время на cleanup
+        await asyncio.gather(bot_task, server_task, return_exceptions=True)
 
 if __name__ == "__main__":
     try:
+        # Запускаем основной цикл
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        print("Application stopped")
+        logger.info("🛑 Application stopped manually.")
