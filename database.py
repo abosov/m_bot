@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 
 # Загрузка переменных окружения
 load_dotenv()
+load_dotenv(".env.local")
 
 # Получение URL БД
 DATABASE_URL = os.getenv("DB_URL", "sqlite+aiosqlite:///./mvp.db")
