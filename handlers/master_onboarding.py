@@ -17,7 +17,7 @@ from database import (
     SpecialistStatus,
     TelegramBot,
     TelegramBotStatus,
-    SpecialistCalendar, # Placeholder if needed later
+    SpecialistCalendar,
 )
 from services.crypto import encrypt_token
 # Импорт логирования исходящих сообщений
@@ -33,6 +33,13 @@ class OnboardingStates(StatesGroup):
 # --- Constants ---
 BASE_URL = os.getenv("BASE_URL", "https://api.example.com")
 
+def _get_handle(user: types.User) -> str:
+    """Helper to get user handle for logs"""
+    if user.username:
+        return f"@{user.username}"
+    parts = [p for p in [user.first_name, user.last_name] if p]
+    return " ".join(parts) if parts else str(user.id)
+
 
 @router.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -44,6 +51,9 @@ async def cmd_start(message: types.Message, state: FSMContext):
     username = message.from_user.username
     first_name = message.from_user.first_name
     last_name = message.from_user.last_name
+    
+    user_handle = _get_handle(message.from_user)
+    current_state = await state.get_state()
 
     async with async_session_factory() as session:
         # Проверяем, есть ли такой specialist_auth_telegram
@@ -52,6 +62,8 @@ async def cmd_start(message: types.Message, state: FSMContext):
         )
         result = await session.execute(stmt)
         auth_entry = result.scalar_one_or_none()
+        
+        specialist_name_for_log = None # Имя пока неизвестно или берем из профиля если есть
 
         if not auth_entry:
             # Создаем нового специалиста и auth запись
@@ -82,19 +94,38 @@ async def cmd_start(message: types.Message, state: FSMContext):
                     one_time_keyboard=True
                 )
             )
-            await log_outbound_message(message.bot, tg_user_id, text_out)
+            await log_outbound_message(
+                bot=message.bot,
+                tg_user_id=tg_user_id,
+                content=text_out,
+                fsm_state=current_state,
+                user_handle=user_handle
+            )
 
         else:
             # Специалист уже есть, проверяем статус
-            # Загружаем специалиста чтобы проверить статус
             spec_stmt = select(Specialist).where(Specialist.specialist_id == auth_entry.specialist_id)
             spec_result = await session.execute(spec_stmt)
             specialist = spec_result.scalar_one()
+            
+            # Попробуем подгрузить имя для логов, если есть профиль
+            prof_stmt = select(SpecialistProfile).where(SpecialistProfile.specialist_id == auth_entry.specialist_id)
+            prof_res = await session.execute(prof_stmt)
+            prof = prof_res.scalar_one_or_none()
+            if prof:
+                specialist_name_for_log = prof.public_name
 
             if specialist.status == SpecialistStatus.active:
                 text_out = "Вы уже зарегистрированы и ваш бот активен!"
                 await message.answer(text_out)
-                await log_outbound_message(message.bot, tg_user_id, text_out)
+                await log_outbound_message(
+                    bot=message.bot,
+                    tg_user_id=tg_user_id,
+                    content=text_out,
+                    fsm_state=current_state,
+                    user_handle=user_handle,
+                    specialist_name=specialist_name_for_log
+                )
             else:
                 text_out = "Вы в процессе регистрации. Нажмите кнопку, чтобы продолжить."
                 await message.answer(
@@ -104,7 +135,14 @@ async def cmd_start(message: types.Message, state: FSMContext):
                         resize_keyboard=True
                     )
                 )
-                await log_outbound_message(message.bot, tg_user_id, text_out)
+                await log_outbound_message(
+                    bot=message.bot,
+                    tg_user_id=tg_user_id,
+                    content=text_out,
+                    fsm_state=current_state,
+                    user_handle=user_handle,
+                    specialist_name=specialist_name_for_log
+                )
 
 
 @router.message(F.text == "Стать специалистом")
@@ -113,6 +151,11 @@ async def start_flow(message: types.Message, state: FSMContext):
     Переход к вводу публичного имени.
     """
     await state.set_state(OnboardingStates.waiting_for_public_name)
+    
+    user_handle = _get_handle(message.from_user)
+    # Состояние уже изменилось, получаем новое
+    new_state = await state.get_state()
+    
     text_out = (
         "Шаг 1 из 3. Введите ваше публичное имя.\n"
         "Так вы будете отображаться клиентам (например: «Психолог Анна» или «Иван Иванов»)."
@@ -121,7 +164,13 @@ async def start_flow(message: types.Message, state: FSMContext):
         text_out,
         reply_markup=types.ReplyKeyboardRemove()
     )
-    await log_outbound_message(message.bot, message.from_user.id, text_out)
+    await log_outbound_message(
+        bot=message.bot,
+        tg_user_id=message.from_user.id,
+        content=text_out,
+        fsm_state=new_state,
+        user_handle=user_handle
+    )
 
 
 @router.message(OnboardingStates.waiting_for_public_name)
@@ -131,6 +180,8 @@ async def process_public_name(message: types.Message, state: FSMContext):
     """
     public_name = message.text.strip()
     tg_user_id = message.from_user.id
+    user_handle = _get_handle(message.from_user)
+    current_state = await state.get_state()
 
     async with async_session_factory() as session:
         # Находим специалиста
@@ -138,10 +189,9 @@ async def process_public_name(message: types.Message, state: FSMContext):
             SpecialistAuthTelegram.tg_user_id == tg_user_id
         )
         result = await session.execute(stmt)
-        auth_entry = result.scalar_one() # Он точно есть после /start
+        auth_entry = result.scalar_one()
         
         # Создаем или обновляем профиль
-        # Проверяем, есть ли профиль
         profile_stmt = select(SpecialistProfile).where(
             SpecialistProfile.specialist_id == auth_entry.specialist_id
         )
@@ -154,16 +204,18 @@ async def process_public_name(message: types.Message, state: FSMContext):
                 public_name=public_name,
                 owner_tg_user_id=tg_user_id,
                 owner_tg_username=message.from_user.username,
-                specialist_timezone="UTC", # Дефолт, обновится при подключении календаря
+                specialist_timezone="UTC",
             )
             session.add(profile)
         else:
             profile.public_name = public_name
-            profile.owner_tg_user_id = tg_user_id # Обновляем на всякий случай
+            profile.owner_tg_user_id = tg_user_id
 
         await session.commit()
 
     await state.set_state(OnboardingStates.waiting_for_bot_token)
+    new_state = await state.get_state()
+    
     text_out = (
         "Отлично! Шаг 2 из 3.\n\n"
         "Теперь создайте своего бота через @BotFather:\n"
@@ -172,7 +224,14 @@ async def process_public_name(message: types.Message, state: FSMContext):
         "3. Скопируйте полученный **API Token** и пришлите его сюда."
     )
     await message.answer(text_out)
-    await log_outbound_message(message.bot, tg_user_id, text_out)
+    await log_outbound_message(
+        bot=message.bot,
+        tg_user_id=tg_user_id,
+        content=text_out,
+        fsm_state=new_state,
+        user_handle=user_handle,
+        specialist_name=public_name # Мы только что его узнали
+    )
 
 
 @router.message(OnboardingStates.waiting_for_bot_token)
@@ -182,6 +241,13 @@ async def process_bot_token(message: types.Message, state: FSMContext):
     """
     raw_token = message.text.strip()
     tg_user_id = message.from_user.id
+    user_handle = _get_handle(message.from_user)
+    current_state = await state.get_state()
+    
+    # Имя можно было бы достать из БД, но для простоты здесь можем передать None,
+    # так как Middleware попытается найти по specialist_id (который еще не привязан к этому temp_bot)
+    # Но поскольку мы в мастере, то имя мы можем знать только через БД.
+    # Для MVP оставим None или можно сделать доп запрос, но это перегрузит хендлер.
 
     # 1. Валидация токена через Telegram API
     temp_bot = Bot(token=raw_token)
@@ -194,22 +260,25 @@ async def process_bot_token(message: types.Message, state: FSMContext):
             f"Проверьте токен и попробуйте снова.\nДетали: {e}"
         )
         await message.answer(text_out)
-        await log_outbound_message(message.bot, tg_user_id, text_out)
+        await log_outbound_message(
+            bot=message.bot, 
+            tg_user_id=tg_user_id, 
+            content=text_out,
+            fsm_state=current_state,
+            user_handle=user_handle
+        )
         return
     finally:
         await temp_bot.session.close()
 
     # 2. Генерация секретов и URL
-    webhook_secret = secrets.token_urlsafe(32) # Секрет для URL
-    # Формируем URL согласно telegram.md: /tg/webhook/{bot_id}/{secret}
+    webhook_secret = secrets.token_urlsafe(32)
     webhook_path = f"/tg/webhook/{bot_info.id}/{webhook_secret}"
     webhook_url = f"{BASE_URL}{webhook_path}"
 
     # 3. Установка вебхука
-    # Мы используем тот же temp_bot для установки вебхука
     temp_bot_webhook = Bot(token=raw_token)
     try:
-        # drop_pending_updates=True хорошая практика при новой привязке
         await temp_bot_webhook.set_webhook(
             url=webhook_url,
             drop_pending_updates=True,
@@ -222,7 +291,13 @@ async def process_bot_token(message: types.Message, state: FSMContext):
             f"Ошибка: {e}"
         )
         await message.answer(text_out)
-        await log_outbound_message(message.bot, tg_user_id, text_out)
+        await log_outbound_message(
+            bot=message.bot,
+            tg_user_id=tg_user_id,
+            content=text_out,
+            fsm_state=current_state,
+            user_handle=user_handle
+        )
         await temp_bot_webhook.session.close()
         return
     finally:
@@ -251,12 +326,17 @@ async def process_bot_token(message: types.Message, state: FSMContext):
             status=TelegramBotStatus.active
         )
         
-        # Проверяем нет ли уже бота (UPSERT логика для MVP упрощена: удаляем старый если был или кидаем ошибку)
         check_bot = select(TelegramBot).where(TelegramBot.bot_user_id == bot_info.id)
         if (await session.execute(check_bot)).scalar_one_or_none():
             text_out = "Этот бот уже зарегистрирован в системе."
             await message.answer(text_out)
-            await log_outbound_message(message.bot, tg_user_id, text_out)
+            await log_outbound_message(
+                bot=message.bot,
+                tg_user_id=tg_user_id,
+                content=text_out,
+                fsm_state=current_state,
+                user_handle=user_handle
+            )
             return
 
         session.add(new_bot)
@@ -264,6 +344,9 @@ async def process_bot_token(message: types.Message, state: FSMContext):
 
     # Сбрасываем состояние
     await state.clear()
+    
+    # New state is None
+    new_state = None
 
     text_out = (
         f"✅ Бот **@{bot_info.username}** успешно подключен!\n\n"
@@ -272,4 +355,10 @@ async def process_bot_token(message: types.Message, state: FSMContext):
         f"Пока что ваш статус регистрации: `onboarding`."
     )
     await message.answer(text_out)
-    await log_outbound_message(message.bot, tg_user_id, text_out)
+    await log_outbound_message(
+        bot=message.bot,
+        tg_user_id=tg_user_id,
+        content=text_out,
+        fsm_state=new_state,
+        user_handle=user_handle
+    )

@@ -245,16 +245,25 @@ class MessageLog(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    
     specialist_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=True)
     bot_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    bot_username: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    specialist_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
     tg_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_handle: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
     direction: Mapped[LogDirection] = mapped_column(SAEnum(LogDirection), nullable=False)
     message_type: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    fsm_state: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    handler_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
     is_error: Mapped[bool] = mapped_column(Boolean, default=False)
     error_details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     processing_time: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    handler_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
 # --- Dependency Helper ---
