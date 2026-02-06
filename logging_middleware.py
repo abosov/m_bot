@@ -59,6 +59,7 @@ class StructLoggingMiddleware(BaseMiddleware):
     ) -> Any:
         start_time = time.time()
         bot: Bot = data.get("bot")
+        inbound_log_id: Optional[uuid.UUID] = None
         
         # Определяем основные параметры для лога
         bot_id = bot.id if bot else 0
@@ -137,6 +138,32 @@ class StructLoggingMiddleware(BaseMiddleware):
         except Exception:
             pass
 
+        # --- Предварительная запись входящего лога ---
+        try:
+            if tg_user_id:
+                async with async_session_factory() as session:
+                    log_entry = MessageLog(
+                        specialist_id=specialist_id,
+                        specialist_name=specialist_name,
+                        bot_id=bot_id,
+                        bot_username=bot_username,
+                        tg_user_id=tg_user_id,
+                        user_handle=user_handle,
+                        direction=LogDirection.IN,
+                        message_type=message_type,
+                        content=content,
+                        fsm_state=fsm_state,
+                        handler_name=handler_name,
+                        is_error=False,
+                        processing_time=None
+                    )
+                    session.add(log_entry)
+                    await session.flush()
+                    inbound_log_id = log_entry.id
+                    await session.commit()
+        except Exception as log_exc:
+            print(f"FAILED TO WRITE INBOUND LOG: {log_exc}")
+
         # --- Выполнение хендлера и перехват ошибок ---
         is_error = False
         error_details = None
@@ -149,29 +176,17 @@ class StructLoggingMiddleware(BaseMiddleware):
             error_details = traceback.format_exc()
             raise e
         finally:
-            # --- Запись лога ---
+            # --- Обновление лога ---
             processing_time = time.time() - start_time
             
             try:
-                if tg_user_id:
+                if inbound_log_id:
                     async with async_session_factory() as session:
-                        log_entry = MessageLog(
-                            specialist_id=specialist_id,
-                            specialist_name=specialist_name,
-                            bot_id=bot_id,
-                            bot_username=bot_username,
-                            tg_user_id=tg_user_id,
-                            user_handle=user_handle,
-                            direction=LogDirection.IN,
-                            message_type=message_type,
-                            content=content,
-                            fsm_state=fsm_state,
-                            handler_name=handler_name,
-                            is_error=is_error,
-                            error_details=error_details,
-                            processing_time=processing_time
-                        )
-                        session.add(log_entry)
+                        log_entry = await session.get(MessageLog, inbound_log_id)
+                        if log_entry:
+                            log_entry.is_error = is_error
+                            log_entry.error_details = error_details
+                            log_entry.processing_time = processing_time
                         await session.commit()
             except Exception as log_exc:
                 print(f"FAILED TO WRITE LOG: {log_exc}")
