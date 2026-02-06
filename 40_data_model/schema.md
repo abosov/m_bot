@@ -261,7 +261,40 @@ IDX:
 
 ---
 
-## 12) Минимальные бизнес-ограничения (MVP)
+## 12) message_logs (logging v2)
+
+### message_logs
+Техническое логирование входящих/исходящих сообщений Telegram.
+
+- `id` UUID (PK)
+- `created_at` timestamp NOT NULL
+- `specialist_id` UUID NULL (FK → specialist.specialist_id)
+- `bot_id` bigint NOT NULL
+- `bot_username` text NULL
+- `specialist_name` text NULL
+- `tg_user_id` bigint NOT NULL
+- `user_handle` text NULL
+- `direction` enum `message_logs.direction` NOT NULL
+- `message_type` text NOT NULL
+- `content` text NULL
+- `fsm_state` text NULL
+- `handler_name` text NULL
+- `is_error` boolean NOT NULL DEFAULT false
+- `error_details` text NULL
+- `processing_time` float NULL
+
+IDX:
+- `IDX_message_logs_bot` (`bot_id`)
+- `IDX_message_logs_tg_user` (`tg_user_id`)
+- `IDX_message_logs_created_at` (`created_at`)
+
+Примечания:
+- Логи не содержат секретов (token/refresh token).
+- Поле `direction` принимает значения `IN`/`OUT`.
+
+---
+
+## 13) Минимальные бизнес-ограничения (MVP)
 - `lead_time_hours` = 2 (конфиг приложения)
 - `slot_step_min` = 30 (конфиг приложения)
 - `session_duration_min` на уровне specialist_profile (60/90/120)

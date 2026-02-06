@@ -15,7 +15,8 @@
 - `personal bots` — отдельный Telegram-бот для каждого specialist
 
 Все боты обслуживаются одним backend-сервисом.
-Polling не используется.
+Polling используется только для master_bot в текущей реализации;
+personal bots планируются на webhook-схеме.
 
 ---
 
@@ -35,6 +36,9 @@ Webhook URL для personal bot:
 2) генерирует `secret`
 3) вызывает `setWebhook`:
    - url = `https://{BASE_URL}/tg/webhook/{bot_id}/{secret}`
+
+Примечание:
+- master_bot в текущем MVP работает в режиме polling и не использует webhook.
 
 ### 2.3 Проверка webhook запроса
 При входящем запросе backend:

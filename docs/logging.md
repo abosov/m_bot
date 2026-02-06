@@ -7,12 +7,14 @@
 
 | Группа | Поле | Тип | Описание |
 | :--- | :--- | :--- | :--- |
+| **IDs** | `id` | UUID | Идентификатор записи лога. |
 | **Time** | `created_at` | DateTime | Время события (UTC). |
 | **Actors** | `direction` | Enum | `IN` или `OUT`. |
+| | `bot_id` | BigInt | ID бота Telegram (`getMe.id`). |
 | | `bot_username` | String | Username бота специалиста. |
 | | `specialist_name`| String | Публичное имя специалиста. |
 | | `user_handle` | String | Никнейм (@username) или имя клиента. |
-| **Content**| `message_type` | String | `text`, `photo`, `callback` и т.д.. |
+| **Content**| `message_type` | String | `message`, `callback_query`, `text` и т.д. |
 | | `content` | Text | Тело сообщения. |
 | **Context**| `fsm_state` | String | Текущий шаг пользователя в боте (FSM State). |
 | | `handler_name` | String | Какая функция обработала запрос. |
@@ -21,3 +23,6 @@
 | **Debug** | `is_error` | Boolean | Была ли ошибка. |
 | | `error_details` | Text | Traceback ошибки. |
 | | `processing_time`| Float | Время ответа в секундах. |
+
+Примечание:
+- Логи хранятся в БД и используются для отладки FSM и бизнес-логики.

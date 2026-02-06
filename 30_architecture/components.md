@@ -52,6 +52,11 @@
 - распарсить update (message/callback_query)
 - передать update в handler-слой
 
+Текущее состояние реализации:
+- webhook router ещё не реализован в коде;
+- master_bot сейчас запускается в режиме polling;
+- логирование входящих/исходящих сообщений уже реализовано через middleware (см. `docs/logging.md`).
+
 Вход:
 - Telegram update JSON
 
