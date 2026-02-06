@@ -5,6 +5,7 @@ from google_auth_oauthlib.flow import Flow
 from dotenv import load_dotenv
 
 load_dotenv()
+load_dotenv(".env.local")
 
 # Конфигурация клиента Google из переменных окружения
 # В продакшене лучше использовать файл client_secrets.json, но для MVP соберем словарь вручную
