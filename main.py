@@ -3,6 +3,7 @@
 import asyncio
 import os
 import logging
+import signal
 import uvicorn
 from dotenv import load_dotenv
 
@@ -42,6 +43,9 @@ async def start_web_server():
         await server.serve()
     except asyncio.CancelledError:
         logger.info("🌍 Web server stopping...")
+        server.should_exit = True
+        await server.shutdown()
+        raise
 
 async def start_bot():
     """Запуск Telegram бота"""
@@ -64,7 +68,7 @@ async def start_bot():
     
     logger.info("🤖 Master Bot starting polling...")
     try:
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, handle_signals=False)
     except asyncio.CancelledError:
         logger.info("🤖 Bot polling cancelled...")
     finally:
@@ -73,14 +77,35 @@ async def start_bot():
 
 async def main():
     """Точка входа: запускает бота и веб-сервер параллельно"""
-    
+    stop_event = asyncio.Event()
+
+    def request_shutdown():
+        if not stop_event.is_set():
+            logger.info("🛑 Shutdown signal received, stopping...")
+            stop_event.set()
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, request_shutdown)
+        except NotImplementedError:
+            signal.signal(sig, lambda *_: request_shutdown())
+
     # Создаем задачи
     bot_task = asyncio.create_task(start_bot())
     server_task = asyncio.create_task(start_web_server())
+    shutdown_task = asyncio.create_task(stop_event.wait())
     
     # Ожидаем завершения (или отмены)
     try:
-        await asyncio.gather(bot_task, server_task)
+        done, _pending = await asyncio.wait(
+            {bot_task, server_task, shutdown_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if shutdown_task not in done:
+            for task in done:
+                if task.exception():
+                    raise task.exception()
     except asyncio.CancelledError:
         logger.info("Main tasks cancelled, shutting down...")
     except Exception as e:
@@ -91,9 +116,11 @@ async def main():
             bot_task.cancel()
         if not server_task.done():
             server_task.cancel()
+        if not shutdown_task.done():
+            shutdown_task.cancel()
         
         # Даем время на cleanup
-        await asyncio.gather(bot_task, server_task, return_exceptions=True)
+        await asyncio.gather(bot_task, server_task, shutdown_task, return_exceptions=True)
 
 if __name__ == "__main__":
     try:
