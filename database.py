@@ -7,10 +7,10 @@ from typing import Optional, List
 from dotenv import load_dotenv
 from sqlalchemy import (
     BigInteger, Boolean, String, ForeignKey, DateTime, Time, 
-    Integer, Text, Enum as SAEnum, func, Float
+    Integer, Text, Enum as SAEnum, func, Float, CheckConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, validates
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 # Загрузка переменных окружения
@@ -27,6 +27,14 @@ async_session_factory = async_sessionmaker(engine, expire_on_commit=False, class
 # Базовый класс для моделей
 class Base(DeclarativeBase):
     pass
+
+# --- Validation helpers ---
+def _validate_int_range(value: int, min_value: int, max_value: int, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be an integer")
+    if value < min_value or value > max_value:
+        raise ValueError(f"{field_name} must be between {min_value} and {max_value}")
+    return value
 
 # --- ENUMS ---
 
@@ -103,6 +111,17 @@ class SpecialistAuthTelegram(Base):
 
 class SpecialistProfile(Base):
     __tablename__ = "specialist_profile"
+    # TODO: Ensure booking/availability logic uses session_duration_min + session_buffer_min (buffer is not a calendar event).
+    __table_args__ = (
+        CheckConstraint(
+            "session_duration_min >= 15 AND session_duration_min <= 480",
+            name="ck_specialist_profile_session_duration_min",
+        ),
+        CheckConstraint(
+            "session_buffer_min >= 0 AND session_buffer_min <= 120",
+            name="ck_specialist_profile_session_buffer_min",
+        ),
+    )
 
     specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), primary_key=True)
     public_name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -110,11 +129,20 @@ class SpecialistProfile(Base):
     owner_tg_username: Mapped[Optional[str]] = mapped_column(String)
     specialist_timezone: Mapped[str] = mapped_column(String, nullable=False)
     session_duration_min: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    session_buffer_min: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cancel_window_hours: Mapped[int] = mapped_column(Integer, default=12, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     specialist: Mapped["Specialist"] = relationship(back_populates="profile")
+
+    @validates("session_duration_min")
+    def validate_session_duration_min(self, key: str, value: int) -> int:
+        return _validate_int_range(value, 15, 480, key)
+
+    @validates("session_buffer_min")
+    def validate_session_buffer_min(self, key: str, value: int) -> int:
+        return _validate_int_range(value, 0, 120, key)
 
 
 class TelegramBot(Base):
@@ -275,6 +303,10 @@ async def get_db_session() -> AsyncSession:
         yield session
 
 async def init_db():
-    """Helper to create tables (for MVP startup)"""
+    """Helper to create tables (for MVP startup).
+
+    TODO: add a migration for existing databases to include specialist_profile.session_buffer_min
+    and constraints for session_duration_min/session_buffer_min.
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
