@@ -22,7 +22,7 @@ jobs:
           fi
 
           base="${PUBLIC_BASE_URL%/}"
-          url="${base}/readyz"
+          url="${base}/"
 
           echo "Uptime check URL: $url"
 
