@@ -33,6 +33,15 @@ Backend должен иметь возможность:
 - в MVP пользователь переподключает Google через тот же flow
 - backend сообщает рекомендацию и даёт ссылку на OAuth
 
+### 1.4 Redirect URI (dev/prod)
+В Google Cloud Console должны быть добавлены authorized redirect URIs:
+- production: `https://api.zumbot.ru/google/oauth/callback`
+- dev (если нужно): локальный/стейджинг URL, используемый в разработке
+
+Рекомендация:
+- завести отдельный OAuth Client для production,
+- использовать отдельные `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` для продовой среды.
+
 ---
 
 ## 2. Выбор или создание календаря

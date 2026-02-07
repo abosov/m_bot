@@ -37,6 +37,9 @@ Webhook URL для personal bot:
 3) вызывает `setWebhook`:
    - url = `https://{BASE_URL}/tg/webhook/{bot_id}/{secret}`
 
+Для production:
+- `BASE_URL = https://api.zumbot.ru` (без слеша в конце)
+
 Примечание:
 - master_bot в текущем MVP работает в режиме polling и не использует webhook.
 

@@ -17,8 +17,9 @@
 - [ ] GitHub Actions cron включён (uptime workflow)
 
 ### Домен
-- [ ] Настроен публичный домен (например `api.example.com`)
-- [ ] BASE_URL указывает на этот домен
+- [ ] Настроен публичный домен backend `https://api.zumbot.ru`
+- [ ] BASE_URL указывает на `https://api.zumbot.ru`
+- [ ] PUBLIC_SITE_URL указывает на `https://zumbot.ru`
 
 ---
 
@@ -37,7 +38,7 @@
   - Client Secret
 
 ### Redirect URI
-- [ ] В Google указана `https://{BASE_URL}/google/oauth/callback`
+- [ ] В Google указана `https://api.zumbot.ru/google/oauth/callback`
 
 ---
 
@@ -68,6 +69,7 @@
 - [ ] GOOGLE_CLIENT_SECRET
 - [ ] GOOGLE_REDIRECT_URI
 - [ ] BASE_URL
+- [ ] PUBLIC_SITE_URL
 - [ ] TIMEZONE_TTL_HOURS
 - [ ] GOOGLE_RETRY_COUNT
 - [ ] GOOGLE_REQUEST_TIMEOUT_SEC

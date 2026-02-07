@@ -18,10 +18,11 @@
 ### Google OAuth
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI` — `https://.../google/oauth/callback`
+- `GOOGLE_REDIRECT_URI` — `https://api.zumbot.ru/google/oauth/callback`
 
 ### Backend
-- `BASE_URL` — публичный домен backend
+- `BASE_URL` — публичный домен backend (`https://api.zumbot.ru`)
+- `PUBLIC_SITE_URL` — публичный сайт/лендинг (`https://zumbot.ru`)
 - `DB_URL` — строка подключения к БД
 - `ENCRYPTION_KEY` — ключ для шифрования чувствительных данных
 
@@ -29,6 +30,10 @@
 - `TIMEZONE_TTL_HOURS` (например 6)
 - `GOOGLE_RETRY_COUNT` (например 3)
 - `GOOGLE_REQUEST_TIMEOUT_SEC` (например 5)
+
+### Локальная разработка
+- локальные значения держим в `.env.local` (не коммитится)
+- в репозитории хранится `.env.example` с шаблоном без секретов
 
 ---
 

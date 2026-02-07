@@ -102,6 +102,11 @@
   - множество `specialist`-ботов
 - Google Calendar API
 
+## 5.1 Домены и публичные URL (production)
+- Backend API: `https://api.zumbot.ru` (BASE_URL)
+- Сайт/лендинг: `https://zumbot.ru` (PUBLIC_SITE_URL)
+- Google OAuth callback: `https://api.zumbot.ru/google/oauth/callback`
+
 ## 6. Что сознательно вне MVP / отложено
 - Перенос записи (reschedule)
 - Уведомления/напоминания (будут спроектированы отдельно)

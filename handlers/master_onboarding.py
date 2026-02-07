@@ -40,6 +40,7 @@ from services.crypto import encrypt_token, decrypt_token
 # но здесь импортируем функцию логирования сообщений.
 from logging_middleware import log_outbound_message
 from services.google_oauth import get_auth_url
+from config import BACKEND_BASE_URL
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ class OnboardingStates(StatesGroup):
     waiting_for_bot_token = State()
 
 # --- Constants ---
-BASE_URL = os.getenv("BASE_URL", "https://api.example.com")
+BASE_URL = BACKEND_BASE_URL
 
 def _get_handle(user: types.User) -> str:
     """Helper to get user handle for logs"""

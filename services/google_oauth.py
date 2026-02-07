@@ -4,6 +4,8 @@ from typing import Tuple, Dict, Any
 from google_auth_oauthlib.flow import Flow
 from dotenv import load_dotenv
 
+from config import GOOGLE_REDIRECT_URI
+
 load_dotenv()
 load_dotenv(".env.local")
 
@@ -15,12 +17,12 @@ GOOGLE_CLIENT_CONFIG = {
         "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
         "token_uri": "https://oauth2.googleapis.com/token",
-        "redirect_uris": [os.getenv("GOOGLE_REDIRECT_URI")],
+        "redirect_uris": [GOOGLE_REDIRECT_URI],
     }
 }
 
 SCOPES = ['https://www.googleapis.com/auth/calendar']
-REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+REDIRECT_URI = GOOGLE_REDIRECT_URI
 
 def get_auth_url(specialist_id: str) -> str:
     """

@@ -3,5 +3,6 @@ __pycache__/
 services/__pycache__/
 handlers/__pycache__/
 .env
+.env.local
 *.pyc
 codex.patch

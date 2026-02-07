@@ -5,6 +5,14 @@
 
 ---
 
+## 0) Базовый URL (production)
+
+В production используем:
+- `BASE_URL = https://api.zumbot.ru`
+- публичный сайт/лендинг: `https://zumbot.ru`
+
+---
+
 ## 1) Telegram Webhook (multi-bot)
 
 ### POST /tg/webhook/{bot_id}/{secret}
@@ -100,6 +108,9 @@ Telegram ожидает быстрый ответ, но корректный о�
 
 **Назначение**
 Обработка callback от Google после авторизации.
+
+Production callback URL:
+`https://api.zumbot.ru/google/oauth/callback`
 
 **Query params**
 - `code`

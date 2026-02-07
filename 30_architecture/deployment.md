@@ -17,8 +17,10 @@
 ## 2. Домен и TLS
 Требования:
 - backend должен быть доступен по HTTPS (TLS обязателен для Telegram webhook и Google OAuth callback).
-- требуется публичный домен:
-  - например `api.example.com`
+- требуется публичный домен backend:
+  - `https://api.zumbot.ru`
+- публичный сайт/лендинг (если используется):
+  - `https://zumbot.ru`
 
 ---
 
@@ -63,8 +65,9 @@
 - Google OAuth:
   - `GOOGLE_CLIENT_ID`
   - `GOOGLE_CLIENT_SECRET`
-  - `GOOGLE_REDIRECT_URI` (https://.../google/oauth/callback)
-- `BASE_URL` (публичная база URL для формирования webhook/oAuth ссылок)
+  - `GOOGLE_REDIRECT_URI` (`https://api.zumbot.ru/google/oauth/callback`)
+- `BASE_URL` (публичная база URL backend для формирования webhook/oAuth ссылок) — `https://api.zumbot.ru`
+- `PUBLIC_SITE_URL` (публичный сайт/лендинг) — `https://zumbot.ru`
 - `TIMEZONE_TTL_HOURS` (например 6)
 - `GOOGLE_RETRY_COUNT` (например 3)
 
@@ -120,7 +123,7 @@ MVP-решение для uptime:
 - в Google Cloud Console должны быть:
   - включён Google Calendar API
   - настроен OAuth consent screen
-  - указан redirect URI: `/google/oauth/callback`
+  - указан redirect URI: `https://api.zumbot.ru/google/oauth/callback`
 
 ---
 
