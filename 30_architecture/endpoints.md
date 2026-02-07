@@ -134,7 +134,7 @@ Telegram ожидает быстрый ответ, но корректный о�
 ### GET /healthz
 
 **Назначение**
-Проверка живости backend (liveness).
+Проверка живости backend (liveness): HTTP-сервер запущен и отвечает.
 
 **Response**
 - `200 OK`
@@ -148,17 +148,23 @@ Telegram ожидает быстрый ответ, но корректный о�
 
 **Назначение**
 Проверка готовности backend к работе (readiness).
-В MVP проверяет доступность БД минимальным запросом.
+В MVP проверяет:
+- доступность БД минимальным запросом;
+- «живость» event loop через фоновый heartbeat.
 
 **Response**
-- `200 OK` — БД доступна
-```json
-{"status":"ready","db":"ok"}
-```
-- `503 Service Unavailable` — БД недоступна
-```json
-{"status":"not_ready","db":"fail","error":"<коротко>"}
-```
+- `200 OK` — БД доступна и event loop тикает
+  ```json
+  {"status":"ready","db":"ok","loop":"ok"}
+  ```
+- `503 Service Unavailable` — БД недоступна и/или event loop не тикает
+  ```json
+  {"status":"not_ready","db":"fail","loop":"fail","error":"<коротко>"}
+  ```
+
+Примечание:
+- если проблема только в event loop, поле `db` будет `"ok"`;
+- поле `error` возвращается только при ошибке БД (короткий тип ошибки).
 
 ---
 

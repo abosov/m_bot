@@ -11,8 +11,10 @@
 - [ ] Backend развёрнут на публичном сервере
 - [ ] Сервер доступен по HTTPS
 - [ ] TLS-сертификат валиден (Telegram и Google принимают)
+- [ ] `GET /healthz` возвращает `200 OK`
+- [ ] `GET /readyz` возвращает `200 OK`
 - [ ] Мониторинг проверяет `GET /readyz` (200 при доступной БД)
-- [ ] Включён GitHub Actions uptime workflow
+- [ ] GitHub Actions cron включён (uptime workflow)
 
 ### Домен
 - [ ] Настроен публичный домен (например `api.example.com`)
@@ -78,8 +80,7 @@
 - [ ] Все таблицы из `40_data_model/schema.md` созданы
 - [ ] Все enum соответствуют `40_data_model/enums.md`
 - [ ] Уникальные индексы (idempotency!) присутствуют
-- [ ] Таблица `service_heartbeats` создана
-- [ ] Таблица `bot_health_checks` создана
+- [ ] Таблицы `service_heartbeats` и `bot_health_checks` созданы
 
 ### Данные
 - [ ] Проверено создание specialist
@@ -94,7 +95,7 @@
 ## 6. Онбординг specialist (US-01)
 
 - [ ] /start в master_bot работает
-- [ ] /status в master_bot проверяет доступность personal bot (getMe)
+- [ ] /status в master_bot работает и проверяет доступность personal bot (getMe)
 - [ ] specialist создаётся в БД
 - [ ] bot_token принимается и валидируется
 - [ ] webhook personal bot устанавливается
