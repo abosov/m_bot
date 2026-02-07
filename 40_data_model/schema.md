@@ -295,7 +295,22 @@ IDX:
 
 ---
 
-## 13) Минимальные бизнес-ограничения (MVP)
+## 13) service_heartbeats
+
+### service_heartbeats
+История heartbeat-записей, которые создаются при вызове `/readyz`.
+
+- `id` UUID (PK)
+- `service_name` text NOT NULL
+- `ts` timestamp NOT NULL DEFAULT now()
+- `db_ok` boolean NOT NULL
+- `loop_ok` boolean NOT NULL
+- `latency_ms` int NOT NULL
+- `details` text/json NULL
+
+---
+
+## 14) Минимальные бизнес-ограничения (MVP)
 - `lead_time_hours` = 2 (конфиг приложения)
 - `slot_step_min` = 30 (конфиг приложения)
 - `session_duration_min` на уровне specialist_profile (15–480, пресеты 30/45/60/75/90)

@@ -16,7 +16,8 @@ from database import (
     GoogleOAuth, 
     GoogleOAuthStatus, 
     SpecialistAuthTelegram,
-    SpecialistProfile
+    SpecialistProfile,
+    ServiceHeartbeat,
 )
 from services.google_oauth import exchange_code_for_token
 from services.crypto import encrypt_token
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 
 READYZ_DB_TIMEOUT_SEC = 2.0
 READYZ_LOOP_TIMEOUT_SEC = 12.0
+HEARTBEAT_WRITE_INTERVAL_SEC = 60.0
+SERVICE_NAME = os.getenv("SERVICE_NAME", "backend")
+LAST_HEARTBEAT_WRITE_TS = 0.0
+HEARTBEAT_WRITE_LOCK = asyncio.Lock()
 
 # Инициализируем бота для отправки уведомлений (используем тот же токен)
 bot = Bot(
@@ -70,6 +75,13 @@ async def readyz():
         latency_ms,
     )
 
+    await _write_service_heartbeat(
+        db_ok=db_ok,
+        loop_ok=loop_ok,
+        latency_ms=latency_ms,
+        details=error_short or None,
+    )
+
     if db_ok and loop_ok:
         return {"status": "ready", "db": "ok", "loop": "ok"}
 
@@ -80,6 +92,56 @@ async def readyz():
         status_code=503,
         content=response,
     )
+
+
+async def _write_service_heartbeat(
+    db_ok: bool,
+    loop_ok: bool,
+    latency_ms: int,
+    details: str | None,
+) -> None:
+    global LAST_HEARTBEAT_WRITE_TS
+
+    now = time.monotonic()
+    time_since_last = now - LAST_HEARTBEAT_WRITE_TS
+    if time_since_last < HEARTBEAT_WRITE_INTERVAL_SEC:
+        logger.debug(
+            "readyz heartbeat skipped due to throttling time_since_last=%.2fs",
+            time_since_last,
+        )
+        return
+
+    async with HEARTBEAT_WRITE_LOCK:
+        now = time.monotonic()
+        time_since_last = now - LAST_HEARTBEAT_WRITE_TS
+        if time_since_last < HEARTBEAT_WRITE_INTERVAL_SEC:
+            logger.debug(
+                "readyz heartbeat skipped due to throttling time_since_last=%.2fs",
+                time_since_last,
+            )
+            return
+
+        try:
+            async with async_session_factory() as session:
+                session.add(
+                    ServiceHeartbeat(
+                        service_name=SERVICE_NAME,
+                        db_ok=db_ok,
+                        loop_ok=loop_ok,
+                        latency_ms=latency_ms,
+                        details=details,
+                    )
+                )
+                await session.commit()
+            LAST_HEARTBEAT_WRITE_TS = now
+            logger.info(
+                "readyz heartbeat stored db_ok=%s loop_ok=%s latency_ms=%s",
+                db_ok,
+                loop_ok,
+                latency_ms,
+            )
+        except Exception:
+            logger.warning("readyz heartbeat write failed", exc_info=True)
 
 @app.get("/google/oauth/callback", response_class=HTMLResponse)
 async def google_oauth_callback(request: Request):

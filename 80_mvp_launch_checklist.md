@@ -77,6 +77,7 @@
 - [ ] Все таблицы из `40_data_model/schema.md` созданы
 - [ ] Все enum соответствуют `40_data_model/enums.md`
 - [ ] Уникальные индексы (idempotency!) присутствуют
+- [ ] Таблица `service_heartbeats` создана
 
 ### Данные
 - [ ] Проверено создание specialist

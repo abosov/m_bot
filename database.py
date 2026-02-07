@@ -295,6 +295,18 @@ class MessageLog(Base):
     processing_time: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
 
+class ServiceHeartbeat(Base):
+    __tablename__ = "service_heartbeats"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    service_name: Mapped[str] = mapped_column(Text, nullable=False)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    db_ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    loop_ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
 # --- Dependency Helper ---
 
 async def get_db_session() -> AsyncSession:
