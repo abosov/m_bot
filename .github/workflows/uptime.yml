@@ -8,22 +8,31 @@ on:
 jobs:
   uptime:
     runs-on: ubuntu-latest
+
     steps:
       - name: Check /readyz
         env:
           PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${PUBLIC_BASE_URL}" ]; then
+
+          if [ -z "${PUBLIC_BASE_URL:-}" ]; then
             echo "PUBLIC_BASE_URL is not set. Configure repo variable PUBLIC_BASE_URL."
             exit 1
           fi
-          url="https://${PUBLIC_BASE_URL}/readyz"
-          status=$(curl -sS -o /dev/null -w "%{http_code}" -fsS "$url")
+
+          base="${PUBLIC_BASE_URL%/}"
+          url="${base}/readyz"
+
           echo "Uptime check URL: $url"
+
+          status=$(curl -sS -o /dev/null -w "%{http_code}" -f "$url")
+
           echo "Uptime check HTTP status: $status"
+
           if [ "$status" != "200" ]; then
             echo "Unexpected status code: $status"
             exit 1
           fi
+
           echo "Uptime check passed."
