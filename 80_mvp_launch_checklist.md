@@ -78,6 +78,7 @@
 - [ ] Все enum соответствуют `40_data_model/enums.md`
 - [ ] Уникальные индексы (idempotency!) присутствуют
 - [ ] Таблица `service_heartbeats` создана
+- [ ] Таблица `bot_health_checks` создана
 
 ### Данные
 - [ ] Проверено создание specialist

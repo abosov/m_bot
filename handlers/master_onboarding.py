@@ -31,7 +31,9 @@ from database import (
     TelegramBotStatus,
     GoogleOAuthStatus,
     MessageLog, 
-    LogDirection
+    LogDirection,
+    BotHealthCheck,
+    BotHealthCheckStatus,
 )
 from services.crypto import encrypt_token, decrypt_token
 # Используем локальный импорт внутри функций, если возникнут циклические зависимости,
@@ -111,6 +113,41 @@ async def _log_error_to_db(bot: Bot, tg_user_id: int, error_text: str, handler_n
     except Exception as e:
         logger.error(f"Failed to log error to DB: {e}")
 
+async def _log_bot_health_check(
+    specialist_id: uuid.UUID,
+    bot_user_id: int,
+    status: BotHealthCheckStatus,
+    latency_ms: int,
+    error_details: str | None = None,
+) -> None:
+    try:
+        async with async_session_factory() as session:
+            entry = BotHealthCheck(
+                specialist_id=specialist_id,
+                bot_user_id=bot_user_id,
+                status=status,
+                latency_ms=latency_ms,
+                error_details=error_details,
+            )
+            session.add(entry)
+            await session.commit()
+        logger.info(
+            "Bot health check saved: specialist_id=%s bot_id=%s status=%s latency_ms=%s",
+            specialist_id,
+            bot_user_id,
+            status.value,
+            latency_ms,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to save bot health check: specialist_id=%s bot_id=%s status=%s error=%s",
+            specialist_id,
+            bot_user_id,
+            status.value,
+            exc.__class__.__name__,
+            exc_info=True,
+        )
+
 @router.message(Command("status"))
 async def cmd_status(message: types.Message):
     tg_user_id = message.from_user.id
@@ -167,6 +204,17 @@ async def cmd_status(message: types.Message):
         start_time = time.monotonic()
         status, bot_info = await _check_bot_status(decrypted_token, timeout_sec=3.0, retries=1)
         latency_ms = int((time.monotonic() - start_time) * 1000)
+        db_status = {
+            "OK": BotHealthCheckStatus.ok,
+            "UNAUTHORIZED": BotHealthCheckStatus.unauthorized,
+            "TEMP_ERROR": BotHealthCheckStatus.temp_error,
+        }.get(status, BotHealthCheckStatus.temp_error)
+        await _log_bot_health_check(
+            auth_entry.specialist_id,
+            tg_bot.bot_user_id,
+            db_status,
+            latency_ms,
+        )
 
         logger.info(
             "Status check result: specialist_id=%s bot_id=%s status=%s latency_ms=%s",

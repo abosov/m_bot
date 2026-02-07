@@ -41,6 +41,21 @@
 | `latency_ms` | Integer | Время ответа `/readyz` в миллисекундах. |
 | `details` | Text/JSON | Дополнительные детали (например, ошибка БД). |
 
+## Таблица `bot_health_checks`
+
+Хранит результаты проверок `/status` для personal bot каждого специалиста.
+Записи позволяют анализировать периодические ошибки или проблемы с токенами.
+
+| Поле | Тип | Описание |
+| :--- | :--- | :--- |
+| `id` | UUID | Идентификатор записи. |
+| `specialist_id` | UUID | Внутренний ID специалиста. |
+| `bot_user_id` | BigInt | Telegram ID бота (`getMe.id`). |
+| `checked_at` | DateTime | Время проверки (UTC). |
+| `status` | Enum | `ok`, `unauthorized`, `temp_error`. |
+| `latency_ms` | Integer | Время ответа в миллисекундах. |
+| `error_details` | Text | Краткая техническая причина без секретов. |
+
 ## Service heartbeat (loop tick)
 
 Помимо логирования сообщений, сервис пишет технические логи health-checks:

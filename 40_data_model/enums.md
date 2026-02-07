@@ -73,6 +73,15 @@
 
 ---
 
+## 9) bot_health_checks.status
+Результат проверки `/status` для personal bot.
+
+- `ok` — бот доступен
+- `unauthorized` — токен недействителен или бот удалён
+- `temp_error` — временная ошибка сети/Telegram API
+
+---
+
 ## Примечания
 - В MVP избегаем сложных enum для retry/backoff, так как нет воркеров.
 - Дополнительные статусы (rescheduled, syncing, etc.) будут добавлены позже при расширении.

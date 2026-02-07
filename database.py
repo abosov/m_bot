@@ -75,6 +75,11 @@ class LogDirection(str, enum.Enum):
     IN = "IN"
     OUT = "OUT"
 
+class BotHealthCheckStatus(str, enum.Enum):
+    ok = "ok"
+    unauthorized = "unauthorized"
+    temp_error = "temp_error"
+
 # --- MODELS ---
 
 class Specialist(Base):
@@ -293,6 +298,18 @@ class MessageLog(Base):
     is_error: Mapped[bool] = mapped_column(Boolean, default=False)
     error_details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     processing_time: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+
+class BotHealthCheck(Base):
+    __tablename__ = "bot_health_checks"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=False, index=True)
+    bot_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    status: Mapped[BotHealthCheckStatus] = mapped_column(SAEnum(BotHealthCheckStatus), nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    error_details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class ServiceHeartbeat(Base):

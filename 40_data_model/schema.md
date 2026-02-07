@@ -310,7 +310,29 @@ IDX:
 
 ---
 
-## 14) Минимальные бизнес-ограничения (MVP)
+## 14) bot_health_checks
+
+### bot_health_checks
+История проверок `/status` для personal bot каждого специалиста.
+
+- `id` UUID (PK)
+- `specialist_id` UUID (FK → specialist.specialist_id) NOT NULL
+- `bot_user_id` bigint NOT NULL
+- `checked_at` timestamp NOT NULL DEFAULT now()
+- `status` enum `bot_health_checks.status` NOT NULL
+- `latency_ms` int NOT NULL
+- `error_details` text NULL
+
+IDX:
+- `IDX_bot_health_checks_specialist` (`specialist_id`)
+- `IDX_bot_health_checks_bot_user` (`bot_user_id`)
+
+Примечание:
+- `error_details` хранит краткую техническую информацию без токенов.
+
+---
+
+## 15) Минимальные бизнес-ограничения (MVP)
 - `lead_time_hours` = 2 (конфиг приложения)
 - `slot_step_min` = 30 (конфиг приложения)
 - `session_duration_min` на уровне specialist_profile (15–480, пресеты 30/45/60/75/90)
