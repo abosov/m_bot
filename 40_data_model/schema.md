@@ -56,6 +56,7 @@ UQ:
 - `specialist_timezone` text NOT NULL
   (IANA timezone; источник истины = Google calendar timezone)
 - `session_duration_min` int NOT NULL DEFAULT 60
+- `session_buffer_min` int NOT NULL DEFAULT 0
 - `cancel_window_hours` int NOT NULL DEFAULT 12
 - `created_at` timestamp NOT NULL
 - `updated_at` timestamp NOT NULL
@@ -297,7 +298,8 @@ IDX:
 ## 13) Минимальные бизнес-ограничения (MVP)
 - `lead_time_hours` = 2 (конфиг приложения)
 - `slot_step_min` = 30 (конфиг приложения)
-- `session_duration_min` на уровне specialist_profile (60/90/120)
+- `session_duration_min` на уровне specialist_profile (15–480, пресеты 30/45/60/75/90)
+- `session_buffer_min` на уровне specialist_profile (0–120)
 - `cancel_window_hours` по умолчанию 12
 
 ---

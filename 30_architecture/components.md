@@ -105,7 +105,8 @@
 ### 4.1 SpecialistFlowService (US-02)
 Ответственность:
 - изменение weekly availability
-- изменение session_duration
+- изменение длительности сессии (`session_duration_min`)
+- изменение session_buffer_min
 - просмотр записей
 - отмена записи
 - добавление приватной заметки
@@ -146,7 +147,8 @@
 - применение ограничений:
   - lead time (2h)
   - период недели в TZ клиента (границы периода)
-  - длительность консультации
+  - длительность сессии
+  - минимальный технический перерыв между сессиями
   - шаг 30 минут
 - фильтрация кандидатов по занятости из Google
 
@@ -154,6 +156,7 @@
 - `specialist_id`
 - `period_start_utc`, `period_end_utc`
 - `session_duration_min`
+- `session_buffer_min`
 - `slot_step_min=30`
 
 Выход:

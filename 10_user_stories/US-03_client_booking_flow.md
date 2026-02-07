@@ -90,10 +90,12 @@
 4. загружает:
    - weekly availability
    - session_duration
+   - session_buffer_min
 5. генерирует candidate slots:
    - шаг 30 минут
    - в интервалах weekly availability (TZ specialist)
    - учитывает lead_time
+   - следующий доступный старт = `end_of_previous_session + session_buffer_min`
 6. запрашивает занятость Google Calendar
 7. отфильтровывает занятые слоты
 8. возвращает N ближайших слотов
@@ -102,6 +104,8 @@
 - время в TZ клиента
 - если TZ клиента ≠ TZ specialist:
   - рядом отображается время в TZ specialist
+- технический перерыв между сессиями используется только в расчёте слотов
+  и **не создаётся** как отдельное событие в Google Calendar
 - кнопки:
   - список слотов
   - `Следующая неделя`
