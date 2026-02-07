@@ -1,8 +1,11 @@
 import os
 import uuid
+import asyncio
+import logging
+import time
 from datetime import datetime
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select, update
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
@@ -20,12 +23,49 @@ from services.crypto import encrypt_token
 from logging_middleware import log_outbound_message
 
 app = FastAPI()
+logger = logging.getLogger(__name__)
+
+READYZ_DB_TIMEOUT_SEC = 2.0
 
 # Инициализируем бота для отправки уведомлений (используем тот же токен)
 bot = Bot(
     token=os.getenv("MASTER_BOT_TOKEN"), 
     default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN)
 )
+
+
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok", "service": "backend"}
+
+
+@app.get("/readyz")
+async def readyz():
+    start_time = time.perf_counter()
+    logger.info("readyz check called")
+
+    db_ok = False
+    error_short = ""
+    try:
+        async with async_session_factory() as session:
+            await asyncio.wait_for(
+                session.execute(select(1)),
+                timeout=READYZ_DB_TIMEOUT_SEC,
+            )
+        db_ok = True
+    except Exception as exc:
+        error_short = type(exc).__name__
+
+    latency_ms = int((time.perf_counter() - start_time) * 1000)
+    db_status = "ok" if db_ok else "fail"
+    logger.info("readyz check result db=%s latency_ms=%s", db_status, latency_ms)
+
+    if db_ok:
+        return {"status": "ready", "db": "ok"}
+    return JSONResponse(
+        status_code=503,
+        content={"status": "not_ready", "db": "fail", "error": error_short},
+    )
 
 @app.get("/google/oauth/callback", response_class=HTMLResponse)
 async def google_oauth_callback(request: Request):

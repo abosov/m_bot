@@ -129,15 +129,36 @@ Telegram ожидает быстрый ответ, но корректный о�
 
 ---
 
-## 3) (Опционально) Healthcheck
+## 3) Healthcheck / Readiness
 
-### GET /health
+### GET /healthz
 
 **Назначение**
-Проверка живости backend.
+Проверка живости backend (liveness).
 
 **Response**
-- 200 OK + минимальная диагностика
+- `200 OK`
+```json
+{"status":"ok","service":"backend"}
+```
+
+---
+
+### GET /readyz
+
+**Назначение**
+Проверка готовности backend к работе (readiness).
+В MVP проверяет доступность БД минимальным запросом.
+
+**Response**
+- `200 OK` — БД доступна
+```json
+{"status":"ready","db":"ok"}
+```
+- `503 Service Unavailable` — БД недоступна
+```json
+{"status":"not_ready","db":"fail","error":"<коротко>"}
+```
 
 ---
 
