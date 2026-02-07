@@ -21,11 +21,13 @@ from database import (
 from services.google_oauth import exchange_code_for_token
 from services.crypto import encrypt_token
 from logging_middleware import log_outbound_message
+from services import heartbeat
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
 
 READYZ_DB_TIMEOUT_SEC = 2.0
+READYZ_LOOP_TIMEOUT_SEC = 12.0
 
 # Инициализируем бота для отправки уведомлений (используем тот же токен)
 bot = Bot(
@@ -42,7 +44,6 @@ async def healthz():
 @app.get("/readyz")
 async def readyz():
     start_time = time.perf_counter()
-    logger.info("readyz check called")
 
     db_ok = False
     error_short = ""
@@ -56,15 +57,28 @@ async def readyz():
     except Exception as exc:
         error_short = type(exc).__name__
 
+    now = time.monotonic()
+    loop_ok = (now - heartbeat.LAST_TICK_TS) < READYZ_LOOP_TIMEOUT_SEC
+
     latency_ms = int((time.perf_counter() - start_time) * 1000)
     db_status = "ok" if db_ok else "fail"
-    logger.info("readyz check result db=%s latency_ms=%s", db_status, latency_ms)
+    loop_status = "ok" if loop_ok else "fail"
+    logger.info(
+        "readyz check result db_ok=%s loop_ok=%s latency_ms=%s",
+        db_ok,
+        loop_ok,
+        latency_ms,
+    )
 
-    if db_ok:
-        return {"status": "ready", "db": "ok"}
+    if db_ok and loop_ok:
+        return {"status": "ready", "db": "ok", "loop": "ok"}
+
+    response = {"status": "not_ready", "db": db_status, "loop": loop_status}
+    if not db_ok and error_short:
+        response["error"] = error_short
     return JSONResponse(
         status_code=503,
-        content={"status": "not_ready", "db": "fail", "error": error_short},
+        content=response,
     )
 
 @app.get("/google/oauth/callback", response_class=HTMLResponse)

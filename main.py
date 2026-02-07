@@ -24,6 +24,7 @@ from logging_middleware import StructLoggingMiddleware
 
 # Импортируем веб-сервер
 from web_server import app as fastapi_app
+from services.heartbeat import heartbeat_task
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -94,12 +95,13 @@ async def main():
     # Создаем задачи
     bot_task = asyncio.create_task(start_bot())
     server_task = asyncio.create_task(start_web_server())
+    heartbeat = asyncio.create_task(heartbeat_task())
     shutdown_task = asyncio.create_task(stop_event.wait())
     
     # Ожидаем завершения (или отмены)
     try:
         done, _pending = await asyncio.wait(
-            {bot_task, server_task, shutdown_task},
+            {bot_task, server_task, heartbeat, shutdown_task},
             return_when=asyncio.FIRST_COMPLETED,
         )
         if shutdown_task not in done:
@@ -116,11 +118,19 @@ async def main():
             bot_task.cancel()
         if not server_task.done():
             server_task.cancel()
+        if not heartbeat.done():
+            heartbeat.cancel()
         if not shutdown_task.done():
             shutdown_task.cancel()
         
         # Даем время на cleanup
-        await asyncio.gather(bot_task, server_task, shutdown_task, return_exceptions=True)
+        await asyncio.gather(
+            bot_task,
+            server_task,
+            heartbeat,
+            shutdown_task,
+            return_exceptions=True,
+        )
 
 if __name__ == "__main__":
     try:

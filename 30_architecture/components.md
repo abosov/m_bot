@@ -41,6 +41,15 @@
 - сохранить refresh token
 - продолжить онбординг или переподключение календаря
 
+### 2.3 Health/Readiness endpoints
+- `GET /healthz`
+- `GET /readyz`
+
+Назначение:
+- `/healthz` — базовая проверка, что HTTP-сервер отвечает.
+- `/readyz` — проверка готовности сервиса: БД отвечает и event loop тикает.
+  Если loop tick не обновлялся >12 секунд, `/readyz` возвращает 503.
+
 ---
 
 ## 3. Telegram Ingress Layer
