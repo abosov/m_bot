@@ -3,12 +3,21 @@ import secrets
 import os
 import traceback
 import logging
+import asyncio
+import time
 from datetime import datetime
 
 from aiogram import Router, F, types, Bot
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+from aiogram.exceptions import (
+    TelegramAPIError,
+    TelegramNetworkError,
+    TelegramRetryAfter,
+    TelegramServerError,
+    TelegramUnauthorizedError,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -24,7 +33,7 @@ from database import (
     MessageLog, 
     LogDirection
 )
-from services.crypto import encrypt_token
+from services.crypto import encrypt_token, decrypt_token
 # Используем локальный импорт внутри функций, если возникнут циклические зависимости,
 # но здесь импортируем функцию логирования сообщений.
 from logging_middleware import log_outbound_message
@@ -47,6 +56,34 @@ def _get_handle(user: types.User) -> str:
         return f"@{user.username}"
     parts = [p for p in [user.first_name, user.last_name] if p]
     return " ".join(parts) if parts else str(user.id)
+
+async def _check_bot_status(
+    token: str,
+    timeout_sec: float = 3.0,
+    retries: int = 1,
+) -> tuple[str, types.User | None]:
+    last_error = None
+    for attempt in range(retries + 1):
+        bot = Bot(token=token)
+        try:
+            me = await bot.get_me(request_timeout=timeout_sec)
+            return "OK", me
+        except TelegramUnauthorizedError:
+            return "UNAUTHORIZED", None
+        except (TelegramRetryAfter, TelegramNetworkError, TelegramServerError, asyncio.TimeoutError) as exc:
+            last_error = exc
+            if attempt < retries:
+                continue
+            return "TEMP_ERROR", None
+        except TelegramAPIError as exc:
+            last_error = exc
+            if attempt < retries:
+                continue
+            return "TEMP_ERROR", None
+        finally:
+            await bot.session.close()
+
+    raise RuntimeError(f"Unhandled status check error: {last_error}")
 
 async def _log_error_to_db(bot: Bot, tg_user_id: int, error_text: str, handler_name: str):
     """
@@ -73,6 +110,92 @@ async def _log_error_to_db(bot: Bot, tg_user_id: int, error_text: str, handler_n
             await session.commit()
     except Exception as e:
         logger.error(f"Failed to log error to DB: {e}")
+
+@router.message(Command("status"))
+async def cmd_status(message: types.Message):
+    tg_user_id = message.from_user.id
+    user_handle = _get_handle(message.from_user)
+
+    try:
+        async with async_session_factory() as session:
+            auth_stmt = select(SpecialistAuthTelegram).where(
+                SpecialistAuthTelegram.tg_user_id == tg_user_id
+            )
+            auth_res = await session.execute(auth_stmt)
+            auth_entry = auth_res.scalar_one_or_none()
+
+            if not auth_entry:
+                text_out = "⚠️ Специалист не найден. Нажмите /start для регистрации."
+                await message.answer(text_out)
+                await log_outbound_message(
+                    message.bot,
+                    tg_user_id,
+                    text_out,
+                    user_handle=user_handle,
+                )
+                return
+
+            bot_stmt = (
+                select(TelegramBot)
+                .where(
+                    TelegramBot.specialist_id == auth_entry.specialist_id,
+                    TelegramBot.status == TelegramBotStatus.active,
+                )
+                .order_by(TelegramBot.created_at.desc())
+            )
+            bot_res = await session.execute(bot_stmt)
+            tg_bot = bot_res.scalars().first()
+
+        if not tg_bot:
+            text_out = "❌ Бот не подключен. Обновите токен через /start."
+            await message.answer(text_out)
+            await log_outbound_message(
+                message.bot,
+                tg_user_id,
+                text_out,
+                user_handle=user_handle,
+            )
+            return
+
+        logger.info(
+            "Status check requested: specialist_id=%s bot_id=%s",
+            auth_entry.specialist_id,
+            tg_bot.bot_user_id,
+        )
+
+        decrypted_token = decrypt_token(tg_bot.bot_token_encrypted)
+        start_time = time.monotonic()
+        status, bot_info = await _check_bot_status(decrypted_token, timeout_sec=3.0, retries=1)
+        latency_ms = int((time.monotonic() - start_time) * 1000)
+
+        logger.info(
+            "Status check result: specialist_id=%s bot_id=%s status=%s latency_ms=%s",
+            auth_entry.specialist_id,
+            tg_bot.bot_user_id,
+            status,
+            latency_ms,
+        )
+
+        if status == "OK" and bot_info:
+            text_out = f"✅ Бот доступен: @{bot_info.username} (id={bot_info.id})"
+        elif status == "UNAUTHORIZED":
+            text_out = "❌ Токен бота недействителен или бот удалён. Обновите токен через /start"
+        else:
+            text_out = "⚠️ Временно не удалось проверить бота. Повторите позже."
+
+        await message.answer(text_out)
+        await log_outbound_message(
+            message.bot,
+            tg_user_id,
+            text_out,
+            user_handle=user_handle,
+        )
+
+    except Exception:
+        error_trace = traceback.format_exc()
+        logger.error(f"Critical error in cmd_status: {error_trace}")
+        await _log_error_to_db(message.bot, tg_user_id, error_trace, "cmd_status")
+        await message.answer("⚠️ Произошла внутренняя ошибка при проверке бота.")
 
 @router.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):

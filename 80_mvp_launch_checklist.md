@@ -92,6 +92,7 @@
 ## 6. Онбординг specialist (US-01)
 
 - [ ] /start в master_bot работает
+- [ ] /status в master_bot проверяет доступность personal bot (getMe)
 - [ ] specialist создаётся в БД
 - [ ] bot_token принимается и валидируется
 - [ ] webhook personal bot устанавливается
