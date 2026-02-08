@@ -93,10 +93,17 @@ GOOGLE_REDIRECT_URI = _require_in_prod(
 )
 
 BASE_URL = _require_in_prod("BASE_URL", os.getenv("BASE_URL", "https://api.zumbot.ru"))
+BACKEND_BASE_URL = BASE_URL
 PUBLIC_SITE_URL = _require_in_prod(
     "PUBLIC_SITE_URL",
     os.getenv("PUBLIC_SITE_URL", "https://zumbot.ru"),
 )
+
+WEB_HOST = os.getenv("WEB_HOST")
+if not WEB_HOST:
+    WEB_HOST = "0.0.0.0" if APP_ENV == "local" else "127.0.0.1"
+
+WEB_PORT = int(os.getenv("WEB_PORT", "8000"))
 
 DATABASE_URL = os.getenv("DB_URL")
 if not DATABASE_URL and APP_ENV != "prod":

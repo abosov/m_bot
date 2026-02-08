@@ -28,14 +28,18 @@ from services.heartbeat import heartbeat_task
 
 async def start_web_server():
     """Запуск uvicorn в асинхронном режиме"""
-    config = uvicorn.Config(
-        app=fastapi_app, 
-        host="0.0.0.0", 
-        port=8000,
-        log_level="info"
+    server_config = uvicorn.Config(
+        app=fastapi_app,
+        host=config.WEB_HOST,
+        port=config.WEB_PORT,
+        log_level="info",
     )
-    server = uvicorn.Server(config)
-    logger.info("🌍 Web server starting on port 8000...")
+    server = uvicorn.Server(server_config)
+    logger.info(
+        "🌍 Web server starting on %s:%s...",
+        config.WEB_HOST,
+        config.WEB_PORT,
+    )
     try:
         await server.serve()
     except asyncio.CancelledError:
@@ -75,6 +79,13 @@ async def start_bot():
 async def main():
     """Точка входа: запускает бота и веб-сервер параллельно"""
     stop_event = asyncio.Event()
+    logger.info(
+        "🚀 Startup config APP_ENV=%s ENABLE_READYZ=%s WEB_HOST=%s WEB_PORT=%s",
+        config.APP_ENV,
+        config.ENABLE_READYZ,
+        config.WEB_HOST,
+        config.WEB_PORT,
+    )
 
     def request_shutdown():
         if not stop_event.is_set():

@@ -160,6 +160,7 @@ Google Calendar — источник истины для:
 ### Где хранить `.env.local`
 - `.env.local` хранится **в корне репозитория** локально.
 - Файл **в gitignore** и **не коммитится**.
+- На VPS `.env.local` **не используется** и не должен присутствовать.
 
 ### Как запускать локально
 1. Создать `.env.local` в корне репозитория.
@@ -188,7 +189,64 @@ Google Calendar — источник истины для:
 
 ---
 
-## 9. Контакт и владение
+## 9. Как задеплоить на VPS
+
+Ниже — минимальная пошаговая инструкция для `https://api.zumbot.ru` (backend)
+и `https://zumbot.ru` (публичный сайт).
+
+1) **Подготовить VPS**
+   - Установить Python, PostgreSQL, nginx, certbot.
+2) **Настроить PostgreSQL**
+   - Создать БД и пользователя.
+   - Сформировать `DB_URL` (например `postgresql+asyncpg://user:pass@localhost:5432/zumbot`).
+3) **Настроить переменные окружения**
+   - Минимум для prod:
+     - `APP_ENV=prod`
+     - `DB_URL`
+     - `MASTER_BOT_TOKEN`
+     - `ENCRYPTION_KEY`
+     - `GOOGLE_CLIENT_ID`
+     - `GOOGLE_CLIENT_SECRET`
+     - `GOOGLE_REDIRECT_URI=https://api.zumbot.ru/google/oauth/callback`
+     - `BASE_URL=https://api.zumbot.ru`
+     - `PUBLIC_SITE_URL=https://zumbot.ru`
+     - `ENABLE_READYZ=true`
+   - При необходимости задать `WEB_HOST` и `WEB_PORT`.
+4) **Запуск приложения через systemd**
+   - Сервис запускает `python main.py`.
+   - Переменные окружения задаются в unit-файле или через EnvironmentFile.
+5) **Настроить nginx**
+   - `api.zumbot.ru` → прокси на `127.0.0.1:<WEB_PORT>`.
+   - `zumbot.ru` → статик/отдельный фронтенд.
+6) **Включить TLS**
+   - Получить сертификаты через certbot для обоих доменов.
+7) **Проверить health**
+   - `GET https://api.zumbot.ru/healthz` → `200`.
+   - `GET https://api.zumbot.ru/readyz` → `200` (если всё готово).
+
+Важно:
+- Код **не меняется** между local/prod.
+- Все различия — только через переменные окружения.
+- `.env.local` хранится только локально и **не копируется** на VPS.
+
+---
+
+## 10. Настройка Google OAuth
+
+1) В Google Cloud Console:
+   - включить Google Calendar API;
+   - настроить OAuth consent screen;
+   - создать OAuth client.
+2) Указать redirect URI:
+   - `https://api.zumbot.ru/google/oauth/callback`
+3) Задать переменные окружения в prod:
+   - `GOOGLE_CLIENT_ID`
+   - `GOOGLE_CLIENT_SECRET`
+   - `GOOGLE_REDIRECT_URI=https://api.zumbot.ru/google/oauth/callback`
+
+---
+
+## 11. Контакт и владение
 
 Владелец архитектуры и продукта:
 - super_admin (автор проекта)

@@ -1,7 +1,9 @@
-from main import TOKEN
+import os
+
+import pytest
 
 def test_token_format():
-    # Проверяем, что токен содержит двоеточие
-    assert ":" in TOKEN
-    # А теперь сломаем тест специально:
-    assert TOKEN == "ОШИБКА"
+    token = os.getenv("MASTER_BOT_TOKEN")
+    if not token:
+        pytest.skip("MASTER_BOT_TOKEN not set; skipping token format smoke test.")
+    assert ":" in token

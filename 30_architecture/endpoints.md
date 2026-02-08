@@ -148,6 +148,8 @@ Production callback URL:
 Проверка живости backend (liveness): HTTP-сервер запущен и отвечает.
 Endpoint доступен во всех средах.
 
+Используется для простых внешних проверок доступности.
+
 **Response**
 - `200 OK`
 ```json
@@ -167,6 +169,9 @@ Endpoint включается только если `ENABLE_READYZ=true`.
 По умолчанию это так в `prod` на VPS, а в `local` — выключено.
 Локально `/readyz` отсутствует (404), пока явно не включить
 `ENABLE_READYZ=true`.
+
+**Важно:** `/readyz` обязателен для мониторинга в production
+(например, UptimeRobot/BetterStack или health-check балансировщика).
 
 **Response**
 - `200 OK` — БД доступна и event loop тикает
