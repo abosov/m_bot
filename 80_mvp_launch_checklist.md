@@ -17,6 +17,12 @@
 - [ ] GitHub Actions cron включён (uptime workflow)
 - [ ] Uptime мониторинг (GitHub Actions) дергает `/readyz`
 
+### После появления VPS
+- [ ] Завести монитор в UptimeRobot/BetterStack на `GET /readyz`
+- [ ] Настроить интервал и алерты (email/Telegram/Slack)
+- [ ] Проверить, что `/readyz` возвращает 200 и пишет ServiceHeartbeat в БД
+- [ ] Отключить GH Actions cron для uptime (оставить CI)
+
 ### Домен
 - [ ] Настроен публичный домен backend `https://api.zumbot.ru`
 - [ ] BASE_URL указывает на `https://api.zumbot.ru`

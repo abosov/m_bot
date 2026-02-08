@@ -9,6 +9,9 @@
   - `/readyz` → `service_heartbeats` (готовность сервиса);
   - команда `/status` в master_bot → `bot_health_checks` (здоровье личных ботов).
 
+`/readyz` пишет **ServiceHeartbeat** в `service_heartbeats` — это основной источник
+истории доступности сервиса.
+
 `/readyz` по умолчанию включён только в `prod` на VPS.
 В `local` он выключен, если явно не задано `ENABLE_READYZ=true`.
 
