@@ -6,3 +6,4 @@ handlers/__pycache__/
 .env.local
 *.pyc
 codex.patch
+.venv/

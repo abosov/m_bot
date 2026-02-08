@@ -1,6 +1,7 @@
 # src/main.py
 
 import asyncio
+import os
 import logging
 import signal
 import uvicorn
@@ -28,18 +29,29 @@ from services.heartbeat import heartbeat_task
 
 async def start_web_server():
     """Запуск uvicorn в асинхронном режиме"""
-    server_config = uvicorn.Config(
-        app=fastapi_app,
-        host=config.WEB_HOST,
-        port=config.WEB_PORT,
-        log_level="info",
-    )
+
+    # systemd socket activation: если есть LISTEN_FDS=1 и PID совпал — слушаем fd=3
+    listen_fds = os.getenv("LISTEN_FDS")
+    listen_pid = os.getenv("LISTEN_PID")
+    use_fd3 = (listen_fds == "1" and listen_pid and int(listen_pid) == os.getpid())
+
+    if use_fd3:
+        server_config = uvicorn.Config(
+            app=fastapi_app,
+            fd=3,
+            log_level="info",
+        )
+        logger.info("🌍 Web server starting via systemd socket (fd=3)...")
+    else:
+        server_config = uvicorn.Config(
+            app=fastapi_app,
+            host=config.WEB_HOST,
+            port=config.WEB_PORT,
+            log_level="info",
+        )
+        logger.info("🌍 Web server starting on %s:%s...", config.WEB_HOST, config.WEB_PORT)
+
     server = uvicorn.Server(server_config)
-    logger.info(
-        "🌍 Web server starting on %s:%s...",
-        config.WEB_HOST,
-        config.WEB_PORT,
-    )
     try:
         await server.serve()
     except asyncio.CancelledError:
