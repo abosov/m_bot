@@ -6,8 +6,11 @@
 ## Что логируется (в MVP)
 - входящие и исходящие сообщения Telegram (таблица `message_logs`);
 - технические проверки доступности сервиса:
-  - `/readyz` → `service_heartbeats`;
-  - команда `/status` в master_bot → `bot_health_checks`.
+  - `/readyz` → `service_heartbeats` (готовность сервиса);
+  - команда `/status` в master_bot → `bot_health_checks` (здоровье личных ботов).
+
+`/readyz` по умолчанию включён только в `prod` на VPS.
+В `local` он выключен, если явно не задано `ENABLE_READYZ=true`.
 
 ## Что запрещено логировать
 В логах и технических таблицах **нельзя** хранить секреты и токены:

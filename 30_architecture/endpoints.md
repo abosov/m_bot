@@ -163,9 +163,10 @@ Endpoint доступен во всех средах.
 В MVP проверяет:
 - доступность БД минимальным запросом;
 - «живость» event loop через фоновый heartbeat.
-Endpoint включается только в production на VPS
-(правило: `prod-only`, `ENABLE_READYZ=true`).
-Локально по умолчанию отключён и отсутствует (404).
+Endpoint включается только если `ENABLE_READYZ=true`.
+По умолчанию это так в `prod` на VPS, а в `local` — выключено.
+Локально `/readyz` отсутствует (404), пока явно не включить
+`ENABLE_READYZ=true`.
 
 **Response**
 - `200 OK` — БД доступна и event loop тикает
