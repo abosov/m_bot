@@ -11,27 +11,21 @@ jobs:
 
     steps:
       - name: Check /readyz
-        env:
-          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
         run: |
           set -euo pipefail
-
-          if [ -z "${PUBLIC_BASE_URL:-}" ]; then
-            echo "PUBLIC_BASE_URL is not set. Configure repo variable PUBLIC_BASE_URL."
-            exit 1
-          fi
-
-          base="${PUBLIC_BASE_URL%/}"
-          url="${base}/"
+          url="https://api.zumbot.ru/readyz"
+          response_file="$(mktemp)"
 
           echo "Uptime check URL: $url"
 
-          status=$(curl -sS -o /dev/null -w "%{http_code}" -f "$url")
+          status=$(curl -sS -o "$response_file" -w "%{http_code}" "$url" || true)
 
           echo "Uptime check HTTP status: $status"
 
           if [ "$status" != "200" ]; then
             echo "Unexpected status code: $status"
+            echo "Response body (truncated):"
+            head -c 500 "$response_file" || true
             exit 1
           fi
 

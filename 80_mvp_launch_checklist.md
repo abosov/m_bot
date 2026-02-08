@@ -15,6 +15,7 @@
 - [ ] `GET /readyz` возвращает `200 OK`
 - [ ] Мониторинг проверяет `GET /readyz` (200 при доступной БД)
 - [ ] GitHub Actions cron включён (uptime workflow)
+- [ ] Uptime мониторинг (GitHub Actions) дергает `/readyz`
 
 ### Домен
 - [ ] Настроен публичный домен backend `https://api.zumbot.ru`
