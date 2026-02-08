@@ -18,11 +18,23 @@ def _parse_bool(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _normalize_app_env(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in {"production", "prod"}:
+        return "prod"
+    if normalized in {"development", "dev", "local"}:
+        return "local"
+    return normalized
+
+
 def _determine_app_env() -> tuple[str, bool, bool]:
     explicit_env = os.getenv("APP_ENV")
     env_local_exists = ENV_LOCAL_PATH.is_file()
     if explicit_env:
-        return explicit_env, env_local_exists, False
+        normalized_env = _normalize_app_env(explicit_env)
+        if normalized_env != explicit_env:
+            os.environ["APP_ENV"] = normalized_env
+        return normalized_env, env_local_exists, False
 
     inferred_env = "local" if env_local_exists else "prod"
     os.environ["APP_ENV"] = inferred_env
