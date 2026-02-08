@@ -5,11 +5,12 @@ import os
 import logging
 import signal
 import uvicorn
-from dotenv import load_dotenv
 
-# 1. Сначала загружаем env, чтобы импорты не падали из-за отсутствия ключей
-load_dotenv()
-load_dotenv(".env.local")
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+import config
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
@@ -25,10 +26,6 @@ from logging_middleware import StructLoggingMiddleware
 # Импортируем веб-сервер
 from web_server import app as fastapi_app
 from services.heartbeat import heartbeat_task
-
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 async def start_web_server():
     """Запуск uvicorn в асинхронном режиме"""

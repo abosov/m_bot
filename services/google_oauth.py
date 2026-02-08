@@ -2,12 +2,8 @@ import os
 import json
 from typing import Tuple, Dict, Any
 from google_auth_oauthlib.flow import Flow
-from dotenv import load_dotenv
 
 from config import GOOGLE_REDIRECT_URI
-
-load_dotenv()
-load_dotenv(".env.local")
 
 # Конфигурация клиента Google из переменных окружения
 # В продакшене лучше использовать файл client_secrets.json, но для MVP соберем словарь вручную

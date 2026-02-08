@@ -4,7 +4,7 @@ import enum
 from datetime import datetime, time
 from typing import Optional, List
 
-from dotenv import load_dotenv
+import config
 from sqlalchemy import (
     BigInteger, Boolean, String, ForeignKey, DateTime, Time, 
     Integer, Text, Enum as SAEnum, func, Float, CheckConstraint
@@ -12,10 +12,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, validates
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-
-# Загрузка переменных окружения
-load_dotenv()
-load_dotenv(".env.local")
 
 # Получение URL БД
 DATABASE_URL = os.getenv("DB_URL", "sqlite+aiosqlite:///./mvp.db")
