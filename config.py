@@ -14,6 +14,10 @@ APP_ENV = None
 ENV_LOCAL_FOUND = False
 
 
+def _parse_bool(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 def _determine_app_env() -> tuple[str, bool, bool]:
     explicit_env = os.getenv("APP_ENV")
     env_local_exists = ENV_LOCAL_PATH.is_file()
@@ -53,6 +57,8 @@ def load_environment() -> None:
 
 
 load_environment()
+
+ENABLE_READYZ = _parse_bool(os.getenv("ENABLE_READYZ", str(APP_ENV == "prod")))
 
 BACKEND_BASE_URL = os.getenv("BASE_URL", "https://api.zumbot.ru")
 PUBLIC_SITE_URL = os.getenv("PUBLIC_SITE_URL", "https://zumbot.ru")

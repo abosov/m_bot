@@ -23,6 +23,7 @@ from services.google_oauth import exchange_code_for_token
 from services.crypto import encrypt_token
 from logging_middleware import log_outbound_message
 from services import heartbeat
+import config
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
@@ -40,13 +41,14 @@ bot = Bot(
     default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN)
 )
 
+logger.info("readyz endpoint enabled=%s", config.ENABLE_READYZ)
+
 
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok", "service": "backend"}
 
 
-@app.get("/readyz")
 async def readyz():
     start_time = time.perf_counter()
 
@@ -92,6 +94,10 @@ async def readyz():
         status_code=503,
         content=response,
     )
+
+
+if config.ENABLE_READYZ:
+    app.add_api_route("/readyz", readyz, methods=["GET"])
 
 
 async def _write_service_heartbeat(

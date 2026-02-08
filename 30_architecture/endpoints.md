@@ -146,6 +146,7 @@ Production callback URL:
 
 **Назначение**
 Проверка живости backend (liveness): HTTP-сервер запущен и отвечает.
+Endpoint доступен во всех средах.
 
 **Response**
 - `200 OK`
@@ -162,6 +163,9 @@ Production callback URL:
 В MVP проверяет:
 - доступность БД минимальным запросом;
 - «живость» event loop через фоновый heartbeat.
+Endpoint включается только в production на VPS
+(правило: `prod-only`, `ENABLE_READYZ=true`).
+Локально по умолчанию отключён и отсутствует (404).
 
 **Response**
 - `200 OK` — БД доступна и event loop тикает
