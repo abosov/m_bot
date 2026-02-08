@@ -58,11 +58,37 @@ def load_environment() -> None:
 
 load_environment()
 
+
+def _require_in_prod(name: str, value: str | None) -> str | None:
+    if APP_ENV == "prod" and not value:
+        raise RuntimeError(
+            f"{name} is required in production. Set environment variable {name}."
+        )
+    return value
+
 ENABLE_READYZ = _parse_bool(os.getenv("ENABLE_READYZ", str(APP_ENV == "prod")))
 
-BACKEND_BASE_URL = os.getenv("BASE_URL", "https://api.zumbot.ru")
-PUBLIC_SITE_URL = os.getenv("PUBLIC_SITE_URL", "https://zumbot.ru")
-GOOGLE_REDIRECT_URI = os.getenv(
-    "GOOGLE_REDIRECT_URI",
-    "https://api.zumbot.ru/google/oauth/callback",
+MASTER_BOT_TOKEN = _require_in_prod("MASTER_BOT_TOKEN", os.getenv("MASTER_BOT_TOKEN"))
+ENCRYPTION_KEY = _require_in_prod("ENCRYPTION_KEY", os.getenv("ENCRYPTION_KEY"))
+GOOGLE_CLIENT_ID = _require_in_prod("GOOGLE_CLIENT_ID", os.getenv("GOOGLE_CLIENT_ID"))
+GOOGLE_CLIENT_SECRET = _require_in_prod(
+    "GOOGLE_CLIENT_SECRET",
+    os.getenv("GOOGLE_CLIENT_SECRET"),
 )
+GOOGLE_REDIRECT_URI = _require_in_prod(
+    "GOOGLE_REDIRECT_URI",
+    os.getenv("GOOGLE_REDIRECT_URI", "https://api.zumbot.ru/google/oauth/callback"),
+)
+
+BASE_URL = _require_in_prod("BASE_URL", os.getenv("BASE_URL", "https://api.zumbot.ru"))
+PUBLIC_SITE_URL = _require_in_prod(
+    "PUBLIC_SITE_URL",
+    os.getenv("PUBLIC_SITE_URL", "https://zumbot.ru"),
+)
+
+DATABASE_URL = os.getenv("DB_URL")
+if not DATABASE_URL and APP_ENV != "prod":
+    DATABASE_URL = "sqlite+aiosqlite:///./mvp.db"
+DATABASE_URL = _require_in_prod("DB_URL", DATABASE_URL)
+
+SERVICE_NAME = os.getenv("SERVICE_NAME", "backend")

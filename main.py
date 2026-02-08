@@ -1,7 +1,6 @@
 # src/main.py
 
 import asyncio
-import os
 import logging
 import signal
 import uvicorn
@@ -50,7 +49,7 @@ async def start_bot():
     # Инициализация БД
     await init_db()
     
-    token = os.getenv("MASTER_BOT_TOKEN")
+    token = config.MASTER_BOT_TOKEN
     if not token:
         raise ValueError("MASTER_BOT_TOKEN not set")
 

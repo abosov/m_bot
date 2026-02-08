@@ -10,7 +10,7 @@
 
 ## 1. Секреты инфраструктуры (env / secret storage)
 
-Обязательные переменные окружения:
+Обязательные переменные окружения (production):
 
 ### Telegram
 - `MASTER_BOT_TOKEN` — токен master_bot

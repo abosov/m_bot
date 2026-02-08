@@ -1,4 +1,3 @@
-import os
 import uuid
 import asyncio
 import logging
@@ -31,13 +30,13 @@ logger = logging.getLogger(__name__)
 READYZ_DB_TIMEOUT_SEC = 2.0
 READYZ_LOOP_TIMEOUT_SEC = 12.0
 HEARTBEAT_WRITE_INTERVAL_SEC = 60.0
-SERVICE_NAME = os.getenv("SERVICE_NAME", "backend")
+SERVICE_NAME = config.SERVICE_NAME
 LAST_HEARTBEAT_WRITE_TS = 0.0
 HEARTBEAT_WRITE_LOCK = asyncio.Lock()
 
 # Инициализируем бота для отправки уведомлений (используем тот же токен)
 bot = Bot(
-    token=os.getenv("MASTER_BOT_TOKEN"), 
+    token=config.MASTER_BOT_TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN)
 )
 

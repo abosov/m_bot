@@ -1,4 +1,3 @@
-import os
 import uuid
 import enum
 from datetime import datetime, time
@@ -14,7 +13,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship,
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 # Получение URL БД
-DATABASE_URL = os.getenv("DB_URL", "sqlite+aiosqlite:///./mvp.db")
+DATABASE_URL = config.DATABASE_URL
 
 # --- Настройка движка ---
 engine = create_async_engine(DATABASE_URL, echo=False)

@@ -42,6 +42,14 @@ Backend должен иметь возможность:
 - завести отдельный OAuth Client для production,
 - использовать отдельные `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` для продовой среды.
 
+### 1.5 Конфигурация OAuth (env)
+Хранится в переменных окружения (загружаются через `config.py` один раз при старте):
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI`
+
+В production обязательны все три переменные. В локальной разработке можно задавать их через `.env.local`.
+
 ---
 
 ## 2. Выбор или создание календаря

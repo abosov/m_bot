@@ -1,12 +1,15 @@
-import os
 from cryptography.fernet import Fernet
+import config
 
 # Получаем ключ из переменных окружения.
 # Для генерации ключа можно использовать: Fernet.generate_key().decode()
-_key = os.getenv("ENCRYPTION_KEY")
+_key = config.ENCRYPTION_KEY
 
 if not _key:
-    raise ValueError("ENCRYPTION_KEY is not set in environment variables!")
+    message = "ENCRYPTION_KEY is required for encryption. Set ENCRYPTION_KEY in env."
+    if config.APP_ENV == "prod":
+        raise RuntimeError(message)
+    raise ValueError(message)
 
 _cipher = Fernet(_key)
 
