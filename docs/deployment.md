@@ -257,7 +257,40 @@ git pull origin <branch>
 
 ---
 
-## 6. Резюме
+## 6. Логи и выгрузки (операционные задачи)
+
+### Переменные окружения
+- `DB_URL` — источник БД.
+- `ENCRYPTION_KEY` — ключ шифрования (секрет).
+- `ADMIN_API_KEY` (опционально) — включает закрытый admin API `/admin/*`.
+
+### Snapshot/backup логов (SQLite/PostgreSQL)
+Используйте `scripts/db_snapshot.sh`. Пароли не хранятся в скрипте —
+используйте `PGHOST/PGUSER/PGPASSWORD/PGDATABASE` или `.pgpass`.
+
+```bash
+# SQLite
+DB_URL=sqlite+aiosqlite:///./mvp.db scripts/db_snapshot.sh --out /tmp/zumbot_snapshot.db
+
+# PostgreSQL (последние 7 дней)
+DB_URL=postgresql+asyncpg://user@localhost:5432/zumbot \
+  PGHOST=127.0.0.1 PGUSER=readonly PGDATABASE=zumbot \
+  scripts/db_snapshot.sh --days 7 --out /tmp/zumbot_logs_dump.sql
+```
+
+### Безопасное скачивание на локальную машину
+```bash
+scp user@vps-host:/tmp/zumbot_snapshot.db ./zumbot_snapshot.db
+scp user@vps-host:/tmp/zumbot_logs_dump.sql ./zumbot_logs_dump.sql
+```
+
+### Опционально: read-only роль для логов (PostgreSQL)
+Рекомендуется завести роль только с `SELECT` на таблицы логов:
+`message_logs`, `service_heartbeats`, `bot_health_checks`.
+
+---
+
+## 7. Резюме
 
 - Backend теперь поддерживает systemd socket activation (fd=3) и fallback на
   `WEB_HOST:WEB_PORT`.

@@ -111,3 +111,4 @@ if not DATABASE_URL and APP_ENV != "prod":
 DATABASE_URL = _require_in_prod("DB_URL", DATABASE_URL)
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "backend")
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")

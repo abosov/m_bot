@@ -3,6 +3,13 @@
 ## Обзор
 Система фиксирует все события в экосистеме. Версия 2.0 ориентирована на "читаемость глазами" и глубокую отладку через FSM-состояния.
 
+## Технические логи vs бизнес-логи
+**Технические логи** — это наблюдаемость сервиса: доступность, здоровье БД, статус
+loop и т.п. Источники: `service_heartbeats`, `bot_health_checks`.
+
+**Бизнес-логи** — история диалога (вход/выход), FSM-состояния и обработчики.
+Источник: `message_logs`.
+
 ## Что логируется (в MVP)
 - входящие и исходящие сообщения Telegram (таблица `message_logs`);
 - технические проверки доступности сервиса:
@@ -24,6 +31,134 @@
 
 Если нужно указать причину ошибки — пишется краткий тип/код ошибки
 без деталей, содержащих секреты.
+
+## Операционные инструменты для логов (MVP+)
+
+### Export (JSONL/CSV)
+Скрипт `scripts/export_logs.py` выгружает данные в формат, удобный для анализа и
+нейросети (JSONL). Для `message_logs` доступен CSV.
+
+Поддерживаемые источники:
+- `message_logs`
+- `service_heartbeats`
+- `bot_health_checks`
+
+Выгрузка всегда сортируется по времени (возрастание).
+
+Примеры:
+```bash
+# JSONL бизнес-логов за период
+python scripts/export_logs.py \
+  --source message_logs \
+  --since 2024-01-01T00:00:00Z \
+  --until 2024-01-02T00:00:00Z \
+  --bot-id 123456 \
+  --specialist-id 00000000-0000-0000-0000-000000000000 \
+  --out /tmp/message_logs.jsonl
+
+# CSV выгрузка message_logs
+python scripts/export_logs.py \
+  --source message_logs \
+  --format csv \
+  --out /tmp/message_logs.csv
+
+# Технические логи (heartbeats)
+python scripts/export_logs.py \
+  --source service_heartbeats \
+  --since 2024-01-01T00:00:00Z \
+  --limit 1000 \
+  --out /tmp/heartbeats.jsonl
+
+# Режим редактирования потенциальных ПДн
+python scripts/export_logs.py \
+  --source message_logs \
+  --redact \
+  --limit 500 \
+  --out /tmp/message_logs_redacted.jsonl
+```
+
+### Snapshot/backup БД (SQLite/PostgreSQL)
+Скрипт `scripts/db_snapshot.sh` делает снапшот только нужных таблиц логов.
+Для PostgreSQL используются стандартные переменные окружения `PGHOST/PGUSER/PGPASSWORD/PGDATABASE`
+или `.pgpass` (пароли в скрипте не хранятся).
+
+Примеры:
+```bash
+# SQLite (локально или на VPS с sqlite)
+DB_URL=sqlite+aiosqlite:///./mvp.db scripts/db_snapshot.sh --out /tmp/zumbot_snapshot.db
+
+# PostgreSQL (только последние 7 дней)
+DB_URL=postgresql+asyncpg://user@localhost:5432/zumbot \
+  PGHOST=127.0.0.1 PGUSER=readonly PGDATABASE=zumbot \
+  scripts/db_snapshot.sh --days 7 --out /tmp/zumbot_logs_dump.sql
+```
+
+## Закрытый admin API (опционально)
+Если задан `ADMIN_API_KEY`, включаются эндпоинты:
+- `GET /admin/logs`
+- `GET /admin/heartbeats`
+- `GET /admin/bot-health-checks`
+
+**Важно:** не проксировать наружу через nginx; доступ только через SSH tunnel.
+Если `ADMIN_API_KEY` не задан —
+эндпоинты скрыты и возвращают 404.
+
+Пример SSH tunnel:
+```bash
+ssh -L 18000:127.0.0.1:8000 user@vps-host
+```
+
+Пример запроса:
+```bash
+curl -H "X-API-Key: <ADMIN_API_KEY>" \
+  "http://127.0.0.1:18000/admin/logs?limit=100&since=2024-01-01T00:00:00Z"
+```
+
+## Примеры доступа к БД (через SSH tunnel)
+
+### PostgreSQL (psql/DBeaver)
+```bash
+# Поднимаем туннель до Postgres на VPS
+ssh -L 15432:127.0.0.1:5432 user@vps-host
+
+# Далее подключаемся локально (пароль хранится в .pgpass)
+psql "host=127.0.0.1 port=15432 dbname=zumbot user=readonly"
+```
+
+### SQLite (снапшот + scp + открытие локально)
+```bash
+# На VPS
+DB_URL=sqlite+aiosqlite:///./mvp.db scripts/db_snapshot.sh --out /tmp/zumbot_snapshot.db
+
+# Скачиваем
+scp user@vps-host:/tmp/zumbot_snapshot.db ./zumbot_snapshot.db
+
+# Открываем локально (например, sqlite3 или GUI)
+sqlite3 ./zumbot_snapshot.db ".tables"
+```
+
+## Алгоритм разбора падения/недоступности
+1) Проверить мониторинг `/readyz` и последние `service_heartbeats`.
+2) Посмотреть `journalctl` и systemd — последние ошибки/рестарты.
+3) При `502` — проверить nginx и backend socket/service.
+4) При проблемах с БД — проверить DB connectivity и последние heartbeats.
+5) Собрать артефакты: `service_heartbeats` + последние 200 строк journalctl.
+
+## Алгоритм разбора бизнес-кейса
+1) Найти `bot_id`, `specialist_id` и `tg_user_id`/`appointment_id`.
+2) Выгрузить `message_logs` с фильтрами (временной диапазон, IN/OUT).
+3) Восстановить диалог по хронологии и сверить `fsm_state`/`handler_name`.
+4) При `is_error=true` сопоставить `error_details` с моментом диалога.
+5) Подготовить JSONL пакет для нейросети (ограничить период, включить `source` и `timestamp`).
+
+## Приватность и секреты в логах
+- Запрещено логировать и выгружать секреты: токены, ключи, OAuth коды, webhook secrets.
+- В выгрузках используем только обезличенные идентификаторы
+  (`specialist_id`, `client_id`, `appointment_id`, `tg_user_id`).
+- При необходимости используйте `--redact` для маскирования email/телефонов
+  и блокировки подозрительных токеноподобных строк.
+- См. также: `60_security_and_compliance/secrets.md` и
+  `60_security_and_compliance/personal_data_policy_notes.md`.
 
 ## Схема данных (Table: `message_logs`)
 

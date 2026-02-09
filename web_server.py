@@ -23,6 +23,7 @@ from services.crypto import encrypt_token
 from logging_middleware import log_outbound_message
 from services import heartbeat
 import config
+from admin_api import router as admin_router
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
@@ -41,6 +42,11 @@ bot = Bot(
 )
 
 logger.info("readyz endpoint enabled=%s", config.ENABLE_READYZ)
+if config.ADMIN_API_KEY:
+    app.include_router(admin_router)
+    logger.info("admin API enabled at /admin/*")
+else:
+    logger.info("admin API disabled (ADMIN_API_KEY not set)")
 
 
 @app.get("/healthz")

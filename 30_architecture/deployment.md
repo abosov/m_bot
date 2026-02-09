@@ -106,6 +106,7 @@
 Дополнительно для деплоя:
 - `WEB_HOST` (по умолчанию `127.0.0.1` в prod)
 - `WEB_PORT` (по умолчанию `8000`)
+- `ADMIN_API_KEY` (опционально, включает закрытый admin API `/admin/*`)
 
 ### Что хранить в БД (зашифрованно)
 - `telegram_bot.bot_token_encrypted`
@@ -117,6 +118,30 @@
 Требования MVP:
 - транзакции и уникальные индексы (для idempotency)
 - резервное копирование (минимум ежедневно)
+
+### Snapshot/backup логов (SQLite/PostgreSQL)
+Используйте `scripts/db_snapshot.sh`. Пароли не хранятся в скрипте —
+используйте `PGHOST/PGUSER/PGPASSWORD/PGDATABASE` или `.pgpass`.
+
+```bash
+# SQLite
+DB_URL=sqlite+aiosqlite:///./mvp.db scripts/db_snapshot.sh --out /tmp/zumbot_snapshot.db
+
+# PostgreSQL (последние 7 дней)
+DB_URL=postgresql+asyncpg://user@localhost:5432/zumbot \
+  PGHOST=127.0.0.1 PGUSER=readonly PGDATABASE=zumbot \
+  scripts/db_snapshot.sh --days 7 --out /tmp/zumbot_logs_dump.sql
+```
+
+### Безопасное скачивание на локальную машину
+```bash
+scp user@vps-host:/tmp/zumbot_snapshot.db ./zumbot_snapshot.db
+scp user@vps-host:/tmp/zumbot_logs_dump.sql ./zumbot_logs_dump.sql
+```
+
+### Опционально: read-only роль для логов (PostgreSQL)
+Рекомендуется завести роль только с `SELECT` на таблицы логов:
+`message_logs`, `service_heartbeats`, `bot_health_checks`.
 
 ---
 

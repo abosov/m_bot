@@ -3,6 +3,7 @@ pytest
 pytest-asyncio
 google-genai
 sqlalchemy
+aiosqlite
 asyncpg
 python-dotenv
 cryptography
