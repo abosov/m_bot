@@ -33,6 +33,7 @@ from database import (
     TelegramBot,
     TelegramBotStatus,
     GoogleOAuthStatus,
+    OAuthStateType,
     SpecialistCalendarSettings,
     SpecialistCalendarSource,
     MessageLog, 
@@ -44,7 +45,7 @@ from services.crypto import encrypt_token, decrypt_token
 # Используем локальный импорт внутри функций, если возникнут циклические зависимости,
 # но здесь импортируем функцию логирования сообщений.
 from logging_middleware import log_outbound_message
-from services.google_oauth import get_auth_url
+from services.google_oauth import create_oauth_state, get_auth_url
 from services.google_calendar import (
     GoogleCalendarError,
     GoogleCalendarInsufficientPermissionsError,
@@ -469,7 +470,13 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 new_state = "waiting_for_bot_token"
 
             elif not has_oauth:
-                auth_url = get_auth_url(specialist.specialist_id)
+                oauth_state = await create_oauth_state(
+                    session,
+                    specialist.specialist_id,
+                    OAuthStateType.google_connect,
+                )
+                await session.commit()
+                auth_url = get_auth_url(oauth_state)
                 next_step_msg = "\n👇 **Действие:** Подключите Google аккаунт через кнопку ниже."
                 keyboard = types.InlineKeyboardMarkup(
                     inline_keyboard=[[
@@ -718,7 +725,14 @@ async def process_bot_token(message: types.Message, state: FSMContext):
         # 4. Финиш
         await state.clear()
         
-        auth_url = get_auth_url(specialist_id)
+        async with async_session_factory() as session:
+            oauth_state = await create_oauth_state(
+                session,
+                specialist_id,
+                OAuthStateType.google_connect,
+            )
+            await session.commit()
+        auth_url = get_auth_url(oauth_state)
 
         status_line = "🟢 Статус специалиста: active." if is_active_now else "⏳ Статус специалиста: onboarding."
         text_out = (

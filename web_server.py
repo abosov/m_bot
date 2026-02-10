@@ -1,4 +1,3 @@
-import uuid
 import json
 import asyncio
 import logging
@@ -16,6 +15,8 @@ from database import (
     async_session_factory, 
     GoogleOAuth, 
     GoogleOAuthStatus, 
+    OAuthState,
+    OAuthStateType,
     SpecialistAuthTelegram,
     SpecialistProfile,
     ServiceHeartbeat,
@@ -298,11 +299,31 @@ async def google_oauth_callback(request: Request):
         return "<h1>Ошибка: Отсутствуют обязательные параметры (code, state)</h1>"
 
     try:
-        specialist_id = uuid.UUID(state)
-    except ValueError:
-        return "<h1>Ошибка: Неверный формат state (ожидался UUID)</h1>"
+        async with async_session_factory() as session:
+            state_stmt = select(OAuthState).where(OAuthState.state == state)
+            oauth_state = (await session.execute(state_stmt)).scalar_one_or_none()
 
-    try:
+            if oauth_state is None:
+                return "<h1>Ошибка: state не найден или уже использован.</h1>"
+
+            now_utc = datetime.now(timezone.utc)
+            expires_at = oauth_state.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at <= now_utc:
+                await session.delete(oauth_state)
+                await session.commit()
+                return "<h1>Ошибка: state истёк. Запросите новую ссылку из Telegram.</h1>"
+
+            if oauth_state.type not in {OAuthStateType.google_connect, OAuthStateType.google_reconnect}:
+                await session.delete(oauth_state)
+                await session.commit()
+                return "<h1>Ошибка: Некорректный тип OAuth state.</h1>"
+
+            specialist_id = oauth_state.specialist_id
+            await session.delete(oauth_state)
+            await session.commit()
+
         refresh_token, access_token, _ = exchange_code_for_token(code)
 
         async with async_session_factory() as session:

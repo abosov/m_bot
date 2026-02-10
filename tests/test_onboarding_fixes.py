@@ -1,10 +1,11 @@
 import importlib
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 pytest.importorskip("aiosqlite")
 
@@ -65,6 +66,8 @@ async def test_google_oauth_callback_without_refresh_uses_existing_token(tmp_pat
     specialist_id = uuid.uuid4()
     encrypted = "already-encrypted-token"
 
+    state_value = "state-valid-existing-token"
+
     async with database.async_session_factory() as session:
         session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.onboarding))
         session.add(
@@ -76,6 +79,14 @@ async def test_google_oauth_callback_without_refresh_uses_existing_token(tmp_pat
                 token_updated_at=datetime.now(timezone.utc),
             )
         )
+        session.add(
+            database.OAuthState(
+                state=state_value,
+                specialist_id=specialist_id,
+                type=database.OAuthStateType.google_connect,
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+            )
+        )
         await session.commit()
 
     monkeypatch.setattr(web_server, "exchange_code_for_token", lambda _code: (None, "access", 3600))
@@ -85,7 +96,7 @@ async def test_google_oauth_callback_without_refresh_uses_existing_token(tmp_pat
     monkeypatch.setattr(web_server, "list_calendars", _fake_list_calendars)
 
     client = TestClient(web_server.app)
-    response = client.get(f"/google/oauth/callback?code=abc&state={specialist_id}")
+    response = client.get(f"/google/oauth/callback?code=abc&state={state_value}")
 
     assert response.status_code == 200
     assert "Успешно" in response.text
@@ -106,14 +117,24 @@ async def test_google_oauth_callback_without_refresh_and_no_saved_token_marks_er
 
     specialist_id = uuid.uuid4()
 
+    state_value = "state-valid-no-refresh"
+
     async with database.async_session_factory() as session:
         session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.onboarding))
+        session.add(
+            database.OAuthState(
+                state=state_value,
+                specialist_id=specialist_id,
+                type=database.OAuthStateType.google_connect,
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+            )
+        )
         await session.commit()
 
     monkeypatch.setattr(web_server, "exchange_code_for_token", lambda _code: (None, "access", 3600))
 
     client = TestClient(web_server.app)
-    response = client.get(f"/google/oauth/callback?code=abc&state={specialist_id}")
+    response = client.get(f"/google/oauth/callback?code=abc&state={state_value}")
 
     assert response.status_code == 200
     assert "Требуется переподключение" in response.text
@@ -238,3 +259,128 @@ async def test_notify_personal_bot_welcome_returns_username_on_send_error(tmp_pa
     username = await onboarding._notify_personal_bot_welcome(specialist_id, tg_user_id=888)
 
     assert username == "error_bot"
+
+
+@pytest.mark.asyncio
+async def test_google_oauth_callback_valid_state_consumes_and_upserts_token(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    state_value = "state-valid-upsert"
+
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.onboarding))
+        session.add(
+            database.OAuthState(
+                state=state_value,
+                specialist_id=specialist_id,
+                type=database.OAuthStateType.google_connect,
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+            )
+        )
+        await session.commit()
+
+    monkeypatch.setattr(web_server, "exchange_code_for_token", lambda _code: ("refresh-1", "access", 3600))
+
+    async def _fake_list_calendars(_sid):
+        return []
+
+    monkeypatch.setattr(web_server, "list_calendars", _fake_list_calendars)
+
+    client = TestClient(web_server.app)
+    response = client.get(f"/google/oauth/callback?code=fake&state={state_value}")
+
+    assert response.status_code == 200
+    assert "Успешно" in response.text
+
+    async with database.async_session_factory() as session:
+        oauth = await session.get(database.GoogleOAuth, specialist_id)
+        assert oauth is not None
+        assert oauth.status == database.GoogleOAuthStatus.connected
+
+        state_entry = (
+            await session.execute(
+                select(database.OAuthState).where(database.OAuthState.state == state_value)
+            )
+        ).scalar_one_or_none()
+        assert state_entry is None
+
+
+@pytest.mark.asyncio
+async def test_google_oauth_callback_expired_state_rejected(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    state_value = "state-expired"
+
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.onboarding))
+        session.add(
+            database.OAuthState(
+                state=state_value,
+                specialist_id=specialist_id,
+                type=database.OAuthStateType.google_connect,
+                expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+            )
+        )
+        await session.commit()
+
+    called = {"value": False}
+
+    def _fake_exchange(_code):
+        called["value"] = True
+        return ("refresh", "access", 3600)
+
+    monkeypatch.setattr(web_server, "exchange_code_for_token", _fake_exchange)
+
+    client = TestClient(web_server.app)
+    response = client.get(f"/google/oauth/callback?code=fake&state={state_value}")
+
+    assert response.status_code == 200
+    assert "state истёк" in response.text
+    assert called["value"] is False
+
+
+@pytest.mark.asyncio
+async def test_google_oauth_callback_reused_state_rejected_on_second_call(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    state_value = "state-reused"
+
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.onboarding))
+        session.add(
+            database.OAuthState(
+                state=state_value,
+                specialist_id=specialist_id,
+                type=database.OAuthStateType.google_connect,
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+            )
+        )
+        await session.commit()
+
+    monkeypatch.setattr(web_server, "exchange_code_for_token", lambda _code: ("refresh-1", "access", 3600))
+
+    async def _fake_list_calendars(_sid):
+        return []
+
+    monkeypatch.setattr(web_server, "list_calendars", _fake_list_calendars)
+
+    client = TestClient(web_server.app)
+    first = client.get(f"/google/oauth/callback?code=fake&state={state_value}")
+    second = client.get(f"/google/oauth/callback?code=fake&state={state_value}")
+
+    assert first.status_code == 200
+    assert "Успешно" in first.text
+    assert second.status_code == 200
+    assert "state не найден или уже использован" in second.text

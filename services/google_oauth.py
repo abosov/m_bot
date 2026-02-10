@@ -1,7 +1,13 @@
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Tuple, Any
+import uuid
+
 from google_auth_oauthlib.flow import Flow
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import config
+from database import OAuthState, OAuthStateType
 
 # Конфигурация клиента Google из переменных окружения
 # В продакшене лучше использовать файл client_secrets.json, но для MVP соберем словарь вручную
@@ -29,10 +35,30 @@ def _ensure_google_oauth_config() -> None:
                 "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required in production."
             )
 
-def get_auth_url(specialist_id: str) -> str:
+async def create_oauth_state(
+    session: AsyncSession,
+    specialist_id: uuid.UUID,
+    state_type: OAuthStateType,
+    ttl_seconds: int = 600,
+) -> str:
+    state = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+    session.add(
+        OAuthState(
+            state=state,
+            specialist_id=specialist_id,
+            type=state_type,
+            expires_at=expires_at,
+        )
+    )
+    await session.flush()
+    return state
+
+
+def get_auth_url(state: str) -> str:
     """
     Генерирует ссылку для авторизации в Google.
-    В state зашиваем specialist_id.
+    Использует заранее созданный state.
     """
     _ensure_google_oauth_config()
     flow = Flow.from_client_config(
@@ -43,11 +69,11 @@ def get_auth_url(specialist_id: str) -> str:
     
     # access_type='offline' обязателен для получения refresh_token
     # prompt='consent' заставляет Google всегда спрашивать разрешение (чтобы гарантированно дали refresh_token)
-    authorization_url, state = flow.authorization_url(
+    authorization_url, _ = flow.authorization_url(
         access_type='offline',
         include_granted_scopes='true',
         prompt='consent',
-        state=str(specialist_id)
+        state=state
     )
     
     return authorization_url
