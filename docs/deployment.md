@@ -61,6 +61,14 @@
 ```
 - После миграции обязательно проверить ожидаемые таблицы/индексы (через `to_regclass(...)` и/или `\d`).
 
+### Операционные утилиты scripts/
+- Экспорт логов запускается без ручного `PYTHONPATH`:
+```bash
+[VPS] cd /opt/zumbot/backend
+[VPS] python scripts/export_logs.py --help
+```
+- `scripts/db_snapshot.sh` для PostgreSQL уже возвращает очищенный SQL-дамп: строки `\restrict ...` и `\unrestrict ...` удаляются автоматически.
+
 ### Rollback
 ```bash
 [VPS] sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && git log --oneline -n 20'

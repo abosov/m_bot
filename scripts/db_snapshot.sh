@@ -107,14 +107,17 @@ if [[ "${DB_URL}" == postgres* ]]; then
   fi
 
   PG_DUMP_URL="${DB_URL/+asyncpg/}"
-  : > "${OUT_PATH}"
-  echo "-- Zumbot logs snapshot" >> "${OUT_PATH}"
-  echo "-- Generated at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "${OUT_PATH}"
-  echo "-- Tables: message_logs(created_at), service_heartbeats(ts), bot_health_checks(checked_at)" >> "${OUT_PATH}"
+  TMP_DUMP_PATH="$(mktemp)"
+  trap 'rm -f "${TMP_DUMP_PATH}"' EXIT
+
+  : > "${TMP_DUMP_PATH}"
+  echo "-- Zumbot logs snapshot" >> "${TMP_DUMP_PATH}"
+  echo "-- Generated at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "${TMP_DUMP_PATH}"
+  echo "-- Tables: message_logs(created_at), service_heartbeats(ts), bot_health_checks(checked_at)" >> "${TMP_DUMP_PATH}"
   if [[ -n "${DAYS}" ]]; then
-    echo "-- Range: last ${DAYS} days" >> "${OUT_PATH}"
+    echo "-- Range: last ${DAYS} days" >> "${TMP_DUMP_PATH}"
   else
-    echo "-- Range: all available records" >> "${OUT_PATH}"
+    echo "-- Range: all available records" >> "${TMP_DUMP_PATH}"
   fi
 
   dump_table() {
@@ -139,14 +142,16 @@ if [[ "${DB_URL}" == postgres* ]]; then
       dump_opts+=(--where="${where_clause}")
     fi
 
-    pg_dump "${dump_opts[@]}" >> "${OUT_PATH}"
+    pg_dump "${dump_opts[@]}" >> "${TMP_DUMP_PATH}"
   }
 
   dump_table "message_logs" "created_at"
   dump_table "service_heartbeats" "ts"
   dump_table "bot_health_checks" "checked_at"
 
-  grep -vE '^(\\restrict|\\unrestrict) ' "${OUT_PATH}" > "${OUT_PATH}.tmp" && mv "${OUT_PATH}.tmp" "${OUT_PATH}"
+  umask 077
+  grep -vE '^(\\restrict|\\unrestrict)[[:space:]]' "${TMP_DUMP_PATH}" > "${OUT_PATH}"
+  chmod 600 "${OUT_PATH}"
 
   echo "PostgreSQL logs dump written to ${OUT_PATH}"
   exit 0
