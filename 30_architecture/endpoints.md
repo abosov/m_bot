@@ -4,7 +4,11 @@
 
 ## Базовый URL
 - Production backend: `https://api.zumbot.ru`.
-- В примерах ниже используйте ваш фактический домен.
+
+Проверка с VPS:
+```bash
+[VPS] curl -i https://api.zumbot.ru/healthz
+```
 
 ## 1) Health endpoint
 
@@ -15,7 +19,7 @@
 
 **Пример:**
 ```bash
-curl -i "https://api.example.com/healthz"
+[VPS] curl -i "https://api.zumbot.ru/healthz"
 ```
 
 **Ожидаемое тело:**
@@ -23,7 +27,7 @@ curl -i "https://api.example.com/healthz"
 {"status":"ok","service":"backend"}
 ```
 
-**Совместимость:** путь `/health` в приложении не зарегистрирован; если он используется во внешней инфраструктуре, требуется proxy alias на `/healthz` (planned/TODO).
+**Фактическое поведение:** путь `/health` в приложении не зарегистрирован и возвращает `404 Not Found`. Этот путь не используется в production.
 
 ## 2) Readiness endpoint
 
@@ -36,7 +40,7 @@ curl -i "https://api.example.com/healthz"
 
 **Пример:**
 ```bash
-curl -i "https://api.example.com/readyz"
+[VPS] curl -i "https://api.zumbot.ru/readyz"
 ```
 
 **Ожидаемые тела:**
@@ -48,7 +52,7 @@ curl -i "https://api.example.com/readyz"
 {"status":"not_ready","db":"fail","loop":"ok","error":"<short_error_type>"}
 ```
 
-**Совместимость:** путь `/ready` в приложении не зарегистрирован; при необходимости настраивается на уровне proxy как alias на `/readyz` (planned/TODO).
+**Фактическое поведение:** путь `/ready` в приложении не зарегистрирован и возвращает `404 Not Found`. Этот путь не используется в production.
 
 ## 3) Telegram personal bot webhook
 
@@ -60,7 +64,7 @@ curl -i "https://api.example.com/readyz"
 
 **Пример:**
 ```bash
-curl -i -X POST "https://api.example.com/tg/webhook/123456789/replace_with_secret" \
+[VPS] curl -i -X POST "https://api.zumbot.ru/tg/webhook/123456789/replace_with_secret" \
   -H "Content-Type: application/json" \
   -d '{
     "update_id": 10001,
@@ -84,16 +88,26 @@ curl -i -X POST "https://api.example.com/tg/webhook/123456789/replace_with_secre
 
 **Пример:**
 ```bash
-curl -i "https://api.example.com/google/oauth/callback?code=sample_code&state=00000000-0000-0000-0000-000000000000"
+[VPS] curl -i "https://api.zumbot.ru/google/oauth/callback?code=sample_code&state=00000000-0000-0000-0000-000000000000"
 ```
 
-## Planned/TODO endpoints
+## Корневой путь backend
 
-### GET `/health` (planned)
-Планируемый alias к `/healthz` для унификации внешних проверок. В текущем коде endpoint отсутствует.
+### GET `/`
+**Фактическое поведение:** возвращает `404 Not Found`, это ожидаемо для backend API в production.
 
-### GET `/ready` (planned)
-Планируемый alias к `/readyz` для унификации внешних проверок. В текущем коде endpoint отсутствует.
+Проверка:
+```bash
+[VPS] curl -i https://api.zumbot.ru/
+```
+
+## Неиспользуемые endpoints
+
+### GET `/health`
+В production не используется и возвращает `404 Not Found`.
+
+### GET `/ready`
+В production не используется и возвращает `404 Not Found`.
 
 ## Связанные документы
 - `docs_!_deployment.md`

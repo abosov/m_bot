@@ -1,6 +1,28 @@
 # Deployment Readiness Guide (MVP)
 
-Документ описывает минимально достаточную процедуру запуска backend в production и первичной операционной проверки.
+Документ описывает фактический production-деплой на VPS и операционные проверки после релиза.
+
+## Где выполнять команды
+
+- `[VPS]` — выполнять на production-сервере Zumbot.
+- `[Локально]` — выполнять на рабочей машине разработчика.
+- Если в примере нет метки, команда приводится только как справка и должна быть адаптирована под контекст.
+
+Принцип: всё, что связано с systemd, nginx, `/etc/zumbot/backend.env`, journalctl, Postgres на `127.0.0.1`, выполняется на VPS.
+
+## Доменная схема production
+
+- Сайт (frontend): `https://zumbot.ru`.
+- Backend API: `https://api.zumbot.ru`.
+- Google OAuth redirect URI: `https://api.zumbot.ru/google/oauth/callback`.
+
+Эти значения задаются в `/etc/zumbot/backend.env`.
+
+Проверка фактических значений:
+
+```bash
+[VPS] sudo sed -n '/^BASE_URL=/p;/^PUBLIC_SITE_URL=/p;/^GOOGLE_REDIRECT_URI=/p' /etc/zumbot/backend.env
+```
 
 ## A) Требования окружения
 
@@ -10,8 +32,8 @@
 - Доступ к PostgreSQL (production) или SQLite (только local/dev).
 
 ### Сеть и порты
-- Внешний HTTPS endpoint backend (пример: `https://api.example.com`).
-- Порт приложения: `WEB_PORT` (по умолчанию `8000`).
+- Внешний HTTPS endpoint backend: `https://api.zumbot.ru`.
+- Порт backend-процесса на localhost: `127.0.0.1:8000`.
 - Входящий HTTPS должен быть доступен для:
   - Telegram webhook запросов;
   - Google OAuth callback.
@@ -50,28 +72,65 @@
 
 ## C) Первичный запуск
 
-1. Подготовить окружение и экспортировать обязательные переменные.
-2. Применить SQL-миграции/DDL (в репозитории используется инициализация схемы; отдельного Alembic-пайплайна в MVP нет).
-3. Запустить backend:
+1. `[VPS]` Подготовить окружение и убедиться, что обязательные переменные заданы в `/etc/zumbot/backend.env`.
+2. `[VPS]` Применить SQL-миграции/DDL (используются SQL-скрипты, Alembic не используется).
+3. `[VPS]` Запустить backend через systemd (socket activation):
    ```bash
-   python main.py
+   sudo systemctl restart zumbot-backend.socket zumbot-backend.service
    ```
-4. Проверить liveness/readiness:
+4. `[VPS]` Проверить liveness/readiness:
    ```bash
-   curl -i https://api.example.com/healthz
-   curl -i https://api.example.com/readyz
+   curl -fsS https://api.zumbot.ru/healthz
+   curl -fsS https://api.zumbot.ru/readyz
    ```
 
-Примечание: `readyz` доступен, только если `ENABLE_READYZ=true`.
+Примечание: на production `ENABLE_READYZ` должен быть включён.
 
-## D) Smoke-checks после деплоя
+## D) Systemd socket activation (production)
 
-### 1) `/health` и `/ready`
-- В текущей реализации приложения рабочие endpoints: `/healthz` и `/readyz`.
-- Ожидаемые ответы:
-  - `GET /healthz` → `200` и `{"status":"ok","service":"backend"}`.
-  - `GET /readyz` → `200` и `{"status":"ready","db":"ok","loop":"ok"}` либо `503` с `status=not_ready`.
-- Если в инфраструктуре используются пути `/health` и `/ready`, они должны быть настроены как proxy-alias на `/healthz` и `/readyz` (planned/TODO для унификации).
+В production включена socket activation:
+
+- `zumbot-backend.socket` слушает `127.0.0.1:8000`.
+- `zumbot-backend.service` запускается systemd при входящем соединении в socket.
+- Nginx проксирует `api.zumbot.ru` на `127.0.0.1:8000`.
+
+Операционные команды:
+
+```bash
+[VPS] sudo systemctl status zumbot-backend.socket zumbot-backend.service --no-pager
+[VPS] sudo systemctl cat zumbot-backend.socket
+[VPS] sudo systemctl cat zumbot-backend.service
+[VPS] sudo journalctl -u zumbot-backend.service -n 200 --no-pager
+[VPS] sudo ss -ltnp | rg '127.0.0.1:8000|:443|:80'
+```
+
+Критерии корректной конфигурации:
+- socket unit активен и слушает `127.0.0.1:8000`;
+- service unit запускается без ошибок;
+- Nginx обслуживает оба домена: `zumbot.ru` и `api.zumbot.ru`.
+
+## E) Smoke-checks после деплоя
+
+### Критерии успеха health/readiness
+
+```bash
+[VPS] curl -i https://api.zumbot.ru/healthz
+[VPS] curl -i https://api.zumbot.ru/readyz
+[VPS] curl -i https://api.zumbot.ru/health
+[VPS] curl -i https://api.zumbot.ru/ready
+[VPS] curl -i https://api.zumbot.ru/
+```
+
+Ожидаемый результат:
+- `GET /healthz` → `200` и `{"status":"ok","service":"backend"}` — сервис жив.
+- `GET /readyz` → `200` и `{"status":"ready","db":"ok","loop":"ok"}` — сервис готов к работе.
+- `GET /health` → `404` — путь не используется.
+- `GET /ready` → `404` — путь не используется.
+- `GET /` → `404` — для backend это ожидаемо.
+
+### 1) Health/readiness
+- В production используются только `/healthz` и `/readyz`.
+- `/health` и `/ready` считаются неиспользуемыми (возвращают `404`).
 
 ### 2) Master bot: `/start` → онбординг
 1. Открыть master bot.
@@ -98,7 +157,39 @@
 2. Выполнить `/start` и `/status`.
 3. Убедиться, что bot отвечает и показывает актуальный статус интеграций.
 
-## E) Типовые проблемы и диагностика (runbook-lite)
+## F) Что делается разово, а что на каждый релиз
+
+### Разово (первичная подготовка VPS)
+- Установка системных пакетов и runtime.
+- Настройка `/etc/zumbot/backend.env`.
+- Настройка nginx для доменов `zumbot.ru` и `api.zumbot.ru`.
+- Выпуск и подключение TLS-сертификатов.
+- Создание и включение systemd unit-файлов (`zumbot-backend.socket`, `zumbot-backend.service`).
+
+Проверки после разовой настройки:
+
+```bash
+[VPS] sudo nginx -t
+[VPS] sudo systemctl enable --now zumbot-backend.socket
+[VPS] sudo systemctl status nginx zumbot-backend.socket --no-pager
+```
+
+### Каждый релиз
+- Обновить код (`git pull`).
+- При необходимости применить SQL-миграции.
+- Перезапустить backend unit’ы.
+- Выполнить smoke-checks (`/healthz`, `/readyz`, onboarding/webhook/OAuth).
+
+Пример минимального релизного цикла:
+
+```bash
+[VPS] cd /opt/zumbot/m_bot && git pull --ff-only
+[VPS] sudo systemctl restart zumbot-backend.socket zumbot-backend.service
+[VPS] curl -fsS https://api.zumbot.ru/healthz
+[VPS] curl -fsS https://api.zumbot.ru/readyz
+```
+
+## G) Типовые проблемы и диагностика (runbook-lite)
 
 ### 1. `401/404` на `/tg/webhook/{bot_id}/{secret}`
 **Симптомы:** personal bot не отвечает, в webhook доставке Telegram ошибки.  
@@ -177,7 +268,7 @@
 - проверить доступность backend и БД;
 - перезапустить сервис после исправления конфигурации.
 
-## F) Остановка/рестарт
+## H) Остановка/рестарт
 
 ### Graceful shutdown
 При остановке backend должны корректно закрываться:

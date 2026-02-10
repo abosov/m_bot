@@ -22,6 +22,12 @@
   - нет `.env.local` → `prod`.
 
 ---
+### Где выполнять команды
+- `[VPS]` — команды для production-сервера.
+- `[Локально]` — команды для машины разработчика.
+- Команды с `systemctl`, `journalctl`, `nginx`, `/etc/zumbot/backend.env`, `sudo -u postgres ...` выполняются только на VPS.
+
+---
 
 ## 2. Домен и TLS
 Требования:
@@ -42,9 +48,11 @@
 
 Минимальная схема:
 1) Поднять PostgreSQL и создать БД/пользователя.
-2) Настроить сервис systemd, который запускает `python main.py`.
+2) Настроить socket activation в systemd:
+   - `zumbot-backend.socket` слушает `127.0.0.1:8000`;
+   - `zumbot-backend.service` запускается по событию входящего соединения.
 3) Настроить nginx:
-   - проксировать `https://api.zumbot.ru` на `127.0.0.1:<WEB_PORT>`;
+   - проксировать `https://api.zumbot.ru` на `127.0.0.1:8000`;
    - проксировать `https://zumbot.ru` на публичный фронтенд (статик/отдельный сервис).
 4) Получить и обновлять TLS-сертификаты (Let's Encrypt).
 
@@ -52,6 +60,14 @@
 - Код **одинаковый** для local/prod.
 - Все различия — только через переменные окружения.
 - `.env.local` запрещён на VPS.
+
+Проверка текущих параметров production:
+```bash
+[VPS] sudo sed -n '/^BASE_URL=/p;/^PUBLIC_SITE_URL=/p;/^GOOGLE_REDIRECT_URI=/p;/^DB_URL=/p' /etc/zumbot/backend.env
+[VPS] sudo systemctl status zumbot-backend.socket zumbot-backend.service --no-pager
+[VPS] sudo journalctl -u zumbot-backend.service -n 200 --no-pager
+[VPS] sudo ss -ltnp | rg '127.0.0.1:8000|:443|:80'
+```
 
 ---
 
@@ -118,6 +134,21 @@
 Требования MVP:
 - транзакции и уникальные индексы (для idempotency)
 - резервное копирование (минимум ежедневно)
+
+Подход к схеме БД в текущем проекте:
+- Alembic не используется.
+- Первичная схема создаётся через `create_all`.
+- Изменения схемы фиксируются SQL-скриптами `scripts/migrations/*.sql`.
+
+Применение SQL-миграции:
+```bash
+[VPS] sudo -u postgres bash -lc 'psql -d zumbot -f /opt/zumbot/m_bot/scripts/migrations/20260210_add_specialist_calendar_settings.sql'
+```
+
+Проверка, что таблица `specialist_calendar_settings` существует:
+```bash
+[VPS] sudo -u postgres bash -lc 'cd /tmp && psql -d zumbot -tAc "SELECT to_regclass('\''public.specialist_calendar_settings\'');"'
+```
 
 ### Snapshot/backup логов (SQLite/PostgreSQL)
 Используйте `scripts/db_snapshot.sh`. Пароли не хранятся в скрипте —
@@ -202,6 +233,21 @@ scp user@vps-host:/tmp/zumbot_logs_dump.sql ./zumbot_logs_dump.sql
   - указан redirect URI: `https://api.zumbot.ru/google/oauth/callback`
 
 ---
+
+## 8.1 Разово и на каждый релиз
+
+Разово на VPS:
+- установка пакетов, PostgreSQL, nginx, TLS;
+- создание `/etc/zumbot/backend.env`;
+- создание systemd unit-файлов и включение `zumbot-backend.socket`;
+- первичное создание схемы БД и базовых SQL-миграций.
+
+На каждый релиз:
+- `git pull --ff-only`;
+- применение новых SQL-скриптов из `scripts/migrations/*.sql`;
+- перезапуск backend (`zumbot-backend.socket`/`zumbot-backend.service`);
+- smoke-check: `/healthz` и `/readyz` должны вернуть `200`;
+- контрольные проверки: `/health`, `/ready`, `/` должны вернуть `404`.
 
 ## 9. Обновления и совместимость
 - при изменении структуры БД использовать миграции
