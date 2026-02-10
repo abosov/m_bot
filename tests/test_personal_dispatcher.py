@@ -5,6 +5,7 @@ from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import CommandStart
 from aiogram.types import Message, Update
 
+from handlers.personal_bot.role_guard import SpecialistRoleGuardMiddleware
 from services.telegram import personal_dispatcher
 
 
@@ -155,3 +156,104 @@ async def test_process_update_routes_owner_to_specialist_handler(monkeypatch):
     assert captured["actor"] == "specialist"
     assert captured["specialist_id"] == specialist_id
     assert captured["owner_tg_user_id"] == 777
+
+
+@pytest.mark.asyncio
+async def test_specialist_role_guard_blocks_client(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class Session:
+        async def execute(self, stmt):
+            profile = type("Profile", (), {"owner_tg_user_id": 777, "public_name": "Dr. House"})()
+            return Result(profile)
+
+    monkeypatch.setattr(personal_dispatcher, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    denied_messages = []
+
+    async def fake_answer(self, text, *args, **kwargs):
+        denied_messages.append(text)
+        return None
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+
+    specialist_router = Router()
+    specialist_router.message.middleware(SpecialistRoleGuardMiddleware())
+    reached = {"value": False}
+
+    @specialist_router.message(CommandStart())
+    async def specialist_only_handler(message: Message):
+        reached["value"] = True
+
+    dp = Dispatcher()
+    dp.update.middleware(personal_dispatcher.PersonalContextMiddleware())
+    dp.include_router(specialist_router)
+
+    update = Update.model_validate(
+        {
+            "update_id": 4,
+            "message": {
+                "message_id": 10,
+                "date": 1,
+                "chat": {"id": 888, "type": "private"},
+                "from": {"id": 888, "is_bot": False, "first_name": "Client"},
+                "text": "/start",
+            },
+        }
+    )
+
+    tg_bot = type("TgBot", (), {"specialist_id": specialist_id})()
+    bot = Bot(token="123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
+    try:
+        await dp.feed_update(bot, update, telegram_bot=tg_bot)
+    finally:
+        await bot.session.close()
+
+    assert reached["value"] is False
+    assert denied_messages == ["ℹ️ Команда доступна только специалисту."]
+
+
+@pytest.mark.asyncio
+async def test_specialist_role_guard_allows_specialist(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class Session:
+        async def execute(self, stmt):
+            profile = type("Profile", (), {"owner_tg_user_id": 777, "public_name": "Dr. House"})()
+            return Result(profile)
+
+    monkeypatch.setattr(personal_dispatcher, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    specialist_router = Router()
+    specialist_router.message.middleware(SpecialistRoleGuardMiddleware())
+    reached = {"value": False}
+
+    @specialist_router.message(CommandStart())
+    async def specialist_only_handler(message: Message):
+        reached["value"] = True
+
+    dp = Dispatcher()
+    dp.update.middleware(personal_dispatcher.PersonalContextMiddleware())
+    dp.include_router(specialist_router)
+
+    update = Update.model_validate(
+        {
+            "update_id": 5,
+            "message": {
+                "message_id": 10,
+                "date": 1,
+                "chat": {"id": 777, "type": "private"},
+                "from": {"id": 777, "is_bot": False, "first_name": "Owner"},
+                "text": "/start",
+            },
+        }
+    )
+
+    tg_bot = type("TgBot", (), {"specialist_id": specialist_id})()
+    bot = Bot(token="123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
+    try:
+        await dp.feed_update(bot, update, telegram_bot=tg_bot)
+    finally:
+        await bot.session.close()
+
+    assert reached["value"] is True

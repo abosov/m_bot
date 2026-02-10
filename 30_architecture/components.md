@@ -119,6 +119,13 @@
   - owner → specialist-flow (US-02)
   - остальные → client-flow (US-03)
 
+Схема (словами):
+- `personal_dispatcher` формирует контекст (`actor`, `specialist_id`, `owner_tg_user_id`, `public_name`);
+- корневой personal router делится на sub-router'ы: `common`, `specialist`, `client`;
+- на `specialist` router подключён централизованный role-guard;
+- guard блокирует любой вызов specialist handler при `actor != specialist` до входа в handler;
+- specialist handlers не содержат дублирующих проверок роли в каждом обработчике.
+
 Дальше делегировать в:
 - `SpecialistFlowService`
 - `ClientFlowService`

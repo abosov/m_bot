@@ -68,6 +68,14 @@ Planned / TODO (не реализовано в этом этапе):
 
 ---
 
+
+## Role enforcement (централизованная защита specialist-команд)
+- Specialist handlers размещаются в отдельном `specialist` router.
+- На уровень specialist router подключается централизованный role-guard (middleware/filter).
+- Guard проверяет `actor` из контекста update и блокирует вызов specialist handlers при `actor != specialist`.
+- Внутри specialist handlers не требуется дублировать проверку роли в каждом handler.
+- При попытке client вызвать specialist-команду бот возвращает дружелюбный отказ, без проброса исключения наружу.
+
 ## S2.2 Просмотр ближайших записей
 
 **specialist**

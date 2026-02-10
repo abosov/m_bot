@@ -136,20 +136,36 @@ Master bot поддерживает команду `/status`, которая:
 
 Реализован короткий in-memory TTL-кэш профиля (несколько секунд) только для снижения числа запросов к БД. Источник истины — БД.
 
-### 4.5 MVP каркас personal bot (текущий этап)
+### 4.5 Ролевая модель и централизованный role-guard в personal bot
+В personal bot обработчики разделены по роутерам:
+- `handlers/personal_bot/routers/specialist/` — specialist-only команды;
+- `handlers/personal_bot/routers/client/` — client команды/заглушки;
+- `handlers/personal_bot/routers/common/` — общие команды (например `/start`).
+
+На specialist router централизованно подключён middleware role-guard.
+Это означает:
+- любой update с `actor != specialist`, попавший в specialist handler, блокируется автоматически;
+- в handler-ах specialist не дублируются проверки роли;
+- даже если в конкретном handler забыли локальную проверку, client всё равно не попадёт в specialist-flow.
+
+Поведение при нарушении роли:
+- client получает дружелюбный ответ: «Команда доступна только специалисту.»;
+- событие логируется на уровне `info/debug` как штатный отказ доступа;
+- исключения наружу не выбрасываются.
+
 Сейчас в personal bot реализовано:
-- `/start`:
+- `/start` (common):
   - для owner (`actor=specialist`) — «Панель специалиста»;
   - для остальных (`actor=client`) — клиентская заглушка «Запись скоро»;
-- `/status` (и текст «Мой статус») для owner:
+- `/status` (и текст «Мой статус») в specialist router:
   - `specialist.status`,
   - username personal bot,
   - статус Google OAuth,
   - `calendar_id`/`calendar_summary`,
   - `last_smoke_test_status`;
 - `/help`:
-  - для owner — список доступных команд,
-  - для client — заглушка.
+  - specialist router — список команд specialist;
+  - client router — клиентская заглушка.
 
 Клиентский booking flow (US-03) в этом этапе не реализуется.
 

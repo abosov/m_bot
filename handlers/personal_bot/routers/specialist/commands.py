@@ -12,9 +12,7 @@ from database import (
     async_session_factory,
 )
 
-router = Router(name="personal_bot_basic")
-
-_SUPPORT_URL = "https://t.me/zumbot_support"
+router = Router(name="personal_bot_specialist_commands")
 
 
 def _status_to_text(value) -> str:
@@ -50,33 +48,8 @@ async def _load_specialist_state(specialist_id):
     return specialist, active_bot
 
 
-@router.message(Command("start"))
-async def personal_start(
-    message: Message,
-    actor: str,
-    public_name: str | None,
-) -> None:
-    if actor == "specialist":
-        display_name = public_name or "специалист"
-        text = (
-            f"👋 Панель специалиста, {display_name}.\n\n"
-            "Доступно сейчас:\n"
-            "• /status — состояние интеграций\n"
-            "• /help — список команд\n\n"
-            f"Поддержка: {_SUPPORT_URL}"
-        )
-        await message.answer(text)
-        return
-
-    await message.answer("👋 Запись скоро будет доступна. Пока это клиентская заглушка MVP.")
-
-
 @router.message(Command("help"))
-async def personal_help(message: Message, actor: str) -> None:
-    if actor != "specialist":
-        await message.answer("ℹ️ Скоро здесь появится клиентский сценарий записи.")
-        return
-
+async def personal_help(message: Message) -> None:
     await message.answer(
         "Команды специалиста:\n"
         "• /start — панель специалиста\n"
@@ -88,11 +61,7 @@ async def personal_help(message: Message, actor: str) -> None:
 
 @router.message(Command("status"))
 @router.message(F.text == "Мой статус")
-async def personal_status(message: Message, actor: str, specialist_id) -> None:
-    if actor != "specialist":
-        await message.answer("ℹ️ Команда доступна только специалисту-владельцу этого бота.")
-        return
-
+async def personal_status(message: Message, specialist_id) -> None:
     specialist, active_bot = await _load_specialist_state(specialist_id)
     if specialist is None:
         await message.answer("⚠️ Профиль специалиста не найден.")
