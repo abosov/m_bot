@@ -11,11 +11,22 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from database import async_session_factory, MessageLog, LogDirection, TelegramBot, SpecialistProfile
+from services.redaction import redact_exception, redact_text
 
 # Структура кэша: bot_id -> {'id': uuid, 'name': str, 'bot_username': str}
 # В продакшене лучше использовать Redis или TTLCache
 _bot_info_cache: Dict[int, Optional[Dict[str, Any]]] = {}
 logger = logging.getLogger(__name__)
+
+BOT_TOKEN_WAITING_STATE = "waiting_for_bot_token"
+
+
+def _redact_logged_content(content: Optional[str], fsm_state: Optional[str]) -> Optional[str]:
+    if content is None:
+        return None
+    if fsm_state and BOT_TOKEN_WAITING_STATE in fsm_state:
+        return "[REDACTED_BOT_TOKEN]"
+    return redact_text(content)
 
 async def _get_specialist_info(bot_id: int) -> Optional[Dict[str, Any]]:
     """Получает ID специалиста, имя и username бота по ID бота с кэшированием."""
@@ -157,7 +168,7 @@ class StructLoggingMiddleware(BaseMiddleware):
                         user_handle=user_handle,
                         direction=LogDirection.IN,
                         message_type=message_type,
-                        content=content,
+                        content=_redact_logged_content(content, fsm_state),
                         fsm_state=fsm_state,
                         handler_name=handler_name,
                         is_error=False,
@@ -179,7 +190,7 @@ class StructLoggingMiddleware(BaseMiddleware):
             return result
         except Exception as e:
             is_error = True
-            error_details = traceback.format_exc()
+            error_details = redact_exception(traceback.format_exc())
             raise e
         finally:
             # --- Обновление лога ---
@@ -243,7 +254,7 @@ async def log_outbound_message(
                 user_handle=user_handle,
                 direction=LogDirection.OUT,
                 message_type=message_type,
-                content=content,
+                content=redact_text(content),
                 fsm_state=fsm_state,
                 is_error=False,
                 processing_time=0.0
