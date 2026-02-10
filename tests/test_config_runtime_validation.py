@@ -56,7 +56,7 @@ def test_validate_config_skipped_for_test_env(monkeypatch):
     config.validate_config()
 
 
-def test_crypto_works_in_test_without_encryption_key(monkeypatch):
+def test_crypto_import_in_test_without_encryption_key(monkeypatch):
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
 
@@ -66,9 +66,23 @@ def test_crypto_works_in_test_without_encryption_key(monkeypatch):
     importlib.reload(config)
     importlib.reload(crypto)
 
-    encrypted = crypto.encrypt_token("hello")
-    assert encrypted != "hello"
-    assert crypto.decrypt_token(encrypted) == "hello"
+
+def test_crypto_raises_on_use_without_key_in_test(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
+
+    import config
+    import services.crypto as crypto
+
+    importlib.reload(config)
+    importlib.reload(crypto)
+
+    try:
+        crypto.encrypt_token("hello")
+    except RuntimeError as exc:
+        assert "ENCRYPTION_KEY is required" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError when ENCRYPTION_KEY is missing")
 
 
 def test_crypto_raises_in_prod_without_key_in_real_process():

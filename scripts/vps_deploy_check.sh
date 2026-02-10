@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -uo pipefail
+set -euo pipefail
 
 REPO_DIR="/opt/zumbot/backend"
 ENV_FILE="/etc/zumbot/backend.env"
@@ -9,130 +9,184 @@ SOCKET_NAME="zumbot-backend.socket"
 LOCAL_HEALTH_URL="http://127.0.0.1:8000/healthz"
 LOCAL_READYZ_URL="http://127.0.0.1:8000/readyz"
 DOMAIN_BASE_URL="${ZUMBOT_DOMAIN_BASE_URL:-}"
-LOG_PATH="/tmp/zumbot_deploy_$(date +"%Y%m%d_%H%M%S").log"
-RESULT="OK"
 
-mkdir -p /tmp
-exec > >(tee -a "${LOG_PATH}") 2>&1
+FAIL_COUNT=0
 
-echo "== zumbot deploy+check started: $(date -u +"%Y-%m-%dT%H:%M:%SZ") =="
-echo "Log: ${LOG_PATH}"
+ok() {
+  echo "[OK] $1"
+}
 
-run_step() {
+fail() {
   local title="$1"
-  shift
-  echo
-  echo "---- ${title} ----"
-  if ! "$@"; then
-    echo "[FAIL] ${title}"
-    RESULT="FAIL"
-    return 1
+  local hint="$2"
+  echo "[FAIL] ${title}"
+  echo "       hint: ${hint}"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+}
+
+check_git_clean() {
+  local title="git clean"
+  if [[ ! -d "${REPO_DIR}" ]]; then
+    fail "${title}" "Repository not found: ${REPO_DIR}. Clone repo and set correct path."
+    return
   fi
-  echo "[OK] ${title}"
-}
 
-run_step_allow_fail() {
-  local title="$1"
-  shift
-  echo
-  echo "---- ${title} ----"
-  if ! "$@"; then
-    echo "[WARN] ${title}"
-    RESULT="FAIL"
-    return 1
-  fi
-  echo "[OK] ${title}"
-}
-
-run_in_repo_as_zumbot() {
-  local cmd="$1"
-  sudo -u zumbot bash -lc "cd '${REPO_DIR}' && ${cmd}"
-}
-
-require_paths() {
-  [[ -d "${REPO_DIR}" ]] || { echo "Missing repo dir: ${REPO_DIR}"; return 1; }
-  [[ -d "${VENV_DIR}" ]] || { echo "Missing venv dir: ${VENV_DIR}"; return 1; }
-  [[ -f "${ENV_FILE}" ]] || { echo "Missing env file: ${ENV_FILE}"; return 1; }
-}
-
-run_git_update() {
-  run_in_repo_as_zumbot "git fetch --all --prune"
-  run_in_repo_as_zumbot "git pull --ff-only"
-}
-
-run_deps_install() {
-  run_in_repo_as_zumbot "source '${VENV_DIR}/bin/activate' && pip install -r requirements.txt"
-}
-
-run_sql_migrations() {
-  local migration
-  shopt -s nullglob
-  for migration in "${REPO_DIR}"/scripts/migrations/*.sql; do
-    echo "Applying migration: ${migration}"
-    sudo -u postgres psql -v ON_ERROR_STOP=1 "${DB_URL}" -f "${migration}"
-  done
-  shopt -u nullglob
-}
-
-reload_restart_service() {
-  systemctl daemon-reload
-  systemctl restart "${SERVICE_NAME}"
-}
-
-check_health() {
-  curl -fsS "${LOCAL_HEALTH_URL}" >/dev/null
-  curl -fsS "${LOCAL_READYZ_URL}" >/dev/null
-
-  if [[ -n "${DOMAIN_BASE_URL}" ]]; then
-    curl -fsS "${DOMAIN_BASE_URL%/}/healthz" >/dev/null
-    curl -fsS "${DOMAIN_BASE_URL%/}/readyz" >/dev/null
+  if sudo -u zumbot bash -lc "cd '${REPO_DIR}' && git diff --quiet && git diff --cached --quiet" \
+    && [[ -z "$(sudo -u zumbot bash -lc "cd '${REPO_DIR}' && git ls-files --others --exclude-standard")" ]]; then
+    ok "${title}"
+  else
+    fail "${title}" "Working tree is dirty. Commit/stash/remove local changes before deploy."
   fi
 }
 
-run_pytest_test_env() {
-  local test_key
-  test_key="$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
-  run_in_repo_as_zumbot "source '${VENV_DIR}/bin/activate' && APP_ENV=test ENCRYPTION_KEY='${test_key}' pytest"
+check_venv_exists() {
+  local title="venv exists"
+  if [[ -x "${VENV_DIR}/bin/python" ]]; then
+    ok "${title}"
+  else
+    fail "${title}" "Create venv: sudo -u zumbot python3 -m venv ${VENV_DIR}."
+  fi
 }
 
-collect_diagnostics() {
-  systemctl status "${SERVICE_NAME}" --no-pager || true
-  systemctl status "${SOCKET_NAME}" --no-pager || true
-  journalctl -u "${SERVICE_NAME}" -n 300 --no-pager || true
-  nginx -t || true
+check_pip_deps_installed() {
+  local title="pip deps installed"
+  if [[ ! -f "${REPO_DIR}/requirements.txt" ]]; then
+    fail "${title}" "Missing requirements.txt in ${REPO_DIR}."
+    return
+  fi
 
+  if sudo -u zumbot bash -lc "cd '${REPO_DIR}' && source '${VENV_DIR}/bin/activate' && pip install -r requirements.txt >/dev/null && pip check >/dev/null"; then
+    ok "${title}"
+  else
+    fail "${title}" "Install deps: sudo -u zumbot bash -lc 'cd ${REPO_DIR} && source ${VENV_DIR}/bin/activate && pip install -r requirements.txt'."
+  fi
+}
+
+check_env_vars_present() {
+  local title="env vars present"
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    fail "${title}" "Create ${ENV_FILE} with required production variables."
+    return
+  fi
+
+  set +u
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
-  run_in_repo_as_zumbot "source '${VENV_DIR}/bin/activate' && DB_URL='${DB_URL}' bash scripts/db_snapshot.sh"
+  set -u
+
+  local missing=()
+  local required=(APP_ENV MASTER_BOT_TOKEN ENCRYPTION_KEY GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REDIRECT_URI BASE_URL PUBLIC_SITE_URL DB_URL)
+  local key
+  for key in "${required[@]}"; do
+    if [[ -z "${!key:-}" ]]; then
+      missing+=("${key}")
+    fi
+  done
+
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    ok "${title}"
+  else
+    fail "${title}" "Set missing vars in ${ENV_FILE}: ${missing[*]}."
+  fi
+}
+
+check_postgres_reachable() {
+  local title="postgres reachable"
+  set +u
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}" 2>/dev/null || true
+  set -u
+
+  if [[ -z "${DB_URL:-}" ]]; then
+    fail "${title}" "DB_URL is empty in ${ENV_FILE}."
+    return
+  fi
+
+  if [[ "${DB_URL}" != postgres* ]]; then
+    ok "${title} (skipped: non-postgres DB_URL)"
+    return
+  fi
+
+  if command -v pg_isready >/dev/null 2>&1 && pg_isready -d "${DB_URL/+asyncpg/}" >/dev/null 2>&1; then
+    ok "${title}"
+  else
+    fail "${title}" "Check DB_URL, network/firewall, postgres service, and credentials."
+  fi
+}
+
+check_http() {
+  local url="$1"
+  curl -fsS --max-time 5 "${url}" >/dev/null
+}
+
+check_healthz() {
+  local title="/healthz"
+  if check_http "${LOCAL_HEALTH_URL}"; then
+    ok "${title}"
+  else
+    fail "${title}" "Restart service and inspect logs: systemctl restart ${SERVICE_NAME}; journalctl -u ${SERVICE_NAME} -n 200 --no-pager."
+  fi
+}
+
+check_readyz() {
+  local title="/readyz"
+  if check_http "${LOCAL_READYZ_URL}"; then
+    ok "${title}"
+  else
+    fail "${title}" "Verify DB connectivity and ENABLE_READYZ=true in ${ENV_FILE}, then restart service."
+  fi
+}
+
+check_nginx() {
+  local title="nginx -t"
+  if nginx -t >/dev/null 2>&1; then
+    ok "${title}"
+  else
+    fail "${title}" "Fix nginx config and re-run: nginx -t."
+  fi
+}
+
+check_socket_activation() {
+  local title="socket activation"
+  if systemctl is-enabled --quiet "${SOCKET_NAME}" \
+    && systemctl is-active --quiet "${SOCKET_NAME}" \
+    && systemctl is-active --quiet "${SERVICE_NAME}"; then
+    ok "${title}"
+  else
+    fail "${title}" "Enable/start units: systemctl enable --now ${SOCKET_NAME} ${SERVICE_NAME}."
+  fi
 }
 
 if [[ "$(id -u)" -ne 0 ]]; then
-  echo "This script must be run as root (it uses systemctl/journalctl/nginx and sudo -u zumbot)."
-  RESULT="FAIL"
-  echo "RESULT=${RESULT}"
-  echo "LOG_PATH=${LOG_PATH}"
+  echo "This script must be run as root."
+  echo "hint: sudo bash ${REPO_DIR}/scripts/vps_deploy_check.sh"
   exit 1
 fi
 
-run_step "Validate expected paths" require_paths || true
+echo "== zumbot deploy checks =="
+check_git_clean
+check_venv_exists
+check_pip_deps_installed
+check_env_vars_present
+check_postgres_reachable
+check_healthz
+check_readyz
+check_nginx
+check_socket_activation
 
-if [[ -f "${ENV_FILE}" ]]; then
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}"
+if [[ -n "${DOMAIN_BASE_URL}" ]]; then
+  if check_http "${DOMAIN_BASE_URL%/}/healthz" && check_http "${DOMAIN_BASE_URL%/}/readyz"; then
+    ok "external /healthz and /readyz"
+  else
+    fail "external /healthz and /readyz" "Check DNS/nginx upstream and TLS certs for ${DOMAIN_BASE_URL}."
+  fi
 fi
-
-run_step "Git fetch/pull" run_git_update || true
-run_step "Install Python dependencies" run_deps_install || true
-run_step "Run SQL migrations" run_sql_migrations || true
-run_step "Reload and restart systemd service" reload_restart_service || true
-run_step "Health checks" check_health || true
-run_step "Pytest in test env" run_pytest_test_env || true
-run_step_allow_fail "Collect diagnostics" collect_diagnostics || true
 
 echo
-if [[ "${RESULT}" == "OK" ]]; then
+if [[ ${FAIL_COUNT} -eq 0 ]]; then
   echo "RESULT=OK"
-else
-  echo "RESULT=FAIL"
+  exit 0
 fi
-echo "LOG_PATH=${LOG_PATH}"
+
+echo "RESULT=FAIL (${FAIL_COUNT} checks failed)"
+exit 1

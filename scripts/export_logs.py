@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 
-import os
+import argparse
 import sys
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+if __package__ in {None, ""}:
+    from pathlib import Path
 
-import argparse
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+    from scripts._bootstrap import add_project_root_to_syspath
+else:
+    from ._bootstrap import add_project_root_to_syspath
+
+add_project_root_to_syspath()
 import asyncio
 import uuid
 

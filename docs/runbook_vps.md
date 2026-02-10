@@ -1,64 +1,94 @@
-# VPS runbook: deploy + health + diagnostics
+# VPS runbook: ручной деплой без магии
 
-Этот runbook описывает один безопасный способ проверить деплой и собрать диагностику на VPS.
+Ниже — предсказуемый сценарий «одна команда = один шаг» для production VPS.
 
-## 1) Предусловия
+## 0) Предусловия
 
-- Репозиторий backend находится в `/opt/zumbot/backend`.
-- Есть виртуальное окружение `/opt/zumbot/backend/.venv`.
-- Есть файл окружения `/etc/zumbot/backend.env`.
-- systemd unit: `zumbot-backend.service` (и опционально `zumbot-backend.socket`).
+- Repo: `/opt/zumbot/backend`
+- Venv: `/opt/zumbot/backend/.venv`
+- Env: `/etc/zumbot/backend.env`
+- systemd units: `zumbot-backend.service`, `zumbot-backend.socket`
 
-## 2) Как запускать
+## 1) git pull
 
-Запускать **только от root**:
+```bash
+sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && git pull --ff-only'
+```
+
+## 2) установка зависимостей
+
+```bash
+sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && source .venv/bin/activate && pip install -r requirements.txt'
+```
+
+## 3) миграции (если есть)
+
+```bash
+sudo -u postgres psql -v ON_ERROR_STOP=1 "$DB_URL" -f /opt/zumbot/backend/scripts/migrations/20260210_add_specialist_calendar_settings.sql
+```
+
+> Если миграций несколько: применяйте по одной командой на файл в нужном порядке.
+
+## 4) restart systemd
+
+```bash
+sudo systemctl daemon-reload && sudo systemctl restart zumbot-backend.service
+```
+
+## 5) проверка изнутри VPS (/healthz, /readyz)
+
+```bash
+curl -fsS http://127.0.0.1:8000/healthz && echo
+```
+
+```bash
+curl -fsS http://127.0.0.1:8000/readyz && echo
+```
+
+## 6) проверка снаружи VPS (/healthz, /readyz)
+
+```bash
+curl -fsS https://api.zumbot.ru/healthz && echo
+```
+
+```bash
+curl -fsS https://api.zumbot.ru/readyz && echo
+```
+
+## 7) обязательный deploy-check отчёт
 
 ```bash
 sudo bash /opt/zumbot/backend/scripts/vps_deploy_check.sh
 ```
 
-Опционально можно проверить внешний домен (health/ready):
+Скрипт печатает `[OK]/[FAIL]` по пунктам: `git clean`, `venv exists`, `pip deps installed`, `env vars present`, `postgres reachable`, `/healthz`, `/readyz`, `nginx -t`, `socket activation`.
+
+## 8) сбор диагностики и логов
+
+### 8.1 journalctl
 
 ```bash
-sudo ZUMBOT_DOMAIN_BASE_URL="https://api.zumbot.ru" bash /opt/zumbot/backend/scripts/vps_deploy_check.sh
+sudo journalctl -u zumbot-backend.service -n 300 --no-pager
 ```
 
-## 3) Что делает скрипт
+### 8.2 export_logs
 
-Скрипт выполняет шаги:
+```bash
+sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && source .venv/bin/activate && python scripts/export_logs.py --source message_logs --limit 500 --redact --out /tmp/message_logs.jsonl'
+```
 
-1. Проверка структуры (`/opt/zumbot/backend`, `.venv`, `/etc/zumbot/backend.env`).
-2. `git fetch` + `git pull --ff-only` под пользователем `zumbot`.
-3. `pip install -r requirements.txt` в `.venv` под `zumbot`.
-4. Прогон SQL-миграций из `scripts/migrations/*.sql`.
-5. `systemctl daemon-reload` и restart `zumbot-backend.service`.
-6. Проверки `/healthz` и `/readyz` локально (+ через домен, если задан).
-7. `pytest` в `APP_ENV=test` с временным `ENCRYPTION_KEY`.
-8. Диагностика: `systemctl status`, `journalctl`, `nginx -t`, `scripts/db_snapshot.sh`.
+### 8.3 db_snapshot clean (по умолчанию)
 
-Весь вывод пишется в единый лог-файл:
+```bash
+sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && source .venv/bin/activate && bash scripts/db_snapshot.sh --out /tmp/zumbot_logs_dump.sql'
+```
 
-- `/tmp/zumbot_deploy_YYYYmmdd_HHMMSS.log`
+### 8.4 db_snapshot raw (при необходимости)
 
-В конце скрипт печатает:
+```bash
+sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && source .venv/bin/activate && bash scripts/db_snapshot.sh --raw --out /tmp/zumbot_logs_dump_raw.sql'
+```
 
-- `RESULT=OK` или `RESULT=FAIL`
-- `LOG_PATH=/tmp/zumbot_deploy_...log`
+## Planned
 
-## 4) Что нельзя запускать от root в репозитории
-
-Чтобы не сломать права на файлы в git-дереве, **не запускайте от root**:
-
-- `pip install -r requirements.txt` внутри `/opt/zumbot/backend`
-- `pytest` внутри `/opt/zumbot/backend`
-- `git pull`, `git checkout`, `git clean` внутри `/opt/zumbot/backend`
-
-Эти команды должны идти от пользователя `zumbot`.
-
-## 5) Что отправлять для диагностики
-
-Если `RESULT=FAIL`:
-
-1. Пришлите путь из `LOG_PATH`.
-2. Приложите сам лог-файл целиком (`/tmp/zumbot_deploy_*.log`).
-3. Не отправляйте `/etc/zumbot/backend.env` и любые секреты.
+- Автоматический идемпотентный migration-runner для применения *всех* SQL миграций без ручного списка файлов (**planned**).

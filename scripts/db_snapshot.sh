@@ -6,16 +6,18 @@ OUT_PATH=""
 DAYS=""
 ENV_FILE="/etc/zumbot/backend.env"
 DB_URL_OVERRIDE=""
+RAW_DUMP="false"
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/db_snapshot.sh [--env-file PATH] [--db-url URL] [--out PATH] [--days N]
+Usage: scripts/db_snapshot.sh [--env-file PATH] [--db-url URL] [--out PATH] [--days N] [--raw]
 
 Options:
   --env-file PATH   Source env file before DB_URL validation (default: /etc/zumbot/backend.env)
   --db-url URL      Override DB_URL from env/env-file
   --out PATH        Output file path
   --days N          PostgreSQL only: dump only recent records
+  --raw             Keep pg_dump output as-is (including \restrict/\unrestrict)
   -h, --help        Show this help
 
 SQLite:
@@ -25,8 +27,8 @@ PostgreSQL:
   Creates /tmp/zumbot_logs_dump.sql using pg_dump (data-only for log tables).
   Use --days to dump only recent records.
 
-The PostgreSQL dump is plain SQL for psql restore and intentionally uses:
-  --no-owner --no-privileges --column-inserts --quote-all-identifiers
+Default PostgreSQL mode removes pg_dump session lines '\restrict'/'\unrestrict'.
+Use --raw to preserve original output.
 USAGE
 }
 
@@ -47,6 +49,10 @@ while [[ $# -gt 0 ]]; do
     --days)
       DAYS="$2"
       shift 2
+      ;;
+    --raw)
+      RAW_DUMP="true"
+      shift
       ;;
     -h|--help)
       usage
@@ -94,8 +100,12 @@ if [[ "${DB_URL}" == sqlite* ]]; then
     echo "sqlite3 is required for sqlite snapshots." >&2
     exit 1
   fi
+
   sqlite3 "${DB_PATH}" ".backup '${OUT_PATH}'"
-  echo "SQLite snapshot written to ${OUT_PATH}"
+
+  size_bytes="$(wc -c < "${OUT_PATH}" | tr -d ' ')"
+  echo "SQLite snapshot: ${OUT_PATH}"
+  echo "Size: ${size_bytes} bytes"
   exit 0
 fi
 
@@ -150,10 +160,25 @@ if [[ "${DB_URL}" == postgres* ]]; then
   dump_table "bot_health_checks" "checked_at"
 
   umask 077
-  grep -vE '^(\\restrict|\\unrestrict)[[:space:]]' "${TMP_DUMP_PATH}" > "${OUT_PATH}"
+  if [[ "${RAW_DUMP}" == "true" ]]; then
+    cp "${TMP_DUMP_PATH}" "${OUT_PATH}"
+  else
+    grep -vE '^(\\restrict|\\unrestrict)[[:space:]]' "${TMP_DUMP_PATH}" > "${OUT_PATH}"
+  fi
   chmod 600 "${OUT_PATH}"
 
-  echo "PostgreSQL logs dump written to ${OUT_PATH}"
+  size_bytes="$(wc -c < "${OUT_PATH}" | tr -d ' ')"
+  message_logs_inserts="$(grep -c '^INSERT INTO "message_logs"' "${OUT_PATH}" || true)"
+  service_heartbeats_inserts="$(grep -c '^INSERT INTO "service_heartbeats"' "${OUT_PATH}" || true)"
+  bot_health_checks_inserts="$(grep -c '^INSERT INTO "bot_health_checks"' "${OUT_PATH}" || true)"
+
+  echo "PostgreSQL logs dump: ${OUT_PATH}"
+  echo "Mode: $([[ "${RAW_DUMP}" == "true" ]] && echo raw || echo clean)"
+  echo "Size: ${size_bytes} bytes"
+  echo "INSERT counts:"
+  echo "  message_logs: ${message_logs_inserts}"
+  echo "  service_heartbeats: ${service_heartbeats_inserts}"
+  echo "  bot_health_checks: ${bot_health_checks_inserts}"
   exit 0
 fi
 

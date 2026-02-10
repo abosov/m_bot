@@ -4,7 +4,6 @@ from cryptography.fernet import Fernet
 
 import config
 
-_TEST_FERNET_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 _cipher = None
 _cipher_key = None
 
@@ -14,10 +13,10 @@ def _resolve_key() -> str:
     if key:
         return key
 
-    if config.is_test_env():
-        return _TEST_FERNET_KEY
-
-    raise RuntimeError("ENCRYPTION_KEY is required for encryption. Set ENCRYPTION_KEY in env.")
+    raise RuntimeError(
+        "ENCRYPTION_KEY is required to encrypt/decrypt tokens. "
+        "Set ENCRYPTION_KEY in environment."
+    )
 
 
 def _get_cipher() -> Fernet:
