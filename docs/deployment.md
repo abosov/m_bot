@@ -335,12 +335,10 @@ git pull origin <branch>
 
 ```bash
 # SQLite
-DB_URL=sqlite+aiosqlite:///./mvp.db scripts/db_snapshot.sh --out /tmp/zumbot_snapshot.db
+bash scripts/db_snapshot.sh --db-url sqlite+aiosqlite:///./mvp.db --out /tmp/zumbot_snapshot.db
 
 # PostgreSQL (последние 7 дней)
-DB_URL=postgresql+asyncpg://user@localhost:5432/zumbot \
-  PGHOST=127.0.0.1 PGUSER=readonly PGDATABASE=zumbot \
-  scripts/db_snapshot.sh --days 7 --out /tmp/zumbot_logs_dump.sql
+bash scripts/db_snapshot.sh --env-file /etc/zumbot/backend.env --days 7 --out /tmp/zumbot_logs_dump.sql
 ```
 
 ### Безопасное скачивание на локальную машину
@@ -399,7 +397,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 APP_ENV=test pytest -q
 ```bash
 cd /opt/zumbot/backend
 python scripts/export_logs.py --help
-python scripts/export_logs.py --source message_logs --since 2026-01-01T00:00:00Z --limit 500 --redact --out /tmp/message_logs.jsonl
+python -m scripts.export_logs --source message_logs --since 2026-01-01T00:00:00Z --limit 500 --redact --out /tmp/message_logs.jsonl
 ```
 
 ### Снапшот лог-таблиц БД
@@ -408,8 +406,7 @@ python scripts/export_logs.py --source message_logs --since 2026-01-01T00:00:00Z
 
 ```bash
 cd /opt/zumbot/backend
-source /etc/zumbot/backend.env
-scripts/db_snapshot.sh --days 7 --out /tmp/zumbot_logs_dump.sql
+bash scripts/db_snapshot.sh --env-file /etc/zumbot/backend.env --days 7 --out /tmp/zumbot_logs_dump.sql
 ```
 
 Применение дампа в PostgreSQL:

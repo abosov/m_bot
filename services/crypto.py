@@ -6,6 +6,7 @@ import config
 
 _TEST_FERNET_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 _cipher = None
+_cipher_key = None
 
 
 def _resolve_key() -> str:
@@ -20,12 +21,14 @@ def _resolve_key() -> str:
 
 
 def _get_cipher() -> Fernet:
-    global _cipher
-    if _cipher is not None:
+    global _cipher, _cipher_key
+    key = _resolve_key()
+
+    if _cipher is not None and _cipher_key == key:
         return _cipher
 
-    key = _resolve_key()
     _cipher = Fernet(key)
+    _cipher_key = key
     return _cipher
 
 

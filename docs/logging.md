@@ -88,12 +88,13 @@ python scripts/export_logs.py \
 Примеры:
 ```bash
 # SQLite (локально или на VPS с sqlite)
-DB_URL=sqlite+aiosqlite:///./mvp.db scripts/db_snapshot.sh --out /tmp/zumbot_snapshot.db
+bash scripts/db_snapshot.sh --db-url sqlite+aiosqlite:///./mvp.db --out /tmp/zumbot_snapshot.db
 
 # PostgreSQL (только последние 7 дней)
-DB_URL=postgresql+asyncpg://user@localhost:5432/zumbot \
-  PGHOST=127.0.0.1 PGUSER=readonly PGDATABASE=zumbot \
-  scripts/db_snapshot.sh --days 7 --out /tmp/zumbot_logs_dump.sql
+bash scripts/db_snapshot.sh --env-file /etc/zumbot/backend.env --days 7 --out /tmp/zumbot_logs_dump.sql
+
+# или прямой URL (переопределяет DB_URL)
+bash scripts/db_snapshot.sh --db-url postgresql+asyncpg://user@localhost:5432/zumbot --days 7 --out /tmp/zumbot_logs_dump.sql
 ```
 
 ## Закрытый admin API (опционально)
@@ -131,7 +132,7 @@ psql "host=127.0.0.1 port=15432 dbname=zumbot user=readonly"
 ### SQLite (снапшот + scp + открытие локально)
 ```bash
 # На VPS
-DB_URL=sqlite+aiosqlite:///./mvp.db scripts/db_snapshot.sh --out /tmp/zumbot_snapshot.db
+bash scripts/db_snapshot.sh --db-url sqlite+aiosqlite:///./mvp.db --out /tmp/zumbot_snapshot.db
 
 # Скачиваем
 scp user@vps-host:/tmp/zumbot_snapshot.db ./zumbot_snapshot.db
@@ -244,14 +245,13 @@ sqlite3 ./zumbot_snapshot.db ".tables"
 
 ```bash
 python scripts/export_logs.py --help
-python scripts/export_logs.py --source message_logs --since 2026-01-01T00:00:00Z --limit 1000 --format jsonl --out /tmp/message_logs.jsonl
+python -m scripts.export_logs --source message_logs --since 2026-01-01T00:00:00Z --limit 1000 --format jsonl --out /tmp/message_logs.jsonl
 ```
 
 ### db_snapshot.sh
 
 ```bash
-source /etc/zumbot/backend.env
-scripts/db_snapshot.sh --days 3 --out /tmp/zumbot_logs_dump.sql
+bash scripts/db_snapshot.sh --env-file /etc/zumbot/backend.env --days 3 --out /tmp/zumbot_logs_dump.sql
 ```
 
 Для PostgreSQL используется plain SQL дамп с флагами `--no-owner --no-privileges --column-inserts --quote-all-identifiers` для большей переносимости между окружениями.

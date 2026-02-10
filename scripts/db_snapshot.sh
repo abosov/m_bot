@@ -4,13 +4,19 @@ set -euo pipefail
 DB_URL="${DB_URL:-}"
 OUT_PATH=""
 DAYS=""
+ENV_FILE=""
+DB_URL_OVERRIDE=""
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/db_snapshot.sh [--out PATH] [--days N]
+Usage: scripts/db_snapshot.sh [--env-file PATH] [--db-url URL] [--out PATH] [--days N]
 
-Before run on server, load env:
-  source /etc/zumbot/backend.env
+Options:
+  --env-file PATH   Source env file before DB_URL validation (e.g. /etc/zumbot/backend.env)
+  --db-url URL      Override DB_URL from env/env-file
+  --out PATH        Output file path
+  --days N          PostgreSQL only: dump only recent records
+  -h, --help        Show this help
 
 SQLite:
   Creates /tmp/zumbot_snapshot.db using sqlite3 .backup.
@@ -26,6 +32,14 @@ USAGE
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --env-file)
+      ENV_FILE="$2"
+      shift 2
+      ;;
+    --db-url)
+      DB_URL_OVERRIDE="$2"
+      shift 2
+      ;;
     --out)
       OUT_PATH="$2"
       shift 2
@@ -46,8 +60,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "${ENV_FILE}" ]]; then
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    echo "Env file does not exist: ${ENV_FILE}" >&2
+    exit 1
+  fi
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+fi
+
+if [[ -n "${DB_URL_OVERRIDE}" ]]; then
+  DB_URL="${DB_URL_OVERRIDE}"
+fi
+
 if [[ -z "${DB_URL}" ]]; then
-  echo "DB_URL is not set. Example: source /etc/zumbot/backend.env && scripts/db_snapshot.sh" >&2
+  echo "DB_URL is not set. Use --env-file /etc/zumbot/backend.env or --db-url <URL>." >&2
   exit 1
 fi
 

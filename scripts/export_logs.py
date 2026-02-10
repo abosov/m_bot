@@ -19,7 +19,16 @@ def parse_uuid(value: str) -> uuid.UUID:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Export Zumbot logs to JSONL or CSV.")
+    parser = argparse.ArgumentParser(
+        description="Export Zumbot logs to JSONL or CSV.",
+        epilog=(
+            "Example:\n"
+            "  python scripts/export_logs.py --source message_logs "
+            "--since 2026-01-01T00:00:00Z --limit 500 --redact "
+            "--out /tmp/message_logs.jsonl"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
         "--source",
         choices=["message_logs", "service_heartbeats", "bot_health_checks"],

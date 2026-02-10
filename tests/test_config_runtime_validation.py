@@ -4,7 +4,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 def _clear_core_env(monkeypatch):
     for key in [
         "MASTER_BOT_TOKEN",
@@ -70,6 +69,25 @@ def test_crypto_works_in_test_without_encryption_key(monkeypatch):
     encrypted = crypto.encrypt_token("hello")
     assert encrypted != "hello"
     assert crypto.decrypt_token(encrypted) == "hello"
+
+
+def test_crypto_raises_in_prod_without_key_in_real_process():
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import services.crypto as c; c.encrypt_token('hello')",
+        ],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        env={"APP_ENV": "prod"},
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "ENCRYPTION_KEY is required" in (result.stderr + result.stdout)
 
 
 def test_export_logs_help_works_from_any_cwd():
