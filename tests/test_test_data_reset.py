@@ -23,11 +23,13 @@ def load_modules(tmp_path, monkeypatch):
     import config
     import database
     import services.test_data_reset as test_data_reset
+    import services.test_data_snapshot as test_data_snapshot
 
     importlib.reload(config)
     importlib.reload(database)
     importlib.reload(test_data_reset)
-    return database, test_data_reset
+    importlib.reload(test_data_snapshot)
+    return database, test_data_reset, test_data_snapshot
 
 
 async def seed_data(database):
@@ -194,7 +196,7 @@ async def seed_data(database):
 
 @pytest.mark.asyncio
 async def test_cleanup_dry_run_keeps_rows(tmp_path, monkeypatch):
-    database, test_data_reset = load_modules(tmp_path, monkeypatch)
+    database, test_data_reset, _ = load_modules(tmp_path, monkeypatch)
     async with database.engine.begin() as conn:
         await conn.run_sync(database.Base.metadata.create_all)
 
@@ -234,7 +236,7 @@ async def test_cleanup_dry_run_keeps_rows(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cleanup_apply_deletes_only_target_scope(tmp_path, monkeypatch):
-    database, test_data_reset = load_modules(tmp_path, monkeypatch)
+    database, test_data_reset, _ = load_modules(tmp_path, monkeypatch)
     async with database.engine.begin() as conn:
         await conn.run_sync(database.Base.metadata.create_all)
 
@@ -285,3 +287,65 @@ async def test_cleanup_apply_deletes_only_target_scope(tmp_path, monkeypatch):
     assert target_exists is None
     assert other_exists == seeded["specialist_other"]
     assert other_clients == 1
+
+
+@pytest.mark.asyncio
+async def test_snapshot_restore_keeps_original_uuids(tmp_path, monkeypatch):
+    database, _, test_data_snapshot = load_modules(tmp_path, monkeypatch)
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    seeded = await seed_data(database)
+
+    registry_path = tmp_path / "test_accounts.yaml"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "accounts": [
+                    {"name": "smoke_specialist_1", "role": "specialist_owner", "tg_user_id": 111},
+                    {"name": "smoke_client_1", "role": "client", "tg_user_id": 222},
+                    {"name": "smoke_client_2", "role": "client", "tg_user_id": 223},
+                ],
+                "notes": "test",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    save_report = await test_data_snapshot.create_test_data_snapshot(
+        session_factory=database.async_session_factory,
+        baseline_name="baseline_smoke",
+        registry_path=registry_path,
+    )
+    assert save_report["table_counts"]["specialist"] == 1
+    assert save_report["table_counts"]["client"] == 2
+
+    restore_report = await test_data_snapshot.restore_test_data_snapshot(
+        session_factory=database.async_session_factory,
+        baseline_name="baseline_smoke",
+        registry_path=registry_path,
+    )
+    assert restore_report["restored_counts"]["specialist"] == 1
+
+    async with database.async_session_factory() as session:
+        target_exists = await session.scalar(
+            select(database.Specialist.specialist_id).where(
+                database.Specialist.specialist_id == seeded["specialist_target"]
+            )
+        )
+        other_exists = await session.scalar(
+            select(database.Specialist.specialist_id).where(
+                database.Specialist.specialist_id == seeded["specialist_other"]
+            )
+        )
+        clients = (
+            await session.execute(
+                select(database.Client.client_id).where(
+                    database.Client.specialist_id == seeded["specialist_target"]
+                )
+            )
+        ).scalars().all()
+
+    assert target_exists == seeded["specialist_target"]
+    assert other_exists == seeded["specialist_other"]
+    assert len(clients) == 2

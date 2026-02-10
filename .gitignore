@@ -9,3 +9,5 @@ codex.patch
 .venv/
 
 config/test_accounts.yaml
+
+var/test_snapshots/
