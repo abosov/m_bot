@@ -98,6 +98,47 @@ Webhook URL содержит секрет:
 - encryption key
 - OAuth authorization code
 
+Дополнительное обязательное правило для reverse-proxy (nginx):
+- для маршрута `/tg/webhook/{bot_id}/{secret}` **нельзя** логировать полный URI
+  (`$request_uri`/`$uri?$args`), потому что путь содержит `webhook_secret`;
+- в access-лог должен попадать только маскированный путь вида
+  `/tg/webhook/<bot_id>/***`;
+- query string для webhook-запросов не логируется.
+
+Рекомендованная схема настройки:
+1. `map $uri $sanitized_path` — подмена секрета в 4-м сегменте пути на `***`.
+2. `log_format` использует `$sanitized_path` (а не `$request_uri`).
+3. `access_log` для API использует этот `log_format`.
+4. после изменений обязательно выполнить `nginx -t` и reload.
+
+Пример (минимально необходимый):
+```nginx
+map $uri $sanitized_path {
+    default $uri;
+    ~^/tg/webhook/([0-9]+)/[^/]+$ /tg/webhook/$1/***;
+}
+
+log_format api_main
+    '$remote_addr - [$time_local] '
+    '"$request_method $sanitized_path $server_protocol" $status $body_bytes_sent';
+
+server {
+    listen 443 ssl;
+    server_name api.example.com;
+
+    access_log /var/log/nginx/api_access.log api_main;
+
+    location /tg/webhook/ {
+        proxy_pass http://127.0.0.1:8000;
+    }
+}
+```
+
+Проверка после релоуда:
+- отправить тестовый POST на webhook URL;
+- убедиться, что в access-логе нет исходного `webhook_secret`,
+  а записан только `/tg/webhook/<bot_id>/***`.
+
 Разрешено логировать:
 - `specialist_id`
 - `bot_id`

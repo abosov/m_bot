@@ -35,6 +35,73 @@ loop и т.п. Источники: `service_heartbeats`, `bot_health_checks`.
 Если нужно указать причину ошибки — пишется краткий тип/код ошибки
 без деталей, содержащих секреты.
 
+### Обязательное правило для webhook URL
+- Для запросов на `POST /tg/webhook/{bot_id}/{secret}` **запрещено** писать в access-лог
+  полный URI (`$request_uri`/`$uri?$args`), так как путь содержит `webhook_secret`.
+- Для webhook-маршрута используйте либо:
+  1) отключение access-лога, либо
+  2) отдельный `log_format` с маскированным путём.
+
+Рекомендуемый вариант для MVP — отдельный формат с маской и явным `map`.
+
+Пример `nginx` (проверяемый):
+```nginx
+# 1) Выделяем webhook path и скрываем secret в 4-м сегменте пути
+map $uri $sanitized_path {
+    default $uri;
+    ~^/tg/webhook/([0-9]+)/[^/]+$ /tg/webhook/$1/***;
+}
+
+# 2) Отмечаем, что это webhook endpoint
+map $uri $is_webhook_route {
+    default 0;
+    ~^/tg/webhook/[0-9]+/[^/]+$ 1;
+}
+
+# 2.1) Флаги для условного access_log
+map $is_webhook_route $log_webhook_only {
+    default 0;
+    1 1;
+}
+map $is_webhook_route $log_non_webhook_only {
+    default 1;
+    1 0;
+}
+
+# 3) Форматы логов: общий и webhook-safe
+log_format api_main
+    '$remote_addr - $remote_user [$time_local] '
+    '"$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"';
+
+log_format api_webhook_safe
+    '$remote_addr - $remote_user [$time_local] '
+    '"$request_method $sanitized_path $server_protocol" '
+    '$status $body_bytes_sent "$http_referer" "$http_user_agent"';
+
+server {
+    listen 443 ssl;
+    server_name api.example.com;
+
+    # Для не-webhook маршрутов можно оставлять обычный формат.
+    access_log /var/log/nginx/api_access.log api_main if=$log_non_webhook_only;
+
+    # Для webhook маршрута используем отдельный формат с маскированным путём.
+    access_log /var/log/nginx/api_webhook_access.log api_webhook_safe if=$log_webhook_only;
+
+    location /tg/webhook/ {
+        proxy_pass http://127.0.0.1:8000;
+    }
+}
+```
+
+Практический чек-лист настройки:
+1. В `log_format` не использовать `$request_uri` для webhook-трафика.
+2. Маскировать 4-й сегмент пути (`{secret}`) через `map`.
+3. Не логировать query string для webhook endpoint.
+4. Проверить конфиг: `nginx -t`, затем `systemctl reload nginx`.
+5. Выполнить тестовый запрос на `/tg/webhook/<bot_id>/<secret>` и убедиться,
+   что в access-логе виден только `/tg/webhook/<bot_id>/***`.
+
 ## Операционные инструменты для логов (MVP+)
 
 ### Export (JSONL/CSV)
