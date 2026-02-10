@@ -27,13 +27,35 @@ sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && git pull --ff-only'
 sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && source .venv/bin/activate && pip install -r requirements.txt'
 ```
 
-## 3) миграции (если есть)
+## 3) миграции
+
+Рекомендуемый способ — через `scripts/vps_deploy_check.sh`: скрипт сам
+
+- нормализует `DB_URL` в DSN формата `postgresql://...` (поддерживает `postgresql+asyncpg://`, `postgres://`, `postgresql://`);
+- проверяет, что в `DB_URL` указан `dbname` (если нет — завершает проверку с `FAIL`);
+- делает self-check подключения через `psql` (`SELECT 1`);
+- применяет **все** `scripts/migrations/*.sql` в лексикографическом порядке;
+- запускает `psql` с `ON_ERROR_STOP=1`, поэтому любая ошибка миграции останавливает деплой с `exit 1`.
+
+> Скрипт не печатает полный DSN/`DB_URL` в логах, чтобы не утекали секреты.
+
+Для ручного запуска (диагностика):
 
 ```bash
-sudo -u postgres psql -v ON_ERROR_STOP=1 "$DB_URL" -f /opt/zumbot/backend/scripts/migrations/20260210_add_specialist_calendar_settings.sql
+cd /opt/zumbot/backend
+mapfile -t files < <(find scripts/migrations -maxdepth 1 -type f -name '*.sql' | sort)
+for f in "${files[@]}"; do
+  sudo -u zumbot psql "${DB_URL/postgresql+asyncpg:\/\//postgresql://}" -v ON_ERROR_STOP=1 -f "$f"
+done
 ```
 
-> Если миграций несколько: применяйте по одной командой на файл в нужном порядке.
+Диагностика ошибок миграций:
+
+1. Проверить, что `DB_URL` задан и содержит имя БД после `/` (например `...:5432/zumbot_db`).
+2. Проверить доступность `psql`: `psql --version`.
+3. Проверить подключение без запуска миграций:
+   `sudo -u zumbot psql "${DB_URL/postgresql+asyncpg:\/\//postgresql://}" -v ON_ERROR_STOP=1 -tAc 'SELECT 1'`.
+4. Если шаг `Run SQL migrations` в `vps_deploy_check.sh` вернул `[FAIL]`, смотреть stderr `psql` и исправлять проблемный SQL-файл.
 
 ## 4) restart systemd
 
@@ -111,6 +133,3 @@ cd /opt/zumbot/backend
 bash scripts/db_snapshot.sh --raw --out /tmp/zumbot_logs_dump_raw.sql
 ```
 
-## Planned
-
-- Автоматический идемпотентный migration-runner для применения *всех* SQL миграций без ручного списка файлов (**planned**).

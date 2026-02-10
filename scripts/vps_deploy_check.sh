@@ -10,6 +10,7 @@ LOCAL_HEALTH_URL="http://127.0.0.1:8000/healthz"
 LOCAL_READYZ_URL="http://127.0.0.1:8000/readyz"
 DOMAIN_BASE_URL="${ZUMBOT_DOMAIN_BASE_URL:-}"
 VERBOSE="${VERBOSE:-0}"
+RESULT="OK"
 
 OK_COUNT=0
 FAIL_COUNT=0
@@ -133,10 +134,97 @@ check_postgres_reachable() {
 
   if command -v pg_isready >/dev/null 2>&1 && pg_isready -d "${DB_URL/+asyncpg/}" >/dev/null 2>&1; then
     log_check "OK" "${title}" "pg_isready succeeded"
-    print_verbose "pg_isready target: ${DB_URL/+asyncpg/}"
   else
     log_check "FAIL" "${title}" "pg_isready failed"
   fi
+}
+
+normalize_db_url_to_pg_dsn() {
+  local raw_db_url="$1"
+  local normalized
+
+  if [[ "${raw_db_url}" == postgresql+asyncpg://* ]]; then
+    normalized="postgresql://${raw_db_url#postgresql+asyncpg://}"
+  elif [[ "${raw_db_url}" == postgres://* ]]; then
+    normalized="postgresql://${raw_db_url#postgres://}"
+  elif [[ "${raw_db_url}" == postgresql://* ]]; then
+    normalized="${raw_db_url}"
+  else
+    echo "unsupported DB_URL scheme" >&2
+    return 1
+  fi
+
+  local without_query="${normalized%%\?*}"
+  local authority_and_path="${without_query#*://}"
+  if [[ "${authority_and_path}" != */* ]]; then
+    echo "DB_URL must include dbname path" >&2
+    return 1
+  fi
+
+  local dbname="${authority_and_path#*/}"
+  if [[ -z "${dbname}" ]]; then
+    echo "DB_URL dbname is empty" >&2
+    return 1
+  fi
+
+  printf '%s\n' "${normalized}"
+}
+
+run_sql_migrations() {
+  local title="Run SQL migrations"
+  local migrations_dir="${REPO_DIR}/scripts/migrations"
+
+  if [[ ! -d "${migrations_dir}" ]]; then
+    log_check "OK" "${title}" "skipped (no ${migrations_dir})"
+    return
+  fi
+
+  set +u
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}" 2>/dev/null || true
+  set -u
+
+  if [[ -z "${DB_URL:-}" ]]; then
+    log_check "FAIL" "${title}" "DB_URL is empty"
+    RESULT="FAIL"
+    exit 1
+  fi
+
+  local pg_dsn
+  if ! pg_dsn="$(normalize_db_url_to_pg_dsn "${DB_URL}")"; then
+    log_check "FAIL" "${title}" "invalid DB_URL format (pgsql dbname is required)"
+    RESULT="FAIL"
+    exit 1
+  fi
+
+  if ! command -v psql >/dev/null 2>&1; then
+    log_check "FAIL" "${title}" "psql is not installed"
+    RESULT="FAIL"
+    exit 1
+  fi
+
+  if ! sudo -u zumbot psql "${pg_dsn}" -v ON_ERROR_STOP=1 -tAc 'SELECT 1' >/dev/null; then
+    log_check "FAIL" "${title}" "psql connection self-check failed"
+    RESULT="FAIL"
+    exit 1
+  fi
+
+  mapfile -t migration_files < <(find "${migrations_dir}" -maxdepth 1 -type f -name '*.sql' | sort)
+  if [[ ${#migration_files[@]} -eq 0 ]]; then
+    log_check "OK" "${title}" "no SQL migrations found"
+    return
+  fi
+
+  local migration
+  for migration in "${migration_files[@]}"; do
+    if ! sudo -u zumbot psql "${pg_dsn}" -v ON_ERROR_STOP=1 -f "${migration}" >/dev/null; then
+      log_check "FAIL" "${title}" "migration failed: $(basename "${migration}")"
+      RESULT="FAIL"
+      exit 1
+    fi
+  done
+
+  log_check "OK" "${title}" "applied ${#migration_files[@]} SQL migration(s)"
 }
 
 check_http() {
@@ -205,30 +293,37 @@ check_external_endpoints() {
   fi
 }
 
-if [[ "$(id -u)" -ne 0 ]]; then
-  echo "This script must be run as root."
-  echo "hint: sudo bash ${REPO_DIR}/scripts/vps_deploy_check.sh"
+main() {
+  if [[ "$(id -u)" -ne 0 ]]; then
+    echo "This script must be run as root."
+    echo "hint: sudo bash ${REPO_DIR}/scripts/vps_deploy_check.sh"
+    exit 1
+  fi
+
+  echo "== zumbot deploy checks =="
+  check_git_clean
+  check_venv_exists
+  check_pip_deps_installed
+  check_env_vars_present
+  check_postgres_reachable
+  run_sql_migrations
+  check_healthz
+  check_readyz
+  check_nginx
+  check_socket_activation
+  check_external_endpoints
+
+  echo
+  echo "SUMMARY: OK=${OK_COUNT} FAIL=${FAIL_COUNT}"
+  if [[ ${FAIL_COUNT} -eq 0 && "${RESULT}" == "OK" ]]; then
+    echo "EXIT_CODE=0"
+    exit 0
+  fi
+
+  echo "EXIT_CODE=1"
   exit 1
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
 fi
-
-echo "== zumbot deploy checks =="
-check_git_clean
-check_venv_exists
-check_pip_deps_installed
-check_env_vars_present
-check_postgres_reachable
-check_healthz
-check_readyz
-check_nginx
-check_socket_activation
-check_external_endpoints
-
-echo
-echo "SUMMARY: OK=${OK_COUNT} FAIL=${FAIL_COUNT}"
-if [[ ${FAIL_COUNT} -eq 0 ]]; then
-  echo "EXIT_CODE=0"
-  exit 0
-fi
-
-echo "EXIT_CODE=1"
-exit 1
