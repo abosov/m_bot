@@ -79,6 +79,12 @@ if [[ "${DB_URL}" == postgres* ]]; then
   : > "${OUT_PATH}"
   echo "-- Zumbot logs snapshot" >> "${OUT_PATH}"
   echo "-- Generated at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "${OUT_PATH}"
+  echo "-- Tables: message_logs(created_at), service_heartbeats(ts), bot_health_checks(checked_at)" >> "${OUT_PATH}"
+  if [[ -n "${DAYS}" ]]; then
+    echo "-- Range: last ${DAYS} days" >> "${OUT_PATH}"
+  else
+    echo "-- Range: all available records" >> "${OUT_PATH}"
+  fi
 
   dump_table() {
     local table_name="$1"
@@ -102,7 +108,7 @@ if [[ "${DB_URL}" == postgres* ]]; then
       dump_opts+=(--where="${where_clause}")
     fi
 
-    pg_dump "${dump_opts[@]}" >> "${OUT_PATH}"
+    pg_dump "${dump_opts[@]}" | sed '/^\\restrict /d; /^\\unrestrict /d' >> "${OUT_PATH}"
   }
 
   dump_table "message_logs" "created_at"
@@ -110,7 +116,6 @@ if [[ "${DB_URL}" == postgres* ]]; then
   dump_table "bot_health_checks" "checked_at"
 
   echo "PostgreSQL logs dump written to ${OUT_PATH}"
-  echo "Note: if your pg_dump adds \\unrestrict markers, they are psql metacommands from newer PostgreSQL clients and are safe when restoring with psql." 
   exit 0
 fi
 
