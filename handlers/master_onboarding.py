@@ -5,7 +5,7 @@ import traceback
 import logging
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from aiogram import Router, F, types, Bot
@@ -169,7 +169,7 @@ async def _log_error_to_db(bot: Bot, tg_user_id: int, error_text: str, handler_n
                 is_error=True,
                 error_details=error_text,
                 handler_name=handler_name,
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             session.add(log_entry)
             await session.commit()
@@ -778,7 +778,7 @@ async def _upsert_calendar_settings(
     async with async_session_factory() as session:
         stmt = select(SpecialistCalendarSettings).where(SpecialistCalendarSettings.specialist_id == specialist_id)
         settings = (await session.execute(stmt)).scalar_one_or_none()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         if not settings:
             settings = SpecialistCalendarSettings(
@@ -1022,7 +1022,7 @@ async def calendar_retest(callback: types.CallbackQuery):
                 settings = (await session.execute(select(SpecialistCalendarSettings).where(SpecialistCalendarSettings.specialist_id == auth.specialist_id))).scalar_one_or_none()
                 if settings:
                     settings.last_smoke_test_status = "failed"
-                    settings.last_smoke_test_at = datetime.utcnow()
+                    settings.last_smoke_test_at = datetime.now(timezone.utc)
                     settings.last_smoke_test_error = str(exc)[:255]
                     await session.commit()
 

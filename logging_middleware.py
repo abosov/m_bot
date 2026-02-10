@@ -1,3 +1,4 @@
+import logging
 import time
 import traceback
 import uuid
@@ -14,6 +15,7 @@ from database import async_session_factory, MessageLog, LogDirection, TelegramBo
 # Структура кэша: bot_id -> {'id': uuid, 'name': str, 'bot_username': str}
 # В продакшене лучше использовать Redis или TTLCache
 _bot_info_cache: Dict[int, Optional[Dict[str, Any]]] = {}
+logger = logging.getLogger(__name__)
 
 async def _get_specialist_info(bot_id: int) -> Optional[Dict[str, Any]]:
     """Получает ID специалиста, имя и username бота по ID бота с кэшированием."""
@@ -136,7 +138,11 @@ class StructLoggingMiddleware(BaseMiddleware):
                 bot_username = me.username
                 
         except Exception:
-            pass
+            logger.warning(
+                "Failed to resolve specialist info for bot_id=%s",
+                bot_id,
+                exc_info=True,
+            )
 
         # --- Предварительная запись входящего лога ---
         try:
@@ -162,7 +168,7 @@ class StructLoggingMiddleware(BaseMiddleware):
                     inbound_log_id = log_entry.id
                     await session.commit()
         except Exception as log_exc:
-            print(f"FAILED TO WRITE INBOUND LOG: {log_exc}")
+            logger.warning("FAILED TO WRITE INBOUND LOG", exc_info=True)
 
         # --- Выполнение хендлера и перехват ошибок ---
         is_error = False
@@ -189,7 +195,7 @@ class StructLoggingMiddleware(BaseMiddleware):
                             log_entry.processing_time = processing_time
                         await session.commit()
             except Exception as log_exc:
-                print(f"FAILED TO WRITE LOG: {log_exc}")
+                logger.warning("FAILED TO WRITE LOG", exc_info=True)
 
 
 async def log_outbound_message(
@@ -245,4 +251,4 @@ async def log_outbound_message(
             session.add(log_entry)
             await session.commit()
     except Exception as e:
-        print(f"FAILED TO WRITE OUTBOUND LOG: {e}")
+        logger.warning("FAILED TO WRITE OUTBOUND LOG", exc_info=True)

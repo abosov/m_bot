@@ -139,6 +139,7 @@ DATABASE_URL = _require_in_prod("DB_URL", DATABASE_URL)
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "backend")
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
+MAX_WEBHOOK_BODY_BYTES = int(os.getenv("MAX_WEBHOOK_BODY_BYTES", "1000000"))
 
 
 def validate_config() -> None:

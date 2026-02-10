@@ -72,3 +72,36 @@ def test_personal_webhook_returns_404_for_invalid_secret(monkeypatch):
     response = client.post("/tg/webhook/123/wrong", json={"update_id": 1})
 
     assert response.status_code == 404
+
+
+def test_personal_webhook_returns_413_for_oversized_payload(monkeypatch):
+    called = {"value": False}
+
+    class Session:
+        async def execute(self, stmt):
+            bot = types.SimpleNamespace(
+                bot_user_id=123,
+                specialist_id=uuid.uuid4(),
+                webhook_secret="secret",
+                status=TelegramBotStatus.active,
+            )
+            return Result(bot)
+
+    async def fake_process_update(bot, raw_update):
+        called["value"] = True
+
+    monkeypatch.setattr(web_server, "async_session_factory", lambda: DummySessionCtx(Session()))
+    monkeypatch.setattr(web_server, "process_update", fake_process_update)
+    monkeypatch.setattr(web_server, "MAX_WEBHOOK_BODY_BYTES", 200)
+
+    client = TestClient(web_server.app)
+    body = "x" * 300
+    response = client.post(
+        "/tg/webhook/123/secret",
+        data=body,
+        headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": "payload_too_large"}
+    assert called["value"] is False

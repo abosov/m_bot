@@ -4,6 +4,7 @@ import asyncio
 import os
 import logging
 import signal
+import sys
 import uvicorn
 
 # Настройка логирования
@@ -129,8 +130,9 @@ async def main():
                     raise task.exception()
     except asyncio.CancelledError:
         logger.info("Main tasks cancelled, shutting down...")
-    except Exception as e:
-        logger.error(f"Unexpected error in main loop: {e}")
+    except Exception:
+        logger.error("Unexpected error in main loop", exc_info=True)
+        raise
     finally:
         # Корректное завершение при ошибке или отмене
         if not bot_task.done():
@@ -158,3 +160,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         logger.info("🛑 Application stopped manually.")
+        raise
+    except Exception:
+        logger.error("Fatal startup error", exc_info=True)
+        sys.exit(1)

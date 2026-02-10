@@ -1,9 +1,10 @@
 import uuid
+import json
 import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select, update
@@ -65,6 +66,8 @@ HEARTBEAT_WRITE_INTERVAL_SEC = 60.0
 SERVICE_NAME = config.SERVICE_NAME
 LAST_HEARTBEAT_WRITE_TS = 0.0
 HEARTBEAT_WRITE_LOCK = asyncio.Lock()
+
+MAX_WEBHOOK_BODY_BYTES = config.MAX_WEBHOOK_BODY_BYTES
 
 # Инициализируем бота для отправки уведомлений (используем тот же токен)
 bot = None
@@ -192,11 +195,58 @@ async def _write_service_heartbeat(
 
 
 
+async def _read_request_body_with_limit(request: Request, max_bytes: int) -> bytes | None:
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > max_bytes:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @app.post("/tg/webhook/{bot_id}/{secret}")
 async def telegram_personal_webhook(bot_id: int, secret: str, request: Request):
     """Receive updates for personal specialist bots (webhook mode)."""
+    content_length_header = request.headers.get("content-length")
+    request_body: bytes | None = None
+
+    if content_length_header:
+        try:
+            content_length = int(content_length_header)
+            if content_length > MAX_WEBHOOK_BODY_BYTES:
+                logger.warning(
+                    "Webhook payload too large by content-length bot_id=%s size=%s limit=%s",
+                    bot_id,
+                    content_length,
+                    MAX_WEBHOOK_BODY_BYTES,
+                )
+                return JSONResponse(status_code=413, content={"detail": "payload_too_large"})
+        except ValueError:
+            request_body = await _read_request_body_with_limit(request, MAX_WEBHOOK_BODY_BYTES)
+            if request_body is None:
+                logger.warning(
+                    "Webhook payload too large after body read bot_id=%s limit=%s",
+                    bot_id,
+                    MAX_WEBHOOK_BODY_BYTES,
+                )
+                return JSONResponse(status_code=413, content={"detail": "payload_too_large"})
+    else:
+        request_body = await _read_request_body_with_limit(request, MAX_WEBHOOK_BODY_BYTES)
+        if request_body is None:
+            logger.warning(
+                "Webhook payload too large after body read bot_id=%s limit=%s",
+                bot_id,
+                MAX_WEBHOOK_BODY_BYTES,
+            )
+            return JSONResponse(status_code=413, content={"detail": "payload_too_large"})
+
     try:
-        raw_update = await request.json()
+        if request_body is None:
+            raw_update = await request.json()
+        else:
+            raw_update = json.loads(request_body)
     except Exception:
         logger.warning("Webhook payload is not valid JSON bot_id=%s", bot_id)
         return Response(status_code=200)
@@ -262,7 +312,7 @@ async def google_oauth_callback(request: Request):
             if not refresh_token:
                 if oauth_entry and oauth_entry.refresh_token_encrypted:
                     oauth_entry.status = GoogleOAuthStatus.connected
-                    oauth_entry.token_updated_at = datetime.utcnow()
+                    oauth_entry.token_updated_at = datetime.now(timezone.utc)
                     oauth_entry.scopes = scopes_as_string()
                     logger.info(
                         "OAuth callback without refresh_token; reusing existing token specialist_id=%s",
@@ -272,7 +322,7 @@ async def google_oauth_callback(request: Request):
                     if oauth_entry:
                         oauth_entry.status = GoogleOAuthStatus.error
                         oauth_entry.scopes = scopes_as_string()
-                        oauth_entry.token_updated_at = datetime.utcnow()
+                        oauth_entry.token_updated_at = datetime.now(timezone.utc)
                     logger.warning(
                         "OAuth callback missing refresh_token and no stored token specialist_id=%s",
                         specialist_id,
@@ -314,7 +364,7 @@ async def google_oauth_callback(request: Request):
                 if oauth_entry:
                     oauth_entry.refresh_token_encrypted = encrypted_refresh_token
                     oauth_entry.status = GoogleOAuthStatus.connected
-                    oauth_entry.token_updated_at = datetime.utcnow()
+                    oauth_entry.token_updated_at = datetime.now(timezone.utc)
                     oauth_entry.scopes = scopes_as_string()
                 else:
                     session.add(
@@ -323,7 +373,7 @@ async def google_oauth_callback(request: Request):
                             refresh_token_encrypted=encrypted_refresh_token,
                             scopes=scopes_as_string(),
                             status=GoogleOAuthStatus.connected,
-                            token_updated_at=datetime.utcnow(),
+                            token_updated_at=datetime.now(timezone.utc),
                         )
                     )
 
