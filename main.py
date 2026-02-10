@@ -153,6 +153,7 @@ async def main():
 
 if __name__ == "__main__":
     try:
+        config.validate_config()
         # Запускаем основной цикл
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):

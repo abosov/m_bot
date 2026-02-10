@@ -2,17 +2,15 @@
 set -euo pipefail
 
 DB_URL="${DB_URL:-}"
-if [[ -z "${DB_URL}" ]]; then
-  echo "DB_URL is not set." >&2
-  exit 1
-fi
-
 OUT_PATH=""
 DAYS=""
 
 usage() {
   cat <<'USAGE'
 Usage: scripts/db_snapshot.sh [--out PATH] [--days N]
+
+Before run on server, load env:
+  source /etc/zumbot/backend.env
 
 SQLite:
   Creates /tmp/zumbot_snapshot.db using sqlite3 .backup.
@@ -21,7 +19,8 @@ PostgreSQL:
   Creates /tmp/zumbot_logs_dump.sql using pg_dump (data-only for log tables).
   Use --days to dump only recent records.
 
-Requires DB_URL and Postgres env vars (PGHOST/PGUSER/PGPASSWORD/PGDATABASE) or .pgpass.
+The PostgreSQL dump is plain SQL for psql restore and intentionally uses:
+  --no-owner --no-privileges --column-inserts --quote-all-identifiers
 USAGE
 }
 
@@ -46,6 +45,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -z "${DB_URL}" ]]; then
+  echo "DB_URL is not set. Example: source /etc/zumbot/backend.env && scripts/db_snapshot.sh" >&2
+  exit 1
+fi
 
 if [[ "${DB_URL}" == sqlite* ]]; then
   OUT_PATH="${OUT_PATH:-/tmp/zumbot_snapshot.db}"
@@ -83,13 +87,22 @@ if [[ "${DB_URL}" == postgres* ]]; then
     if [[ -n "${DAYS}" ]]; then
       where_clause="${ts_column} >= (now() - interval '${DAYS} days')"
     fi
+
+    local dump_opts=(
+      --dbname="${PG_DUMP_URL}"
+      --data-only
+      --no-owner
+      --no-privileges
+      --column-inserts
+      --quote-all-identifiers
+      --table="${table_name}"
+    )
+
     if [[ -n "${where_clause}" ]]; then
-      pg_dump --dbname="${PG_DUMP_URL}" --data-only --column-inserts \
-        --table="${table_name}" --where="${where_clause}" >> "${OUT_PATH}"
-    else
-      pg_dump --dbname="${PG_DUMP_URL}" --data-only --column-inserts \
-        --table="${table_name}" >> "${OUT_PATH}"
+      dump_opts+=(--where="${where_clause}")
     fi
+
+    pg_dump "${dump_opts[@]}" >> "${OUT_PATH}"
   }
 
   dump_table "message_logs" "created_at"
@@ -97,6 +110,7 @@ if [[ "${DB_URL}" == postgres* ]]; then
   dump_table "bot_health_checks" "checked_at"
 
   echo "PostgreSQL logs dump written to ${OUT_PATH}"
+  echo "Note: if your pg_dump adds \\unrestrict markers, they are psql metacommands from newer PostgreSQL clients and are safe when restoring with psql." 
   exit 0
 fi
 

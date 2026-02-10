@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -41,6 +42,14 @@ def _determine_app_env() -> tuple[str, bool, bool]:
     return inferred_env, env_local_exists, True
 
 
+def is_test_env() -> bool:
+    if (APP_ENV or "") == "test":
+        return True
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return True
+    return "pytest" in sys.modules
+
+
 def load_environment() -> None:
     global _ENV_LOADED, APP_ENV, ENV_LOCAL_FOUND
     if _ENV_LOADED:
@@ -72,10 +81,6 @@ load_environment()
 
 
 def _require_in_prod(name: str, value: str | None) -> str | None:
-    if APP_ENV == "prod" and not value:
-        raise RuntimeError(
-            f"{name} is required in production. Set environment variable {name}."
-        )
     return value
 
 ENABLE_READYZ = _parse_bool(os.getenv("ENABLE_READYZ", str(APP_ENV == "prod")))
@@ -106,9 +111,31 @@ if not WEB_HOST:
 WEB_PORT = int(os.getenv("WEB_PORT", "8000"))
 
 DATABASE_URL = os.getenv("DB_URL")
-if not DATABASE_URL and APP_ENV != "prod":
+if not DATABASE_URL and (APP_ENV != "prod" or is_test_env()):
     DATABASE_URL = "sqlite+aiosqlite:///./mvp.db"
 DATABASE_URL = _require_in_prod("DB_URL", DATABASE_URL)
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "backend")
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
+
+
+def validate_config() -> None:
+    if APP_ENV != "prod" or is_test_env():
+        return
+
+    required_values = {
+        "MASTER_BOT_TOKEN": MASTER_BOT_TOKEN,
+        "ENCRYPTION_KEY": ENCRYPTION_KEY,
+        "GOOGLE_CLIENT_ID": GOOGLE_CLIENT_ID,
+        "GOOGLE_CLIENT_SECRET": GOOGLE_CLIENT_SECRET,
+        "GOOGLE_REDIRECT_URI": GOOGLE_REDIRECT_URI,
+        "BASE_URL": BASE_URL,
+        "PUBLIC_SITE_URL": PUBLIC_SITE_URL,
+        "DB_URL": DATABASE_URL,
+    }
+
+    missing = [name for name, value in required_values.items() if not value]
+    if missing:
+        raise RuntimeError(
+            "Missing required production environment variables: " + ", ".join(missing)
+        )

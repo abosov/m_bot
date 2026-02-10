@@ -1,22 +1,39 @@
+import os
+
 from cryptography.fernet import Fernet
+
 import config
 
-# Получаем ключ из переменных окружения.
-# Для генерации ключа можно использовать: Fernet.generate_key().decode()
-_key = config.ENCRYPTION_KEY
+_TEST_FERNET_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+_cipher = None
 
-if not _key:
-    message = "ENCRYPTION_KEY is required for encryption. Set ENCRYPTION_KEY in env."
-    if config.APP_ENV == "prod":
-        raise RuntimeError(message)
-    raise ValueError(message)
 
-_cipher = Fernet(_key)
+def _resolve_key() -> str:
+    key = config.ENCRYPTION_KEY or os.getenv("ENCRYPTION_KEY")
+    if key:
+        return key
+
+    if config.is_test_env():
+        return _TEST_FERNET_KEY
+
+    raise RuntimeError("ENCRYPTION_KEY is required for encryption. Set ENCRYPTION_KEY in env.")
+
+
+def _get_cipher() -> Fernet:
+    global _cipher
+    if _cipher is not None:
+        return _cipher
+
+    key = _resolve_key()
+    _cipher = Fernet(key)
+    return _cipher
+
 
 def encrypt_token(token: str) -> str:
     """Шифрует токен бота для сохранения в БД."""
-    return _cipher.encrypt(token.encode("utf-8")).decode("utf-8")
+    return _get_cipher().encrypt(token.encode("utf-8")).decode("utf-8")
+
 
 def decrypt_token(encrypted_token: str) -> str:
     """Расшифровывает токен бота."""
-    return _cipher.decrypt(encrypted_token.encode("utf-8")).decode("utf-8")
+    return _get_cipher().decrypt(encrypted_token.encode("utf-8")).decode("utf-8")

@@ -373,3 +373,49 @@ scp user@vps-host:/tmp/zumbot_logs_dump.sql ./zumbot_logs_dump.sql
 
 Это нужно для устойчивости при деплоях и рестартах: соединения завершаются
 предсказуемо, без «висящих» клиентских сессий и лишних ошибок транспорта.
+
+## Запуск тестов и утилит на сервере
+
+### Безопасный запуск тестов на VPS
+
+Чтобы `pytest` не требовал production-секреты на import-time, запускайте тесты в test-режиме:
+
+```bash
+cd /opt/zumbot/backend
+APP_ENV=test pytest -q
+```
+
+Опционально можно отключить загрузку внешних плагинов pytest:
+
+```bash
+cd /opt/zumbot/backend
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 APP_ENV=test pytest -q
+```
+
+### Экспорт логов через Python-утилиту
+
+Скрипт поддерживает запуск из корня репозитория и из любого каталога:
+
+```bash
+cd /opt/zumbot/backend
+python scripts/export_logs.py --help
+python scripts/export_logs.py --source message_logs --since 2026-01-01T00:00:00Z --limit 500 --redact --out /tmp/message_logs.jsonl
+```
+
+### Снапшот лог-таблиц БД
+
+Перед запуском загрузите production env:
+
+```bash
+cd /opt/zumbot/backend
+source /etc/zumbot/backend.env
+scripts/db_snapshot.sh --days 7 --out /tmp/zumbot_logs_dump.sql
+```
+
+Применение дампа в PostgreSQL:
+
+```bash
+psql "$DB_URL" -f /tmp/zumbot_logs_dump.sql
+```
+
+Если в конце дампа присутствуют строки вида `\\unrestrict ...`, это служебные psql-метакоманды, которые корректно обрабатываются `psql` и не мешают восстановлению.

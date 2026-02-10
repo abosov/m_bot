@@ -2,16 +2,13 @@
 
 import argparse
 import asyncio
+from pathlib import Path
 import sys
 import uuid
 
-from database import LogDirection
-from services.log_exporter import (
-    collect_logs,
-    parse_iso_datetime,
-    render_jsonl,
-    render_message_logs_csv,
-)
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 def parse_uuid(value: str) -> uuid.UUID:
@@ -57,6 +54,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def run_export(args: argparse.Namespace) -> int:
+    from database import LogDirection
+    from services.log_exporter import (
+        collect_logs,
+        parse_iso_datetime,
+        render_jsonl,
+        render_message_logs_csv,
+    )
+
     since = parse_iso_datetime(args.since) if args.since else None
     until = parse_iso_datetime(args.until) if args.until else None
     direction = LogDirection(args.direction) if args.direction else None

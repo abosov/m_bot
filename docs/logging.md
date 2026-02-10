@@ -237,3 +237,21 @@ sqlite3 ./zumbot_snapshot.db ".tables"
 - `Failed to close master bot session on shutdown` (warning) — ошибка при закрытии master session.
 
 Эти сообщения помогают быстро проверить корректность lifecycle ресурсов после stop/restart.
+
+## CLI: экспорт логов и DB snapshot
+
+### export_logs.py
+
+```bash
+python scripts/export_logs.py --help
+python scripts/export_logs.py --source message_logs --since 2026-01-01T00:00:00Z --limit 1000 --format jsonl --out /tmp/message_logs.jsonl
+```
+
+### db_snapshot.sh
+
+```bash
+source /etc/zumbot/backend.env
+scripts/db_snapshot.sh --days 3 --out /tmp/zumbot_logs_dump.sql
+```
+
+Для PostgreSQL используется plain SQL дамп с флагами `--no-owner --no-privileges --column-inserts --quote-all-identifiers` для большей переносимости между окружениями.
