@@ -9,6 +9,8 @@ from datetime import datetime
 from typing import Literal
 
 from aiogram import Router, F, types, Bot
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
@@ -803,21 +805,89 @@ async def _upsert_calendar_settings(
 
 async def _notify_personal_bot_welcome(specialist_id: uuid.UUID, tg_user_id: int) -> str | None:
     async with async_session_factory() as session:
-        stmt = select(TelegramBot).where(
-            TelegramBot.specialist_id == specialist_id,
-            TelegramBot.status == TelegramBotStatus.active,
+        stmt = (
+            select(TelegramBot)
+            .where(
+                TelegramBot.specialist_id == specialist_id,
+                TelegramBot.status == TelegramBotStatus.active,
+            )
+            .order_by(TelegramBot.updated_at.desc(), TelegramBot.created_at.desc())
         )
-        personal_bot = (await session.execute(stmt)).scalar_one_or_none()
+        personal_bot = (await session.execute(stmt)).scalars().first()
 
     if not personal_bot:
+        logger.info("No active personal bot found for welcome: specialist_id=%s", specialist_id)
         return None
 
     bot_token = decrypt_token(personal_bot.bot_token_encrypted)
-    personal = Bot(token=bot_token)
+    personal = Bot(
+        token=bot_token,
+        default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
+    )
+    retries = 2
+    timeout_sec = 6.0
+    retry_after_cap_sec = 4.0
+
     try:
-        await personal.send_message(chat_id=tg_user_id, text="🎉 Личный бот готов к работе.")
-    except Exception:
-        logger.warning("Failed to send welcome message to personal bot", exc_info=True)
+        for attempt in range(retries + 1):
+            try:
+                await personal.send_message(
+                    chat_id=tg_user_id,
+                    text="🎉 Личный бот готов к работе.",
+                    request_timeout=timeout_sec,
+                )
+                break
+            except TelegramRetryAfter as exc:
+                if attempt >= retries:
+                    logger.warning(
+                        "Failed to send welcome after retry_after: specialist_id=%s bot_user_id=%s bot_username=%s attempts=%s",
+                        specialist_id,
+                        personal_bot.bot_user_id,
+                        personal_bot.bot_username,
+                        attempt + 1,
+                        exc_info=True,
+                    )
+                    break
+
+                retry_after = max(0.0, min(float(getattr(exc, "retry_after", 1.0)), retry_after_cap_sec))
+                logger.warning(
+                    "Retrying welcome after TelegramRetryAfter: specialist_id=%s bot_user_id=%s bot_username=%s attempt=%s wait=%.2fs",
+                    specialist_id,
+                    personal_bot.bot_user_id,
+                    personal_bot.bot_username,
+                    attempt + 1,
+                    retry_after,
+                )
+                await asyncio.sleep(retry_after)
+            except (TelegramNetworkError, TelegramServerError, TimeoutError, asyncio.TimeoutError):
+                if attempt >= retries:
+                    logger.warning(
+                        "Failed to send welcome due to retryable error: specialist_id=%s bot_user_id=%s bot_username=%s attempts=%s",
+                        specialist_id,
+                        personal_bot.bot_user_id,
+                        personal_bot.bot_username,
+                        attempt + 1,
+                        exc_info=True,
+                    )
+                    break
+
+                logger.warning(
+                    "Retrying welcome due to retryable error: specialist_id=%s bot_user_id=%s bot_username=%s attempt=%s",
+                    specialist_id,
+                    personal_bot.bot_user_id,
+                    personal_bot.bot_username,
+                    attempt + 1,
+                    exc_info=True,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to send welcome due to non-retryable error: specialist_id=%s bot_user_id=%s bot_username=%s",
+                    specialist_id,
+                    personal_bot.bot_user_id,
+                    personal_bot.bot_username,
+                    exc_info=True,
+                )
+                break
     finally:
         await personal.session.close()
 
