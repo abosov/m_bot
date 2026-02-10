@@ -91,3 +91,32 @@ sudo journalctl -u zumbot-backend.service -n 300 --no-pager
 tail -n 200 <LOG_PATH>
 sudo journalctl -u zumbot-backend.service -n 300 --no-pager
 ```
+
+## Безопасный сброс тестовых данных smoke-аккаунтов
+
+Для очистки тестовых данных используйте только реестр тестовых Telegram-аккаунтов.
+
+1. Скопируйте пример и заполните локальный файл:
+
+```bash
+cp config/test_accounts.example.yaml config/test_accounts.yaml
+```
+
+2. Проверьте, какие записи будут удалены (без изменений в БД):
+
+```bash
+python scripts/test_data_reset.py --dry-run
+```
+
+3. Примените удаление только после проверки отчёта:
+
+```bash
+python scripts/test_data_reset.py --apply
+```
+
+Дополнительно:
+- выборочные аккаунты по именам: `python scripts/test_data_reset.py --apply --names smoke_specialist_1 smoke_client_1`;
+- явные `tg_user_id` без реестра: `python scripts/test_data_reset.py --apply --tg-user-ids 123 456`;
+- при срабатывании safety guard используйте `--force` только осознанно.
+
+Скрипт удаляет только связанные данные тестовых аккаунтов и не трогает глобальные heartbeat-записи (`service_heartbeats`).

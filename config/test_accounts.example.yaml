@@ -1,0 +1,15 @@
+{
+  "accounts": [
+    {
+      "name": "smoke_specialist_1",
+      "role": "specialist_owner",
+      "tg_user_id": 123
+    },
+    {
+      "name": "smoke_client_1",
+      "role": "client",
+      "tg_user_id": 456
+    }
+  ],
+  "notes": "Only these tg_user_id are allowed to be reset"
+}

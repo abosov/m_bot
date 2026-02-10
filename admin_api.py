@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 import config
@@ -19,8 +20,17 @@ from services.log_exporter import (
     serialize_message_log,
     serialize_service_heartbeat,
 )
+from services.test_data_reset import TestDataResetError, execute_test_data_reset
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+class AdminTestDataResetRequest(BaseModel):
+    names: list[str] = Field(default_factory=list)
+    tg_user_ids: list[int] = Field(default_factory=list)
+    dry_run: bool = True
+    force: bool = False
+    max_clients_threshold: int = 30
 
 
 def require_admin_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
@@ -147,3 +157,23 @@ async def admin_bot_health_checks(
         items = [serialize_bot_health_check(row) for row in result.scalars().all()]
 
     return {"items": items, "limit": limit_value, "offset": offset}
+
+
+@router.post("/test-data/reset")
+async def admin_test_data_reset(
+    payload: AdminTestDataResetRequest,
+    _auth: None = Depends(require_admin_key),
+):
+    try:
+        return await execute_test_data_reset(
+            session_factory=async_session_factory,
+            names=payload.names or None,
+            tg_user_ids=payload.tg_user_ids or None,
+            dry_run=payload.dry_run,
+            force=payload.force,
+            max_clients_threshold=payload.max_clients_threshold,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TestDataResetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

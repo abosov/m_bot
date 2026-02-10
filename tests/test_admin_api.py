@@ -87,3 +87,40 @@ async def test_admin_logs_success_and_limit(tmp_path, monkeypatch):
 
     response_no_key = client.get("/admin/logs")
     assert response_no_key.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_test_data_reset_dry_run(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active),
+                database.SpecialistProfile(
+                    specialist_id=specialist_id,
+                    public_name="Smoke",
+                    owner_tg_user_id=1001,
+                    owner_tg_username="smoke",
+                    specialist_timezone="UTC",
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_id, tg_user_id=1001),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    response = client.post(
+        "/admin/test-data/reset",
+        headers={"X-API-Key": "secret"},
+        json={"tg_user_ids": [1001]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["dry_run"] is True
+    assert payload["counts"]["specialist"] == 1

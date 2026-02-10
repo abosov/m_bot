@@ -7,3 +7,5 @@ handlers/__pycache__/
 *.pyc
 codex.patch
 .venv/
+
+config/test_accounts.yaml
