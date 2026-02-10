@@ -24,6 +24,57 @@ class DummySessionCtx:
         return False
 
 
+class DummyScalarResult:
+    def __init__(self, value):
+        self.value = value
+
+    def scalar_one_or_none(self):
+        return self.value
+
+
+@pytest.mark.asyncio
+async def test_is_specialist_ready_requires_calendar_smoke_ok(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class Session:
+        def __init__(self):
+            self.calls = 0
+
+        async def execute(self, _query):
+            self.calls += 1
+            # profile exists, active bot exists, calendar smoke missing
+            values = [specialist_id, specialist_id, None]
+            return DummyScalarResult(values[self.calls - 1])
+
+    session = Session()
+    monkeypatch.setattr(onboarding, "async_session_factory", lambda: DummySessionCtx(session))
+
+    ready = await onboarding.is_specialist_ready(specialist_id)
+
+    assert ready is False
+
+
+@pytest.mark.asyncio
+async def test_is_specialist_ready_true_when_all_requirements_met(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class Session:
+        def __init__(self):
+            self.calls = 0
+
+        async def execute(self, _query):
+            self.calls += 1
+            values = [specialist_id, specialist_id, specialist_id]
+            return DummyScalarResult(values[self.calls - 1])
+
+    session = Session()
+    monkeypatch.setattr(onboarding, "async_session_factory", lambda: DummySessionCtx(session))
+
+    ready = await onboarding.is_specialist_ready(specialist_id)
+
+    assert ready is True
+
+
 @pytest.mark.asyncio
 async def test_finalize_specialist_if_ready_switches_onboarding_to_active(monkeypatch):
     specialist_id = uuid.uuid4()

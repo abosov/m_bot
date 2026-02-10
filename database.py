@@ -89,7 +89,7 @@ class Specialist(Base):
     auth_telegram: Mapped["SpecialistAuthTelegram"] = relationship(back_populates="specialist", uselist=False)
     profile: Mapped["SpecialistProfile"] = relationship(back_populates="specialist", uselist=False)
     google_oauth: Mapped["GoogleOAuth"] = relationship(back_populates="specialist", uselist=False)
-    calendar: Mapped["SpecialistCalendar"] = relationship(back_populates="specialist", uselist=False)
+    calendar_settings: Mapped["SpecialistCalendarSettings"] = relationship(back_populates="specialist", uselist=False)
     weekly_availability: Mapped[List["WeeklyAvailability"]] = relationship(back_populates="specialist")
     clients: Mapped[List["Client"]] = relationship(back_populates="specialist")
     appointments: Mapped[List["Appointment"]] = relationship(back_populates="specialist")
@@ -180,20 +180,22 @@ class GoogleOAuth(Base):
     specialist: Mapped["Specialist"] = relationship(back_populates="google_oauth")
 
 
-class SpecialistCalendar(Base):
-    __tablename__ = "specialist_calendar"
+class SpecialistCalendarSettings(Base):
+    __tablename__ = "specialist_calendar_settings"
 
     specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), primary_key=True)
-    calendar_id: Mapped[str] = mapped_column(String, nullable=False, unique=True)
-    calendar_title: Mapped[str] = mapped_column(String, nullable=False)
-    calendar_timezone: Mapped[str] = mapped_column(String, nullable=False)
+    calendar_id: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    calendar_summary: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    calendar_time_zone: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     source: Mapped[SpecialistCalendarSource] = mapped_column(SAEnum(SpecialistCalendarSource), nullable=False)
-    timezone_checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
-    
-    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_smoke_test_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_smoke_test_status: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    last_smoke_test_error: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    specialist: Mapped["Specialist"] = relationship(back_populates="calendar")
+    specialist: Mapped["Specialist"] = relationship(back_populates="calendar_settings")
 
 
 class WeeklyAvailability(Base):

@@ -30,6 +30,8 @@ from database import (
     TelegramBot,
     TelegramBotStatus,
     GoogleOAuthStatus,
+    SpecialistCalendarSettings,
+    SpecialistCalendarSource,
     MessageLog, 
     LogDirection,
     BotHealthCheck,
@@ -40,6 +42,13 @@ from services.crypto import encrypt_token, decrypt_token
 # но здесь импортируем функцию логирования сообщений.
 from logging_middleware import log_outbound_message
 from services.google_oauth import get_auth_url
+from services.google_calendar import (
+    GoogleCalendarError,
+    GoogleCalendarInsufficientPermissionsError,
+    create_and_cleanup_test_event,
+    create_bot_calendar,
+    list_calendars,
+)
 from services.onboarding import finalize_specialist_if_ready
 from config import BACKEND_BASE_URL
 
@@ -50,6 +59,7 @@ logger = logging.getLogger(__name__)
 class OnboardingStates(StatesGroup):
     waiting_for_public_name = State()
     waiting_for_bot_token = State()
+    waiting_for_calendar_action = State()
 
 # --- Constants ---
 BASE_URL = BACKEND_BASE_URL
@@ -61,6 +71,15 @@ def _get_handle(user: types.User) -> str:
     parts = [p for p in [user.first_name, user.last_name] if p]
     return " ".join(parts) if parts else str(user.id)
 
+
+
+def _calendar_action_keyboard() -> types.InlineKeyboardMarkup:
+    return types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text="🆕 Создать отдельный календарь (рекомендовано)", callback_data="calendar:create")],
+            [types.InlineKeyboardButton(text="📂 Выбрать существующий календарь", callback_data="calendar:select")],
+        ]
+    )
 async def _check_bot_status(
     token: str,
     timeout_sec: float = 3.0,
@@ -310,7 +329,8 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 .options(
                     selectinload(Specialist.profile),
                     selectinload(Specialist.telegram_bots),
-                    selectinload(Specialist.google_oauth)
+                    selectinload(Specialist.google_oauth),
+                    selectinload(Specialist.calendar_settings)
                 )
                 .where(Specialist.specialist_id == auth_entry.specialist_id)
             )
@@ -331,8 +351,10 @@ async def cmd_start(message: types.Message, state: FSMContext):
             
             has_bot = active_bot is not None
             has_oauth = specialist.google_oauth is not None and specialist.google_oauth.status == GoogleOAuthStatus.connected
+            has_calendar = specialist.calendar_settings is not None and bool(specialist.calendar_settings.calendar_id)
+            smoke_ok = has_calendar and specialist.calendar_settings.last_smoke_test_status == "ok"
 
-            if has_profile and has_bot and specialist.status == SpecialistStatus.onboarding:
+            if has_profile and has_bot and has_oauth and has_calendar and specialist.status == SpecialistStatus.onboarding:
                 await finalize_specialist_if_ready(specialist.specialist_id)
                 specialist.status = SpecialistStatus.active
 
@@ -357,9 +379,15 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 status_text += "⏳ **Статус:** Онбординг\n"
 
             if has_oauth:
-                status_text += "ℹ️ **Google Calendar:** Подключен (необязательно для активации на этом этапе)\n"
+                status_text += "✅ **Google OAuth:** Подключен\n"
             else:
-                status_text += "ℹ️ **Google Calendar:** Можно подключить позже\n"
+                status_text += "❌ **Google OAuth:** Не подключен\n"
+
+            if has_calendar:
+                status_text += f"✅ **Календарь бота:** {specialist.calendar_settings.calendar_summary or specialist.calendar_settings.calendar_id}\n"
+                status_text += "✅ **Smoke-test:** Успешно\n" if smoke_ok else "❌ **Smoke-test:** Не пройден\n"
+            else:
+                status_text += "❌ **Календарь бота:** Не выбран\n"
 
             # Логика восстановления состояния (FSM)
             keyboard = None
@@ -377,20 +405,34 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 next_step_msg = "\n👇 **Действие:** Пришлите токен вашего бота от @BotFather."
                 keyboard = types.ReplyKeyboardRemove()
                 new_state = "waiting_for_bot_token"
-            
-            else:
+
+            elif not has_oauth:
                 auth_url = get_auth_url(specialist.specialist_id)
-                next_step_msg = (
-                    "\n🎉 **Минимальный онбординг завершен.** Можно принимать сообщения в личном боте."
-                    "\nПо желанию подключите Google Календарь позже:"
-                )
+                next_step_msg = "\n👇 **Действие:** Подключите Google аккаунт через кнопку ниже."
                 keyboard = types.InlineKeyboardMarkup(
                     inline_keyboard=[[
                         types.InlineKeyboardButton(text="🔗 Подключить Google Календарь", url=auth_url)
                     ]]
                 )
                 await state.clear()
-                new_state = "active" if specialist.status == SpecialistStatus.active else "ready_without_oauth"
+                new_state = "waiting_for_oauth"
+
+            elif has_calendar:
+                await state.set_state(OnboardingStates.waiting_for_calendar_action)
+                next_step_msg = "\n✅ Календарь уже подключён. Можно перепроверить доступ."
+                keyboard = types.InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [types.InlineKeyboardButton(text="🔁 Проверить доступ (smoke-test)", callback_data="calendar:smoke")],
+                        [types.InlineKeyboardButton(text="♻️ Сменить календарь", callback_data="calendar:switch_stub")],
+                    ]
+                )
+                new_state = "calendar_connected"
+
+            else:
+                await state.set_state(OnboardingStates.waiting_for_calendar_action)
+                next_step_msg = "\n👇 **Действие:** Выберите как подключить рабочий календарь бота."
+                keyboard = _calendar_action_keyboard()
+                new_state = "waiting_for_calendar_action"
             
             final_text = status_text + next_step_msg
             await message.answer(final_text, reply_markup=keyboard)
@@ -421,7 +463,7 @@ async def start_flow(message: types.Message, state: FSMContext):
     user_handle = _get_handle(message.from_user)
     
     text_out = (
-        "📝 **Шаг 1 из 3. Публичное имя**\n\n"
+        "📝 **Шаг 1 из 4. Публичное имя**\n\n"
         "Введите имя, которое будут видеть ваши клиенты.\n"
         "Например: *Психолог Анна* или *Иван Иванов*."
     )
@@ -463,7 +505,7 @@ async def process_public_name(message: types.Message, state: FSMContext):
         
         text_out = (
             f"✅ Имя сохранено: **{public_name}**\n\n"
-            "🤖 **Шаг 2 из 3. Личный бот**\n\n"
+            "🤖 **Шаг 2 из 4. Личный бот**\n\n"
             "1. Откройте @BotFather\n"
             "2. Создайте нового бота командой /newbot\n"
             "3. Скопируйте **API Token** и пришлите его сюда."
@@ -578,7 +620,7 @@ async def process_bot_token(message: types.Message, state: FSMContext):
         text_out = (
             f"✅ Бот **@{bot_info.username}** успешно подключен!\n"
             f"{status_line}\n\n"
-            f"📅 Google Календарь можно подключить позже отдельным шагом."
+            f"📅 **Шаг 3 из 4:** Подключите Google аккаунт, затем выберите рабочий календарь бота."
         )
         
         keyboard = types.InlineKeyboardMarkup(
@@ -601,3 +643,232 @@ async def process_bot_token(message: types.Message, state: FSMContext):
         error_trace = traceback.format_exc()
         await _log_error_to_db(message.bot, tg_user_id, error_trace, "process_bot_token")
         await message.answer("⚠️ Критическая ошибка при подключении бота.")
+
+
+@router.callback_query(F.data == "calendar:select")
+async def calendar_select_stub(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(OnboardingStates.waiting_for_calendar_action)
+    text = (
+        "ℹ️ Функция выбора существующего календаря будет добавлена в следующем релизе.\n"
+        "Сейчас используйте ‘Создать отдельный календарь’."
+    )
+    await callback.message.answer(text)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "calendar:switch_stub")
+async def calendar_switch_stub(callback: types.CallbackQuery):
+    await callback.message.answer("ℹ️ Смена календаря будет доступна в следующем релизе.")
+    await callback.answer()
+
+
+async def _upsert_calendar_settings(
+    specialist_id: uuid.UUID,
+    calendar_id: str,
+    calendar_summary: str | None,
+    calendar_tz: str | None,
+    source: SpecialistCalendarSource,
+    smoke_status: str | None = None,
+    smoke_error: str | None = None,
+):
+    async with async_session_factory() as session:
+        stmt = select(SpecialistCalendarSettings).where(SpecialistCalendarSettings.specialist_id == specialist_id)
+        settings = (await session.execute(stmt)).scalar_one_or_none()
+        now = datetime.utcnow()
+
+        if not settings:
+            settings = SpecialistCalendarSettings(
+                specialist_id=specialist_id,
+                calendar_id=calendar_id,
+                calendar_summary=calendar_summary,
+                calendar_time_zone=calendar_tz,
+                source=source,
+            )
+            session.add(settings)
+        else:
+            settings.calendar_id = calendar_id
+            settings.calendar_summary = calendar_summary
+            settings.calendar_time_zone = calendar_tz
+            settings.source = source
+
+        if smoke_status is not None:
+            settings.last_smoke_test_status = smoke_status
+            settings.last_smoke_test_at = now
+            settings.last_smoke_test_error = smoke_error
+
+        await session.commit()
+
+
+async def _notify_personal_bot_welcome(specialist_id: uuid.UUID, tg_user_id: int) -> str | None:
+    async with async_session_factory() as session:
+        stmt = select(TelegramBot).where(
+            TelegramBot.specialist_id == specialist_id,
+            TelegramBot.status == TelegramBotStatus.active,
+        )
+        personal_bot = (await session.execute(stmt)).scalar_one_or_none()
+
+    if not personal_bot:
+        return None
+
+    bot_token = decrypt_token(personal_bot.bot_token_encrypted)
+    personal = Bot(token=bot_token)
+    try:
+        await personal.send_message(chat_id=tg_user_id, text="🎉 Личный бот готов к работе.")
+    except Exception:
+        logger.warning("Failed to send welcome message to personal bot", exc_info=True)
+    finally:
+        await personal.session.close()
+
+    return personal_bot.bot_username
+
+
+@router.callback_query(F.data == "calendar:create")
+async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
+    tg_user_id = callback.from_user.id
+    try:
+        async with async_session_factory() as session:
+            auth = (await session.execute(select(SpecialistAuthTelegram).where(SpecialistAuthTelegram.tg_user_id == tg_user_id))).scalar_one_or_none()
+            if not auth:
+                await callback.message.answer("⚠️ Профиль специалиста не найден. Нажмите /start.")
+                await callback.answer()
+                return
+
+            specialist = (await session.execute(
+                select(Specialist).options(selectinload(Specialist.profile), selectinload(Specialist.calendar_settings)).where(Specialist.specialist_id == auth.specialist_id)
+            )).scalar_one()
+
+        if specialist.calendar_settings and specialist.calendar_settings.calendar_id:
+            await callback.message.answer("✅ Календарь уже подключён. Используйте /start для повторной проверки.")
+            await callback.answer()
+            return
+
+        profile = specialist.profile
+        if not profile:
+            await callback.message.answer("⚠️ Сначала заполните профиль через /start.")
+            await callback.answer()
+            return
+
+        calendar = await create_bot_calendar(specialist.specialist_id, profile.public_name, profile.specialist_timezone or "UTC")
+        calendar_id = calendar.get("id")
+        summary = calendar.get("summary")
+        calendar_tz = calendar.get("timeZone") or profile.specialist_timezone or "UTC"
+
+        await _upsert_calendar_settings(
+            specialist.specialist_id,
+            calendar_id=calendar_id,
+            calendar_summary=summary,
+            calendar_tz=calendar_tz,
+            source=SpecialistCalendarSource.created,
+        )
+
+        try:
+            await create_and_cleanup_test_event(specialist.specialist_id, calendar_id, calendar_tz)
+            await _upsert_calendar_settings(
+                specialist.specialist_id,
+                calendar_id=calendar_id,
+                calendar_summary=summary,
+                calendar_tz=calendar_tz,
+                source=SpecialistCalendarSource.created,
+                smoke_status="ok",
+            )
+        except Exception as smoke_exc:
+            await _upsert_calendar_settings(
+                specialist.specialist_id,
+                calendar_id=calendar_id,
+                calendar_summary=summary,
+                calendar_tz=calendar_tz,
+                source=SpecialistCalendarSource.created,
+                smoke_status="failed",
+                smoke_error=str(smoke_exc)[:255],
+            )
+            await callback.message.answer(
+                "❌ Календарь создан, но smoke-test не пройден: не удалось создать/удалить тестовое событие. "
+                "Проверьте права Google и переподключите аккаунт."
+            )
+            await callback.answer()
+            return
+
+        await finalize_specialist_if_ready(specialist.specialist_id)
+        personal_username = await _notify_personal_bot_welcome(specialist.specialist_id, tg_user_id)
+        deep_link = f"https://t.me/{personal_username}" if personal_username else ""
+
+        await state.clear()
+        await callback.message.answer(
+            "✅ Календарь подключён, всё готово. Теперь используйте вашего бота: "
+            f"@{personal_username}\n{deep_link}"
+        )
+        await callback.answer()
+
+    except GoogleCalendarInsufficientPermissionsError:
+        await callback.message.answer(
+            "⚠️ Google подключен, но доступов недостаточно для создания календаря/событий. "
+            "Переподключите аккаунт через кнопку ‘Подключить Google Календарь’ в /start и выдайте все запрошенные права."
+        )
+        await callback.answer()
+    except GoogleCalendarError as exc:
+        logger.exception("Google calendar operation failed")
+        await callback.message.answer(f"⚠️ Ошибка Google Calendar: {exc}")
+        await callback.answer()
+    except Exception:
+        logger.exception("calendar_create failed")
+        await callback.message.answer("⚠️ Не удалось подключить календарь. Попробуйте позже.")
+        await callback.answer()
+
+
+@router.callback_query(F.data == "calendar:smoke")
+async def calendar_retest(callback: types.CallbackQuery):
+    tg_user_id = callback.from_user.id
+    try:
+        async with async_session_factory() as session:
+            auth = (await session.execute(select(SpecialistAuthTelegram).where(SpecialistAuthTelegram.tg_user_id == tg_user_id))).scalar_one_or_none()
+            if not auth:
+                await callback.message.answer("⚠️ Профиль специалиста не найден.")
+                await callback.answer()
+                return
+
+            settings = (await session.execute(select(SpecialistCalendarSettings).where(SpecialistCalendarSettings.specialist_id == auth.specialist_id))).scalar_one_or_none()
+            if not settings:
+                await callback.message.answer("⚠️ Календарь ещё не подключен.")
+                await callback.answer()
+                return
+
+            calendar_id = settings.calendar_id
+            tz = settings.calendar_time_zone or "UTC"
+            summary = settings.calendar_summary
+            source = settings.source
+
+        await create_and_cleanup_test_event(auth.specialist_id, calendar_id, tz)
+        await _upsert_calendar_settings(auth.specialist_id, calendar_id, summary, tz, source, smoke_status="ok")
+        await finalize_specialist_if_ready(auth.specialist_id)
+        await callback.message.answer("✅ Smoke-test успешно выполнен.")
+        await callback.answer()
+    except Exception as exc:
+        async with async_session_factory() as session:
+            auth = (await session.execute(select(SpecialistAuthTelegram).where(SpecialistAuthTelegram.tg_user_id == tg_user_id))).scalar_one_or_none()
+            settings = None
+            if auth:
+                settings = (await session.execute(select(SpecialistCalendarSettings).where(SpecialistCalendarSettings.specialist_id == auth.specialist_id))).scalar_one_or_none()
+                if settings:
+                    settings.last_smoke_test_status = "failed"
+                    settings.last_smoke_test_at = datetime.utcnow()
+                    settings.last_smoke_test_error = str(exc)[:255]
+                    await session.commit()
+
+        await callback.message.answer("❌ Smoke-test не пройден. Проверьте права Google и переподключите аккаунт.")
+        await callback.answer()
+
+
+@router.callback_query(F.data == "calendar:list_probe")
+async def calendar_list_probe(callback: types.CallbackQuery):
+    tg_user_id = callback.from_user.id
+    async with async_session_factory() as session:
+        auth = (await session.execute(select(SpecialistAuthTelegram).where(SpecialistAuthTelegram.tg_user_id == tg_user_id))).scalar_one_or_none()
+    if not auth:
+        await callback.answer()
+        return
+    try:
+        items = await list_calendars(auth.specialist_id)
+        await callback.message.answer(f"Доступно календарей: {len(items)}")
+    except Exception:
+        await callback.message.answer("Не удалось получить список календарей.")
+    await callback.answer()

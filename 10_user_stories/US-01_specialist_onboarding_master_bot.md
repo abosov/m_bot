@@ -1,193 +1,90 @@
 # US-01 — Онбординг specialist через master_bot (MVP)
 
 ## Цель
-Позволить специалисту самостоятельно подключиться к платформе:
+Позволить специалисту полностью завершить онбординг в master bot:
 - зарегистрироваться как specialist,
 - подключить личный Telegram-бот,
-- авторизоваться в Google,
-- выбрать или создать календарь,
-- задать базовые параметры для приёма клиентов.
-
-Онбординг выполняется **только** через master_bot.
-
----
-
-## Акторы
-- specialist
-- master_bot
-- backend
-- Google OAuth / Google Calendar API
-- Telegram Bot API
+- подключить Google OAuth,
+- **явно** выбрать стратегию календаря (создать отдельный / выбрать существующий),
+- сохранить «рабочий календарь бота», выполнить smoke-test,
+- получить deep-link в personal bot.
 
 ---
 
-## Preconditions
-- backend развёрнут и принимает webhooks
-- master_bot настроен и подключён к backend
-- у specialist есть Google аккаунт
-- у specialist есть возможность создать Telegram-бота через BotFather
+## Ключевые правила
+1. Один specialist = один рабочий календарь бота.
+2. После OAuth календарь не выбирается автоматически.
+3. MVP-путь: «Создать отдельный календарь (рекомендовано)».
+4. Имя нового календаря: `Zumbot - {public_name}`.
+5. Успех календарного шага: сохранён `calendar_id` + успешный smoke-test (create+delete test event).
 
 ---
 
 ## Основной поток
 
-### Шаг 1 — Старт онбординга
-**specialist**
-- открывает master_bot
-- отправляет `/start`
-- нажимает кнопку «Подключить сервис / Стать специалистом»
+### Шаг 1 — Старт
+- `/start` в master bot.
+- Создаются `specialist` + `specialist_auth_telegram` (если это новый пользователь).
 
-**backend**
-- создаёт или находит запись `specialist`
-- создаёт связь с Telegram-аккаунтом specialist
-- устанавливает `specialist.status = onboarding`
+### Шаг 2 — Публичное имя
+- Specialist вводит `public_name`.
+- Обновляется `specialist_profile`.
 
-**Данные**
-- создаётся `specialist`
-- создаётся `specialist_auth_telegram`
+### Шаг 3 — Личный Telegram-бот
+- Specialist присылает токен от BotFather.
+- Backend валидирует токен, ставит webhook, создаёт `telegram_bot` (`active`).
 
----
+### Шаг 4 — Google OAuth
+- Specialist нажимает «Подключить Google Календарь».
+- Callback сохраняет refresh_token в `google_oauth`.
+- Если scope недостаточен — специалист получает понятную инструкцию о переподключении.
 
-### Шаг 2 — Базовая информация specialist
-**specialist**
-- вводит публичное имя (как отображаться клиентам)
+### Шаг 5 — Календарь (новый этап)
+После OAuth в master bot показывается выбор:
+- `Создать отдельный календарь (рекомендовано)` — **MVP реализован полностью**.
+- `Выбрать существующий календарь` — non-MVP (UI пока заглушка, но сервисные методы заложены).
 
-**backend**
-- сохраняет публичное имя
+#### 5.1 Создать отдельный календарь
+- Backend вызывает Google `calendars.insert`.
+- Сохраняет настройки в `specialist_calendar_settings`:
+  - `calendar_id`, `calendar_summary`, `calendar_time_zone`, `source=created`.
 
-**Данные**
-- обновляется `specialist_profile.public_name`
+#### 5.2 Smoke-test (обязательный)
+- Backend создаёт тестовое событие на ближайшие ~7 минут, 5 минут длительности.
+- Сразу удаляет событие.
+- В `specialist_calendar_settings` пишет:
+  - `last_smoke_test_at`,
+  - `last_smoke_test_status` (`ok`/`failed`),
+  - `last_smoke_test_error` при ошибке.
 
----
+### Шаг 6 — Финализация онбординга
+`specialist.status` переводится в `active`, только если:
+- есть профиль,
+- есть активный personal bot,
+- выбран календарь,
+- smoke-test успешен.
 
-### Шаг 3 — Подключение личного Telegram-бота
-**specialist**
-- создаёт бота через BotFather
-- передаёт `bot_token` в master_bot
-
-**backend**
-1. валидирует токен через Telegram API (`getMe`)
-2. получает:
-   - `bot_user_id`
-   - `bot_username`
-   - `bot_name`
-3. генерирует `webhook_secret`
-4. сохраняет данные бота
-5. устанавливает webhook:
-   `/tg/webhook/{bot_user_id}/{webhook_secret}`
-
-**Ошибки (MVP-обработка)**
-- неверный токен → сообщение с просьбой повторить
-- webhook не установился → сообщение-заглушка + возможность повторить
-
-**Данные**
-- создаётся `telegram_bot`
-- `telegram_bot.status = active | error`
+После успеха master bot отправляет:
+- подтверждение,
+- username personal bot,
+- deep-link: `https://t.me/{personal_bot_username}`.
 
 ---
 
-### Шаг 3.1 — Проверка доступности personal bot (/status)
-**specialist**
-- отправляет команду `/status` в master_bot
-
-**backend**
-- находит `specialist` по `tg_user_id`
-- расшифровывает токен бота
-- выполняет `getMe` с таймаутом 2–3 секунды и 1 retry
-
-**Ответы**
-- OK → “✅ Бот доступен: @username (id=...)”
-- UNAUTHORIZED → “❌ Токен бота недействителен или бот удалён. Обновите токен через /start”
-- TEMP_ERROR → “⚠️ Временно не удалось проверить бота. Повторите позже.”
+## Идемпотентность
+- Если календарь уже выбран, повторно выбирать не требуется.
+- `/start` показывает «Календарь подключён» + действия:
+  - `Проверить доступ (smoke-test заново)`
+  - `Сменить календарь` (stub до следующего релиза).
 
 ---
 
-### Шаг 4 — Подключение Google аккаунта
-**specialist**
-- нажимает «Подключить Google Calendar»
-- проходит OAuth авторизацию
-
-**backend**
-1. инициирует OAuth с `offline access`
-2. принимает callback
-3. сохраняет `refresh_token`
-
-**Ошибки (MVP)**
-- отказ в доступе → сообщение-заглушка с рекомендацией повторить
-
-**Данные**
-- создаётся или обновляется `google_oauth`
-
----
-
-### Шаг 5 — Выбор или создание календаря
-**specialist**
-- выбирает существующий календарь из списка  
-  **или**
-- создаёт новый календарь
-
-**backend**
-- при выборе:
-  - сохраняет `calendar_id`
-- при создании:
-  - создаёт календарь через Google API
-  - сохраняет `calendar_id`
-
-**Timezone**
-- backend считывает timezone календаря
-- устанавливает `specialist_timezone` = timezone календаря
-- если ранее был задан другой timezone — фиксирует изменение и информирует specialist
-
-**Данные**
-- создаётся `specialist_calendar`
-- обновляется `specialist_profile.specialist_timezone`
-
----
-
-### Шаг 6 — Настройка расписания (weekly availability)
-**specialist**
-- задаёт рабочие дни недели
-- для каждого дня указывает:
-  - 1 или 2 интервала времени
-
-**backend**
-- сохраняет weekly availability
-
-**Данные**
-- создаются/обновляются записи `weekly_availability`
-
----
-
-### Шаг 7 — Завершение минимального онбординга (текущий этап)
-**backend**
-- проверяет, что:
-  - заполнен `specialist_profile.public_name`
-  - подключён и активен personal bot (`telegram_bot.status = active`)
-- если условия выполнены, переводит `specialist.status` из `onboarding` в `active`
-- операция идемпотентна: повторный вызов не меняет уже `active`
-- сообщает specialist, что базовая активация завершена
-
-**Важно**
-- Google OAuth/календарь не являются обязательными для статуса `active` на этом этапе;
-- календарная часть будет завершаться отдельной задачей/итерацией.
-
----
-
-## Постусловия
-- specialist имеет статус `active` после выполнения минимальных условий (профиль + active bot)
-- personal bot подключён к backend через webhook и отвечает на базовый `/start`
-- Google Calendar можно подключить позже без влияния на текущий статус `active`
-
----
-
-## Ограничения MVP
-- один владелец specialist (`owner_tg_user_id`)
-- повторная авторизация Google выполняется вручную через тот же сценарий
-- детальная обработка ошибок и диагностика отложены
-
----
-
-## Связанные документы
-- `00_overview/README.md`
-- `00_overview/glossary.md`
-- `US-02_specialist_manage_settings_in_personal_bot.md` (следующий)
+## Проверка вручную (smoke-инструкция)
+1. Пройти `/start` → имя → токен personal bot.
+2. Подключить Google OAuth.
+3. Нажать «Создать отдельный календарь».
+4. Убедиться:
+   - `specialist.status = active`,
+   - пришло сообщение с deep-link personal bot,
+   - в Google появился календарь `Zumbot - {public_name}`,
+   - тестового события не осталось.

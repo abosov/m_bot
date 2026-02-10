@@ -15,7 +15,10 @@ GOOGLE_CLIENT_CONFIG = {
     }
 }
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
+SCOPES = [
+    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/calendar.events',
+]
 REDIRECT_URI = config.GOOGLE_REDIRECT_URI
 
 

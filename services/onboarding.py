@@ -5,6 +5,7 @@ from sqlalchemy import select
 from database import (
     Specialist,
     SpecialistProfile,
+    SpecialistCalendarSettings,
     SpecialistStatus,
     TelegramBot,
     TelegramBotStatus,
@@ -13,7 +14,7 @@ from database import (
 
 
 async def is_specialist_ready(specialist_id: uuid.UUID) -> bool:
-    """Specialist is ready when profile exists and at least one active personal bot exists."""
+    """Specialist is ready when profile, active personal bot, calendar selection and successful smoke-test exist."""
     async with async_session_factory() as session:
         profile_exists = (
             await session.execute(
@@ -34,7 +35,18 @@ async def is_specialist_ready(specialist_id: uuid.UUID) -> bool:
             )
         ).scalar_one_or_none()
 
-    return bool(profile_exists and active_bot_exists)
+        calendar_ready = (
+            await session.execute(
+                select(SpecialistCalendarSettings.specialist_id).where(
+                    SpecialistCalendarSettings.specialist_id == specialist_id,
+                    SpecialistCalendarSettings.calendar_id.is_not(None),
+                    SpecialistCalendarSettings.calendar_id != "",
+                    SpecialistCalendarSettings.last_smoke_test_status == "ok",
+                )
+            )
+        ).scalar_one_or_none()
+
+    return bool(profile_exists and active_bot_exists and calendar_ready)
 
 
 async def finalize_specialist_if_ready(specialist_id: uuid.UUID) -> bool:
@@ -56,4 +68,3 @@ async def finalize_specialist_if_ready(specialist_id: uuid.UUID) -> bool:
         specialist.status = SpecialistStatus.active
         await session.commit()
         return True
-

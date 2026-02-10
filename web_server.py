@@ -21,6 +21,11 @@ from database import (
     TelegramBotStatus,
 )
 from services.google_oauth import exchange_code_for_token
+from services.google_calendar import (
+    GoogleCalendarInsufficientPermissionsError,
+    list_calendars,
+    scopes_as_string,
+)
 from services.crypto import encrypt_token
 from logging_middleware import log_outbound_message
 from services import heartbeat
@@ -247,12 +252,12 @@ async def google_oauth_callback(request: Request):
                 oauth_entry.refresh_token_encrypted = encrypted_refresh_token
                 oauth_entry.status = GoogleOAuthStatus.connected
                 oauth_entry.token_updated_at = datetime.utcnow()
-                oauth_entry.scopes = "https://www.googleapis.com/auth/calendar" # Hardcoded for MVP
+                oauth_entry.scopes = scopes_as_string()
             else:
                 new_entry = GoogleOAuth(
                     specialist_id=specialist_id,
                     refresh_token_encrypted=encrypted_refresh_token,
-                    scopes="https://www.googleapis.com/auth/calendar",
+                    scopes=scopes_as_string(),
                     status=GoogleOAuthStatus.connected,
                     token_updated_at=datetime.utcnow()
                 )
@@ -271,9 +276,22 @@ async def google_oauth_callback(request: Request):
 
             await session.commit()
 
+            permissions_ok = True
+            try:
+                await list_calendars(specialist_id)
+            except GoogleCalendarInsufficientPermissionsError:
+                permissions_ok = False
+                logger.warning("Google connected but insufficient permissions specialist_id=%s", specialist_id)
+
             # 3. Уведомление в Telegram
             if auth_data:
-                text_out = "✅ **Google Календарь успешно подключен!**\nТеперь вы можете настроить расписание."
+                if permissions_ok:
+                    text_out = "✅ **Google подключен!**\n\nШаг 4 из 4: выберите действие с календарем в master bot (создать отдельный или выбрать существующий)."
+                else:
+                    text_out = (
+                        "⚠️ Google подключен, но доступов недостаточно для создания календаря/событий.\n"
+                        "Переподключите аккаунт через кнопку в master bot и выдайте все права."
+                    )
                 try:
                     await bot.send_message(chat_id=auth_data.tg_user_id, text=text_out)
                     
