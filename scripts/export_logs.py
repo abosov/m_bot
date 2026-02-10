@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 
 import argparse
+import asyncio
+import importlib.util
 import sys
+import uuid
+from pathlib import Path
 
 if __package__ in {None, ""}:
-    from pathlib import Path
-
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-    from scripts._bootstrap import add_project_root_to_syspath
+    bootstrap_path = Path(__file__).with_name("_bootstrap.py")
+    bootstrap_spec = importlib.util.spec_from_file_location("scripts._bootstrap", bootstrap_path)
+    if bootstrap_spec is None or bootstrap_spec.loader is None:
+        raise RuntimeError(f"Unable to load bootstrap module from {bootstrap_path}")
+    bootstrap_module = importlib.util.module_from_spec(bootstrap_spec)
+    bootstrap_spec.loader.exec_module(bootstrap_module)
+    add_project_root_to_syspath = bootstrap_module.add_project_root_to_syspath
 else:
     from ._bootstrap import add_project_root_to_syspath
 
 add_project_root_to_syspath()
-import asyncio
-import uuid
 
 
 def parse_uuid(value: str) -> uuid.UUID:

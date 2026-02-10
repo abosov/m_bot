@@ -11,9 +11,21 @@ LOCAL_READYZ_URL="http://127.0.0.1:8000/readyz"
 DOMAIN_BASE_URL="${ZUMBOT_DOMAIN_BASE_URL:-}"
 VERBOSE="${VERBOSE:-0}"
 RESULT="OK"
+LOG_PATH="${LOG_PATH:-/tmp/zumbot_deploy_check_$(date -u +%Y%m%dT%H%M%SZ).log}"
 
 OK_COUNT=0
 FAIL_COUNT=0
+
+setup_logging() {
+  if [[ "${DEPLOY_CHECK_LOGGING_READY:-0}" == "1" ]]; then
+    return
+  fi
+
+  export DEPLOY_CHECK_LOGGING_READY=1
+  mkdir -p "$(dirname "${LOG_PATH}")"
+  touch "${LOG_PATH}"
+  exec > >(tee -a "${LOG_PATH}") 2>&1
+}
 
 log_check() {
   local status="$1"
@@ -139,35 +151,27 @@ check_postgres_reachable() {
   fi
 }
 
-normalize_db_url_to_pg_dsn() {
-  local raw_db_url="$1"
-  local normalized
+validate_psql_url() {
+  local raw_url="$1"
+  local without_query authority_and_path dbname
 
-  if [[ "${raw_db_url}" == postgresql+asyncpg://* ]]; then
-    normalized="postgresql://${raw_db_url#postgresql+asyncpg://}"
-  elif [[ "${raw_db_url}" == postgres://* ]]; then
-    normalized="postgresql://${raw_db_url#postgres://}"
-  elif [[ "${raw_db_url}" == postgresql://* ]]; then
-    normalized="${raw_db_url}"
-  else
+  if [[ "${raw_url}" != postgres://* && "${raw_url}" != postgresql://* ]]; then
     echo "unsupported DB_URL scheme" >&2
     return 1
   fi
 
-  local without_query="${normalized%%\?*}"
-  local authority_and_path="${without_query#*://}"
+  without_query="${raw_url%%\?*}"
+  authority_and_path="${without_query#*://}"
   if [[ "${authority_and_path}" != */* ]]; then
     echo "DB_URL must include dbname path" >&2
     return 1
   fi
 
-  local dbname="${authority_and_path#*/}"
+  dbname="${authority_and_path#*/}"
   if [[ -z "${dbname}" ]]; then
     echo "DB_URL dbname is empty" >&2
     return 1
   fi
-
-  printf '%s\n' "${normalized}"
 }
 
 run_sql_migrations() {
@@ -190,8 +194,12 @@ run_sql_migrations() {
     exit 1
   fi
 
-  local pg_dsn
-  if ! pg_dsn="$(normalize_db_url_to_pg_dsn "${DB_URL}")"; then
+  local PSQL_URL="${DB_URL/+asyncpg/}"
+  if [[ "${PSQL_URL}" == postgres://* ]]; then
+    PSQL_URL="postgresql://${PSQL_URL#postgres://}"
+  fi
+
+  if ! validate_psql_url "${PSQL_URL}"; then
     log_check "FAIL" "${title}" "invalid DB_URL format (pgsql dbname is required)"
     RESULT="FAIL"
     exit 1
@@ -203,7 +211,7 @@ run_sql_migrations() {
     exit 1
   fi
 
-  if ! sudo -u zumbot psql "${pg_dsn}" -v ON_ERROR_STOP=1 -tAc 'SELECT 1' >/dev/null; then
+  if ! sudo -u zumbot psql --dbname="${PSQL_URL}" -v ON_ERROR_STOP=1 -tAc 'SELECT 1' >/dev/null; then
     log_check "FAIL" "${title}" "psql connection self-check failed"
     RESULT="FAIL"
     exit 1
@@ -217,7 +225,7 @@ run_sql_migrations() {
 
   local migration
   for migration in "${migration_files[@]}"; do
-    if ! sudo -u zumbot psql "${pg_dsn}" -v ON_ERROR_STOP=1 -f "${migration}" >/dev/null; then
+    if ! sudo -u zumbot psql --dbname="${PSQL_URL}" -v ON_ERROR_STOP=1 -f "${migration}" >/dev/null; then
       log_check "FAIL" "${title}" "migration failed: $(basename "${migration}")"
       RESULT="FAIL"
       exit 1
@@ -294,9 +302,14 @@ check_external_endpoints() {
 }
 
 main() {
+  setup_logging
+
   if [[ "$(id -u)" -ne 0 ]]; then
     echo "This script must be run as root."
     echo "hint: sudo bash ${REPO_DIR}/scripts/vps_deploy_check.sh"
+    RESULT="FAIL"
+    echo "RESULT=${RESULT}"
+    echo "LOG_PATH=${LOG_PATH}"
     exit 1
   fi
 
@@ -316,11 +329,18 @@ main() {
   echo
   echo "SUMMARY: OK=${OK_COUNT} FAIL=${FAIL_COUNT}"
   if [[ ${FAIL_COUNT} -eq 0 && "${RESULT}" == "OK" ]]; then
-    echo "EXIT_CODE=0"
+    RESULT="OK"
+  else
+    RESULT="FAIL"
+  fi
+
+  echo "RESULT=${RESULT}"
+  echo "LOG_PATH=${LOG_PATH}"
+
+  if [[ "${RESULT}" == "OK" ]]; then
     exit 0
   fi
 
-  echo "EXIT_CODE=1"
   exit 1
 }
 

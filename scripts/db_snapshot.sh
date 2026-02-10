@@ -117,6 +117,9 @@ if [[ "${DB_URL}" == postgres* ]]; then
   fi
 
   PG_DUMP_URL="${DB_URL/+asyncpg/}"
+  if [[ "${PG_DUMP_URL}" == postgres://* ]]; then
+    PG_DUMP_URL="postgresql://${PG_DUMP_URL#postgres://}"
+  fi
   TMP_DUMP_PATH="$(mktemp)"
   trap 'rm -f "${TMP_DUMP_PATH}"' EXIT
 
