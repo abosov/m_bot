@@ -229,9 +229,13 @@ Google Calendar — источник истины для:
 - Все различия — только через переменные окружения.
 - `.env.local` хранится только локально и **не копируется** на VPS.
 
-Для воспроизводимого деплоя и диагностики одной командой на VPS используйте runbook:
+Для воспроизводимого деплоя и диагностики на VPS используйте runbook:
 - `docs/runbook_vps.md`
 - скрипт `scripts/vps_deploy_check.sh`
+
+Основные команды:
+- checks: `sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/vps_deploy_check.sh'`
+- deploy: `sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/vps_deploy_check.sh --mode deploy'`
 
 ---
 
