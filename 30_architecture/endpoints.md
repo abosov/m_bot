@@ -4,10 +4,24 @@
 
 ## Базовый URL
 - Production backend: `https://api.zumbot.ru`.
+- Public site: `https://zumbot.ru` (не API endpoint).
 
 Проверка с VPS:
 ```bash
 [VPS] curl -i https://api.zumbot.ru/healthz
+```
+
+
+### Зафиксированные health/readiness endpoints в production
+- Используются только:
+  - `GET /healthz`
+  - `GET /readyz`
+- `GET /health` и `GET /ready` не используются и возвращают `404 Not Found`.
+
+Проверка legacy путей:
+```bash
+[VPS] curl -i https://api.zumbot.ru/health
+[VPS] curl -i https://api.zumbot.ru/ready
 ```
 
 ## 1) Health endpoint
@@ -101,13 +115,13 @@
 [VPS] curl -i https://api.zumbot.ru/
 ```
 
-## Неиспользуемые endpoints
+## Неиспользуемые endpoints (legacy)
 
 ### GET `/health`
-В production не используется и возвращает `404 Not Found`.
+В production не используется и возвращает `404 Not Found` (маршрут отсутствует).
 
 ### GET `/ready`
-В production не используется и возвращает `404 Not Found`.
+В production не используется и возвращает `404 Not Found` (маршрут отсутствует).
 
 ## Связанные документы
 - `docs/deployment_readiness.md`

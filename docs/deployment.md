@@ -7,6 +7,71 @@
 
 ---
 
+
+## Актуальный runbook для production (VPS)
+
+> Этот раздел фиксирует фактическое окружение на VPS и является основным для релизных действий.
+
+### Что где выполняется
+- `[VPS]` — все команды деплоя и эксплуатации (`systemctl`, `journalctl`, `psql`, `curl` в production).
+- `[Локально]` — только разработка, проверка и подготовка изменений.
+- Git-команды в production выполнять **только от пользователя `zumbot`**.
+
+### Зафиксированные production-параметры
+- Путь репозитория на VPS: `/opt/zumbot/backend`.
+- Владелец репозитория: `zumbot:zumbot`.
+- systemd units:
+  - `zumbot-backend.socket` (`ListenStream=127.0.0.1:8000`)
+  - `zumbot-backend.service`
+- Env-файл: `/etc/zumbot/backend.env` с ключевыми значениями:
+  - `APP_ENV=prod`
+  - `ENABLE_READYZ=true`
+  - `BASE_URL=https://api.zumbot.ru`
+  - `PUBLIC_SITE_URL=https://zumbot.ru`
+  - `GOOGLE_REDIRECT_URI=https://api.zumbot.ru/google/oauth/callback`
+- Продуктивные домены:
+  - API: `https://api.zumbot.ru`
+  - Site: `https://zumbot.ru`
+
+### Разовые шаги (one-time)
+1. Подготовить VPS и каталог `/opt/zumbot/backend` с владельцем `zumbot:zumbot`.
+2. Создать `/etc/zumbot/backend.env`.
+3. Настроить и включить `zumbot-backend.socket` и `zumbot-backend.service`.
+4. Выполнить базовую инициализацию БД и начальные SQL-миграции из `scripts/migrations/*.sql`.
+
+### Шаги на каждый релиз
+```bash
+[VPS] sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && git pull --ff-only'
+[VPS] sudo systemctl restart zumbot-backend.service
+[VPS] curl -fsS https://api.zumbot.ru/healthz
+[VPS] curl -fsS https://api.zumbot.ru/readyz
+[VPS] sudo journalctl -u zumbot-backend.service -n 200 --no-pager
+```
+
+Ожидаемые ответы:
+- `/healthz` -> `200 {"status":"ok","service":"backend"}`
+- `/readyz` -> `200 {"status":"ready","db":"ok","loop":"ok"}`
+- `/health` и `/ready` не используются в production и возвращают `404`.
+
+### SQL-миграции в релизе
+- Каталог миграций: `scripts/migrations/*.sql`.
+- Пример применения:
+```bash
+[VPS] sudo -u postgres bash -lc 'cd /tmp && psql -d zumbot -f /opt/zumbot/backend/scripts/migrations/20260210_add_specialist_calendar_settings.sql'
+```
+- После миграции обязательно проверить ожидаемые таблицы/индексы (через `to_regclass(...)` и/или `\d`).
+
+### Rollback
+```bash
+[VPS] sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && git log --oneline -n 20'
+[VPS] sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && git reset --hard <commit_sha>'
+[VPS] sudo systemctl restart zumbot-backend.service
+[VPS] curl -fsS https://api.zumbot.ru/healthz
+[VPS] curl -fsS https://api.zumbot.ru/readyz
+```
+
+---
+
 ## 1. Изменения в FastAPI backend (код)
 
 ### 1.1. Какие файлы/строки менялись

@@ -26,6 +26,19 @@
 - `[VPS]` — команды для production-сервера.
 - `[Локально]` — команды для машины разработчика.
 - Команды с `systemctl`, `journalctl`, `nginx`, `/etc/zumbot/backend.env`, `sudo -u postgres ...` выполняются только на VPS.
+- Git-операции в production (`git pull`, `git reset`, `git checkout`) выполнять только от пользователя `zumbot`.
+
+### Зафиксированная production-конфигурация (VPS)
+- Репозиторий на VPS: `/opt/zumbot/backend` (владелец каталога: `zumbot:zumbot`).
+- systemd units:
+  - `zumbot-backend.socket` (`ListenStream=127.0.0.1:8000`)
+  - `zumbot-backend.service`
+- Переменные окружения загружаются из `/etc/zumbot/backend.env`, включая:
+  - `APP_ENV=prod`
+  - `ENABLE_READYZ=true`
+  - `BASE_URL=https://api.zumbot.ru`
+  - `PUBLIC_SITE_URL=https://zumbot.ru`
+  - `GOOGLE_REDIRECT_URI=https://api.zumbot.ru/google/oauth/callback`
 
 ---
 
@@ -140,10 +153,15 @@
 - Первичная схема создаётся через `create_all`.
 - Изменения схемы фиксируются SQL-скриптами `scripts/migrations/*.sql`.
 
-Применение SQL-миграции:
+Применение SQL-миграций (`scripts/migrations/*.sql`):
 ```bash
-[VPS] sudo -u postgres bash -lc 'psql -d zumbot -f /opt/zumbot/m_bot/scripts/migrations/20260210_add_specialist_calendar_settings.sql'
+[VPS] sudo -u postgres bash -lc 'cd /tmp && psql -d zumbot -f /opt/zumbot/backend/scripts/migrations/20260210_add_specialist_calendar_settings.sql'
 ```
+
+Правила:
+- миграции применяются на VPS только после обновления кода в `/opt/zumbot/backend`;
+- запускать через `sudo -u postgres bash -lc 'cd /tmp && psql ...'`, чтобы избежать warning про рабочую директорию `/root`;
+- после каждой миграции обязательно проверить появление/изменение ожидаемых таблиц и индексов.
 
 Проверка, что таблица `specialist_calendar_settings` существует:
 ```bash
@@ -236,18 +254,46 @@ scp user@vps-host:/tmp/zumbot_logs_dump.sql ./zumbot_logs_dump.sql
 
 ## 8.1 Разово и на каждый релиз
 
-Разово на VPS:
-- установка пакетов, PostgreSQL, nginx, TLS;
-- создание `/etc/zumbot/backend.env`;
-- создание systemd unit-файлов и включение `zumbot-backend.socket`;
-- первичное создание схемы БД и базовых SQL-миграций.
+### Разовые шаги (один раз на VPS)
+1. Подготовить сервер и директории, убедиться что `/opt/zumbot/backend` принадлежит `zumbot:zumbot`.
+2. Создать `/etc/zumbot/backend.env` с production-значениями.
+3. Установить и включить units `zumbot-backend.socket` и `zumbot-backend.service`.
+4. Выполнить первичную инициализацию БД и базовые SQL-миграции из `scripts/migrations/*.sql`.
 
-На каждый релиз:
-- `git pull --ff-only`;
-- применение новых SQL-скриптов из `scripts/migrations/*.sql`;
-- перезапуск backend (`zumbot-backend.socket`/`zumbot-backend.service`);
-- smoke-check: `/healthz` и `/readyz` должны вернуть `200`;
-- контрольные проверки: `/health`, `/ready`, `/` должны вернуть `404`.
+### Шаги на каждый релиз (выполняются на VPS)
+1. Перейти в репозиторий и выполнить git-обновление строго от пользователя `zumbot`:
+   ```bash
+   [VPS] sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && git pull --ff-only'
+   ```
+2. Применить новые SQL-миграции (если есть) из `scripts/migrations/*.sql`.
+3. Перезапустить backend:
+   ```bash
+   [VPS] sudo systemctl restart zumbot-backend.service
+   ```
+4. Проверить health/readiness:
+   ```bash
+   [VPS] curl -fsS https://api.zumbot.ru/healthz
+   [VPS] curl -fsS https://api.zumbot.ru/readyz
+   ```
+5. Проверить журнал сервиса:
+   ```bash
+   [VPS] sudo journalctl -u zumbot-backend.service -n 200 --no-pager
+   ```
+6. Убедиться, что legacy endpoints отсутствуют:
+   - `/health` -> `404`
+   - `/ready` -> `404`
+
+### Rollback (если релиз неуспешен)
+1. На VPS откатить репозиторий до нужного коммита (от пользователя `zumbot`):
+   ```bash
+   [VPS] sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && git log --oneline -n 20'
+   [VPS] sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && git reset --hard <commit_sha>'
+   ```
+2. Перезапустить backend:
+   ```bash
+   [VPS] sudo systemctl restart zumbot-backend.service
+   ```
+3. Повторить проверки `/healthz`, `/readyz` и `journalctl`.
 
 ## 9. Обновления и совместимость
 - при изменении структуры БД использовать миграции
