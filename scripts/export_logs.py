@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import argparse
 import asyncio
-from pathlib import Path
-import sys
 import uuid
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 
 def parse_uuid(value: str) -> uuid.UUID:
@@ -62,18 +61,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def run_export(args: argparse.Namespace) -> int:
-    from database import LogDirection
-    from services.log_exporter import (
-        collect_logs,
-        parse_iso_datetime,
-        render_jsonl,
-        render_message_logs_csv,
-    )
-
+async def run_export(
+    args: argparse.Namespace,
+    log_direction_cls,
+    collect_logs,
+    parse_iso_datetime,
+    render_jsonl,
+    render_message_logs_csv,
+) -> int:
     since = parse_iso_datetime(args.since) if args.since else None
     until = parse_iso_datetime(args.until) if args.until else None
-    direction = LogDirection(args.direction) if args.direction else None
+    direction = log_direction_cls(args.direction) if args.direction else None
     is_error = True if args.is_error else None
 
     records = await collect_logs(
@@ -107,7 +105,25 @@ async def run_export(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    return asyncio.run(run_export(args))
+
+    from database import LogDirection
+    from services.log_exporter import (
+        collect_logs,
+        parse_iso_datetime,
+        render_jsonl,
+        render_message_logs_csv,
+    )
+
+    return asyncio.run(
+        run_export(
+            args=args,
+            log_direction_cls=LogDirection,
+            collect_logs=collect_logs,
+            parse_iso_datetime=parse_iso_datetime,
+            render_jsonl=render_jsonl,
+            render_message_logs_csv=render_message_logs_csv,
+        )
+    )
 
 
 if __name__ == "__main__":

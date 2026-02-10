@@ -177,9 +177,7 @@
 DB_URL=sqlite+aiosqlite:///./mvp.db scripts/db_snapshot.sh --out /tmp/zumbot_snapshot.db
 
 # PostgreSQL (последние 7 дней)
-DB_URL=postgresql+asyncpg://user@localhost:5432/zumbot \
-  PGHOST=127.0.0.1 PGUSER=readonly PGDATABASE=zumbot \
-  scripts/db_snapshot.sh --days 7 --out /tmp/zumbot_logs_dump.sql
+bash scripts/db_snapshot.sh --days 7 --out /tmp/zumbot_logs_dump.sql
 ```
 
 ### Безопасное скачивание на локальную машину

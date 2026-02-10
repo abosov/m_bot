@@ -4,7 +4,7 @@ set -euo pipefail
 DB_URL="${DB_URL:-}"
 OUT_PATH=""
 DAYS=""
-ENV_FILE=""
+ENV_FILE="/etc/zumbot/backend.env"
 DB_URL_OVERRIDE=""
 
 usage() {
@@ -12,7 +12,7 @@ usage() {
 Usage: scripts/db_snapshot.sh [--env-file PATH] [--db-url URL] [--out PATH] [--days N]
 
 Options:
-  --env-file PATH   Source env file before DB_URL validation (e.g. /etc/zumbot/backend.env)
+  --env-file PATH   Source env file before DB_URL validation (default: /etc/zumbot/backend.env)
   --db-url URL      Override DB_URL from env/env-file
   --out PATH        Output file path
   --days N          PostgreSQL only: dump only recent records
@@ -60,15 +60,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -n "${ENV_FILE}" ]]; then
+if [[ -z "${DB_URL}" && -z "${DB_URL_OVERRIDE}" && -n "${ENV_FILE}" ]]; then
   if [[ ! -f "${ENV_FILE}" ]]; then
     echo "Env file does not exist: ${ENV_FILE}" >&2
+    echo "DB_URL is not set. Use --db-url <URL> or provide an existing --env-file <PATH>." >&2
     exit 1
   fi
   set -a
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
   set +a
+  DB_URL="${DB_URL:-}"
 fi
 
 if [[ -n "${DB_URL_OVERRIDE}" ]]; then
@@ -137,12 +139,14 @@ if [[ "${DB_URL}" == postgres* ]]; then
       dump_opts+=(--where="${where_clause}")
     fi
 
-    pg_dump "${dump_opts[@]}" | sed '/^\\restrict /d; /^\\unrestrict /d' >> "${OUT_PATH}"
+    pg_dump "${dump_opts[@]}" >> "${OUT_PATH}"
   }
 
   dump_table "message_logs" "created_at"
   dump_table "service_heartbeats" "ts"
   dump_table "bot_health_checks" "checked_at"
+
+  grep -vE '^(\\restrict|\\unrestrict) ' "${OUT_PATH}" > "${OUT_PATH}.tmp" && mv "${OUT_PATH}.tmp" "${OUT_PATH}"
 
   echo "PostgreSQL logs dump written to ${OUT_PATH}"
   exit 0

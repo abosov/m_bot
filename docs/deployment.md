@@ -338,7 +338,7 @@ git pull origin <branch>
 bash scripts/db_snapshot.sh --db-url sqlite+aiosqlite:///./mvp.db --out /tmp/zumbot_snapshot.db
 
 # PostgreSQL (последние 7 дней)
-bash scripts/db_snapshot.sh --env-file /etc/zumbot/backend.env --days 7 --out /tmp/zumbot_logs_dump.sql
+bash scripts/db_snapshot.sh --days 7 --out /tmp/zumbot_logs_dump.sql
 ```
 
 ### Безопасное скачивание на локальную машину
@@ -397,16 +397,17 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 APP_ENV=test pytest -q
 ```bash
 cd /opt/zumbot/backend
 python scripts/export_logs.py --help
-python -m scripts.export_logs --source message_logs --since 2026-01-01T00:00:00Z --limit 500 --redact --out /tmp/message_logs.jsonl
+python scripts/export_logs.py --source message_logs --since 2026-01-01T00:00:00Z --limit 500 --redact --out /tmp/message_logs.jsonl
 ```
 
 ### Снапшот лог-таблиц БД
 
-Перед запуском загрузите production env:
+Скрипт по умолчанию сам подгружает `/etc/zumbot/backend.env`, если `DB_URL`
+не задан в текущем окружении:
 
 ```bash
 cd /opt/zumbot/backend
-bash scripts/db_snapshot.sh --env-file /etc/zumbot/backend.env --days 7 --out /tmp/zumbot_logs_dump.sql
+bash scripts/db_snapshot.sh --days 7 --out /tmp/zumbot_logs_dump.sql
 ```
 
 Применение дампа в PostgreSQL:
@@ -415,4 +416,5 @@ bash scripts/db_snapshot.sh --env-file /etc/zumbot/backend.env --days 7 --out /t
 psql "$DB_URL" -f /tmp/zumbot_logs_dump.sql
 ```
 
-Если в конце дампа присутствуют строки вида `\\unrestrict ...`, это служебные psql-метакоманды, которые корректно обрабатываются `psql` и не мешают восстановлению.
+Скрипт автоматически удаляет из финального SQL-артефакта служебные строки
+`\\restrict ...` и `\\unrestrict ...`, чтобы дамп оставался чистым и переносимым.
