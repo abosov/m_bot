@@ -30,6 +30,7 @@ from services.google_calendar import (
 from services.crypto import encrypt_token
 from logging_middleware import log_outbound_message
 from services import heartbeat
+from services.telegram.bot_factory import close_personal_bot_cache
 from services.telegram.personal_dispatcher import process_update
 import config
 from admin_api import router as admin_router
@@ -40,6 +41,14 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     yield
+    # Закрываем personal bot cache первым, чтобы завершить дочерние HTTP-сессии
+    # до закрытия master bot и сделать shutdown более предсказуемым.
+    try:
+        await close_personal_bot_cache()
+        logger.info("Personal bot cache closed on shutdown")
+    except Exception:
+        logger.warning("Failed to close personal bot cache on shutdown", exc_info=True)
+
     if bot is not None:
         try:
             await bot.session.close()
@@ -375,4 +384,3 @@ async def google_oauth_callback(request: Request):
     except Exception:
         logger.exception("google_oauth_callback failed specialist_state=%s", state)
         return "<h1>Произошла ошибка при подключении Google. Попробуйте ещё раз из Telegram.</h1>"
-

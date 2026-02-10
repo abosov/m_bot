@@ -297,3 +297,14 @@ scp user@vps-host:/tmp/zumbot_logs_dump.sql ./zumbot_logs_dump.sql
 - systemd socket unit удерживает порт во время рестарта.
 - nginx настроен на retry и отдаёт JSON-ошибку при полном падении backend.
 - Проверки `/readyz` гарантируют корректную готовность сервиса.
+
+## Shutdown / graceful stop
+
+При корректной остановке backend (например, `systemctl stop/restart`) приложение
+закрывает HTTP-сессии Telegram-ботов в следующем порядке:
+
+1. personal bot cache (все кэшированные сессии персональных ботов);
+2. master bot session.
+
+Это нужно для устойчивости при деплоях и рестартах: соединения завершаются
+предсказуемо, без «висящих» клиентских сессий и лишних ошибок транспорта.

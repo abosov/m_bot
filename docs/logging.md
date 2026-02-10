@@ -226,3 +226,14 @@ sqlite3 ./zumbot_snapshot.db ".tables"
   цикла, даже если HTTP-сервер продолжает отвечать.
 - `/readyz` логирует `db_ok`, `loop_ok`, `latency_ms` для наблюдаемости
   состояния БД и жизнеспособности event loop.
+
+## Логи shutdown
+
+На graceful shutdown ожидаем технические сообщения (без секретов, токенов и webhook-secret):
+
+- `Personal bot cache closed on shutdown` — personal bot cache закрыт успешно;
+- `Failed to close personal bot cache on shutdown` (warning) — ошибка при закрытии cache;
+- `Master bot session closed on shutdown` — master bot session закрыта успешно;
+- `Failed to close master bot session on shutdown` (warning) — ошибка при закрытии master session.
+
+Эти сообщения помогают быстро проверить корректность lifecycle ресурсов после stop/restart.
