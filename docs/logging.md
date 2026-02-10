@@ -14,7 +14,10 @@ loop и т.п. Источники: `service_heartbeats`, `bot_health_checks`.
 - входящие и исходящие сообщения Telegram (таблица `message_logs`);
 - технические проверки доступности сервиса:
   - `/readyz` → `service_heartbeats` (готовность сервиса);
-  - команда `/status` в master_bot → `bot_health_checks` (здоровье личных ботов).
+  - команда `/status` в master_bot → `bot_health_checks` (здоровье личных ботов);
+- события best-effort welcome после завершения онбординга:
+  - логируется операционный контекст (`specialist_id`, `bot_user_id`/`bot_username`),
+    без токенов/секретов.
 
 `/readyz` пишет **ServiceHeartbeat** в `service_heartbeats` — это основной источник
 истории доступности сервиса.

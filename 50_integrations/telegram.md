@@ -50,6 +50,19 @@ Webhook URL для personal bot:
 - если не совпало → отклоняет (403/404)
 - если совпало → принимает update
 
+### 2.4 Welcome message after onboarding (best-effort)
+После успешного завершения онбординга specialist в master bot backend:
+- переводит specialist в `active` и отправляет итоговое сообщение с deep-link на personal bot;
+- дополнительно делает попытку отправить welcome-сообщение уже через personal bot.
+
+Ключевые гарантии и поведение:
+- отправка welcome является `non-blocking`: отсутствие welcome-сообщения не означает провал онбординга;
+- используется короткий сетевой таймаут и ограниченное число ретраев, чтобы не задерживать основной UX;
+- для отправки выбирается самый актуальный `active` personal bot специалиста
+  (детерминированно: по `updated_at` по убыванию, затем по `created_at` по убыванию);
+- ошибки welcome логируются с операционным контекстом (`specialist_id`, `bot_user_id`/`bot_username`),
+  но без секретов (`bot_token`, `refresh_token`, `secret`).
+
 ---
 
 ## 3. Валидация bot_token (подключение specialist bot)
