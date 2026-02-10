@@ -1,102 +1,53 @@
-# VPS runbook: деплой и диагностика одной командой
+# VPS runbook: ручной деплой без автодеплоя
 
-> Прод-деплой выполняется вручную на VPS.
+> Автодеплой из GitHub Actions **не используем**. Прод-деплой выполняется вручную на VPS.
 
 ## Базовые пути
 
 - Репозиторий: `/opt/zumbot/backend`
 - Venv: `/opt/zumbot/backend/.venv`
 - Env: `/etc/zumbot/backend.env`
-- Скрипт: `/opt/zumbot/backend/scripts/vps_deploy_check.sh`
+- Деплой-скрипт: `/opt/zumbot/backend/scripts/vps_deploy.sh`
+- Check-скрипт: `/opt/zumbot/backend/scripts/vps_deploy_check.sh`
 
-## Ручной деплой (основной путь)
-
-### Деплой (pull + install + migrations + restart + checks)
-
-```bash
-sudo VERBOSE=1 bash /opt/zumbot/backend/scripts/vps_deploy_check.sh --mode deploy
-```
-
-### Проверка состояния после деплоя (checks)
+## Одна команда для деплоя
 
 ```bash
-sudo bash /opt/zumbot/backend/scripts/vps_deploy_check.sh --mode checks
+sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/vps_deploy.sh'
 ```
 
-Режим `checks` не делает `git pull`, `pip install`, миграции и рестарт, только проверяет состояние.
+Что делает команда:
+- `git fetch` + `git pull --ff-only origin main`;
+- `pip install -r requirements.txt` в `.venv` от пользователя `zumbot`;
+- загрузка env из `/etc/zumbot/backend.env`;
+- запуск SQL-миграций (`scripts/db_migrate.sh`);
+- `systemctl restart zumbot-backend.service`;
+- короткий wait `/readyz`;
+- запуск пост-проверок (`scripts/vps_deploy_check.sh`).
 
-## Что делает скрипт
-
-- запускает user-шаги от `zumbot` (git/pip/psql);
-- запускает root-шаги только там, где нужно (`systemctl`, `nginx -t`);
-- для psql использует URL без драйвера `+asyncpg`;
-- SQL-миграции запускаются с `ON_ERROR_STOP=1`, при любой ошибке шаг завершается с `[FAIL]` и `exit 1`;
-- не печатает секреты: URL в логах маскируется (`user:***@host`).
-
-## Как прогнать проверки вручную
+## Только проверить без деплоя
 
 ```bash
-APP_ENV=test pytest -q
+sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/vps_deploy_check.sh'
 ```
 
-```bash
-bash -n /opt/zumbot/backend/scripts/vps_deploy_check.sh
-```
+`vps_deploy_check.sh` делает **только проверки** (без `git pull`, `pip install`, миграций и рестарта).
 
-## Как собрать логи и дамп
+## Где смотреть логи
 
-После запуска скрипта возьмите `LOG_PATH` из финального вывода:
-
-```bash
-tail -n 200 <LOG_PATH>
-```
-
-Сервисные логи:
+- Лог деплоя: `/tmp/zumbot_deploy_*.log`
+- Логи сервиса:
 
 ```bash
 sudo journalctl -u zumbot-backend.service -n 300 --no-pager
 ```
 
-Экспорт бизнес-логов:
+## Быстрый triage при проблемах
+
+1. Возьмите путь к логу из вывода `vps_deploy.sh`.
+2. Отправьте:
 
 ```bash
-python /opt/zumbot/backend/scripts/export_logs.py --help
-python /opt/zumbot/backend/scripts/export_logs.py --source message_logs --since 2026-01-01T00:00:00Z --limit 500 --redact --out /tmp/message_logs.jsonl
+tail -n 200 /tmp/zumbot_deploy_<timestamp>.log
+sudo journalctl -u zumbot-backend.service -n 300 --no-pager
 ```
-
-SQL-снимок БД (без секретов в логе и без `\restrict`/`\unrestrict` в дампе по умолчанию):
-
-```bash
-bash /opt/zumbot/backend/scripts/db_snapshot.sh --days 7 --out /tmp/zumbot_logs_dump.sql
-```
-
-Если нужен «сырой» дамп pg_dump для отладки, добавьте `--raw`.
-
-## Откат
-
-1. В каталоге репозитория переключиться на прошлый стабильный коммит/тег.
-2. Повторить деплой одной командой в `--mode deploy`.
-3. Проверить `/healthz` и `/readyz`.
-
-Пример:
-
-```bash
-sudo -u zumbot bash -lc 'cd /opt/zumbot/backend && git log --oneline -n 10'
-sudo -u zumbot bash -lc 'cd /opt/zumbot/backend && git checkout <stable_commit>'
-sudo VERBOSE=1 bash /opt/zumbot/backend/scripts/vps_deploy_check.sh --mode deploy
-```
-
-## Мини-инструкция для пользователя (без знания архитектуры)
-
-1. Подключитесь к серверу по SSH.
-2. Выполните одну команду:
-
-```bash
-sudo VERBOSE=1 bash /opt/zumbot/backend/scripts/vps_deploy_check.sh --mode deploy
-```
-
-3. В конце скрипт покажет `RESULT` и `LOG_PATH`.
-4. Если `RESULT=FAIL`, отправьте в поддержку:
-   - путь `LOG_PATH`;
-   - вывод `tail -n 200 <LOG_PATH>`;
-   - вывод `sudo journalctl -u zumbot-backend.service -n 300 --no-pager`.
