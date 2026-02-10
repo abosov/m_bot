@@ -75,6 +75,7 @@
 **Коды ответа:**
 - `200 OK` — update принят (включая кейсы с ошибкой внутренней обработки);
 - `404 Not Found` — пара `{bot_id}/{secret}` невалидна или bot неактивен.
+- `413 Payload Too Large` — body больше `MAX_WEBHOOK_BODY_BYTES`.
 
 **Пример:**
 ```bash
@@ -99,6 +100,9 @@
 **Коды ответа:**
 - `200 OK` с HTML-страницей (успех);
 - `200 OK` с HTML-страницей об ошибке/необходимости переподключения (валидация `state`, `refresh_token missing`, `error` от Google).
+
+Flow `state`: generate/store(TTL) → validate в callback → consume (one-time, удаляется после использования).
+`state` не равен `specialist_id` и не должен выводиться в логи как идентификатор пользователя.
 
 **Пример:**
 ```bash

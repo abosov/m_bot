@@ -162,3 +162,7 @@ def validate_config() -> None:
         raise RuntimeError(
             "Missing required production environment variables: " + ", ".join(missing)
         )
+
+    logger.warning(
+        "Production DB policy: run SQL migrations before startup; init_db(create_all) is retained only for backward compatibility."
+    )

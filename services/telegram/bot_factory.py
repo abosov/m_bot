@@ -1,5 +1,6 @@
 import logging
 import time
+import asyncio
 from aiohttp import ClientTimeout
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 _PERSONAL_BOT_CACHE_TTL_SEC = 90.0
 _personal_bot_cache: dict[int, tuple[float, Bot]] = {}
+_personal_bot_cache_lock = asyncio.Lock()
 
 
 def _build_session() -> AiohttpSession:
@@ -37,9 +39,14 @@ async def _close_bot(bot: Bot) -> None:
 
 
 async def _cleanup_expired(now: float) -> None:
-    expired_ids = [bot_id for bot_id, (expires_at, _) in _personal_bot_cache.items() if expires_at <= now]
-    for bot_id in expired_ids:
-        _, bot = _personal_bot_cache.pop(bot_id)
+    bots_to_close: list[Bot] = []
+    async with _personal_bot_cache_lock:
+        expired_ids = [bot_id for bot_id, (expires_at, _) in _personal_bot_cache.items() if expires_at <= now]
+        for bot_id in expired_ids:
+            _, bot = _personal_bot_cache.pop(bot_id)
+            bots_to_close.append(bot)
+
+    for bot in bots_to_close:
         await _close_bot(bot)
 
 
@@ -48,19 +55,25 @@ async def get_personal_bot(telegram_bot: TelegramBot) -> Bot:
     await _cleanup_expired(now)
 
     bot_id = telegram_bot.bot_user_id
-    cached = _personal_bot_cache.get(bot_id)
-    if cached is not None:
-        _, bot = cached
+    async with _personal_bot_cache_lock:
+        cached = _personal_bot_cache.get(bot_id)
+        if cached is not None:
+            _, bot = cached
+            _personal_bot_cache[bot_id] = (now + _PERSONAL_BOT_CACHE_TTL_SEC, bot)
+            return bot
+
+        bot = build_personal_bot(telegram_bot)
         _personal_bot_cache[bot_id] = (now + _PERSONAL_BOT_CACHE_TTL_SEC, bot)
         return bot
 
-    bot = build_personal_bot(telegram_bot)
-    _personal_bot_cache[bot_id] = (now + _PERSONAL_BOT_CACHE_TTL_SEC, bot)
-    return bot
-
 
 async def close_personal_bot_cache() -> None:
-    bot_ids = list(_personal_bot_cache.keys())
-    for bot_id in bot_ids:
-        _, bot = _personal_bot_cache.pop(bot_id)
+    bots_to_close: list[Bot] = []
+    async with _personal_bot_cache_lock:
+        bot_ids = list(_personal_bot_cache.keys())
+        for bot_id in bot_ids:
+            _, bot = _personal_bot_cache.pop(bot_id)
+            bots_to_close.append(bot)
+
+    for bot in bots_to_close:
         await _close_bot(bot)

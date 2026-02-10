@@ -98,6 +98,12 @@ Webhook URL содержит секрет:
 - encryption key
 - OAuth authorization code
 
+Политика redaction (зафиксировано в коде):
+- `/admin/logs` использует `redact=true` по умолчанию;
+- в production `redact=false` запрещён (`403`);
+- секреты не должны попадать в `message_logs`, export и admin logs в открытом виде.
+
+
 Дополнительное обязательное правило для reverse-proxy (nginx):
 - для маршрута `/tg/webhook/{bot_id}/{secret}` **нельзя** логировать полный URI
   (`$request_uri`/`$uri?$args`), потому что путь содержит `webhook_secret`;

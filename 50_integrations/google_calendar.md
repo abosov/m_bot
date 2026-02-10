@@ -56,3 +56,11 @@
 
 ## 6. Planned/TODO
 - Расширенная диагностика и UX для выбора существующего календаря находится в стадии planned.
+
+
+## OAuth state lifecycle (фиксированный)
+- `state` генерируется backend и сохраняется в `oauth_state` c TTL.
+- Callback валидирует `state` (существует, не истёк, корректный тип).
+- После успешной проверки `state` удаляется (one-time consume).
+- Reuse/expired `state` отклоняется.
+- `state` не равен `specialist_id`.

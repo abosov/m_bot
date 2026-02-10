@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from typing import Any, Awaitable, Callable
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 _personal_dispatcher: Dispatcher | None = None
 _profile_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _PROFILE_TTL_SEC = 10.0
+_profile_cache_lock = asyncio.Lock()
 
 
 def _get_sender_id(update: Update) -> int | None:
@@ -36,23 +38,26 @@ def _get_sender_id(update: Update) -> int | None:
 async def _load_specialist_profile(specialist_id) -> dict[str, Any] | None:
     cache_key = str(specialist_id)
     now = time.monotonic()
-    cached = _profile_cache.get(cache_key)
-    if cached and now < cached[0]:
-        return cached[1]
+    async with _profile_cache_lock:
+        cached = _profile_cache.get(cache_key)
+        if cached and now < cached[0]:
+            return cached[1]
 
     async with async_session_factory() as session:
         stmt = select(SpecialistProfile).where(SpecialistProfile.specialist_id == specialist_id)
         profile = (await session.execute(stmt)).scalar_one_or_none()
 
     if profile is None:
-        _profile_cache.pop(cache_key, None)
+        async with _profile_cache_lock:
+            _profile_cache.pop(cache_key, None)
         return None
 
     data = {
         "owner_tg_user_id": profile.owner_tg_user_id,
         "public_name": profile.public_name,
     }
-    _profile_cache[cache_key] = (now + _PROFILE_TTL_SEC, data)
+    async with _profile_cache_lock:
+        _profile_cache[cache_key] = (now + _PROFILE_TTL_SEC, data)
     return data
 
 

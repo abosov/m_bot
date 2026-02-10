@@ -67,3 +67,8 @@ curl -i -X POST "${BACKEND_BASE_URL}/tg/webhook/{bot_id}/{secret}" \
 
 ## 6. Planned/TODO
 - Унификация health/readiness endpoint names (`/health`, `/ready`) на уровне приложения (сейчас используются `/healthz`, `/readyz`).
+
+
+### Webhook payload limit
+- Backend ограничивает размер body через `MAX_WEBHOOK_BODY_BYTES`.
+- При превышении лимита endpoint возвращает `413 Payload Too Large`.

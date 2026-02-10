@@ -219,7 +219,7 @@ IDX:
 - `IDX_appointment_state` (`booking_state`)
 
 Примечания:
-- В MVP нет отдельного sync_status, так как нет воркеров.
+- В MVP нет отдельного sync_status, так как нет отдельного worker-процесса/очереди (heartbeat работает как внутренняя coroutine).
 - `failure_message` используется для диагностики и пользовательского сообщения.
 
 ---
@@ -228,6 +228,8 @@ IDX:
 
 ### oauth_state
 Одноразовый state для Google OAuth, чтобы связать callback с specialist.
+Lifecycle: generate/store(TTL) → validate → consume (one-time delete).
+`state` не равен `specialist_id`.
 
 - `oauth_state_id` UUID (PK)
 - `state` text NOT NULL
@@ -248,6 +250,7 @@ IDX:
 
 ### audit_log (опционально, но полезно)
 Для наблюдаемости без сложного мониторинга.
+Статус: **NOT IMPLEMENTED (planned/TODO, MVP+)**.
 
 - `audit_log_id` UUID (PK)
 - `specialist_id` UUID NULL
@@ -291,6 +294,7 @@ IDX:
 
 Примечания:
 - Логи не содержат секретов (token/refresh token).
+- Redaction по умолчанию включён для admin/export; unredacted-режим ограничен (в prod запрещён).
 - Поле `direction` принимает значения `IN`/`OUT`.
 
 ---
