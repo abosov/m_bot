@@ -116,7 +116,8 @@ if [[ "${DB_URL}" == postgres* ]]; then
     exit 1
   fi
 
-  PG_DUMP_URL="${DB_URL/+asyncpg/}"
+  PG_DUMP_URL="${DB_URL/postgresql+asyncpg:/postgresql:}"
+  PG_DUMP_URL="${PG_DUMP_URL/postgres+asyncpg:/postgres:}"
   if [[ "${PG_DUMP_URL}" == postgres://* ]]; then
     PG_DUMP_URL="postgresql://${PG_DUMP_URL#postgres://}"
   fi
@@ -166,7 +167,7 @@ if [[ "${DB_URL}" == postgres* ]]; then
   if [[ "${RAW_DUMP}" == "true" ]]; then
     cp "${TMP_DUMP_PATH}" "${OUT_PATH}"
   else
-    grep -vE '^(\\restrict|\\unrestrict)[[:space:]]' "${TMP_DUMP_PATH}" > "${OUT_PATH}"
+    sed -E '/^(\\restrict|\\unrestrict)\b/d' "${TMP_DUMP_PATH}" > "${OUT_PATH}"
   fi
   chmod 600 "${OUT_PATH}"
 

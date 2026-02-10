@@ -10,8 +10,9 @@ LOCAL_HEALTH_URL="http://127.0.0.1:8000/healthz"
 LOCAL_READYZ_URL="http://127.0.0.1:8000/readyz"
 DOMAIN_BASE_URL="${ZUMBOT_DOMAIN_BASE_URL:-}"
 VERBOSE="${VERBOSE:-0}"
-MODE="deploy"
+MODE="checks"
 RESULT="OK"
+EXIT_CODE=0
 LOG_PATH="${LOG_PATH:-/tmp/zumbot_deploy_check_$(date -u +%Y%m%dT%H%M%SZ).log}"
 CURRENT_STEP="init"
 SUMMARY_PRINTED=0
@@ -22,16 +23,16 @@ FAIL_COUNT=0
 usage() {
   cat <<USAGE
 Usage:
-  $(basename "$0") [--mode deploy|dry-run] [--verbose]
+  $(basename "$0") [--mode deploy|checks] [--verbose]
 
 Modes:
-  deploy   Full deployment flow (default):
+  deploy   Full deployment flow:
            git pull + pip install + SQL migrations + service restart + health checks.
-  dry-run  Checks only. No git pull, no pip install, no migrations, no restart.
+  checks   Checks only (default). No git pull, no pip install, no migrations, no restart.
 
 Examples:
   sudo VERBOSE=1 bash ${REPO_DIR}/scripts/vps_deploy_check.sh --mode deploy
-  bash ${REPO_DIR}/scripts/vps_deploy_check.sh --mode dry-run
+  bash ${REPO_DIR}/scripts/vps_deploy_check.sh --mode checks
 USAGE
 }
 
@@ -58,8 +59,8 @@ parse_args() {
     esac
   done
 
-  if [[ "${MODE}" != "deploy" && "${MODE}" != "dry-run" ]]; then
-    echo "Invalid --mode: ${MODE}. Use deploy|dry-run." >&2
+  if [[ "${MODE}" != "deploy" && "${MODE}" != "checks" ]]; then
+    echo "Invalid --mode: ${MODE}. Use deploy|checks." >&2
     exit 2
   fi
 }
@@ -137,6 +138,7 @@ on_exit() {
   local exit_code=$?
   if [[ ${exit_code} -ne 0 ]]; then
     RESULT="FAIL"
+    EXIT_CODE=1
     echo "FAILED_STEP=${CURRENT_STEP}"
   fi
   print_final_status
@@ -167,8 +169,8 @@ check_git_clean() {
 
 update_repo() {
   local title="git pull"
-  if [[ "${MODE}" == "dry-run" ]]; then
-    log_check "OK" "${title}" "skipped in dry-run mode"
+  if [[ "${MODE}" == "checks" ]]; then
+    log_check "OK" "${title}" "skipped in checks mode"
     return
   fi
 
@@ -194,8 +196,8 @@ check_venv_exists() {
 
 install_pip_deps() {
   local title="pip install"
-  if [[ "${MODE}" == "dry-run" ]]; then
-    log_check "OK" "${title}" "skipped in dry-run mode"
+  if [[ "${MODE}" == "checks" ]]; then
+    log_check "OK" "${title}" "skipped in checks mode"
     return
   fi
 
@@ -316,7 +318,8 @@ build_psql_url() {
   local db_url="$1"
   local psql_url
 
-  psql_url="${db_url/+asyncpg/}"
+  psql_url="${db_url/postgresql+asyncpg:/postgresql:}"
+  psql_url="${psql_url/postgres+asyncpg:/postgres:}"
   if [[ "${psql_url}" == postgres://* ]]; then
     psql_url="postgresql://${psql_url#postgres://}"
   fi
@@ -328,8 +331,8 @@ run_sql_migrations() {
   local title="Run SQL migrations"
   local migrations_dir="${REPO_DIR}/scripts/migrations"
 
-  if [[ "${MODE}" == "dry-run" ]]; then
-    log_check "OK" "${title}" "skipped in dry-run mode"
+  if [[ "${MODE}" == "checks" ]]; then
+    log_check "OK" "${title}" "skipped in checks mode"
     return
   fi
 
@@ -386,28 +389,39 @@ run_sql_migrations() {
   local migration
   local applied_count=0
   local skipped_count=0
+  local migration_exit_code=0
+  local migration_state=""
   for migration in "${migration_files[@]}"; do
     local migration_basename
     migration_basename="$(basename "${migration}")"
 
+    migration_state="applied"
     if run_psql "${PSQL_URL}" -tAc "SELECT 1 FROM applied_migrations WHERE filename = '${migration_basename}' LIMIT 1;" | grep -q '1'; then
+      migration_state="skipped (already applied)"
       skipped_count=$((skipped_count + 1))
-      print_verbose "skip already applied migration: ${migration_basename}"
+      echo "[MIGRATION] ${migration_basename}: ${migration_state}"
       continue
     fi
 
-    if ! run_psql "${PSQL_URL}" -f "${migration}" >/dev/null; then
-      log_check "FAIL" "${title}" "migration failed: $(basename "${migration}")"
+    if run_psql "${PSQL_URL}" -f "${migration}" >/dev/null 2>&1; then
+      :
+    else
+      migration_exit_code=$?
+      echo "[MIGRATION] ${migration_basename}: failed (exit_code=${migration_exit_code})"
+      log_check "FAIL" "${title}" "migration failed: ${migration_basename}"
       RESULT="FAIL"
+      EXIT_CODE=1
       exit 1
     fi
 
     if ! run_psql "${PSQL_URL}" -c "INSERT INTO applied_migrations(filename) VALUES ('${migration_basename}') ON CONFLICT (filename) DO NOTHING;" >/dev/null; then
       log_check "FAIL" "${title}" "failed to record applied migration: ${migration_basename}"
       RESULT="FAIL"
+      EXIT_CODE=1
       exit 1
     fi
 
+    echo "[MIGRATION] ${migration_basename}: applied"
     applied_count=$((applied_count + 1))
   done
 
@@ -423,8 +437,8 @@ check_http() {
 
 restart_backend_service() {
   local title="restart backend service"
-  if [[ "${MODE}" == "dry-run" ]]; then
-    log_check "OK" "${title}" "skipped in dry-run mode"
+  if [[ "${MODE}" == "checks" ]]; then
+    log_check "OK" "${title}" "skipped in checks mode"
     return
   fi
 
@@ -517,10 +531,12 @@ main() {
   fi
 
   if [[ "${RESULT}" == "OK" ]]; then
-    exit 0
+    EXIT_CODE=0
+  else
+    EXIT_CODE=1
   fi
 
-  exit 1
+  exit "${EXIT_CODE}"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

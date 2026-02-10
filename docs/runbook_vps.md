@@ -9,7 +9,7 @@
 - Env: `/etc/zumbot/backend.env`
 - Скрипт: `/opt/zumbot/backend/scripts/vps_deploy_check.sh`
 
-## Одна команда
+## Ручной деплой (основной путь)
 
 ### Деплой (pull + install + migrations + restart + checks)
 
@@ -17,13 +17,13 @@
 sudo VERBOSE=1 bash /opt/zumbot/backend/scripts/vps_deploy_check.sh --mode deploy
 ```
 
-### Проверка без изменений (dry-run)
+### Проверка состояния после деплоя (checks)
 
 ```bash
-bash /opt/zumbot/backend/scripts/vps_deploy_check.sh --mode dry-run
+sudo bash /opt/zumbot/backend/scripts/vps_deploy_check.sh --mode checks
 ```
 
-Dry-run не делает `git pull`, `pip install`, миграции и рестарт, только проверяет состояние.
+Режим `checks` не делает `git pull`, `pip install`, миграции и рестарт, только проверяет состояние.
 
 ## Что делает скрипт
 
@@ -61,14 +61,16 @@ sudo journalctl -u zumbot-backend.service -n 300 --no-pager
 
 ```bash
 python /opt/zumbot/backend/scripts/export_logs.py --help
-python -m scripts.export_logs --help
+python /opt/zumbot/backend/scripts/export_logs.py --source message_logs --since 2026-01-01T00:00:00Z --limit 500 --redact --out /tmp/message_logs.jsonl
 ```
 
-SQL-снимок БД:
+SQL-снимок БД (без секретов в логе и без `\restrict`/`\unrestrict` в дампе по умолчанию):
 
 ```bash
-bash /opt/zumbot/backend/scripts/db_snapshot.sh
+bash /opt/zumbot/backend/scripts/db_snapshot.sh --days 7 --out /tmp/zumbot_logs_dump.sql
 ```
+
+Если нужен «сырой» дамп pg_dump для отладки, добавьте `--raw`.
 
 ## Откат
 
