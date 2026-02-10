@@ -110,6 +110,6 @@
 В production не используется и возвращает `404 Not Found`.
 
 ## Связанные документы
-- `docs_!_deployment.md`
+- `docs/deployment_readiness.md`
 - `50_integrations/telegram.md`
 - `50_integrations/google_calendar.md`

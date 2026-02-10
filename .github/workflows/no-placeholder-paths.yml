@@ -1,0 +1,34 @@
+name: No placeholder paths
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  reject-placeholder-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure no filenames contain placeholder
+        run: |
+          set -euo pipefail
+          placeholder="_""!""_"
+          bad_files="$(git ls-files | grep "$placeholder" || true)"
+          if [ -n "$bad_files" ]; then
+            echo "Found filenames containing forbidden placeholder token:"
+            echo "$bad_files"
+            exit 1
+          fi
+
+      - name: Ensure no placeholder token remains in repository text
+        run: |
+          set -euo pipefail
+          placeholder="_""!""_"
+          bad_content="$(git grep -n "$placeholder" -- '*.md' '*.sh' '*.yml' '*.yaml' '*.py' ':!README.md' || true)"
+          if [ -n "$bad_content" ]; then
+            echo "Found forbidden placeholder token in repository content:"
+            echo "$bad_content"
+            exit 1
+          fi
