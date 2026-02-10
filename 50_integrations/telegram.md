@@ -15,8 +15,8 @@
 - `personal bots` — отдельный Telegram-бот для каждого specialist
 
 Все боты обслуживаются одним backend-сервисом.
-Polling используется только для master_bot в текущей реализации;
-personal bots планируются на webhook-схеме.
+Polling используется только для master_bot (реализовано).
+personal bots работают через webhook `/tg/webhook/{bot_id}/{secret}` (реализовано).
 
 ---
 
@@ -83,17 +83,20 @@ Master bot поддерживает команду `/status`, которая:
 
 ## 4. Маршрутизация updates
 
-### 4.1 Определение типа бота
-На входе webhook:
-- если `bot_id` соответствует master_bot → маршрут в Master Bot Handler
-- иначе → маршрут в Personal Bot Handler:
-  - определить `specialist_id` по `telegram_bot.specialist_id`
+### 4.1 Master bot vs personal bot
+- **master_bot**: polling в процессе `main.py` (aiogram Dispatcher master).
+- **personal bot**: webhook endpoint в `web_server.py`, затем передача в отдельный Dispatcher (`services/telegram/personal_dispatcher.py`).
 
-### 4.2 Определение роли отправителя (personal bot)
-- загрузить `owner_tg_user_id` из `specialist_profile`
-- сравнить с `from.id` из update
-- если совпало → actor = specialist
-- иначе → actor = client
+### 4.2 Что происходит на webhook
+1) backend валидирует `bot_id + secret` и `status=active`;
+2) парсит JSON update в aiogram `Update`;
+3) передаёт update в personal Dispatcher;
+4) отвечает `200 OK` максимально быстро.
+
+### 4.3 Минимальный обработчик personal bot
+Сейчас реализован базовый `/start` handler:
+- ответ: `Бот подключен. Скоро здесь появится запись/вопросы.`
+- цель: подтверждение, что webhook и роутинг работают end-to-end.
 
 ---
 
@@ -194,3 +197,23 @@ Callback payload должен содержать идентификатор де
   связаться с specialist напрямую привычным способом
 
 Платформа не передаёт и не хранит сообщения.
+
+
+## 11. Проверка работы webhook (ручная)
+
+1) Пройти онбординг в master bot до шага ввода `bot_token`.
+2) Убедиться, что backend успешно вызвал `setWebhook` для personal bot.
+3) Проверить в БД, что есть запись `telegram_bot` со `status=active` и `webhook_url` вида `/tg/webhook/{bot_id}/{secret}`.
+4) Написать `/start` в personal bot.
+5) Ожидать ответ: `Бот подключен. Скоро здесь появится запись/вопросы.`
+6) Проверить логи backend: должны быть записи с `bot_id`, `specialist_id`, `update_id`, `update_type`.
+
+Для ручного HTTP smoke-теста можно отправить update напрямую:
+
+```bash
+curl -i -X POST "${BACKEND_BASE_URL}/tg/webhook/{bot_id}/{secret}" \
+  -H "Content-Type: application/json" \
+  -d '{"update_id": 1, "message": {"message_id": 1, "date": 1730000000, "chat": {"id": 1, "type": "private"}, "text": "/start"}}'
+```
+
+Ожидается `200 OK` при валидном секрете и `404` при невалидном.

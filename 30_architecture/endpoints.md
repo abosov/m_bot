@@ -18,55 +18,53 @@
 ### POST /tg/webhook/{bot_id}/{secret}
 
 **Назначение**
-Приём Telegram updates от:
-- master_bot
-- personal bots (боты specialist)
+Приём Telegram updates для personal bot специалиста.
+Master bot в текущем MVP продолжает работать в polling-режиме.
 
-Текущее состояние реализации:
-- endpoint ещё не реализован в коде;
-- master_bot сейчас работает в режиме polling.
+**Текущее состояние реализации**
+- endpoint реализован в `web_server.py`;
+- проверяет `{bot_id, secret}` по таблице `telegram_bot`;
+- принимает только активные боты (`telegram_bot.status = active`);
+- передаёт update в отдельный aiogram Dispatcher personal bot.
 
 **Path params**
-- `bot_id` — Telegram bot id (`getMe.id`) для personal bot.
-Master bot в MVP хранится как отдельная запись в таблице `telegram_bot`
-(с `specialist_id = NULL`).
+- `bot_id` — Telegram bot id (`getMe.id`) personal bot.
+- `secret` — webhook secret, сгенерированный при подключении и сохранённый в БД.
 
-Это позволяет:
-- использовать единую модель webhook-проверки,
-- избежать ветвлений в коде,
-- упростить поддержку и расширение.
-
-- `secret` — секрет, генерируемый при подключении бота и хранимый в БД.
-
-**Валидация**
-Backend обязан:
-1) найти `telegram_bot` по `bot_id`
-2) сравнить `secret` из URL с `telegram_bot.webhook_secret`
-3) отклонить запрос при несовпадении (404/403)
-4) определить тип бота:
-   - master_bot (если `bot_id` относится к master_bot),
-   - personal bot (если `bot_id` относится к конкретному specialist)
+**Валидация и безопасность**
+Backend:
+1) ищет `telegram_bot` по `bot_user_id = bot_id`, `webhook_secret = secret`, `status = active`;
+2) при несовпадении возвращает `404` (единый ответ без раскрытия деталей);
+3) не логирует bot token или secret в открытом виде.
 
 **Request body**
-- стандартный Telegram update JSON:
-  - message / callback_query / etc.
+- стандартный Telegram update JSON.
 
 **Response**
-- `200 OK` — при валидном `{bot_id, secret}`
-- `403` или `404` — при неверном `{bot_id, secret}`
+- `200 OK` — update принят (даже если внутри handler произошла логическая ошибка);
+- `404 Not Found` — неверная пара `{bot_id, secret}` или бот не активен.
 
-Примечание:
-Telegram ожидает быстрый ответ, но корректный отказ допустим
-и не считается ошибкой webhook.
+Почему `200` при ошибке обработки:
+- чтобы избежать бесконечных ретраев Telegram webhook на уже доставленный update.
 
-- основная логика может выполняться внутри обработчика, но без длительных блокировок
+**Примеры**
 
-**Timeout policy (MVP)**
-- ограничить длительность обработки
-- на Google API ставить таймауты и лимит попыток
-- при превышении времени — лучше завершать с сообщением пользователю “попробуйте позже”
+```bash
+curl -i -X POST "https://api.zumbot.ru/tg/webhook/123456789/your_webhook_secret"   -H "Content-Type: application/json"   -d '{
+    "update_id": 10001,
+    "message": {
+      "message_id": 1,
+      "date": 1730000000,
+      "chat": {"id": 555111222, "type": "private"},
+      "from": {"id": 555111222, "is_bot": false, "first_name": "Ivan"},
+      "text": "/start"
+    }
+  }'
+```
 
----
+Ожидаемый ответ:
+- `HTTP/1.1 200 OK` для валидного webhook URL,
+- `HTTP/1.1 404 Not Found` для невалидного `{bot_id, secret}`.
 
 ## 2) Google OAuth
 

@@ -40,6 +40,7 @@ from services.crypto import encrypt_token, decrypt_token
 # но здесь импортируем функцию логирования сообщений.
 from logging_middleware import log_outbound_message
 from services.google_oauth import get_auth_url
+from services.onboarding import finalize_specialist_if_ready
 from config import BACKEND_BASE_URL
 
 router = Router()
@@ -331,6 +332,10 @@ async def cmd_start(message: types.Message, state: FSMContext):
             has_bot = active_bot is not None
             has_oauth = specialist.google_oauth is not None and specialist.google_oauth.status == GoogleOAuthStatus.connected
 
+            if has_profile and has_bot and specialist.status == SpecialistStatus.onboarding:
+                await finalize_specialist_if_ready(specialist.specialist_id)
+                specialist.status = SpecialistStatus.active
+
             specialist_name = specialist.profile.public_name if has_profile else "Не задано"
             
             # Формируем чек-лист
@@ -346,10 +351,15 @@ async def cmd_start(message: types.Message, state: FSMContext):
             else:
                 status_text += "❌ **Бот:** Не подключен\n"
                 
-            if has_oauth:
-                status_text += "✅ **Google Calendar:** Подключен\n"
+            if specialist.status == SpecialistStatus.active:
+                status_text += "✅ **Статус:** Активен\n"
             else:
-                status_text += "❌ **Google Calendar:** Не подключен\n"
+                status_text += "⏳ **Статус:** Онбординг\n"
+
+            if has_oauth:
+                status_text += "ℹ️ **Google Calendar:** Подключен (необязательно для активации на этом этапе)\n"
+            else:
+                status_text += "ℹ️ **Google Calendar:** Можно подключить позже\n"
 
             # Логика восстановления состояния (FSM)
             keyboard = None
@@ -368,22 +378,19 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 keyboard = types.ReplyKeyboardRemove()
                 new_state = "waiting_for_bot_token"
             
-            elif not has_oauth:
-                # Генерируем ссылку
+            else:
                 auth_url = get_auth_url(specialist.specialist_id)
-                next_step_msg = "\n👇 **Действие:** Подключите календарь по кнопке ниже."
+                next_step_msg = (
+                    "\n🎉 **Минимальный онбординг завершен.** Можно принимать сообщения в личном боте."
+                    "\nПо желанию подключите Google Календарь позже:"
+                )
                 keyboard = types.InlineKeyboardMarkup(
                     inline_keyboard=[[
                         types.InlineKeyboardButton(text="🔗 Подключить Google Календарь", url=auth_url)
                     ]]
                 )
-                # Состояние можно сбросить или оставить пустым
                 await state.clear()
-                new_state = "waiting_for_oauth"
-            else:
-                next_step_msg = "\n🎉 **Все настроено!** Можете переходить в свой бот и принимать клиентов."
-                await state.clear()
-                new_state = "completed"
+                new_state = "active" if specialist.status == SpecialistStatus.active else "ready_without_oauth"
             
             final_text = status_text + next_step_msg
             await message.answer(final_text, reply_markup=keyboard)
@@ -556,15 +563,22 @@ async def process_bot_token(message: types.Message, state: FSMContext):
             session.add(new_bot)
             await session.commit()
 
+        await finalize_specialist_if_ready(specialist_id)
+
+        async with async_session_factory() as session:
+            specialist_status = await session.get(Specialist, specialist_id)
+            is_active_now = specialist_status is not None and specialist_status.status == SpecialistStatus.active
+
         # 4. Финиш
         await state.clear()
         
         auth_url = get_auth_url(specialist_id)
 
+        status_line = "🟢 Статус специалиста: active." if is_active_now else "⏳ Статус специалиста: onboarding."
         text_out = (
-            f"✅ Бот **@{bot_info.username}** успешно подключен!\n\n"
-            f"📅 **Шаг 3 из 3. Google Календарь**\n\n"
-            f"Подключите календарь, чтобы система знала ваше расписание."
+            f"✅ Бот **@{bot_info.username}** успешно подключен!\n"
+            f"{status_line}\n\n"
+            f"📅 Google Календарь можно подключить позже отдельным шагом."
         )
         
         keyboard = types.InlineKeyboardMarkup(

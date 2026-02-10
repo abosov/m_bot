@@ -3,7 +3,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select, update
 from aiogram import Bot
@@ -17,11 +17,14 @@ from database import (
     SpecialistAuthTelegram,
     SpecialistProfile,
     ServiceHeartbeat,
+    TelegramBot,
+    TelegramBotStatus,
 )
 from services.google_oauth import exchange_code_for_token
 from services.crypto import encrypt_token
 from logging_middleware import log_outbound_message
 from services import heartbeat
+from services.telegram.personal_dispatcher import process_update
 import config
 from admin_api import router as admin_router
 
@@ -36,10 +39,15 @@ LAST_HEARTBEAT_WRITE_TS = 0.0
 HEARTBEAT_WRITE_LOCK = asyncio.Lock()
 
 # Инициализируем бота для отправки уведомлений (используем тот же токен)
-bot = Bot(
-    token=config.MASTER_BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN)
-)
+bot = None
+if config.MASTER_BOT_TOKEN:
+    try:
+        bot = Bot(
+            token=config.MASTER_BOT_TOKEN,
+            default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN)
+        )
+    except Exception:
+        logger.warning("MASTER_BOT_TOKEN is invalid, outbound notifications disabled", exc_info=True)
 
 logger.info("readyz endpoint enabled=%s", config.ENABLE_READYZ)
 if config.ADMIN_API_KEY:
@@ -153,6 +161,51 @@ async def _write_service_heartbeat(
             )
         except Exception:
             logger.warning("readyz heartbeat write failed", exc_info=True)
+
+
+
+@app.post("/tg/webhook/{bot_id}/{secret}")
+async def telegram_personal_webhook(bot_id: int, secret: str, request: Request):
+    """Receive updates for personal specialist bots (webhook mode)."""
+    try:
+        raw_update = await request.json()
+    except Exception:
+        logger.warning("Webhook payload is not valid JSON bot_id=%s", bot_id)
+        return Response(status_code=200)
+
+    async with async_session_factory() as session:
+        stmt = select(TelegramBot).where(
+            TelegramBot.bot_user_id == bot_id,
+            TelegramBot.webhook_secret == secret,
+            TelegramBot.status == TelegramBotStatus.active,
+        )
+        tg_bot = (await session.execute(stmt)).scalar_one_or_none()
+
+    if tg_bot is None:
+        logger.warning("Webhook auth failed for bot_id=%s", bot_id)
+        return JSONResponse(status_code=404, content={"detail": "not_found"})
+
+    update_id = raw_update.get("update_id")
+    update_type = next((key for key in raw_update.keys() if key != "update_id"), "unknown")
+    logger.info(
+        "Webhook update accepted bot_id=%s specialist_id=%s update_id=%s update_type=%s",
+        bot_id,
+        tg_bot.specialist_id,
+        update_id,
+        update_type,
+    )
+
+    try:
+        await process_update(tg_bot, raw_update)
+    except Exception:
+        logger.exception(
+            "Webhook processing failed bot_id=%s specialist_id=%s update_id=%s",
+            bot_id,
+            tg_bot.specialist_id,
+            update_id,
+        )
+
+    return Response(status_code=200)
 
 @app.get("/google/oauth/callback", response_class=HTMLResponse)
 async def google_oauth_callback(request: Request):
