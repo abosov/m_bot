@@ -128,3 +128,43 @@ def test_export_logs_help_works_from_any_cwd():
 
     assert result.returncode == 0
     assert "Export Zumbot logs" in result.stdout
+
+
+def test_export_logs_help_as_module_works_from_any_cwd():
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.export_logs", "--help"],
+        cwd="/tmp",
+        capture_output=True,
+        text=True,
+        env={**os.environ, "APP_ENV": "test", "PYTHONPATH": str(repo_root)},
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Export Zumbot logs" in result.stdout
+
+
+def test_export_logs_prints_venv_hint_when_repo_venv_exists(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parents[1]
+    venv_dir = repo_root / ".venv"
+    created = False
+    if not venv_dir.exists():
+        venv_dir.mkdir(parents=True)
+        created = True
+
+    try:
+        script_path = repo_root / "scripts" / "export_logs.py"
+        result = subprocess.run(
+            [sys.executable, str(script_path), "--help"],
+            cwd="/tmp",
+            capture_output=True,
+            text=True,
+            env={"APP_ENV": "test", "PYTHONPATH": ""},
+            check=False,
+        )
+        assert result.returncode == 0
+        assert "virtualenv is not activated" in result.stderr
+    finally:
+        if created:
+            venv_dir.rmdir()

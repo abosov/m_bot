@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import importlib.util
+import os
 import sys
 import uuid
 from pathlib import Path
@@ -19,6 +20,19 @@ else:
     from ._bootstrap import add_project_root_to_syspath
 
 add_project_root_to_syspath()
+
+
+def _print_venv_hint() -> None:
+    venv = os.getenv("VIRTUAL_ENV")
+    if venv:
+        return
+
+    repo_venv = Path(__file__).resolve().parents[1] / ".venv"
+    if repo_venv.exists():
+        sys.stderr.write(
+            "Hint: virtualenv is not activated. "
+            f"If dependencies are missing, run: source {repo_venv}/bin/activate\n"
+        )
 
 
 def parse_uuid(value: str) -> uuid.UUID:
@@ -114,6 +128,7 @@ async def run_export(
 
 
 def main() -> int:
+    _print_venv_hint()
     parser = build_parser()
     args = parser.parse_args()
 

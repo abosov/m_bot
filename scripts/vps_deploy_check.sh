@@ -10,6 +10,7 @@ LOCAL_HEALTH_URL="http://127.0.0.1:8000/healthz"
 LOCAL_READYZ_URL="http://127.0.0.1:8000/readyz"
 DOMAIN_BASE_URL="${ZUMBOT_DOMAIN_BASE_URL:-}"
 VERBOSE="${VERBOSE:-0}"
+MODE="deploy"
 RESULT="OK"
 LOG_PATH="${LOG_PATH:-/tmp/zumbot_deploy_check_$(date -u +%Y%m%dT%H%M%SZ).log}"
 CURRENT_STEP="init"
@@ -17,6 +18,51 @@ SUMMARY_PRINTED=0
 
 OK_COUNT=0
 FAIL_COUNT=0
+
+usage() {
+  cat <<USAGE
+Usage:
+  $(basename "$0") [--mode deploy|dry-run] [--verbose]
+
+Modes:
+  deploy   Full deployment flow (default):
+           git pull + pip install + SQL migrations + service restart + health checks.
+  dry-run  Checks only. No git pull, no pip install, no migrations, no restart.
+
+Examples:
+  sudo VERBOSE=1 bash ${REPO_DIR}/scripts/vps_deploy_check.sh --mode deploy
+  bash ${REPO_DIR}/scripts/vps_deploy_check.sh --mode dry-run
+USAGE
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --mode)
+        MODE="$2"
+        shift 2
+        ;;
+      --verbose)
+        VERBOSE=1
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        echo "Unknown argument: $1" >&2
+        usage
+        exit 2
+        ;;
+    esac
+  done
+
+  if [[ "${MODE}" != "deploy" && "${MODE}" != "dry-run" ]]; then
+    echo "Invalid --mode: ${MODE}. Use deploy|dry-run." >&2
+    exit 2
+  fi
+}
 
 setup_logging() {
   if [[ "${DEPLOY_CHECK_LOGGING_READY:-0}" == "1" ]]; then
@@ -27,6 +73,32 @@ setup_logging() {
   mkdir -p "$(dirname "${LOG_PATH}")"
   touch "${LOG_PATH}"
   exec > >(tee -a "${LOG_PATH}") 2>&1
+}
+
+run_as_zumbot() {
+  if [[ "$(id -un)" == "zumbot" ]]; then
+    "$@"
+    return
+  fi
+
+  if [[ "$(id -u)" -eq 0 ]]; then
+    sudo -u zumbot "$@"
+  else
+    sudo -u zumbot "$@"
+  fi
+}
+
+run_as_root() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+mask_url() {
+  local raw_url="$1"
+  echo "${raw_url}" | sed -E 's#(://[^:/@]+:)[^@/]*(\@)#\1***\2#'
 }
 
 log_check() {
@@ -84,12 +156,28 @@ check_git_clean() {
     return
   fi
 
-  if sudo -u zumbot bash -lc "cd '${REPO_DIR}' && git diff --quiet && git diff --cached --quiet" \
-    && [[ -z "$(sudo -u zumbot bash -lc "cd '${REPO_DIR}' && git ls-files --others --exclude-standard")" ]]; then
+  if run_as_zumbot bash -lc "cd '${REPO_DIR}' && git diff --quiet && git diff --cached --quiet" \
+    && [[ -z "$(run_as_zumbot bash -lc "cd '${REPO_DIR}' && git ls-files --others --exclude-standard")" ]]; then
     log_check "OK" "${title}" "working tree is clean"
   else
     log_check "FAIL" "${title}" "working tree has uncommitted/untracked changes"
     print_verbose "Run: sudo -u zumbot bash -lc 'cd ${REPO_DIR} && git status --short'"
+  fi
+}
+
+update_repo() {
+  local title="git pull"
+  if [[ "${MODE}" == "dry-run" ]]; then
+    log_check "OK" "${title}" "skipped in dry-run mode"
+    return
+  fi
+
+  if run_as_zumbot bash -lc "cd '${REPO_DIR}' && git pull --ff-only"; then
+    log_check "OK" "${title}" "repository updated"
+  else
+    log_check "FAIL" "${title}" "git pull --ff-only failed"
+    RESULT="FAIL"
+    exit 1
   fi
 }
 
@@ -98,9 +186,31 @@ check_venv_exists() {
   if [[ -x "${VENV_DIR}/bin/python" ]]; then
     log_check "OK" "${title}" "python executable found"
     print_verbose "python path: ${VENV_DIR}/bin/python"
-    print_verbose "python version: $(sudo -u zumbot "${VENV_DIR}/bin/python" -V 2>&1 || true)"
+    print_verbose "python version: $(run_as_zumbot "${VENV_DIR}/bin/python" -V 2>&1 || true)"
   else
     log_check "FAIL" "${title}" "missing ${VENV_DIR}/bin/python"
+  fi
+}
+
+install_pip_deps() {
+  local title="pip install"
+  if [[ "${MODE}" == "dry-run" ]]; then
+    log_check "OK" "${title}" "skipped in dry-run mode"
+    return
+  fi
+
+  if [[ ! -f "${REPO_DIR}/requirements.txt" ]]; then
+    log_check "FAIL" "${title}" "requirements.txt is missing"
+    RESULT="FAIL"
+    exit 1
+  fi
+
+  if run_as_zumbot bash -lc "cd '${REPO_DIR}' && source '${VENV_DIR}/bin/activate' && pip install -r requirements.txt"; then
+    log_check "OK" "${title}" "dependencies installed"
+  else
+    log_check "FAIL" "${title}" "pip install failed"
+    RESULT="FAIL"
+    exit 1
   fi
 }
 
@@ -111,13 +221,8 @@ check_pip_deps_installed() {
     return
   fi
 
-  if sudo -u zumbot bash -lc "cd '${REPO_DIR}' && source '${VENV_DIR}/bin/activate' && pip check >/dev/null"; then
+  if run_as_zumbot bash -lc "cd '${REPO_DIR}' && source '${VENV_DIR}/bin/activate' && pip check >/dev/null"; then
     log_check "OK" "${title}" "pip check passed"
-    if [[ "${VERBOSE}" == "1" ]]; then
-      local pip_version
-      pip_version="$(sudo -u zumbot bash -lc "cd '${REPO_DIR}' && source '${VENV_DIR}/bin/activate' && pip --version" 2>/dev/null || true)"
-      print_verbose "${pip_version}"
-    fi
   else
     log_check "FAIL" "${title}" "dependency conflict or missing package"
     print_verbose "Run: sudo -u zumbot bash -lc 'cd ${REPO_DIR} && source ${VENV_DIR}/bin/activate && pip install -r requirements.txt && pip check'"
@@ -150,11 +255,6 @@ check_env_vars_present() {
   else
     log_check "FAIL" "${title}" "missing: ${missing[*]}"
   fi
-
-  if [[ "${VERBOSE}" == "1" ]]; then
-    print_verbose "ENV_FILE=${ENV_FILE}"
-    print_verbose "APP_ENV=${APP_ENV:-unset}, BASE_URL=${BASE_URL:-unset}"
-  fi
 }
 
 check_postgres_reachable() {
@@ -174,7 +274,9 @@ check_postgres_reachable() {
     return
   fi
 
-  if command -v pg_isready >/dev/null 2>&1 && pg_isready -d "${DB_URL/+asyncpg/}" >/dev/null 2>&1; then
+  local psql_url
+  psql_url="$(build_psql_url "${DB_URL}")"
+  if command -v pg_isready >/dev/null 2>&1 && pg_isready -d "${psql_url}" >/dev/null 2>&1; then
     log_check "OK" "${title}" "pg_isready succeeded"
   else
     log_check "FAIL" "${title}" "pg_isready failed"
@@ -204,6 +306,12 @@ validate_psql_url() {
   fi
 }
 
+run_psql() {
+  local psql_url="$1"
+  shift
+  run_as_zumbot psql "${psql_url}" -v ON_ERROR_STOP=1 "$@"
+}
+
 build_psql_url() {
   local db_url="$1"
   local psql_url
@@ -219,6 +327,11 @@ build_psql_url() {
 run_sql_migrations() {
   local title="Run SQL migrations"
   local migrations_dir="${REPO_DIR}/scripts/migrations"
+
+  if [[ "${MODE}" == "dry-run" ]]; then
+    log_check "OK" "${title}" "skipped in dry-run mode"
+    return
+  fi
 
   if [[ ! -d "${migrations_dir}" ]]; then
     log_check "OK" "${title}" "skipped (no ${migrations_dir})"
@@ -238,6 +351,7 @@ run_sql_migrations() {
 
   local PSQL_URL
   PSQL_URL="$(build_psql_url "${DB_URL}")"
+  print_verbose "Using psql URL: $(mask_url "${PSQL_URL}")"
 
   if ! validate_psql_url "${PSQL_URL}"; then
     log_check "FAIL" "${title}" "invalid DB_URL format (pgsql dbname is required)"
@@ -251,13 +365,13 @@ run_sql_migrations() {
     exit 1
   fi
 
-  if ! sudo -u zumbot psql "${PSQL_URL}" -v ON_ERROR_STOP=1 -tAc 'SELECT 1' >/dev/null; then
+  if ! run_psql "${PSQL_URL}" -tAc 'SELECT 1' >/dev/null; then
     log_check "FAIL" "${title}" "psql connection self-check failed"
     RESULT="FAIL"
     exit 1
   fi
 
-  if ! sudo -u zumbot psql "${PSQL_URL}" -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS applied_migrations (id BIGSERIAL PRIMARY KEY, filename TEXT UNIQUE NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT now());" >/dev/null; then
+  if ! run_psql "${PSQL_URL}" -c "CREATE TABLE IF NOT EXISTS applied_migrations (id BIGSERIAL PRIMARY KEY, filename TEXT UNIQUE NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT now());" >/dev/null; then
     log_check "FAIL" "${title}" "failed to ensure applied_migrations table"
     RESULT="FAIL"
     exit 1
@@ -276,19 +390,19 @@ run_sql_migrations() {
     local migration_basename
     migration_basename="$(basename "${migration}")"
 
-    if sudo -u zumbot psql "${PSQL_URL}" -v ON_ERROR_STOP=1 -tAc "SELECT 1 FROM applied_migrations WHERE filename = '${migration_basename}' LIMIT 1;" | grep -q '1'; then
+    if run_psql "${PSQL_URL}" -tAc "SELECT 1 FROM applied_migrations WHERE filename = '${migration_basename}' LIMIT 1;" | grep -q '1'; then
       skipped_count=$((skipped_count + 1))
       print_verbose "skip already applied migration: ${migration_basename}"
       continue
     fi
 
-    if ! sudo -u zumbot psql "${PSQL_URL}" -v ON_ERROR_STOP=1 -f "${migration}" >/dev/null; then
+    if ! run_psql "${PSQL_URL}" -f "${migration}" >/dev/null; then
       log_check "FAIL" "${title}" "migration failed: $(basename "${migration}")"
       RESULT="FAIL"
       exit 1
     fi
 
-    if ! sudo -u zumbot psql "${PSQL_URL}" -v ON_ERROR_STOP=1 -c "INSERT INTO applied_migrations(filename) VALUES ('${migration_basename}') ON CONFLICT (filename) DO NOTHING;" >/dev/null; then
+    if ! run_psql "${PSQL_URL}" -c "INSERT INTO applied_migrations(filename) VALUES ('${migration_basename}') ON CONFLICT (filename) DO NOTHING;" >/dev/null; then
       log_check "FAIL" "${title}" "failed to record applied migration: ${migration_basename}"
       RESULT="FAIL"
       exit 1
@@ -309,7 +423,12 @@ check_http() {
 
 restart_backend_service() {
   local title="restart backend service"
-  if systemctl restart "${SERVICE_NAME}"; then
+  if [[ "${MODE}" == "dry-run" ]]; then
+    log_check "OK" "${title}" "skipped in dry-run mode"
+    return
+  fi
+
+  if run_as_root systemctl restart "${SERVICE_NAME}"; then
     log_check "OK" "${title}" "service restarted"
   else
     log_check "FAIL" "${title}" "systemctl restart failed"
@@ -324,10 +443,6 @@ check_healthz() {
     log_check "OK" "${title}" "endpoint returns HTTP 200"
   else
     log_check "FAIL" "${title}" "endpoint is unavailable"
-    if [[ "${VERBOSE}" == "1" ]]; then
-      print_verbose "Recent service logs:"
-      journalctl -u "${SERVICE_NAME}" -n 20 --no-pager 2>/dev/null | sed 's/^/       /' || true
-    fi
   fi
 }
 
@@ -343,26 +458,21 @@ check_readyz() {
 
 check_nginx() {
   local title="nginx -t"
-  if nginx -t >/dev/null 2>&1; then
+  if run_as_root nginx -t >/dev/null 2>&1; then
     log_check "OK" "${title}" "configuration test passed"
   else
     log_check "FAIL" "${title}" "configuration test failed"
-    print_verbose "Run: nginx -t"
   fi
 }
 
 check_socket_activation() {
   local title="socket activation"
-  if systemctl is-enabled --quiet "${SOCKET_NAME}" \
-    && systemctl is-active --quiet "${SOCKET_NAME}" \
-    && systemctl is-active --quiet "${SERVICE_NAME}"; then
+  if run_as_root systemctl is-enabled --quiet "${SOCKET_NAME}" \
+    && run_as_root systemctl is-active --quiet "${SOCKET_NAME}" \
+    && run_as_root systemctl is-active --quiet "${SERVICE_NAME}"; then
     log_check "OK" "${title}" "socket and service are active"
   else
     log_check "FAIL" "${title}" "socket/service is disabled or inactive"
-    if [[ "${VERBOSE}" == "1" ]]; then
-      print_verbose "socket state: $(systemctl is-active "${SOCKET_NAME}" 2>/dev/null || true)"
-      print_verbose "service state: $(systemctl is-active "${SERVICE_NAME}" 2>/dev/null || true)"
-    fi
   fi
 }
 
@@ -380,19 +490,15 @@ check_external_endpoints() {
 }
 
 main() {
+  parse_args "$@"
   setup_logging
   trap on_exit EXIT
 
-  if [[ "$(id -u)" -ne 0 ]]; then
-    echo "ERROR: this script must be run as root (current uid=$(id -u))."
-    echo "Hint: sudo bash ${REPO_DIR}/scripts/vps_deploy_check.sh"
-    RESULT="FAIL"
-    exit 1
-  fi
-
-  echo "== zumbot deploy checks =="
+  echo "== zumbot deploy checks (mode=${MODE}) =="
   run_step "git clean" check_git_clean
+  run_step "git pull" update_repo
   run_step "venv exists" check_venv_exists
+  run_step "pip install" install_pip_deps
   run_step "pip deps installed" check_pip_deps_installed
   run_step "env vars present" check_env_vars_present
   run_step "postgres reachable" check_postgres_reachable

@@ -111,3 +111,58 @@ def test_build_and_validate_psql_url_from_asyncpg() -> None:
 def test_build_and_validate_psql_url_rejects_missing_dbname() -> None:
     result = _build_and_validate_url("postgresql+asyncpg://user:pass@host:5432")
     assert result.returncode != 0
+
+
+def test_mask_url_hides_password() -> None:
+    command = (
+        "set -euo pipefail; "
+        f"source '{SCRIPT_PATH}'; "
+        "mask_url 'postgresql://user:secret-pass@host:5432/dbname'"
+    )
+    result = _run_shell(command)
+    assert result.returncode == 0
+    assert result.stdout.strip() == "postgresql://user:***@host:5432/dbname"
+
+
+def test_run_sql_migrations_masks_url_in_verbose_logs(tmp_path: Path) -> None:
+    env_file = tmp_path / "backend.env"
+    env_file.write_text("DB_URL=postgresql+asyncpg://user:secret-pass@host:5432/dbname\n", encoding="utf-8")
+
+    migrations_dir = tmp_path / "scripts" / "migrations"
+    migrations_dir.mkdir(parents=True)
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "psql").write_text(
+        "#!/usr/bin/env bash\n"
+        "if [[ \"$*\" == *\"SELECT 1\"* ]]; then exit 0; fi\n"
+        "if [[ \"$*\" == *\"CREATE TABLE IF NOT EXISTS\"* ]]; then exit 0; fi\n"
+        "if [[ \"$*\" == *\"SELECT 1 FROM applied_migrations\"* ]]; then exit 1; fi\n"
+        "if [[ \"$*\" == *\"INSERT INTO applied_migrations\"* ]]; then exit 0; fi\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    (fake_bin / "psql").chmod(0o755)
+
+    command = (
+        "set -euo pipefail; "
+        f"source {shlex.quote(str(SCRIPT_PATH))}; "
+        "sudo(){ if [[ \"$1\" == \"-u\" ]]; then shift 2; fi; \"$@\"; }; "
+        f"REPO_DIR={shlex.quote(str(tmp_path))}; "
+        f"ENV_FILE={shlex.quote(str(env_file))}; "
+        "VERBOSE=1; "
+        "run_sql_migrations"
+    )
+
+    result = subprocess.run(
+        ["bash", "-lc", command],
+        capture_output=True,
+        text=True,
+        env={"PATH": f"{fake_bin}:{os.environ['PATH']}"},
+        check=False,
+    )
+
+    assert result.returncode == 0
+    output = result.stdout + result.stderr
+    assert "secret-pass" not in output
+    assert "postgresql://user:***@host:5432/dbname" in output

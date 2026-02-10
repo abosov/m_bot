@@ -83,6 +83,15 @@ load_environment()
 def _require_in_prod(name: str, value: str | None) -> str | None:
     return value
 
+
+def _env_or_default(name: str, default: str) -> str:
+    value = os.getenv(name)
+    if value:
+        return value
+    if APP_ENV == "prod" and not is_test_env():
+        return ""
+    return default
+
 ENABLE_READYZ = _parse_bool(os.getenv("ENABLE_READYZ", str(APP_ENV == "prod")))
 TEST_ENCRYPTION_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 
@@ -107,14 +116,14 @@ GOOGLE_CLIENT_SECRET = _require_in_prod(
 )
 GOOGLE_REDIRECT_URI = _require_in_prod(
     "GOOGLE_REDIRECT_URI",
-    os.getenv("GOOGLE_REDIRECT_URI", "https://api.zumbot.ru/google/oauth/callback"),
+    _env_or_default("GOOGLE_REDIRECT_URI", "https://api.zumbot.ru/google/oauth/callback"),
 )
 
-BASE_URL = _require_in_prod("BASE_URL", os.getenv("BASE_URL", "https://api.zumbot.ru"))
+BASE_URL = _require_in_prod("BASE_URL", _env_or_default("BASE_URL", "https://api.zumbot.ru"))
 BACKEND_BASE_URL = BASE_URL
 PUBLIC_SITE_URL = _require_in_prod(
     "PUBLIC_SITE_URL",
-    os.getenv("PUBLIC_SITE_URL", "https://zumbot.ru"),
+    _env_or_default("PUBLIC_SITE_URL", "https://zumbot.ru"),
 )
 
 WEB_HOST = os.getenv("WEB_HOST")
