@@ -124,3 +124,37 @@ async def test_admin_test_data_reset_dry_run(tmp_path, monkeypatch):
     payload = response.json()
     assert payload["dry_run"] is True
     assert payload["counts"]["specialist"] == 1
+
+
+@pytest.mark.asyncio
+async def test_admin_logs_redacted_by_default(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    now = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    specialist_id = uuid.uuid4()
+    token_in_content = "debug token 123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
+
+    async with database.async_session_factory() as session:
+        session.add(
+            database.MessageLog(
+                created_at=now,
+                specialist_id=specialist_id,
+                bot_id=100,
+                tg_user_id=200,
+                direction=database.LogDirection.IN,
+                message_type="message",
+                content=token_in_content,
+            )
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    response = client.get("/admin/logs", headers={"X-API-Key": "secret"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["content"] == "[REDACTED]"

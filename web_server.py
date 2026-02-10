@@ -2,6 +2,7 @@ import json
 import asyncio
 import logging
 import time
+import requests
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, Response
@@ -23,7 +24,7 @@ from database import (
     TelegramBot,
     TelegramBotStatus,
 )
-from services.google_oauth import exchange_code_for_token
+from services.google_oauth import exchange_code_for_token_async
 from services.google_calendar import (
     GoogleCalendarInsufficientPermissionsError,
     list_calendars,
@@ -324,7 +325,14 @@ async def google_oauth_callback(request: Request):
             await session.delete(oauth_state)
             await session.commit()
 
-        refresh_token, access_token, _ = exchange_code_for_token(code)
+        try:
+            refresh_token, access_token, _ = await exchange_code_for_token_async(code)
+        except asyncio.TimeoutError:
+            logger.warning("google_oauth_callback token exchange timeout specialist_state=%s", state)
+            return "<h1>Ошибка: timeout при обмене кода Google OAuth. Повторите попытку.</h1>"
+        except requests.exceptions.RequestException:
+            logger.warning("google_oauth_callback token exchange network error specialist_state=%s", state)
+            return "<h1>Ошибка: network error при обмене кода Google OAuth. Повторите попытку.</h1>"
 
         async with async_session_factory() as session:
             stmt = select(GoogleOAuth).where(GoogleOAuth.specialist_id == specialist_id)

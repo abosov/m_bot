@@ -66,6 +66,7 @@ async def admin_logs(
     tg_user_id: int | None = Query(default=None),
     direction: LogDirection | None = Query(default=None),
     is_error: bool | None = Query(default=None),
+    redact: bool = Query(default=True),
     _auth: None = Depends(require_admin_key),
 ):
     since_dt = parse_iso_datetime(since) if since else None
@@ -92,7 +93,9 @@ async def admin_logs(
         stmt = stmt.order_by(MessageLog.created_at.asc())
         stmt = stmt.limit(limit_value).offset(offset)
         result = await session.execute(stmt)
-        items = [serialize_message_log(row, redact=False) for row in result.scalars().all()]
+        if config.APP_ENV == "prod" and not redact:
+            raise HTTPException(status_code=403, detail="Unredacted logs are disabled in production")
+        items = [serialize_message_log(row, redact=redact) for row in result.scalars().all()]
 
     return {"items": items, "limit": limit_value, "offset": offset}
 

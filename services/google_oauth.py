@@ -1,4 +1,5 @@
 import secrets
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Tuple, Any
 import uuid
@@ -94,3 +95,10 @@ def exchange_code_for_token(code: str) -> Tuple[str, str, Any]:
     creds = flow.credentials
     
     return creds.refresh_token, creds.token, creds
+
+
+async def exchange_code_for_token_async(code: str, timeout: int = 15) -> Tuple[str, str, Any]:
+    return await asyncio.wait_for(
+        asyncio.to_thread(exchange_code_for_token, code),
+        timeout=timeout,
+    )
