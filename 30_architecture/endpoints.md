@@ -1,56 +1,68 @@
 # Endpoints (MVP)
 
-Документ перечисляет внешние HTTP endpoints backend-сервиса.
-Цель — зафиксировать публичные точки входа, их назначение и базовые требования.
+Документ фиксирует HTTP endpoints, которые реально используются в текущем backend.
 
----
+## Базовый URL
+- Production backend: `https://api.zumbot.ru`.
+- В примерах ниже используйте ваш фактический домен.
 
-## 0) Базовый URL (production)
+## 1) Health endpoint
 
-В production используем:
-- `BASE_URL = https://api.zumbot.ru`
-- публичный сайт/лендинг: `https://zumbot.ru`
+### GET `/healthz`
+**Назначение:** liveness-проверка HTTP процесса backend.
+**Коды ответа:**
+- `200 OK` — сервис отвечает.
 
----
-
-## 1) Telegram Webhook (multi-bot)
-
-### POST /tg/webhook/{bot_id}/{secret}
-
-**Назначение**
-Приём Telegram updates для personal bot специалиста.
-Master bot в текущем MVP продолжает работать в polling-режиме.
-
-**Текущее состояние реализации**
-- endpoint реализован в `web_server.py`;
-- проверяет `{bot_id, secret}` по таблице `telegram_bot`;
-- принимает только активные боты (`telegram_bot.status = active`);
-- передаёт update в отдельный aiogram Dispatcher personal bot.
-
-**Path params**
-- `bot_id` — Telegram bot id (`getMe.id`) personal bot.
-- `secret` — webhook secret, сгенерированный при подключении и сохранённый в БД.
-
-**Валидация и безопасность**
-Backend:
-1) ищет `telegram_bot` по `bot_user_id = bot_id`, `webhook_secret = secret`, `status = active`;
-2) при несовпадении возвращает `404` (единый ответ без раскрытия деталей);
-3) не логирует bot token или secret в открытом виде.
-
-**Request body**
-- стандартный Telegram update JSON.
-
-**Response**
-- `200 OK` — update принят (даже если внутри handler произошла логическая ошибка);
-- `404 Not Found` — неверная пара `{bot_id, secret}` или бот не активен.
-
-Почему `200` при ошибке обработки:
-- чтобы избежать бесконечных ретраев Telegram webhook на уже доставленный update.
-
-**Примеры**
-
+**Пример:**
 ```bash
-curl -i -X POST "https://api.zumbot.ru/tg/webhook/123456789/your_webhook_secret"   -H "Content-Type: application/json"   -d '{
+curl -i "https://api.example.com/healthz"
+```
+
+**Ожидаемое тело:**
+```json
+{"status":"ok","service":"backend"}
+```
+
+**Совместимость:** путь `/health` в приложении не зарегистрирован; если он используется во внешней инфраструктуре, требуется proxy alias на `/healthz` (planned/TODO).
+
+## 2) Readiness endpoint
+
+### GET `/readyz`
+**Назначение:** readiness-проверка (доступность БД + живость event loop).
+**Коды ответа:**
+- `200 OK` — backend готов обрабатывать трафик;
+- `503 Service Unavailable` — backend не готов;
+- `404 Not Found` — endpoint отключён (`ENABLE_READYZ=false`).
+
+**Пример:**
+```bash
+curl -i "https://api.example.com/readyz"
+```
+
+**Ожидаемые тела:**
+```json
+{"status":"ready","db":"ok","loop":"ok"}
+```
+или
+```json
+{"status":"not_ready","db":"fail","loop":"ok","error":"<short_error_type>"}
+```
+
+**Совместимость:** путь `/ready` в приложении не зарегистрирован; при необходимости настраивается на уровне proxy как alias на `/readyz` (planned/TODO).
+
+## 3) Telegram personal bot webhook
+
+### POST `/tg/webhook/{bot_id}/{secret}`
+**Назначение:** приём update для personal bots (webhook mode).
+**Коды ответа:**
+- `200 OK` — update принят (включая кейсы с ошибкой внутренней обработки);
+- `404 Not Found` — пара `{bot_id}/{secret}` невалидна или bot неактивен.
+
+**Пример:**
+```bash
+curl -i -X POST "https://api.example.com/tg/webhook/123456789/replace_with_secret" \
+  -H "Content-Type: application/json" \
+  -d '{
     "update_id": 10001,
     "message": {
       "message_id": 1,
@@ -62,168 +74,28 @@ curl -i -X POST "https://api.zumbot.ru/tg/webhook/123456789/your_webhook_secret"
   }'
 ```
 
-Ожидаемый ответ:
-- `HTTP/1.1 200 OK` для валидного webhook URL,
-- `HTTP/1.1 404 Not Found` для невалидного `{bot_id, secret}`.
+## 4) Google OAuth callback
 
-## 2) Google OAuth
+### GET `/google/oauth/callback`
+**Назначение:** завершение OAuth-подключения Google Calendar.
+**Коды ответа:**
+- `200 OK` с HTML-страницей (успех);
+- `200 OK` с HTML-страницей об ошибке/необходимости переподключения (валидация `state`, `refresh_token missing`, `error` от Google).
 
-### GET /google/oauth/start
-
-**Назначение**
-Инициация OAuth-подключения Google для specialist.
-Используется из master_bot (онбординг) или из personal bot (переподключение).
-
-**Query params**
-- `specialist_id` (или привязка через внутренний session/state)
-- `flow` = `onboarding` | `reconnect` (опционально)
-
-**Поведение**
-1) генерирует одноразовый `oauth_state` (TTL 10–15 минут)
-2) формирует OAuth URL с этим state
-3) возвращает URL (обычно как ссылку, которую отправляет бот)
-
-**Response**
-- JSON с `auth_url` (если это вызывается не из браузера)
-или редирект (если используется напрямую)
-
-`/google/oauth/start` является официальным endpoint MVP.
-
-Текущее состояние реализации:
-- endpoint ещё не реализован;
-- OAuth URL формируется напрямую в master_bot через `GoogleOAuthService.get_auth_url`.
-
-Он может вызываться:
-- напрямую (через браузер),
-- либо опосредованно из Telegram-логики.
-
-Это позволяет унифицировать OAuth-флоу и упростить расширение системы.
-
-
----
-
-### GET /google/oauth/callback
-
-**Назначение**
-Обработка callback от Google после авторизации.
-
-Production callback URL:
-`https://api.zumbot.ru/google/oauth/callback`
-
-**Query params**
-- `code`
-- `state`
-- `scope` (может присутствовать)
-
-**Фактическое поведение MVP**
-1) валидирует `state` как `specialist_id` (UUID)
-2) обменивает `code` на токены
-3) обрабатывает `refresh_token` безопасно:
-   - если `refresh_token` пришёл: шифрует и сохраняет в `google_oauth`
-   - если `refresh_token` не пришёл, но в БД уже есть сохранённый `refresh_token`: **сохраняет текущий токен**, обновляет `status=connected`, продолжает flow
-   - если `refresh_token` не пришёл и сохранённого токена нет: фиксирует ошибку (`status=error`, если запись уже есть), отправляет специалисту инструкцию по переподключению (consent + offline access), возвращает HTML «требуется переподключение»
-4) сохраняет актуальный набор scopes
-5) делает проверку доступа к Calendar API (`calendarList.list`) для ранней диагностики scope
-6) отправляет сообщение в Telegram:
-   - при успехе: перейти к календарному шагу в master bot
-   - при недостатке прав: переподключить Google с re-consent
-
-**Что происходит дальше в Telegram онбординге**
-После callback пользователь в master bot выбирает действие:
-- `Создать отдельный календарь (рекомендовано)` — MVP
-- `Выбрать существующий календарь` — отдельный шаг, сервисно подготовлен, UI пока stub
-
-В `/start` календарный шаг отображается отдельно от Google OAuth:
-- `Google OAuth: подключен/не подключен`
-- `Календарь бота: выбран/не выбран`
-
-Успех календарного шага:
-- календарь сохранён,
-- smoke-test события create+delete прошёл,
-- после этого specialist может быть переведён в `active`.
-
-**Response**
-HTML-страница “Google подключен, вернитесь в Telegram”.
----
-
-## 3) Healthcheck / Readiness
-
-### GET /healthz
-
-**Назначение**
-Проверка живости backend (liveness): HTTP-сервер запущен и отвечает.
-Endpoint доступен во всех средах.
-
-Используется для простых внешних проверок доступности.
-
-**Response**
-- `200 OK`
-```json
-{"status":"ok","service":"backend"}
+**Пример:**
+```bash
+curl -i "https://api.example.com/google/oauth/callback?code=sample_code&state=00000000-0000-0000-0000-000000000000"
 ```
 
----
+## Planned/TODO endpoints
 
-### GET /readyz
+### GET `/health` (planned)
+Планируемый alias к `/healthz` для унификации внешних проверок. В текущем коде endpoint отсутствует.
 
-**Назначение**
-Проверка готовности backend к работе (readiness).
-В MVP проверяет:
-- доступность БД минимальным запросом;
-- «живость» event loop через фоновый heartbeat.
-Endpoint включается только если `ENABLE_READYZ=true`.
-По умолчанию это так в `prod` на VPS, а в `local` — выключено.
-Локально `/readyz` отсутствует (404), пока явно не включить
-`ENABLE_READYZ=true`.
-
-**Важно:** `/readyz` обязателен для мониторинга в production
-(например, UptimeRobot/BetterStack или health-check балансировщика).
-
-**Response**
-- `200 OK` — БД доступна и event loop тикает
-  ```json
-  {"status":"ready","db":"ok","loop":"ok"}
-  ```
-- `503 Service Unavailable` — БД недоступна и/или event loop не тикает
-  ```json
-  {"status":"not_ready","db":"fail","loop":"fail","error":"<коротко>"}
-  ```
-
-Примечание:
-- если проблема только в event loop, поле `db` будет `"ok"`;
-- поле `error` возвращается только при ошибке БД (короткий тип ошибки).
-
----
-
-## 4) Внутренние контракты (не HTTP)
-
-В MVP большая часть “контрактов” — это внутренние сервисные методы,
-а не отдельные HTTP endpoints.
-
-Рекомендуемые внутренние методы:
-
-- `TelegramIngress.handle_update(bot_id, update_json)`
-- `MasterOnboarding.handle_step(specialist_id, payload)`
-- `ClientFlow.show_slots(specialist_id, client_id, period)`
-- `ClientFlow.book_slot(specialist_id, client_id, start_at_utc)`
-- `ClientFlow.retry_booking(appointment_id)`
-- `ClientFlow.cancel_booking(appointment_id)`
-- `SpecialistFlow.update_availability(...)`
-- `SpecialistFlow.set_duration(...)`
-
----
-
-## 5) Безопасность endpoints (MVP минимум)
-
-- webhook защищён секретом в URL
-- OAuth callback принимает только state, созданный системой
-- токены хранятся в зашифрованном виде
-- логирование исключает секреты (bot_token, refresh_token)
-
----
+### GET `/ready` (planned)
+Планируемый alias к `/readyz` для унификации внешних проверок. В текущем коде endpoint отсутствует.
 
 ## Связанные документы
-- `30_architecture/components.md`
+- `docs_!_deployment.md`
 - `50_integrations/telegram.md`
 - `50_integrations/google_calendar.md`
-- `60_security_and_compliance/secrets.md`

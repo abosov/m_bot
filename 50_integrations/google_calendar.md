@@ -1,81 +1,58 @@
 # Google Calendar Integration (MVP)
 
-## OAuth и scopes
-Для онбординга требуются scopes, достаточные для:
-- создания календаря,
-- создания и удаления событий,
-- чтения списка календарей.
+## 1. OAuth требования
 
-Используемые scopes:
+Для onboarding требуется OAuth 2.0 с offline-доступом и календарными scope.
+
+Минимальные scope текущего MVP:
 - `https://www.googleapis.com/auth/calendar`
 - `https://www.googleapis.com/auth/calendar.events`
 
-> Если пользователь подключал Google раньше с меньшими правами, нужен re-consent (переподключение через OAuth).
+Если пользователь уже выдавал доступ с меньшими правами, требуется re-consent (повторное подключение).
 
-## Требование refresh_token
-Для работы интеграции нужен `refresh_token` (offline access), иначе backend не сможет стабильно работать без участия пользователя.
+## 2. Callback endpoint
 
-Поведение callback при отсутствии `refresh_token`:
-- если в БД уже есть ранее сохранённый refresh_token — используем его, подключение считается успешным (`status=connected`);
-- если сохранённого токена нет — подключение помечается как ошибочное (`status=error` при существующей записи), пользователю отправляется инструкция переподключить Google с consent/offline.
+- Endpoint: `GET /google/oauth/callback`.
+- Production redirect URI: `https://api.zumbot.ru/google/oauth/callback`.
+- Callback сохраняет OAuth-статус и токены в БД (refresh token хранится зашифрованно).
 
----
+## 3. Сценарий `refresh_token missing`
 
-## Календарный шаг онбординга
-После успешного OAuth специалист в master bot должен **явно** выбрать действие:
-1. `Создать отдельный календарь (рекомендовано)` — MVP.
-2. `Выбрать существующий календарь` — non-MVP UI (архитектура подготовлена, в интерфейсе временная заглушка).
+Поведение реализовано следующим образом:
+1. Если `refresh_token` отсутствует, но в БД уже есть сохранённый refresh token — подключение остаётся успешным (`status=connected`).
+2. Если `refresh_token` отсутствует и сохранённого токена нет — статус переводится в ошибку (`status=error` при существующей записи), специалист получает инструкцию переподключить Google с consent + offline.
 
-Автовыбор primary-календаря не допускается.
+Операционное действие для пользователя: переподключить Google из master bot и подтвердить запрашиваемые права.
 
----
+## 4. Smoke-test календарного доступа
 
-## Создание календаря
-MVP использует `calendars.insert` с параметрами:
-- `summary = "Zumbot - {public_name}"`
-- `description = "Calendar created by Zumbot for booking sessions"`
-- `timeZone = specialist_profile.specialist_timezone` (или `UTC`)
+После выбора/создания рабочего календаря выполняется smoke-test:
+1. `events.insert` тестового события;
+2. `events.delete` этого события;
+3. фиксация результата в `specialist_calendar_settings`:
+   - `last_smoke_test_at`;
+   - `last_smoke_test_status` (`ok`/`failed`);
+   - `last_smoke_test_error` (короткая причина при ошибке).
 
-После создания сохраняются настройки в `specialist_calendar_settings`:
-- `calendar_id`
-- `calendar_summary`
-- `calendar_time_zone`
-- `source = created|selected`
+Критерий готовности onboarding: календарный шаг считается завершённым только при `last_smoke_test_status=ok`.
 
----
+## 5. Типовые проблемы
 
-## Smoke-test доступа (обязательный)
-Критерий успешного шага:
-- календарь сохранён,
-- smoke-test успешно завершён.
+### `insufficientPermissions`
+Симптомы:
+- OAuth формально завершён, но операции с календарём падают с ошибкой прав.
 
-Smoke-test:
-1. Создать тестовое событие (`events.insert`) на ближайшие ~7 минут, длительность 5 минут.
-2. Удалить событие (`events.delete`).
-3. Если удаление не удалось — шаг считается проваленным.
+Что делать:
+- повторно инициировать OAuth через master bot;
+- убедиться, что пользователь выдал полный набор scope.
 
-Фиксация результата:
-- `last_smoke_test_at`
-- `last_smoke_test_status` (`ok`/`failed`)
-- `last_smoke_test_error` (короткая строка)
+### `refresh_token missing`
+Симптомы:
+- callback сообщает о необходимости переподключения.
 
----
+Что делать:
+- выполнить re-consent с offline-доступом;
+- проверить корректность OAuth-конфига в Google Cloud Console.
 
-## Ошибка insufficientPermissions
-При `403/insufficientPermissions` пользователь получает сообщение:
-- Google подключён,
-- но прав недостаточно для создания календаря/событий,
-- нужно переподключить аккаунт и выдать все требуемые права.
-
-Технически:
-- backend не отдаёт 500 пользователю,
-- ошибка обрабатывается и логируется без утечки секретов.
-
----
-
-## Готовность специалиста
-`specialist.status=active` только когда одновременно есть:
-- профиль specialist,
-- активный personal bot,
-- выбранный календарь,
-- успешный smoke-test.
+## 6. Planned/TODO
+- Расширенная диагностика и UX для выбора существующего календаря находится в стадии planned.
