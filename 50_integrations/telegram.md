@@ -113,9 +113,17 @@ Master bot поддерживает команду `/status`, которая:
 
 ### 4.2 Что происходит на webhook
 1) backend валидирует `bot_id + secret` и `status=active`;
-2) парсит JSON update в aiogram `Update`;
-3) передаёт update в personal Dispatcher;
-4) отвечает `200 OK` максимально быстро.
+2) для personal bot используется `BotFactory`:
+   - единый `DefaultBotProperties(parse_mode=MARKDOWN)`;
+   - короткие сетевые таймауты HTTP-клиента (total/connect/read);
+   - in-memory TTL-кэш Bot/session (короткий TTL ~60-120 секунд) для burst-нагрузки без создания новой session на каждый update;
+3) парсит JSON update в aiogram `Update`;
+4) передаёт update в personal Dispatcher;
+5) отвечает `200 OK` максимально быстро.
+
+Безопасность webhook:
+- токены/секреты не логируются;
+- ошибки обработки логируются с техническим контекстом (`bot_user_id`, `specialist_id`, `update_id`) и не раскрывают секреты.
 
 ### 4.3 Минимальный обработчик personal bot
 Сейчас реализован базовый `/start` handler:

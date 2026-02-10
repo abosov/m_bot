@@ -133,11 +133,12 @@ async def test_process_update_routes_owner_to_specialist_handler(monkeypatch):
     dp.include_router(router)
 
     monkeypatch.setattr(personal_dispatcher, "get_personal_dispatcher", lambda: dp)
-    monkeypatch.setattr(
-        personal_dispatcher,
-        "build_bot_from_db",
-        lambda tg_bot: Bot(token="123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"),
-    )
+    test_bot = Bot(token="123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
+
+    async def fake_get_personal_bot(tg_bot):
+        return test_bot
+
+    monkeypatch.setattr(personal_dispatcher, "get_personal_bot", fake_get_personal_bot)
 
     tg_bot = type("TgBot", (), {"specialist_id": specialist_id, "bot_user_id": 123})()
     raw_update = {
@@ -152,6 +153,7 @@ async def test_process_update_routes_owner_to_specialist_handler(monkeypatch):
     }
 
     await personal_dispatcher.process_update(tg_bot, raw_update)
+    await test_bot.session.close()
 
     assert captured["actor"] == "specialist"
     assert captured["specialist_id"] == specialist_id
