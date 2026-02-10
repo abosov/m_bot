@@ -77,7 +77,8 @@
 - передать update в handler-слой
 
 Текущее состояние реализации:
-- webhook router ещё не реализован в коде;
+- webhook router для personal bots реализован в `web_server.py` на endpoint `/tg/webhook/{bot_id}/{secret}`;
+- personal updates передаются в `services/telegram/personal_dispatcher.py`, где определяется роль owner/client;
 - master_bot сейчас запускается в режиме polling;
 - логирование входящих/исходящих сообщений уже реализовано через middleware (см. `docs/logging.md`).
 
@@ -278,3 +279,6 @@ MVP особенности:
 - `US-02_specialist_manage_settings_in_personal_bot.md`
 - `US-03_client_booking_flow.md`
 - `20_flows_and_state_machines/*.md`
+
+
+- Personal bot runtime: `/tg/webhook/{bot_id}/{secret}` + `services/telegram/personal_dispatcher.py` (role detection owner/client).

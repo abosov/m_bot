@@ -109,6 +109,38 @@ Master bot поддерживает команду `/status`, которая:
 - ответ: `Бот подключен. Скоро здесь появится запись/вопросы.`
 - цель: подтверждение, что webhook и роутинг работают end-to-end.
 
+### 4.4 Personal bot role detection (owner vs client)
+В personal dispatcher на каждый update дополнительно формируется контекст:
+- `specialist_id` — берется из `telegram_bot.specialist_id`;
+- `owner_tg_user_id` и `public_name` — загружаются из `specialist_profile`;
+- `sender_id` — из update (`message.from.id`, `callback_query.from.id` и др.);
+- `actor`:
+  - `specialist`, если `sender_id == owner_tg_user_id`;
+  - `client` в остальных случаях.
+
+Контекст пробрасывается в handlers через `data` aiogram:
+`actor`, `specialist_id`, `owner_tg_user_id`, `public_name`.
+
+Реализован короткий in-memory TTL-кэш профиля (несколько секунд) только для снижения числа запросов к БД. Источник истины — БД.
+
+### 4.5 MVP каркас personal bot (текущий этап)
+Сейчас в personal bot реализовано:
+- `/start`:
+  - для owner (`actor=specialist`) — «Панель специалиста»;
+  - для остальных (`actor=client`) — клиентская заглушка «Запись скоро»;
+- `/status` (и текст «Мой статус») для owner:
+  - `specialist.status`,
+  - username personal bot,
+  - статус Google OAuth,
+  - `calendar_id`/`calendar_summary`,
+  - `last_smoke_test_status`;
+- `/help`:
+  - для owner — список доступных команд,
+  - для client — заглушка.
+
+Клиентский booking flow (US-03) в этом этапе не реализуется.
+
+
 ---
 
 ## 5. Обработка типов update (MVP)

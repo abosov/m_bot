@@ -429,6 +429,31 @@ async def cmd_start(message: types.Message, state: FSMContext):
             next_step_msg = ""
             new_state = None
 
+            if specialist.status == SpecialistStatus.active and has_bot:
+                await state.clear()
+                personal_bot_username = active_bot.bot_username
+                personal_link = f"https://t.me/{personal_bot_username}?start=owner_panel"
+                final_text = (
+                    f"✅ Вы активны. Откройте личного бота: @{personal_bot_username}.\n\n"
+                    "Через личного бота вы управляете настройками и проверяете статусы интеграций."
+                )
+                keyboard = types.InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [types.InlineKeyboardButton(text="🚀 Открыть личного бота", url=personal_link)],
+                        [types.InlineKeyboardButton(text="🔁 Проверить интеграции", callback_data="calendar:smoke")],
+                    ]
+                )
+                await message.answer(final_text, reply_markup=keyboard)
+                await log_outbound_message(
+                    message.bot,
+                    tg_user_id,
+                    final_text,
+                    fsm_state=None,
+                    user_handle=user_handle,
+                    specialist_name=specialist_name if has_profile else None,
+                )
+                return
+
             if not has_profile:
                 await state.set_state(OnboardingStates.waiting_for_public_name)
                 next_step_msg = "\n👇 **Действие:** Введите ваше публичное имя для клиентов."
