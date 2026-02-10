@@ -6,6 +6,7 @@ import logging
 import asyncio
 import time
 from datetime import datetime
+from typing import Literal
 
 from aiogram import Router, F, types, Bot
 from aiogram.filters import CommandStart, Command
@@ -80,6 +81,45 @@ def _calendar_action_keyboard() -> types.InlineKeyboardMarkup:
             [types.InlineKeyboardButton(text="📂 Выбрать существующий календарь", callback_data="calendar:select")],
         ]
     )
+
+
+def _is_valid_public_name(public_name: str) -> bool:
+    return 2 <= len(public_name) <= 80
+
+
+def _pick_latest_active_bot(bots: list[TelegramBot]) -> TelegramBot | None:
+    active_bots = [bot for bot in bots if bot.status == TelegramBotStatus.active]
+    if not active_bots:
+        return None
+    return max(active_bots, key=lambda bot: (bot.updated_at or bot.created_at or datetime.min))
+
+
+def _resolve_bot_registration_action(existing_bot: TelegramBot | None, specialist_id: uuid.UUID) -> Literal["create", "update", "blocked"]:
+    if existing_bot is None:
+        return "create"
+    if existing_bot.specialist_id == specialist_id:
+        return "update"
+    return "blocked"
+
+
+async def _set_webhook_with_retry(bot: Bot, webhook_url: str, retries: int = 2, timeout_sec: float = 5.0) -> None:
+    for attempt in range(retries + 1):
+        try:
+            await bot.set_webhook(
+                url=webhook_url,
+                drop_pending_updates=True,
+                allowed_updates=["message", "callback_query"],
+                request_timeout=timeout_sec,
+            )
+            return
+        except TelegramRetryAfter as exc:
+            if attempt >= retries:
+                raise
+            wait_time = min(getattr(exc, "retry_after", 1), 2)
+            await asyncio.sleep(wait_time)
+        except (TelegramNetworkError, TelegramServerError, asyncio.TimeoutError):
+            if attempt >= retries:
+                raise
 async def _check_bot_status(
     token: str,
     timeout_sec: float = 3.0,
@@ -341,14 +381,9 @@ async def cmd_start(message: types.Message, state: FSMContext):
             has_profile = specialist.profile is not None
             
             # Проверяем список telegram_bots (не .bot, не .telegram_bot!)
-            # Ищем хотя бы одного активного бота
-            active_bot = None
-            if specialist.telegram_bots:
-                for b in specialist.telegram_bots:
-                    if b.status == TelegramBotStatus.active:
-                        active_bot = b
-                        break
-            
+            # Ищем предсказуемо: активный бот с самым свежим updated_at/created_at
+            active_bot = _pick_latest_active_bot(specialist.telegram_bots or [])
+
             has_bot = active_bot is not None
             has_oauth = specialist.google_oauth is not None and specialist.google_oauth.status == GoogleOAuthStatus.connected
             has_calendar = specialist.calendar_settings is not None and bool(specialist.calendar_settings.calendar_id)
@@ -473,9 +508,25 @@ async def start_flow(message: types.Message, state: FSMContext):
 
 @router.message(OnboardingStates.waiting_for_public_name)
 async def process_public_name(message: types.Message, state: FSMContext):
-    public_name = message.text.strip()
+    public_name = (message.text or "").strip()
     tg_user_id = message.from_user.id
     user_handle = _get_handle(message.from_user)
+
+    if not _is_valid_public_name(public_name):
+        text_out = (
+            "⚠️ Некорректное публичное имя. Используйте от 2 до 80 символов.\n"
+            "Пример: *Психолог Анна* или *Иван Иванов*."
+        )
+        await message.answer(text_out)
+        await log_outbound_message(
+            message.bot,
+            tg_user_id,
+            text_out,
+            fsm_state="waiting_for_public_name",
+            user_handle=user_handle,
+        )
+        await state.set_state(OnboardingStates.waiting_for_public_name)
+        return
 
     try:
         async with async_session_factory() as session:
@@ -548,7 +599,7 @@ async def process_bot_token(message: types.Message, state: FSMContext):
         # 1. Валидация токена
         temp_bot = Bot(token=raw_token)
         try:
-            bot_info = await temp_bot.get_me()
+            bot_info = await temp_bot.get_me(request_timeout=5.0)
         except Exception as e:
             text_out = f"❌ **Неверный токен**\nОшибка: `{e}`\nПроверьте токен и пришлите снова."
             await message.answer(text_out)
@@ -557,53 +608,79 @@ async def process_bot_token(message: types.Message, state: FSMContext):
         finally:
             await temp_bot.session.close()
 
-        # 2. Установка вебхука
+        # 2. Подготовка данных Webhook и записи в БД
         webhook_secret = secrets.token_urlsafe(32)
         webhook_path = f"/tg/webhook/{bot_info.id}/{webhook_secret}"
         webhook_url = f"{BASE_URL}{webhook_path}"
-
-        temp_bot_webhook = Bot(token=raw_token)
-        try:
-            await temp_bot_webhook.set_webhook(
-                url=webhook_url,
-                drop_pending_updates=True,
-                allowed_updates=["message", "callback_query"]
-            )
-        except Exception as e:
-            text_out = f"❌ **Ошибка настройки Webhook**\n`{e}`\nПопробуйте позже."
-            await message.answer(text_out)
-            await log_outbound_message(message.bot, tg_user_id, text_out, fsm_state="waiting_for_bot_token", user_handle=user_handle)
-            await temp_bot_webhook.session.close()
-            return
-        finally:
-            await temp_bot_webhook.session.close()
-
-        # 3. Сохранение в БД
         encrypted_token = encrypt_token(raw_token)
-        
+
         async with async_session_factory() as session:
-            # Проверка дублей
             check_bot = select(TelegramBot).where(TelegramBot.bot_user_id == bot_info.id)
             existing_bot = (await session.execute(check_bot)).scalar_one_or_none()
-            
-            if existing_bot:
-                text_out = "⚠️ Этот бот уже зарегистрирован в системе."
+            action = _resolve_bot_registration_action(existing_bot, specialist_id)
+
+            if action == "blocked":
+                logger.warning(
+                    "Bot registration blocked: bot_user_id=%s requested_by=%s owner=%s",
+                    bot_info.id,
+                    specialist_id,
+                    existing_bot.specialist_id if existing_bot else None,
+                )
+                text_out = "⚠️ Этот бот уже зарегистрирован у другого специалиста."
                 await message.answer(text_out)
                 await log_outbound_message(message.bot, tg_user_id, text_out, fsm_state="waiting_for_bot_token", user_handle=user_handle)
                 return
 
-            new_bot = TelegramBot(
-                specialist_id=specialist_id,
-                bot_user_id=bot_info.id,
-                bot_username=bot_info.username,
-                bot_name=bot_info.first_name,
-                bot_token_encrypted=encrypted_token,
-                webhook_secret=webhook_secret,
-                webhook_url=webhook_url,
-                status=TelegramBotStatus.active
-            )
-            session.add(new_bot)
+            if action == "update":
+                existing_bot.bot_username = bot_info.username
+                existing_bot.bot_name = bot_info.first_name
+                existing_bot.bot_token_encrypted = encrypted_token
+                existing_bot.webhook_secret = webhook_secret
+                existing_bot.webhook_url = webhook_url
+                existing_bot.status = TelegramBotStatus.active
+                logger.info(
+                    "Bot token updated for existing specialist bot: specialist_id=%s bot_user_id=%s",
+                    specialist_id,
+                    bot_info.id,
+                )
+            else:
+                new_bot = TelegramBot(
+                    specialist_id=specialist_id,
+                    bot_user_id=bot_info.id,
+                    bot_username=bot_info.username,
+                    bot_name=bot_info.first_name,
+                    bot_token_encrypted=encrypted_token,
+                    webhook_secret=webhook_secret,
+                    webhook_url=webhook_url,
+                    status=TelegramBotStatus.active,
+                )
+                session.add(new_bot)
+                logger.info(
+                    "New bot registered: specialist_id=%s bot_user_id=%s",
+                    specialist_id,
+                    bot_info.id,
+                )
+
             await session.commit()
+
+        # 3. Установка вебхука с retry
+        temp_bot_webhook = Bot(token=raw_token)
+        try:
+            await _set_webhook_with_retry(temp_bot_webhook, webhook_url=webhook_url, retries=2, timeout_sec=5.0)
+        except Exception as e:
+            logger.warning(
+                "Webhook setup failed after retries: specialist_id=%s bot_user_id=%s error=%s",
+                specialist_id,
+                bot_info.id,
+                e.__class__.__name__,
+            )
+            text_out = "❌ Не удалось настроить webhook из-за временной ошибки Telegram. Попробуйте отправить токен ещё раз."
+            await message.answer(text_out)
+            await log_outbound_message(message.bot, tg_user_id, text_out, fsm_state="waiting_for_bot_token", user_handle=user_handle)
+            await state.set_state(OnboardingStates.waiting_for_bot_token)
+            return
+        finally:
+            await temp_bot_webhook.session.close()
 
         await finalize_specialist_if_ready(specialist_id)
 

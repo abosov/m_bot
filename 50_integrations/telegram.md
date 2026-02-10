@@ -81,6 +81,17 @@ Master bot поддерживает команду `/status`, которая:
 
 ---
 
+### 3.2 Обновление токена уже зарегистрированного personal bot
+Если `bot_user_id` уже есть в системе:
+- если бот принадлежит **тому же** specialist (`existing_bot.specialist_id == current_specialist_id`) — обновление разрешено:
+  - токен перешифровывается и сохраняется,
+  - `webhook_secret` ротируется,
+  - `webhook_url` и `status=active` обновляются,
+  - webhook переустанавливается в Telegram;
+- если бот принадлежит **другому** specialist — обновление блокируется с понятным сообщением.
+
+Логи аудита ведутся по `specialist_id/bot_user_id`, без логирования токенов и секретов.
+
 ## 4. Маршрутизация updates
 
 ### 4.1 Master bot vs personal bot

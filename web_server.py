@@ -2,6 +2,7 @@ import uuid
 import asyncio
 import logging
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -33,8 +34,21 @@ from services.telegram.personal_dispatcher import process_update
 import config
 from admin_api import router as admin_router
 
-app = FastAPI()
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    if bot is not None:
+        try:
+            await bot.session.close()
+            logger.info("Master bot session closed on shutdown")
+        except Exception:
+            logger.warning("Failed to close master bot session on shutdown", exc_info=True)
+
+
+app = FastAPI(lifespan=lifespan)
 
 READYZ_DB_TIMEOUT_SEC = 2.0
 READYZ_LOOP_TIMEOUT_SEC = 12.0
@@ -215,7 +229,7 @@ async def telegram_personal_webhook(bot_id: int, secret: str, request: Request):
 @app.get("/google/oauth/callback", response_class=HTMLResponse)
 async def google_oauth_callback(request: Request):
     code = request.query_params.get("code")
-    state = request.query_params.get("state") # Здесь лежит specialist_id
+    state = request.query_params.get("state")
     error = request.query_params.get("error")
 
     if error:
@@ -230,48 +244,90 @@ async def google_oauth_callback(request: Request):
         return "<h1>Ошибка: Неверный формат state (ожидался UUID)</h1>"
 
     try:
-        # 1. Обмен кода на токены
         refresh_token, access_token, _ = exchange_code_for_token(code)
-        
-        if not refresh_token:
-            # Если refresh_token не пришел (такое бывает при повторной авторизации без prompt='consent'),
-            # в MVP мы считаем это ошибкой, так как нам нужен offline доступ.
-            # (Хотя в services/google_oauth.py мы добавили prompt='consent', так что он должен быть)
-            pass 
 
-        # 2. Сохранение в БД
-        encrypted_refresh_token = encrypt_token(refresh_token)
-        
         async with async_session_factory() as session:
-            # Проверяем, есть ли уже запись
             stmt = select(GoogleOAuth).where(GoogleOAuth.specialist_id == specialist_id)
-            result = await session.execute(stmt)
-            oauth_entry = result.scalar_one_or_none()
+            oauth_entry = (await session.execute(stmt)).scalar_one_or_none()
 
-            if oauth_entry:
-                oauth_entry.refresh_token_encrypted = encrypted_refresh_token
-                oauth_entry.status = GoogleOAuthStatus.connected
-                oauth_entry.token_updated_at = datetime.utcnow()
-                oauth_entry.scopes = scopes_as_string()
+            if not refresh_token:
+                if oauth_entry and oauth_entry.refresh_token_encrypted:
+                    oauth_entry.status = GoogleOAuthStatus.connected
+                    oauth_entry.token_updated_at = datetime.utcnow()
+                    oauth_entry.scopes = scopes_as_string()
+                    logger.info(
+                        "OAuth callback without refresh_token; reusing existing token specialist_id=%s",
+                        specialist_id,
+                    )
+                else:
+                    if oauth_entry:
+                        oauth_entry.status = GoogleOAuthStatus.error
+                        oauth_entry.scopes = scopes_as_string()
+                        oauth_entry.token_updated_at = datetime.utcnow()
+                    logger.warning(
+                        "OAuth callback missing refresh_token and no stored token specialist_id=%s",
+                        specialist_id,
+                    )
+
+                    auth_data = (
+                        await session.execute(
+                            select(SpecialistAuthTelegram).where(SpecialistAuthTelegram.specialist_id == specialist_id)
+                        )
+                    ).scalar_one_or_none()
+                    await session.commit()
+
+                    reconnect_message = (
+                        "⚠️ Не удалось получить постоянный доступ к Google Calendar.\n"
+                        "Переподключите аккаунт через master bot: нужен offline-доступ и подтверждение consent."
+                    )
+                    if auth_data and bot is not None:
+                        try:
+                            await bot.send_message(chat_id=auth_data.tg_user_id, text=reconnect_message)
+                        except Exception:
+                            logger.warning(
+                                "Failed to send oauth reconnect instructions specialist_id=%s",
+                                specialist_id,
+                                exc_info=True,
+                            )
+
+                    return """
+                    <html>
+                        <head><title>Google Calendar reconnect required</title></head>
+                        <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+                            <h1 style="color: #c62828;">Требуется переподключение</h1>
+                            <p>Google не вернул refresh_token (постоянный доступ).</p>
+                            <p>Вернитесь в Telegram и переподключите аккаунт с подтверждением доступа.</p>
+                        </body>
+                    </html>
+                    """
             else:
-                new_entry = GoogleOAuth(
-                    specialist_id=specialist_id,
-                    refresh_token_encrypted=encrypted_refresh_token,
-                    scopes=scopes_as_string(),
-                    status=GoogleOAuthStatus.connected,
-                    token_updated_at=datetime.utcnow()
+                encrypted_refresh_token = encrypt_token(refresh_token)
+                if oauth_entry:
+                    oauth_entry.refresh_token_encrypted = encrypted_refresh_token
+                    oauth_entry.status = GoogleOAuthStatus.connected
+                    oauth_entry.token_updated_at = datetime.utcnow()
+                    oauth_entry.scopes = scopes_as_string()
+                else:
+                    session.add(
+                        GoogleOAuth(
+                            specialist_id=specialist_id,
+                            refresh_token_encrypted=encrypted_refresh_token,
+                            scopes=scopes_as_string(),
+                            status=GoogleOAuthStatus.connected,
+                            token_updated_at=datetime.utcnow(),
+                        )
+                    )
+
+            auth_data = (
+                await session.execute(
+                    select(SpecialistAuthTelegram).where(SpecialistAuthTelegram.specialist_id == specialist_id)
                 )
-                session.add(new_entry)
-            
-            # Получаем данные специалиста для уведомления
-            auth_stmt = select(SpecialistAuthTelegram).where(SpecialistAuthTelegram.specialist_id == specialist_id)
-            auth_res = await session.execute(auth_stmt)
-            auth_data = auth_res.scalar_one_or_none()
-            
-            # Получаем имя для логов
-            prof_stmt = select(SpecialistProfile).where(SpecialistProfile.specialist_id == specialist_id)
-            prof_res = await session.execute(prof_stmt)
-            profile = prof_res.scalar_one_or_none()
+            ).scalar_one_or_none()
+            profile = (
+                await session.execute(
+                    select(SpecialistProfile).where(SpecialistProfile.specialist_id == specialist_id)
+                )
+            ).scalar_one_or_none()
             specialist_name = profile.public_name if profile else "Unknown"
 
             await session.commit()
@@ -283,8 +339,7 @@ async def google_oauth_callback(request: Request):
                 permissions_ok = False
                 logger.warning("Google connected but insufficient permissions specialist_id=%s", specialist_id)
 
-            # 3. Уведомление в Telegram
-            if auth_data:
+            if auth_data and bot is not None:
                 if permissions_ok:
                     text_out = "✅ **Google подключен!**\n\nШаг 4 из 4: выберите действие с календарем в master bot (создать отдельный или выбрать существующий)."
                 else:
@@ -294,18 +349,16 @@ async def google_oauth_callback(request: Request):
                     )
                 try:
                     await bot.send_message(chat_id=auth_data.tg_user_id, text=text_out)
-                    
-                    # 4. Логирование исходящего сообщения
                     await log_outbound_message(
                         bot=bot,
                         tg_user_id=auth_data.tg_user_id,
                         content=text_out,
                         fsm_state="google_connected_callback",
                         specialist_name=specialist_name,
-                        user_handle=f"@{auth_data.tg_username}" if auth_data.tg_username else str(auth_data.tg_user_id)
+                        user_handle=f"@{auth_data.tg_username}" if auth_data.tg_username else str(auth_data.tg_user_id),
                     )
-                except Exception as e:
-                    print(f"Failed to send TG notification: {e}")
+                except Exception:
+                    logger.warning("Failed to send TG notification specialist_id=%s", specialist_id, exc_info=True)
 
         return """
         <html>
@@ -319,7 +372,7 @@ async def google_oauth_callback(request: Request):
         </html>
         """
 
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return f"<h1>Произошла ошибка при подключении: {str(e)}</h1>"
+    except Exception:
+        logger.exception("google_oauth_callback failed specialist_state=%s", state)
+        return "<h1>Произошла ошибка при подключении Google. Попробуйте ещё раз из Telegram.</h1>"
+
