@@ -9,63 +9,82 @@ SOCKET_NAME="zumbot-backend.socket"
 LOCAL_HEALTH_URL="http://127.0.0.1:8000/healthz"
 LOCAL_READYZ_URL="http://127.0.0.1:8000/readyz"
 DOMAIN_BASE_URL="${ZUMBOT_DOMAIN_BASE_URL:-}"
+VERBOSE="${VERBOSE:-0}"
 
+OK_COUNT=0
 FAIL_COUNT=0
 
-ok() {
-  echo "[OK] $1"
+log_check() {
+  local status="$1"
+  local title="$2"
+  local reason="$3"
+
+  printf '[%s] %s - %s\n' "${status}" "${title}" "${reason}"
+
+  if [[ "${status}" == "OK" ]]; then
+    OK_COUNT=$((OK_COUNT + 1))
+  else
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+  fi
 }
 
-fail() {
-  local title="$1"
-  local hint="$2"
-  echo "[FAIL] ${title}"
-  echo "       hint: ${hint}"
-  FAIL_COUNT=$((FAIL_COUNT + 1))
+print_verbose() {
+  if [[ "${VERBOSE}" == "1" ]]; then
+    printf '       %s\n' "$1"
+  fi
 }
 
 check_git_clean() {
   local title="git clean"
   if [[ ! -d "${REPO_DIR}" ]]; then
-    fail "${title}" "Repository not found: ${REPO_DIR}. Clone repo and set correct path."
+    log_check "FAIL" "${title}" "repository not found (${REPO_DIR})"
     return
   fi
 
   if sudo -u zumbot bash -lc "cd '${REPO_DIR}' && git diff --quiet && git diff --cached --quiet" \
     && [[ -z "$(sudo -u zumbot bash -lc "cd '${REPO_DIR}' && git ls-files --others --exclude-standard")" ]]; then
-    ok "${title}"
+    log_check "OK" "${title}" "working tree is clean"
   else
-    fail "${title}" "Working tree is dirty. Commit/stash/remove local changes before deploy."
+    log_check "FAIL" "${title}" "working tree has uncommitted/untracked changes"
+    print_verbose "Run: sudo -u zumbot bash -lc 'cd ${REPO_DIR} && git status --short'"
   fi
 }
 
 check_venv_exists() {
   local title="venv exists"
   if [[ -x "${VENV_DIR}/bin/python" ]]; then
-    ok "${title}"
+    log_check "OK" "${title}" "python executable found"
+    print_verbose "python path: ${VENV_DIR}/bin/python"
+    print_verbose "python version: $(sudo -u zumbot "${VENV_DIR}/bin/python" -V 2>&1 || true)"
   else
-    fail "${title}" "Create venv: sudo -u zumbot python3 -m venv ${VENV_DIR}."
+    log_check "FAIL" "${title}" "missing ${VENV_DIR}/bin/python"
   fi
 }
 
 check_pip_deps_installed() {
   local title="pip deps installed"
   if [[ ! -f "${REPO_DIR}/requirements.txt" ]]; then
-    fail "${title}" "Missing requirements.txt in ${REPO_DIR}."
+    log_check "FAIL" "${title}" "requirements.txt is missing"
     return
   fi
 
-  if sudo -u zumbot bash -lc "cd '${REPO_DIR}' && source '${VENV_DIR}/bin/activate' && pip install -r requirements.txt >/dev/null && pip check >/dev/null"; then
-    ok "${title}"
+  if sudo -u zumbot bash -lc "cd '${REPO_DIR}' && source '${VENV_DIR}/bin/activate' && pip check >/dev/null"; then
+    log_check "OK" "${title}" "pip check passed"
+    if [[ "${VERBOSE}" == "1" ]]; then
+      local pip_version
+      pip_version="$(sudo -u zumbot bash -lc "cd '${REPO_DIR}' && source '${VENV_DIR}/bin/activate' && pip --version" 2>/dev/null || true)"
+      print_verbose "${pip_version}"
+    fi
   else
-    fail "${title}" "Install deps: sudo -u zumbot bash -lc 'cd ${REPO_DIR} && source ${VENV_DIR}/bin/activate && pip install -r requirements.txt'."
+    log_check "FAIL" "${title}" "dependency conflict or missing package"
+    print_verbose "Run: sudo -u zumbot bash -lc 'cd ${REPO_DIR} && source ${VENV_DIR}/bin/activate && pip install -r requirements.txt && pip check'"
   fi
 }
 
 check_env_vars_present() {
   local title="env vars present"
   if [[ ! -f "${ENV_FILE}" ]]; then
-    fail "${title}" "Create ${ENV_FILE} with required production variables."
+    log_check "FAIL" "${title}" "env file not found (${ENV_FILE})"
     return
   fi
 
@@ -84,9 +103,14 @@ check_env_vars_present() {
   done
 
   if [[ ${#missing[@]} -eq 0 ]]; then
-    ok "${title}"
+    log_check "OK" "${title}" "all required variables are set"
   else
-    fail "${title}" "Set missing vars in ${ENV_FILE}: ${missing[*]}."
+    log_check "FAIL" "${title}" "missing: ${missing[*]}"
+  fi
+
+  if [[ "${VERBOSE}" == "1" ]]; then
+    print_verbose "ENV_FILE=${ENV_FILE}"
+    print_verbose "APP_ENV=${APP_ENV:-unset}, BASE_URL=${BASE_URL:-unset}"
   fi
 }
 
@@ -98,19 +122,20 @@ check_postgres_reachable() {
   set -u
 
   if [[ -z "${DB_URL:-}" ]]; then
-    fail "${title}" "DB_URL is empty in ${ENV_FILE}."
+    log_check "FAIL" "${title}" "DB_URL is empty"
     return
   fi
 
   if [[ "${DB_URL}" != postgres* ]]; then
-    ok "${title} (skipped: non-postgres DB_URL)"
+    log_check "OK" "${title}" "skipped (non-postgres DB_URL)"
     return
   fi
 
   if command -v pg_isready >/dev/null 2>&1 && pg_isready -d "${DB_URL/+asyncpg/}" >/dev/null 2>&1; then
-    ok "${title}"
+    log_check "OK" "${title}" "pg_isready succeeded"
+    print_verbose "pg_isready target: ${DB_URL/+asyncpg/}"
   else
-    fail "${title}" "Check DB_URL, network/firewall, postgres service, and credentials."
+    log_check "FAIL" "${title}" "pg_isready failed"
   fi
 }
 
@@ -122,27 +147,33 @@ check_http() {
 check_healthz() {
   local title="/healthz"
   if check_http "${LOCAL_HEALTH_URL}"; then
-    ok "${title}"
+    log_check "OK" "${title}" "endpoint returns 2xx"
   else
-    fail "${title}" "Restart service and inspect logs: systemctl restart ${SERVICE_NAME}; journalctl -u ${SERVICE_NAME} -n 200 --no-pager."
+    log_check "FAIL" "${title}" "endpoint is unavailable"
+    if [[ "${VERBOSE}" == "1" ]]; then
+      print_verbose "Recent service logs:"
+      journalctl -u "${SERVICE_NAME}" -n 20 --no-pager 2>/dev/null | sed 's/^/       /' || true
+    fi
   fi
 }
 
 check_readyz() {
   local title="/readyz"
   if check_http "${LOCAL_READYZ_URL}"; then
-    ok "${title}"
+    log_check "OK" "${title}" "endpoint returns 2xx"
   else
-    fail "${title}" "Verify DB connectivity and ENABLE_READYZ=true in ${ENV_FILE}, then restart service."
+    log_check "FAIL" "${title}" "endpoint is unavailable"
+    print_verbose "Verify DB connectivity and ENABLE_READYZ=true in ${ENV_FILE}"
   fi
 }
 
 check_nginx() {
   local title="nginx -t"
   if nginx -t >/dev/null 2>&1; then
-    ok "${title}"
+    log_check "OK" "${title}" "configuration test passed"
   else
-    fail "${title}" "Fix nginx config and re-run: nginx -t."
+    log_check "FAIL" "${title}" "configuration test failed"
+    print_verbose "Run: nginx -t"
   fi
 }
 
@@ -151,9 +182,26 @@ check_socket_activation() {
   if systemctl is-enabled --quiet "${SOCKET_NAME}" \
     && systemctl is-active --quiet "${SOCKET_NAME}" \
     && systemctl is-active --quiet "${SERVICE_NAME}"; then
-    ok "${title}"
+    log_check "OK" "${title}" "socket and service are active"
   else
-    fail "${title}" "Enable/start units: systemctl enable --now ${SOCKET_NAME} ${SERVICE_NAME}."
+    log_check "FAIL" "${title}" "socket/service is disabled or inactive"
+    if [[ "${VERBOSE}" == "1" ]]; then
+      print_verbose "socket state: $(systemctl is-active "${SOCKET_NAME}" 2>/dev/null || true)"
+      print_verbose "service state: $(systemctl is-active "${SERVICE_NAME}" 2>/dev/null || true)"
+    fi
+  fi
+}
+
+check_external_endpoints() {
+  local title="external /healthz and /readyz"
+  if [[ -z "${DOMAIN_BASE_URL}" ]]; then
+    return
+  fi
+
+  if check_http "${DOMAIN_BASE_URL%/}/healthz" && check_http "${DOMAIN_BASE_URL%/}/readyz"; then
+    log_check "OK" "${title}" "public endpoints return 2xx"
+  else
+    log_check "FAIL" "${title}" "public endpoint check failed"
   fi
 }
 
@@ -173,20 +221,14 @@ check_healthz
 check_readyz
 check_nginx
 check_socket_activation
-
-if [[ -n "${DOMAIN_BASE_URL}" ]]; then
-  if check_http "${DOMAIN_BASE_URL%/}/healthz" && check_http "${DOMAIN_BASE_URL%/}/readyz"; then
-    ok "external /healthz and /readyz"
-  else
-    fail "external /healthz and /readyz" "Check DNS/nginx upstream and TLS certs for ${DOMAIN_BASE_URL}."
-  fi
-fi
+check_external_endpoints
 
 echo
+echo "SUMMARY: OK=${OK_COUNT} FAIL=${FAIL_COUNT}"
 if [[ ${FAIL_COUNT} -eq 0 ]]; then
-  echo "RESULT=OK"
+  echo "EXIT_CODE=0"
   exit 0
 fi
 
-echo "RESULT=FAIL (${FAIL_COUNT} checks failed)"
+echo "EXIT_CODE=1"
 exit 1

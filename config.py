@@ -84,9 +84,22 @@ def _require_in_prod(name: str, value: str | None) -> str | None:
     return value
 
 ENABLE_READYZ = _parse_bool(os.getenv("ENABLE_READYZ", str(APP_ENV == "prod")))
+TEST_ENCRYPTION_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+
+
+def _resolve_encryption_key() -> str | None:
+    key = os.getenv("ENCRYPTION_KEY")
+    if key:
+        return key
+
+    if APP_ENV == "test" or os.getenv("PYTEST_RUNNING") == "1":
+        os.environ["ENCRYPTION_KEY"] = TEST_ENCRYPTION_KEY
+        return TEST_ENCRYPTION_KEY
+
+    return None
 
 MASTER_BOT_TOKEN = _require_in_prod("MASTER_BOT_TOKEN", os.getenv("MASTER_BOT_TOKEN"))
-ENCRYPTION_KEY = _require_in_prod("ENCRYPTION_KEY", os.getenv("ENCRYPTION_KEY"))
+ENCRYPTION_KEY = _require_in_prod("ENCRYPTION_KEY", _resolve_encryption_key())
 GOOGLE_CLIENT_ID = _require_in_prod("GOOGLE_CLIENT_ID", os.getenv("GOOGLE_CLIENT_ID"))
 GOOGLE_CLIENT_SECRET = _require_in_prod(
     "GOOGLE_CLIENT_SECRET",
