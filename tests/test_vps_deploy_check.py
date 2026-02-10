@@ -9,14 +9,29 @@ import pytest
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "vps_deploy_check.sh"
 
 
-def _normalize(db_url: str) -> subprocess.CompletedProcess[str]:
+def _run_shell(command: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["bash", "-lc", command], capture_output=True, text=True)
+
+
+def _validate_url(db_url: str) -> subprocess.CompletedProcess[str]:
     command = (
         "set -euo pipefail; "
         f"source '{SCRIPT_PATH}'; "
         f"validate_psql_url '{db_url}'; "
         "echo 'OK'"
     )
-    return subprocess.run(["bash", "-lc", command], capture_output=True, text=True)
+    return _run_shell(command)
+
+
+def _build_and_validate_url(db_url: str) -> subprocess.CompletedProcess[str]:
+    command = (
+        "set -euo pipefail; "
+        f"source '{SCRIPT_PATH}'; "
+        f"PSQL_URL=$(build_psql_url '{db_url}'); "
+        "validate_psql_url \"${PSQL_URL}\"; "
+        "echo \"${PSQL_URL}\""
+    )
+    return _run_shell(command)
 
 
 @pytest.mark.parametrize(
@@ -27,7 +42,7 @@ def _normalize(db_url: str) -> subprocess.CompletedProcess[str]:
     ],
 )
 def test_validate_psql_url_success(db_url: str) -> None:
-    result = _normalize(db_url)
+    result = _validate_url(db_url)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "OK"
 
@@ -40,7 +55,7 @@ def test_validate_psql_url_success(db_url: str) -> None:
     ],
 )
 def test_validate_psql_url_failure(db_url: str) -> None:
-    result = _normalize(db_url)
+    result = _validate_url(db_url)
     assert result.returncode != 0
 
 
@@ -84,4 +99,15 @@ def test_run_sql_migrations_fails_on_psql_error(tmp_path: Path) -> None:
     output = result.stdout + result.stderr
     assert "[FAIL] Run SQL migrations" in output
     assert "[OK] Run SQL migrations" not in output
-    assert "--dbname=postgresql://user:pass@host:5432/dbname" in psql_calls.read_text(encoding="utf-8")
+    assert "postgresql://user:pass@host:5432/dbname" in psql_calls.read_text(encoding="utf-8")
+
+
+def test_build_and_validate_psql_url_from_asyncpg() -> None:
+    result = _build_and_validate_url("postgresql+asyncpg://user:pass@host:5432/dbname")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "postgresql://user:pass@host:5432/dbname"
+
+
+def test_build_and_validate_psql_url_rejects_missing_dbname() -> None:
+    result = _build_and_validate_url("postgresql+asyncpg://user:pass@host:5432")
+    assert result.returncode != 0

@@ -12,6 +12,8 @@ DOMAIN_BASE_URL="${ZUMBOT_DOMAIN_BASE_URL:-}"
 VERBOSE="${VERBOSE:-0}"
 RESULT="OK"
 LOG_PATH="${LOG_PATH:-/tmp/zumbot_deploy_check_$(date -u +%Y%m%dT%H%M%SZ).log}"
+CURRENT_STEP="init"
+SUMMARY_PRINTED=0
 
 OK_COUNT=0
 FAIL_COUNT=0
@@ -45,6 +47,34 @@ print_verbose() {
   if [[ "${VERBOSE}" == "1" ]]; then
     printf '       %s\n' "$1"
   fi
+}
+
+print_final_status() {
+  if [[ "${SUMMARY_PRINTED}" == "1" ]]; then
+    return
+  fi
+
+  SUMMARY_PRINTED=1
+  echo
+  echo "SUMMARY: OK=${OK_COUNT} FAIL=${FAIL_COUNT}"
+  echo "RESULT=${RESULT}"
+  echo "LOG_PATH=${LOG_PATH}"
+}
+
+on_exit() {
+  local exit_code=$?
+  if [[ ${exit_code} -ne 0 ]]; then
+    RESULT="FAIL"
+    echo "FAILED_STEP=${CURRENT_STEP}"
+  fi
+  print_final_status
+}
+
+run_step() {
+  local step_name="$1"
+  shift
+  CURRENT_STEP="${step_name}"
+  "$@"
 }
 
 check_git_clean() {
@@ -174,6 +204,18 @@ validate_psql_url() {
   fi
 }
 
+build_psql_url() {
+  local db_url="$1"
+  local psql_url
+
+  psql_url="${db_url/+asyncpg/}"
+  if [[ "${psql_url}" == postgres://* ]]; then
+    psql_url="postgresql://${psql_url#postgres://}"
+  fi
+
+  echo "${psql_url}"
+}
+
 run_sql_migrations() {
   local title="Run SQL migrations"
   local migrations_dir="${REPO_DIR}/scripts/migrations"
@@ -194,10 +236,8 @@ run_sql_migrations() {
     exit 1
   fi
 
-  local PSQL_URL="${DB_URL/+asyncpg/}"
-  if [[ "${PSQL_URL}" == postgres://* ]]; then
-    PSQL_URL="postgresql://${PSQL_URL#postgres://}"
-  fi
+  local PSQL_URL
+  PSQL_URL="$(build_psql_url "${DB_URL}")"
 
   if ! validate_psql_url "${PSQL_URL}"; then
     log_check "FAIL" "${title}" "invalid DB_URL format (pgsql dbname is required)"
@@ -211,8 +251,14 @@ run_sql_migrations() {
     exit 1
   fi
 
-  if ! sudo -u zumbot psql --dbname="${PSQL_URL}" -v ON_ERROR_STOP=1 -tAc 'SELECT 1' >/dev/null; then
+  if ! sudo -u zumbot psql "${PSQL_URL}" -v ON_ERROR_STOP=1 -tAc 'SELECT 1' >/dev/null; then
     log_check "FAIL" "${title}" "psql connection self-check failed"
+    RESULT="FAIL"
+    exit 1
+  fi
+
+  if ! sudo -u zumbot psql "${PSQL_URL}" -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS applied_migrations (id BIGSERIAL PRIMARY KEY, filename TEXT UNIQUE NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT now());" >/dev/null; then
+    log_check "FAIL" "${title}" "failed to ensure applied_migrations table"
     RESULT="FAIL"
     exit 1
   fi
@@ -224,26 +270,58 @@ run_sql_migrations() {
   fi
 
   local migration
+  local applied_count=0
+  local skipped_count=0
   for migration in "${migration_files[@]}"; do
-    if ! sudo -u zumbot psql --dbname="${PSQL_URL}" -v ON_ERROR_STOP=1 -f "${migration}" >/dev/null; then
+    local migration_basename
+    migration_basename="$(basename "${migration}")"
+
+    if sudo -u zumbot psql "${PSQL_URL}" -v ON_ERROR_STOP=1 -tAc "SELECT 1 FROM applied_migrations WHERE filename = '${migration_basename}' LIMIT 1;" | grep -q '1'; then
+      skipped_count=$((skipped_count + 1))
+      print_verbose "skip already applied migration: ${migration_basename}"
+      continue
+    fi
+
+    if ! sudo -u zumbot psql "${PSQL_URL}" -v ON_ERROR_STOP=1 -f "${migration}" >/dev/null; then
       log_check "FAIL" "${title}" "migration failed: $(basename "${migration}")"
       RESULT="FAIL"
       exit 1
     fi
+
+    if ! sudo -u zumbot psql "${PSQL_URL}" -v ON_ERROR_STOP=1 -c "INSERT INTO applied_migrations(filename) VALUES ('${migration_basename}') ON CONFLICT (filename) DO NOTHING;" >/dev/null; then
+      log_check "FAIL" "${title}" "failed to record applied migration: ${migration_basename}"
+      RESULT="FAIL"
+      exit 1
+    fi
+
+    applied_count=$((applied_count + 1))
   done
 
-  log_check "OK" "${title}" "applied ${#migration_files[@]} SQL migration(s)"
+  log_check "OK" "${title}" "applied=${applied_count} skipped=${skipped_count} total=${#migration_files[@]}"
 }
 
 check_http() {
   local url="$1"
-  curl -fsS --max-time 5 "${url}" >/dev/null
+  local http_code
+  http_code="$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' "${url}")"
+  [[ "${http_code}" == "200" ]]
+}
+
+restart_backend_service() {
+  local title="restart backend service"
+  if systemctl restart "${SERVICE_NAME}"; then
+    log_check "OK" "${title}" "service restarted"
+  else
+    log_check "FAIL" "${title}" "systemctl restart failed"
+    RESULT="FAIL"
+    exit 1
+  fi
 }
 
 check_healthz() {
   local title="/healthz"
   if check_http "${LOCAL_HEALTH_URL}"; then
-    log_check "OK" "${title}" "endpoint returns 2xx"
+    log_check "OK" "${title}" "endpoint returns HTTP 200"
   else
     log_check "FAIL" "${title}" "endpoint is unavailable"
     if [[ "${VERBOSE}" == "1" ]]; then
@@ -256,7 +334,7 @@ check_healthz() {
 check_readyz() {
   local title="/readyz"
   if check_http "${LOCAL_READYZ_URL}"; then
-    log_check "OK" "${title}" "endpoint returns 2xx"
+    log_check "OK" "${title}" "endpoint returns HTTP 200"
   else
     log_check "FAIL" "${title}" "endpoint is unavailable"
     print_verbose "Verify DB connectivity and ENABLE_READYZ=true in ${ENV_FILE}"
@@ -295,7 +373,7 @@ check_external_endpoints() {
   fi
 
   if check_http "${DOMAIN_BASE_URL%/}/healthz" && check_http "${DOMAIN_BASE_URL%/}/readyz"; then
-    log_check "OK" "${title}" "public endpoints return 2xx"
+    log_check "OK" "${title}" "public endpoints return HTTP 200"
   else
     log_check "FAIL" "${title}" "public endpoint check failed"
   fi
@@ -303,39 +381,34 @@ check_external_endpoints() {
 
 main() {
   setup_logging
+  trap on_exit EXIT
 
   if [[ "$(id -u)" -ne 0 ]]; then
-    echo "This script must be run as root."
-    echo "hint: sudo bash ${REPO_DIR}/scripts/vps_deploy_check.sh"
+    echo "ERROR: this script must be run as root (current uid=$(id -u))."
+    echo "Hint: sudo bash ${REPO_DIR}/scripts/vps_deploy_check.sh"
     RESULT="FAIL"
-    echo "RESULT=${RESULT}"
-    echo "LOG_PATH=${LOG_PATH}"
     exit 1
   fi
 
   echo "== zumbot deploy checks =="
-  check_git_clean
-  check_venv_exists
-  check_pip_deps_installed
-  check_env_vars_present
-  check_postgres_reachable
-  run_sql_migrations
-  check_healthz
-  check_readyz
-  check_nginx
-  check_socket_activation
-  check_external_endpoints
+  run_step "git clean" check_git_clean
+  run_step "venv exists" check_venv_exists
+  run_step "pip deps installed" check_pip_deps_installed
+  run_step "env vars present" check_env_vars_present
+  run_step "postgres reachable" check_postgres_reachable
+  run_step "run sql migrations" run_sql_migrations
+  run_step "restart backend service" restart_backend_service
+  run_step "check /healthz" check_healthz
+  run_step "check /readyz" check_readyz
+  run_step "nginx -t" check_nginx
+  run_step "socket activation" check_socket_activation
+  run_step "external endpoints" check_external_endpoints
 
-  echo
-  echo "SUMMARY: OK=${OK_COUNT} FAIL=${FAIL_COUNT}"
   if [[ ${FAIL_COUNT} -eq 0 && "${RESULT}" == "OK" ]]; then
     RESULT="OK"
   else
     RESULT="FAIL"
   fi
-
-  echo "RESULT=${RESULT}"
-  echo "LOG_PATH=${LOG_PATH}"
 
   if [[ "${RESULT}" == "OK" ]]; then
     exit 0

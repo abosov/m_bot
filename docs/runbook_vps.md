@@ -1,79 +1,101 @@
-# VPS runbook: каноничный ручной деплой
+# VPS runbook: честный ручной деплой
 
-> На данный момент деплой **не встроен в GitHub Actions**. Production-деплой выполняется вручную на VPS.
+> Прод-деплой выполняется вручную на VPS, без GitHub Actions.
 
 ## Базовые пути
 
 - Репозиторий: `/opt/zumbot/backend`
 - Venv: `/opt/zumbot/backend/.venv`
 - Env: `/etc/zumbot/backend.env`
-- Проверочный скрипт: `/opt/zumbot/backend/scripts/vps_deploy_check.sh`
+- Скрипт деплоя: `/opt/zumbot/backend/scripts/vps_deploy_check.sh`
 
-## Каноничный процесс деплоя
-
-1. Обновить код:
-
-```bash
-sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && git pull --ff-only'
-```
-
-2. Обновить зависимости:
-
-```bash
-sudo -u zumbot -H bash -lc 'cd /opt/zumbot/backend && source .venv/bin/activate && pip install -r requirements.txt'
-```
-
-3. Перезапустить backend:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart zumbot-backend.service
-```
-
-4. Запустить единый post-deploy check (включая SQL-миграции):
+## Единственная команда деплоя
 
 ```bash
 sudo VERBOSE=1 bash /opt/zumbot/backend/scripts/vps_deploy_check.sh
 ```
 
-## Что делает `vps_deploy_check.sh`
-
-- Проверяет git/venv/deps/env/sockets/nginx/health endpoints.
-- В блоке `Run SQL migrations`:
-  - приводит `DB_URL` к psql-совместимому виду через `PSQL_URL="${DB_URL/+asyncpg/}"`;
-  - запускает `psql` с `-v ON_ERROR_STOP=1`;
-  - останавливается на любой ошибке миграции с `RESULT=FAIL` и `exit 1`.
-- В конце всегда печатает:
+Скрипт:
+- требует запуск от `root` (иначе `exit 1`);
+- проверяет окружение;
+- применяет SQL-миграции через `psql "$PSQL_URL" -v ON_ERROR_STOP=1 -f <file>`;
+- перезапускает сервис;
+- проверяет локальные `/healthz` и `/readyz` после рестарта (только HTTP 200 считается успехом);
+- в конце всегда печатает:
   - `RESULT=OK|FAIL`
-  - `LOG_PATH=/.../zumbot_deploy_check_*.log`
+  - `LOG_PATH=/tmp/zumbot_deploy_check_*.log`
 
-## Где смотреть лог и что отправлять в поддержку / ChatGPT
+## Как читать результат
 
-1. Сразу после запуска возьмите `LOG_PATH` из финального вывода скрипта.
-2. Приложите:
-   - полный блок `SUMMARY + RESULT + LOG_PATH`;
-   - последние строки лога:
+1. Возьмите `LOG_PATH` из финального вывода.
+2. Посмотрите хвост лога:
 
 ```bash
 tail -n 200 <LOG_PATH>
 ```
 
-3. Если упали миграции, приложите:
-   - строку `[FAIL] Run SQL migrations - ...`;
-   - stderr от `psql` из лога;
-   - имя проблемного SQL-файла.
+При падении скрипт печатает `FAILED_STEP=<...>`, чтобы было видно, на каком шаге остановка.
 
-## Дополнительная диагностика
+## Типовые фейлы и что делать
+
+### 1) `DB_URL invalid`
+
+Признаки в логе:
+- `[FAIL] Run SQL migrations - invalid DB_URL format (pgsql dbname is required)`
+
+Причина:
+- `DB_URL` не содержит имя базы (нет `/<dbname>`), либо схема не postgres/postgresql.
+
+Проверка:
 
 ```bash
-sudo journalctl -u zumbot-backend.service -n 300 --no-pager
+sudo sed -n '1,200p' /etc/zumbot/backend.env | rg '^DB_URL='
+```
+
+Исправление:
+- привести `DB_URL` к корректному виду SQLAlchemy URL с dbname, например:
+  - `postgresql+asyncpg://user:pass@host:5432/zumbot`
+
+---
+
+### 2) `psql failed`
+
+Признаки в логе:
+- `[FAIL] Run SQL migrations - psql connection self-check failed`
+- `[FAIL] Run SQL migrations - migration failed: <file>.sql`
+- `[FAIL] Run SQL migrations - failed to record applied migration: <file>.sql`
+
+Причины:
+- недоступна БД / неверные креды;
+- синтаксическая ошибка миграции;
+- ошибка прав на таблицу `applied_migrations`.
+
+Проверка:
+
+```bash
+tail -n 200 <LOG_PATH>
 ```
 
 ```bash
-curl -fsS http://127.0.0.1:8000/healthz && echo
-curl -fsS http://127.0.0.1:8000/readyz && echo
+sudo journalctl -u zumbot-backend.service -n 200 --no-pager
 ```
 
+---
+
+### 3) `readyz not OK`
+
+Признаки в логе:
+- `[FAIL] /readyz - endpoint is unavailable`
+
+Важно:
+- проверка `/healthz` и `/readyz` выполняется **после** `systemctl restart zumbot-backend.service`.
+- success только при HTTP 200.
+
+Проверка вручную:
+
 ```bash
-python /opt/zumbot/backend/scripts/export_logs.py --help
+curl -i --max-time 5 http://127.0.0.1:8000/healthz
+curl -i --max-time 5 http://127.0.0.1:8000/readyz
 ```
+
+Если `/readyz` не 200, проверьте доступность БД и настройки backend env.
