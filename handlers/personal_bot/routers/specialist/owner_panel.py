@@ -246,7 +246,7 @@ async def _load_profile_and_rows(specialist_id):
 
 
 async def send_owner_panel(message: Message, specialist_id, public_name: str | None) -> None:
-    _, rows = await _load_profile_and_rows(specialist_id)
+    profile, rows = await _load_profile_and_rows(specialist_id)
 
     if not _has_configured_weekly(rows):
         await message.answer(
