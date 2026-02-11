@@ -5,32 +5,40 @@ import pytest
 from services.booking_policy import validate_next_day_cutoff
 
 
-def test_validate_next_day_cutoff_allows_next_day_before_cutoff() -> None:
-    now_utc = datetime(2026, 2, 11, 17, 0, tzinfo=timezone.utc)  # 20:00 Europe/Moscow
-    target_start_utc = datetime(2026, 2, 12, 9, 0, tzinfo=timezone.utc)  # 12:00 Europe/Moscow
-
-    validate_next_day_cutoff(
-        specialist_tz="Europe/Moscow",
-        now_utc=now_utc,
-        target_start_utc=target_start_utc,
-    )
-
-
-def test_validate_next_day_cutoff_rejects_after_cutoff() -> None:
-    now_utc = datetime(2026, 2, 11, 19, 0, tzinfo=timezone.utc)  # 22:00 Europe/Moscow
-    target_start_utc = datetime(2026, 2, 12, 9, 0, tzinfo=timezone.utc)
-
-    with pytest.raises(ValueError, match="Запись и изменение доступны только на следующий день"):
-        validate_next_day_cutoff(
-            specialist_tz="Europe/Moscow",
-            now_utc=now_utc,
-            target_start_utc=target_start_utc,
-        )
-
-
-def test_validate_next_day_cutoff_allows_exactly_at_2100() -> None:
-    now_utc = datetime(2026, 2, 11, 18, 0, tzinfo=timezone.utc)  # 21:00 Europe/Moscow
-    target_start_utc = datetime(2026, 2, 12, 9, 0, tzinfo=timezone.utc)
+@pytest.mark.parametrize(
+    ("now_utc", "target_start_utc", "should_raise"),
+    [
+        (
+            datetime(2026, 2, 11, 17, 0, tzinfo=timezone.utc),
+            datetime(2026, 2, 12, 9, 0, tzinfo=timezone.utc),
+            False,
+        ),
+        (
+            datetime(2026, 2, 11, 19, 0, tzinfo=timezone.utc),
+            datetime(2026, 2, 12, 9, 0, tzinfo=timezone.utc),
+            True,
+        ),
+        (
+            datetime(2026, 2, 11, 18, 0, tzinfo=timezone.utc),
+            datetime(2026, 2, 12, 9, 0, tzinfo=timezone.utc),
+            False,
+        ),
+    ],
+    ids=["before_cutoff_allows", "after_cutoff_rejects", "exact_cutoff_allows"],
+)
+def test_validate_next_day_cutoff_next_day_policy(
+    now_utc: datetime,
+    target_start_utc: datetime,
+    should_raise: bool,
+) -> None:
+    if should_raise:
+        with pytest.raises(ValueError, match="Запись и изменение доступны только на следующий день"):
+            validate_next_day_cutoff(
+                specialist_tz="Europe/Moscow",
+                now_utc=now_utc,
+                target_start_utc=target_start_utc,
+            )
+        return
 
     validate_next_day_cutoff(
         specialist_tz="Europe/Moscow",

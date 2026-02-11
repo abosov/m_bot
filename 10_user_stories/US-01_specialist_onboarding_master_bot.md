@@ -38,8 +38,11 @@
 - выбран/создан рабочий календарь;
 - `last_smoke_test_status = ok` (smoke-test календаря успешен).
 
-Важно: `weekly_availability`, длительность, буфер и параметры слотов не являются шагом master bot —
-они настраиваются в personal bot после deep-link `owner_panel`.
+Важно: `weekly_availability`, длительность, буфер, `slot_step_min` и `max_sessions_per_day`
+не сохраняются в master bot.
+
+Явное правило US-01: настройка расписания, длительностей, буфера, шага слотов и лимитов
+происходит в personal bot (`owner_panel`) только после успешного smoke-test и активации specialist.
 
 ## Важные edge-cases
 - `refresh_token missing`:
