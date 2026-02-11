@@ -10,6 +10,7 @@ SOCKET_NAME="zumbot-backend.socket"
 MIGRATE_SCRIPT="${REPO_DIR}/scripts/db_migrate.sh"
 MODE="checks"
 LOG_PATH="/tmp/zumbot_deploy_$(date +%Y%m%d_%H%M%S).log"
+APP_BASE_URL="http://127.0.0.1:8000"
 
 normalize_db_url() {
   local db_url="$1"
@@ -69,8 +70,13 @@ check_systemd_units() {
 check_http_endpoint() {
   local url="$1"
   local name="$2"
+  local code
 
-  curl -fsS --max-time 5 "${url}" >/dev/null || die "${name} is unavailable (${url})"
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 "${url}")" || {
+    die "${name} is unavailable (${url})"
+  }
+
+  [[ "${code}" == "200" ]] || die "${name} returned HTTP ${code}, expected 200 (${url})"
 }
 
 check_nginx() {
@@ -101,6 +107,70 @@ wait_readyz() {
   done
 
   die "readyz check failed after ${attempts}s"
+}
+
+check_recent_service_errors() {
+  local since_window="5 minutes ago"
+  local error_lines traceback_lines
+
+  error_lines="$(journalctl -u "${SERVICE_NAME}" --since "${since_window}" --no-pager -p err || true)"
+  if [[ -n "${error_lines}" ]]; then
+    log "${error_lines}"
+    die "journalctl contains priority=err lines for ${SERVICE_NAME}"
+  fi
+
+  traceback_lines="$(journalctl -u "${SERVICE_NAME}" --since "${since_window}" --no-pager | grep -F "Traceback (most recent call last):" || true)"
+  if [[ -n "${traceback_lines}" ]]; then
+    log "${traceback_lines}"
+    die "journalctl contains Traceback for ${SERVICE_NAME}"
+  fi
+}
+
+check_telegram_getme() {
+  local bot_name="$1"
+  local token="$2"
+  local response
+
+  [[ -n "${token}" ]] || die "${bot_name}: token is empty"
+
+  response="$(curl -sS --connect-timeout 3 --max-time 8 "https://api.telegram.org/bot${token}/getMe")" || {
+    die "${bot_name}: telegram getMe request failed"
+  }
+
+  printf '%s\n' "${response}" | python3 -c '
+import json
+import sys
+
+try:
+    payload = json.loads(sys.stdin.read())
+except json.JSONDecodeError as exc:
+    print(f"invalid json: {exc}")
+    sys.exit(1)
+
+if payload.get("ok") is not True:
+    print(payload)
+    sys.exit(1)
+
+result = payload.get("result") or {}
+print(f"ok=true username={result.get('username')} id={result.get('id')}")
+' || die "${bot_name}: telegram getMe returned non-ok"
+
+  pass "${bot_name}: telegram getMe"
+}
+
+post_deploy_smoke_checks() {
+  run_step "Smoke: /healthz" check_http_endpoint "${APP_BASE_URL}/healthz" "/healthz"
+  run_step "Smoke: /readyz" check_http_endpoint "${APP_BASE_URL}/readyz" "/readyz"
+  run_step "Smoke: service journal scan" check_recent_service_errors
+
+  [[ -n "${MASTER_BOT_TOKEN:-}" ]] || die "MASTER_BOT_TOKEN is required for telegram smoke-check"
+  run_step "Smoke: master bot getMe" check_telegram_getme "master bot" "${MASTER_BOT_TOKEN}"
+
+  if [[ -n "${TEST_PERSONAL_BOT_TOKEN:-}" ]]; then
+    run_step "Smoke: test personal bot getMe" check_telegram_getme "test personal bot" "${TEST_PERSONAL_BOT_TOKEN}"
+  else
+    log "[INFO] TEST_PERSONAL_BOT_TOKEN is not set; skipping personal bot getMe smoke-check"
+  fi
 }
 
 run_checks() {
@@ -136,6 +206,7 @@ run_deploy() {
   run_step "Restart ${SERVICE_NAME}" systemctl restart "${SERVICE_NAME}"
   run_step "Wait /readyz" wait_readyz
 
+  run_step "Post-deploy smoke-check" post_deploy_smoke_checks
   run_checks
 }
 

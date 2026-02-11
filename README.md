@@ -218,6 +218,9 @@ Google Calendar — источник истины для:
 5) **Настроить nginx**
    - `api.zumbot.ru` → прокси на `127.0.0.1:<WEB_PORT>`.
    - `zumbot.ru` → статик/отдельный фронтенд.
+
+Подробный VPS-runbook (ручной деплой, smoke-check, базовая nginx-защита и fail2ban): `docs/runbook_vps.md`.
+Nginx security snippet: `docs/snippets/nginx_security.conf`.
 6) **Включить TLS**
    - Получить сертификаты через certbot для обоих доменов.
 7) **Проверить health**

@@ -67,6 +67,141 @@ for i in {1..10}; do curl -s -o /dev/null -w "HTTP %{http_code}\n" http://127.0.
 #    но число новых записей в service_heartbeats меньше числа вызовов.
 ```
 
+
+## Базовая защита nginx от сканеров
+
+Минимальный MVP-конфиг лежит в репозитории: `docs/snippets/nginx_security.conf`.
+
+1. Скопируйте сниппет на VPS:
+
+```bash
+sudo install -D -m 0644 /opt/zumbot/backend/docs/snippets/nginx_security.conf /etc/nginx/snippets/zumbot_security.conf
+```
+
+2. Добавьте `limit_req_zone` из сниппета в контекст `http {}` в `/etc/nginx/nginx.conf` (если ещё не добавлен).
+
+3. Подключите include в нужный `server {}` (backend host, например `api.zumbot.ru`):
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name api.zumbot.ru;
+
+    include /etc/nginx/snippets/zumbot_security.conf;
+
+    # Важно: наружу проксируем только публичные endpoint'ы backend,
+    # admin API не публикуем.
+}
+```
+
+4. Проверьте и примените nginx-конфиг:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+5. Быстрая валидация блокировок/scanner-path:
+
+```bash
+curl -I https://api.zumbot.ru/wp-admin
+curl -I https://api.zumbot.ru/.env
+```
+
+Ожидаемо: соединение может закрываться кодом `444`, либо возвращаться deny-ответ nginx в зависимости от клиента.
+
+## Fail2ban (опционально)
+
+`fail2ban` можно включить поверх nginx-логов как дополнительный слой защиты.
+
+Вариант в репозитории: `scripts/setup_fail2ban.sh` (идемпотентный, без автозапуска).
+
+### Минимальный профиль
+
+- jail `nginx-badbots` (штатный fail2ban);
+- кастомный jail `nginx-zumbot-scanners` по scanner-path (`/wp-admin`, `/.env`, `/phpmyadmin`, `/cgi-bin`, `/vendor`, `/actuator` и т.д.).
+
+### Установка и запуск
+
+```bash
+# 1) (опционально) установить/обновить fail2ban + положить jail/filter
+sudo bash /opt/zumbot/backend/scripts/setup_fail2ban.sh
+
+# 2) проверить статус
+sudo fail2ban-client status
+sudo fail2ban-client status nginx-zumbot-scanners
+
+# 3) убедиться, что сервис в автозапуске
+sudo systemctl is-enabled fail2ban
+sudo systemctl status fail2ban --no-pager
+```
+
+Если не используете скрипт, минимальная конфигурация вручную:
+
+- `/etc/fail2ban/filter.d/nginx-zumbot-scanners.conf`:
+
+```ini
+[Definition]
+failregex = ^<HOST> - .*"(?:GET|POST|HEAD|OPTIONS) /(wp-admin|wp-login\.php|\.env|phpmyadmin|cgi-bin|vendor|actuator|\.git|boaform|HNAP1).*" (?:403|404|444) .*$
+ignoreregex =
+```
+
+- `/etc/fail2ban/jail.d/zumbot-nginx.local`:
+
+```ini
+[nginx-zumbot-scanners]
+enabled = true
+port = http,https
+filter = nginx-zumbot-scanners
+logpath = /var/log/nginx/access.log
+maxretry = 8
+findtime = 10m
+bantime = 1h
+
+[nginx-badbots]
+enabled = true
+port = http,https
+logpath = /var/log/nginx/access.log
+maxretry = 3
+findtime = 10m
+bantime = 1h
+```
+
+
+## Smoke-check после деплоя
+
+После `bash scripts/vps_deploy_check.sh --mode deploy` обязательно проверьте, что в логе есть успешные шаги:
+
+- `Smoke: /healthz` → HTTP 200;
+- `Smoke: /readyz` → HTTP 200;
+- `Smoke: service journal scan` → за последние 5 минут нет `priority=err` и `Traceback`;
+- `Smoke: master bot getMe` → `ok=true`;
+- опционально `Smoke: test personal bot getMe` (если задан `TEST_PERSONAL_BOT_TOKEN`).
+
+Чеклист руками:
+
+```bash
+# 1) полный checks/deploy прогон
+sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/vps_deploy_check.sh --mode deploy'
+
+# 2) health/readiness
+curl -fsS --max-time 5 http://127.0.0.1:8000/healthz
+curl -fsS --max-time 5 http://127.0.0.1:8000/readyz
+
+# 3) последние ошибки сервиса
+sudo journalctl -u zumbot-backend.service --since "5 minutes ago" --no-pager
+
+# 4) master-bot getMe (токен из /etc/zumbot/backend.env)
+source /etc/zumbot/backend.env
+curl -fsS --max-time 8 "https://api.telegram.org/bot${MASTER_BOT_TOKEN}/getMe"
+```
+
+Признаки OK:
+- `RESULT=OK` в конце лога `/tmp/zumbot_deploy_*.log`;
+- `/healthz` и `/readyz` отвечают 200;
+- в `journalctl` нет свежих ERROR/Traceback;
+- Telegram `getMe` возвращает JSON с `"ok": true`.
+
 ## Где смотреть логи
 
 - Лог запуска: `/tmp/zumbot_deploy_*.log`
