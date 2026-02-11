@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from datetime import time
+from datetime import date, datetime, time
+
+from services.slot_step import iter_slot_starts
 
 
 def merge_intervals(intervals: list[tuple[time, time]]) -> list[tuple[time, time]]:
@@ -36,10 +38,47 @@ def is_time_range_allowed(
     True если [start,end] полностью попадает в один из объединённых интервалов.
     Важно: если интервалы 13:00–17:00 и 17:00–21:00, то сессия 16:30–17:30 должна быть разрешена.
     """
-    # Для будущего сценария бронирования/переноса: перед проверкой доступности
-    # обязательно используем объединённые интервалы, чтобы корректно
-    # обрабатывать стыки соседних слотов.
     for interval_start, interval_end in merge_intervals(intervals):
         if start >= interval_start and end <= interval_end:
             return True
     return False
+
+
+def generate_day_slot_starts(
+    *,
+    target_date: date,
+    intervals: list[tuple[time, time]],
+    session_duration_min: int,
+    session_buffer_min: int,
+    slot_step_min: int,
+) -> list[time]:
+    """
+    Генерирует допустимые начала слотов в пределах дня с учётом:
+    - объединения стыкующихся интервалов,
+    - длительности сессии,
+    - буфера между сессиями,
+    - шага начала слотов.
+    """
+    effective_duration_min = session_duration_min + max(session_buffer_min, 0)
+    if effective_duration_min <= 0:
+        return []
+
+    result: list[time] = []
+    seen: set[time] = set()
+
+    for interval_start, interval_end in merge_intervals(intervals):
+        dt_start = datetime.combine(target_date, interval_start)
+        dt_end = datetime.combine(target_date, interval_end)
+        for slot_start in iter_slot_starts(
+            dt_start,
+            dt_end,
+            step_min=slot_step_min,
+            duration_min=effective_duration_min,
+        ):
+            slot_time = slot_start.time()
+            if slot_time in seen:
+                continue
+            seen.add(slot_time)
+            result.append(slot_time)
+
+    return result

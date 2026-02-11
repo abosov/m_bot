@@ -18,19 +18,16 @@ async def personal_start(
     public_name: str | None,
 ) -> None:
     if actor == "specialist":
-        if command.args == "owner_panel":
-            await send_owner_panel(message=message, specialist_id=specialist_id, public_name=public_name)
-            return
+        if command.args and command.args != "owner_panel":
+            await message.answer("ℹ️ Неизвестный старт-параметр. Открываю панель специалиста.")
 
-        display_name = public_name or "специалист"
-        text = (
-            f"👋 Панель специалиста, {display_name}.\n\n"
+        await send_owner_panel(message=message, specialist_id=specialist_id, public_name=public_name)
+        await message.answer(
             "Доступно сейчас:\n"
             "• /status — состояние интеграций\n"
             "• /help — список команд\n\n"
             f"Поддержка: {_SUPPORT_URL}"
         )
-        await message.answer(text)
         return
 
     await message.answer("👋 Запись скоро будет доступна. Пока это клиентская заглушка MVP.")

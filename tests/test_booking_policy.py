@@ -28,6 +28,17 @@ def test_validate_next_day_cutoff_rejects_after_cutoff() -> None:
         )
 
 
+def test_validate_next_day_cutoff_allows_exactly_at_2100() -> None:
+    now_utc = datetime(2026, 2, 11, 18, 0, tzinfo=timezone.utc)  # 21:00 Europe/Moscow
+    target_start_utc = datetime(2026, 2, 12, 9, 0, tzinfo=timezone.utc)
+
+    validate_next_day_cutoff(
+        specialist_tz="Europe/Moscow",
+        now_utc=now_utc,
+        target_start_utc=target_start_utc,
+    )
+
+
 def test_validate_next_day_cutoff_rejects_not_next_day() -> None:
     now_utc = datetime(2026, 2, 11, 10, 0, tzinfo=timezone.utc)
     target_start_utc = datetime(2026, 2, 13, 9, 0, tzinfo=timezone.utc)

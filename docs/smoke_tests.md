@@ -71,24 +71,25 @@ curl -i -sS "$BASE_URL/readyz"
 1. Отправить `/start` в master bot.
 2. Пройти создание специалиста.
 3. Указать публичное имя.
-4. Указать timezone.
-5. Создать personal bot и дождаться настройки webhook.
-6. Подключить Google OAuth.
-7. Выбрать календарь.
-8. Запустить smoke-тест календаря (если реализован в текущей версии).
+4. Создать personal bot и дождаться настройки webhook.
+5. Подключить Google OAuth.
+6. Выбрать или создать календарь.
+7. Запустить smoke-тест календаря.
+8. Получить deep-link `?start=owner_panel` в personal bot.
 
-Ожидание: шаги проходят без ошибок, бот даёт понятные статусы, webhook активен.
+Ожидание: после успешного smoke-теста `specialist.status=active`, выдан deep-link в personal bot.
 
 ## 3.3 Personal bot (роль: specialist)
 
 Под `SpecialistOwner` в personal bot:
 
-1. `/start` — показывается панель специалиста.
-2. `/status` — видно:
+1. Открыть deep-link `?start=owner_panel` (или `/start` owner).
+2. Пройти wizard базовых настроек и сохранить дефолты.
+3. `/status` — видно:
    - статус подключения Google,
    - поля календаря,
    - информацию о последнем smoke-тесте (если есть).
-3. `/help` — приходит справка.
+4. `/help` — приходит справка.
 
 ## 3.4 Personal bot (роль: client)
 
@@ -98,6 +99,8 @@ curl -i -sS "$BASE_URL/readyz"
 2. `/help` — приходит stub/справка.
 
 Ожидание: ошибок нет, бот не «молчит» и не падает.
+
+Доп. проверка booking policy: попробуйте `/book_stub` на дату не "завтра" или после cutoff 21:00 по TZ специалиста — должен прийти понятный отказ.
 
 ## 3.5 Admin
 
