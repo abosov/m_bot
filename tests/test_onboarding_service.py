@@ -121,3 +121,23 @@ async def test_finalize_specialist_if_ready_is_idempotent_for_active(monkeypatch
 
 async def _ready_true():
     return True
+
+
+@pytest.mark.asyncio
+async def test_finalize_specialist_if_ready_does_not_activate_without_smoke_ok(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class Session:
+        async def get(self, model, sid):
+            raise AssertionError("session.get should not be called when specialist is not ready")
+
+    monkeypatch.setattr(onboarding, "is_specialist_ready", lambda _sid: _ready_false())
+    monkeypatch.setattr(onboarding, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    changed = await onboarding.finalize_specialist_if_ready(specialist_id)
+
+    assert changed is False
+
+
+async def _ready_false():
+    return False

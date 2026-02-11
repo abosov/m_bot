@@ -150,6 +150,8 @@ IDX:
 - `interval_1_end` time NULL
 - `interval_2_start` time NULL
 - `interval_2_end` time NULL
+- `interval_3_start` time NULL
+- `interval_3_end` time NULL
 - `updated_at` timestamp NOT NULL
 
 

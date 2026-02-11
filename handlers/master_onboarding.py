@@ -499,7 +499,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
             has_calendar = specialist.calendar_settings is not None and bool(specialist.calendar_settings.calendar_id)
             smoke_ok = has_calendar and specialist.calendar_settings.last_smoke_test_status == "ok"
 
-            if has_profile and has_bot and has_oauth and has_calendar and specialist.status == SpecialistStatus.onboarding:
+            if has_profile and has_bot and has_oauth and smoke_ok and specialist.status == SpecialistStatus.onboarding:
                 await finalize_specialist_if_ready(specialist.specialist_id)
                 specialist.status = SpecialistStatus.active
 

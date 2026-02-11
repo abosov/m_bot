@@ -209,6 +209,8 @@ class WeeklyAvailability(Base):
     interval_1_end: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     interval_2_start: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     interval_2_end: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
+    interval_3_start: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
+    interval_3_end: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
