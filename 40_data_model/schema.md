@@ -58,6 +58,8 @@ UQ:
 - `session_duration_min` int NOT NULL DEFAULT 60
 - `session_buffer_min` int NOT NULL DEFAULT 10
 - `cancel_window_hours` int NOT NULL DEFAULT 12
+- `max_sessions_per_day` int NOT NULL DEFAULT 4
+- `slot_step_min` int NOT NULL DEFAULT 15 (`{60,30,15,10}`)
 - `created_at` timestamp NOT NULL
 - `updated_at` timestamp NOT NULL
 
@@ -161,7 +163,7 @@ IDX:
 - `interval_X_end = NULL`
 
 В этом случае:
-- интервал не отображается клиенту,
+- интервал не отображается клиенту в UI,
 - не участвует в расчёте доступности,
 - не передаётся в `merge_intervals()`.
 

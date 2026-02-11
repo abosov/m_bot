@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from services.booking_policy import validate_next_day_cutoff
+from services.booking_policy import earliest_allowed_booking_date, validate_next_day_cutoff
 
 
 @pytest.mark.parametrize(
@@ -47,7 +47,7 @@ def test_validate_next_day_cutoff_next_day_policy(
     )
 
 
-def test_validate_next_day_cutoff_rejects_not_next_day() -> None:
+def test_validate_next_day_cutoff_rejects_not_earliest_allowed_day() -> None:
     now_utc = datetime(2026, 2, 11, 10, 0, tzinfo=timezone.utc)
     target_start_utc = datetime(2026, 2, 13, 9, 0, tzinfo=timezone.utc)
 
@@ -57,3 +57,28 @@ def test_validate_next_day_cutoff_rejects_not_next_day() -> None:
             now_utc=now_utc,
             target_start_utc=target_start_utc,
         )
+
+
+def test_validate_next_day_cutoff_allows_day_after_tomorrow_after_cutoff() -> None:
+    now_utc = datetime(2026, 2, 11, 19, 1, tzinfo=timezone.utc)  # 22:01 Europe/Moscow
+    target_start_utc = datetime(2026, 2, 13, 9, 0, tzinfo=timezone.utc)
+
+    validate_next_day_cutoff(
+        specialist_tz="Europe/Moscow",
+        now_utc=now_utc,
+        target_start_utc=target_start_utc,
+    )
+
+
+def test_earliest_allowed_booking_date_respects_cutoff() -> None:
+    before_cutoff = earliest_allowed_booking_date(
+        specialist_tz="Europe/Moscow",
+        now_utc=datetime(2026, 2, 11, 17, 0, tzinfo=timezone.utc),  # 20:00 local
+    )
+    after_cutoff = earliest_allowed_booking_date(
+        specialist_tz="Europe/Moscow",
+        now_utc=datetime(2026, 2, 11, 19, 1, tzinfo=timezone.utc),  # 22:01 local
+    )
+
+    assert str(before_cutoff) == "2026-02-12"
+    assert str(after_cutoff) == "2026-02-13"

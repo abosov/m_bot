@@ -16,7 +16,7 @@ class DummyMessage:
 async def test_personal_start_owner_panel_payload_routes_to_owner_flow(monkeypatch):
     called = {"value": False}
 
-    async def fake_send_owner_panel(message, specialist_id, public_name):
+    async def fake_send_owner_panel(message, specialist_id, public_name, owner_tg_user_id=None):
         called["value"] = True
         assert specialist_id == "sp-id"
         assert public_name == "Dr. House"
@@ -30,6 +30,7 @@ async def test_personal_start_owner_panel_payload_routes_to_owner_flow(monkeypat
         actor="specialist",
         specialist_id="sp-id",
         public_name="Dr. House",
+        owner_tg_user_id=123,
     )
 
     assert called["value"] is True
@@ -41,7 +42,7 @@ async def test_personal_start_owner_panel_payload_routes_to_owner_flow(monkeypat
 async def test_personal_start_without_payload_shows_owner_panel(monkeypatch):
     called = {"value": False}
 
-    async def fake_send_owner_panel(message, specialist_id, public_name):
+    async def fake_send_owner_panel(message, specialist_id, public_name, owner_tg_user_id=None):
         called["value"] = True
         assert specialist_id == "sp-id"
         assert public_name == "Dr. House"
@@ -55,6 +56,7 @@ async def test_personal_start_without_payload_shows_owner_panel(monkeypatch):
         actor="specialist",
         specialist_id="sp-id",
         public_name="Dr. House",
+        owner_tg_user_id=123,
     )
 
     assert called["value"] is True

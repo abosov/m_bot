@@ -6,15 +6,26 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, C
 from sqlalchemy import select
 
 from database import SpecialistProfile, WeeklyAvailability, async_session_factory
+from services.specialist_defaults import (
+    ALLOWED_SLOT_STEPS_MIN,
+    DEFAULT_BUFFER_MIN,
+    DEFAULT_CANCEL_WINDOW_HOURS,
+    DEFAULT_DURATION_MIN,
+    DEFAULT_MAX_SESSIONS_PER_DAY,
+    DEFAULT_SLOT_STEP_MIN,
+    DEFAULT_TIMEZONE,
+    DEFAULT_WORKING_DAYS,
+    DEFAULT_WORKING_INTERVALS,
+)
 
 router = Router(name="personal_bot_specialist_owner_panel")
 
-_DEFAULT_DURATION_MIN = 60
-_DEFAULT_BUFFER_MIN = 10
-_DEFAULT_CANCEL_WINDOW_HOURS = 12
-_DEFAULT_MAX_SESSIONS_PER_DAY = 4
-_DEFAULT_SLOT_STEP_MIN = 15
-_ALLOWED_SLOT_STEPS_MIN = {60, 30, 15, 10}
+_DEFAULT_DURATION_MIN = DEFAULT_DURATION_MIN
+_DEFAULT_BUFFER_MIN = DEFAULT_BUFFER_MIN
+_DEFAULT_CANCEL_WINDOW_HOURS = DEFAULT_CANCEL_WINDOW_HOURS
+_DEFAULT_MAX_SESSIONS_PER_DAY = DEFAULT_MAX_SESSIONS_PER_DAY
+_DEFAULT_SLOT_STEP_MIN = DEFAULT_SLOT_STEP_MIN
+_ALLOWED_SLOT_STEPS_MIN = ALLOWED_SLOT_STEPS_MIN
 
 _WEEKDAY_LABELS = {
     0: "Пн",
@@ -26,11 +37,7 @@ _WEEKDAY_LABELS = {
     6: "Вс",
 }
 
-_DEFAULT_WORKING_HOURS = [
-    (time(9, 0), time(12, 0)),
-    (time(13, 0), time(17, 0)),
-    (time(17, 0), time(21, 0)),
-]
+_DEFAULT_WORKING_HOURS = DEFAULT_WORKING_INTERVALS
 
 
 class AvailabilityValidationError(ValueError):
@@ -49,7 +56,9 @@ def _owner_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📅 Изменить расписание", callback_data="owner_panel:change_schedule")],
-            [InlineKeyboardButton(text="⚙️ Изменить параметры слотов", callback_data="owner_panel:slot_params_menu")],
+            [InlineKeyboardButton(text="⏱️ Изменить длительность и буфер", callback_data="owner_panel:change_duration_buffer")],
+            [InlineKeyboardButton(text="⚙️ Изменить лимиты (max/day, шаг слота)", callback_data="owner_panel:slot_params_menu")],
+            [InlineKeyboardButton(text="🌍 Сменить TZ", callback_data="owner_panel:change_timezone")],
             [InlineKeyboardButton(text="👌 Оставить как есть", callback_data="owner_panel:keep")],
             [InlineKeyboardButton(text="♻️ Сбросить на дефолты", callback_data="owner_panel:apply_defaults")],
         ]
@@ -118,6 +127,29 @@ def _has_configured_weekly(rows: Sequence[WeeklyAvailability]) -> bool:
     return False
 
 
+def _iter_defined_intervals(row: WeeklyAvailability) -> list[tuple[time, time]]:
+    intervals: list[tuple[time, time]] = []
+    for start, end in (
+        (row.interval_1_start, row.interval_1_end),
+        (row.interval_2_start, row.interval_2_end),
+        (row.interval_3_start, row.interval_3_end),
+    ):
+        _validate_interval_pair(start=start, end=end)
+        if start is not None and end is not None:
+            intervals.append((start, end))
+    return intervals
+
+
+def _format_intervals_for_ui(row: WeeklyAvailability | None) -> str:
+    if row is None:
+        return "09:00–12:00, 13:00–17:00, 17:00–21:00"
+
+    intervals = _iter_defined_intervals(row)
+    if not intervals:
+        return "не заданы"
+    return ", ".join(f"{_format_time(start)}–{_format_time(end)}" for start, end in intervals)
+
+
 async def _ensure_profile_defaults(
     *,
     specialist_id,
@@ -136,7 +168,7 @@ async def _ensure_profile_defaults(
                 public_name=public_name or "Специалист",
                 owner_tg_user_id=owner_tg_user_id,
                 owner_tg_username=None,
-                specialist_timezone="UTC",
+                specialist_timezone=DEFAULT_TIMEZONE,
                 session_duration_min=_DEFAULT_DURATION_MIN,
                 session_buffer_min=_DEFAULT_BUFFER_MIN,
                 slot_step_min=_DEFAULT_SLOT_STEP_MIN,
@@ -146,6 +178,9 @@ async def _ensure_profile_defaults(
             session.add(profile)
             changed = True
         else:
+            if not (profile.specialist_timezone or "").strip():
+                profile.specialist_timezone = DEFAULT_TIMEZONE
+                changed = True
             if profile.session_duration_min <= 0:
                 profile.session_duration_min = _DEFAULT_DURATION_MIN
                 changed = True
@@ -258,26 +293,62 @@ async def _load_profile_and_rows(specialist_id):
     return profile, rows
 
 
-async def send_owner_panel(message: Message, specialist_id, public_name: str | None) -> None:
-    profile, rows = await _load_profile_and_rows(specialist_id)
+async def _ensure_owner_panel_defaults(
+    *,
+    specialist_id,
+    owner_tg_user_id: int | None,
+    public_name: str | None,
+) -> bool:
+    profile_ready = await _ensure_profile_defaults(
+        specialist_id=specialist_id,
+        owner_tg_user_id=owner_tg_user_id,
+        public_name=public_name,
+    )
+    if not profile_ready:
+        return False
 
+    _, rows = await _load_profile_and_rows(specialist_id)
+    weekly_ready = _has_configured_weekly(rows)
+    if not weekly_ready:
+        await _apply_weekly_defaults(
+            specialist_id=specialist_id,
+            working_days=set(DEFAULT_WORKING_DAYS),
+            interval_1=_DEFAULT_WORKING_HOURS[0],
+            interval_2=_DEFAULT_WORKING_HOURS[1],
+            interval_3=_DEFAULT_WORKING_HOURS[2],
+        )
+
+    return not weekly_ready
+
+
+async def send_owner_panel(
+    message: Message,
+    specialist_id,
+    public_name: str | None,
+    owner_tg_user_id: int | None = None,
+) -> None:
+    defaults_applied = await _ensure_owner_panel_defaults(
+        specialist_id=specialist_id,
+        owner_tg_user_id=owner_tg_user_id,
+        public_name=public_name,
+    )
+
+    if defaults_applied:
+        await message.answer(
+            "✅ Применены базовые настройки (их можно изменить): TZ, расписание (Пн–Пт, утро/день/вечер), "
+            "длительность, буфер, лимиты."
+        )
+
+    profile, rows = await _load_profile_and_rows(specialist_id)
 
     display_name = public_name or (profile.public_name if profile else "специалист")
     sample_day = next((row for row in rows if row.is_working), None)
-
-    if sample_day:
-        intervals_text = (
-            f"{_format_time(sample_day.interval_1_start)}–{_format_time(sample_day.interval_1_end)}, "
-            f"{_format_time(sample_day.interval_2_start)}–{_format_time(sample_day.interval_2_end)}, "
-            f"{_format_time(sample_day.interval_3_start)}–{_format_time(sample_day.interval_3_end)}"
-        )
-    else:
-        intervals_text = "09:00–12:00, 13:00–17:00, 17:00–21:00"
+    intervals_text = _format_intervals_for_ui(sample_day)
 
     text = (
         f"✅ Базовые настройки уже применены автоматически после онбординга, {display_name}.\n"
         "Хотите изменить их сейчас?\n\n"
-        f"• Таймзона: {(profile.specialist_timezone if profile else 'UTC')}\n"
+        f"• Таймзона: {(profile.specialist_timezone if profile else DEFAULT_TIMEZONE)}\n"
         f"• Рабочие дни: {_working_days(rows)}\n"
         f"• Интервалы (утро/день/вечер): {intervals_text}\n"
         f"• Длительность сессии: {(profile.session_duration_min if profile else _DEFAULT_DURATION_MIN)} мин\n"
@@ -344,7 +415,7 @@ async def owner_wizard_start(callback: CallbackQuery) -> None:
 async def owner_wizard_days_keep(callback: CallbackQuery, specialist_id) -> None:
     await _apply_weekly_defaults(
         specialist_id=specialist_id,
-        working_days={0, 1, 2, 3, 4},
+        working_days=set(DEFAULT_WORKING_DAYS),
         interval_1=_DEFAULT_WORKING_HOURS[0],
         interval_2=_DEFAULT_WORKING_HOURS[1],
         interval_3=_DEFAULT_WORKING_HOURS[2],
@@ -541,7 +612,7 @@ async def owner_wizard_limits_keep(
     )
     await callback.answer("Готово")
     await callback.message.answer("✅ Мастер завершён. Базовые настройки сохранены.")
-    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name)
+    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
 
 
 @router.callback_query(F.data == "owner_wizard:limits:change")
@@ -579,7 +650,7 @@ async def owner_wizard_limits_set(
     )
     await callback.answer("Готово")
     await callback.message.answer("✅ Мастер завершён. Базовые настройки сохранены.")
-    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name)
+    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
 
 
 @router.callback_query(F.data == "owner_panel:apply_defaults")
@@ -600,7 +671,7 @@ async def owner_panel_apply_defaults(
     )
     await _apply_weekly_defaults(
         specialist_id=specialist_id,
-        working_days={0, 1, 2, 3, 4},
+        working_days=set(DEFAULT_WORKING_DAYS),
         interval_1=_DEFAULT_WORKING_HOURS[0],
         interval_2=_DEFAULT_WORKING_HOURS[1],
         interval_3=_DEFAULT_WORKING_HOURS[2],
@@ -608,14 +679,16 @@ async def owner_panel_apply_defaults(
 
     await callback.answer("Готово")
     await callback.message.answer(
-        "✅ Готово. Применены базовые настройки:\n"
-        "• Пн–Пт рабочие, Сб–Вс выходные\n"
-        "• Интервалы: 09:00–12:00, 13:00–17:00, 17:00–21:00\n"
-        "• Длительность: 60 мин, буфер: 10 мин\n"
-        "• Шаг начала слотов: 15 мин\n"
-        "• Максимум сессий в день: 4\n"
-        "Правило записи: запись и изменение доступны только на следующий день и только до 21:00 предыдущего дня по времени специалиста."
+        "✅ Применены базовые настройки (их можно изменить): TZ, расписание (Пн–Пт, утро/день/вечер), "
+        "длительность, буфер, лимиты."
     )
+    await send_owner_panel(
+        callback.message,
+        specialist_id=specialist_id,
+        public_name=public_name,
+        owner_tg_user_id=owner_tg_user_id,
+    )
+
 
 
 @router.callback_query(F.data == "owner_panel:slot_step_menu")
@@ -676,8 +749,25 @@ async def owner_panel_set_slot_step(
 
     await callback.answer()
     await callback.message.answer(f"Шаг начала слотов обновлён: {step_min} мин")
-    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name)
+    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
 
+
+
+
+@router.callback_query(F.data == "owner_panel:change_duration_buffer")
+async def owner_panel_change_duration_buffer(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.answer(
+        "⏱️ Изменение длительности и буфера в разработке. Пока можно использовать мастер настроек."
+    )
+
+
+@router.callback_query(F.data == "owner_panel:change_timezone")
+async def owner_panel_change_timezone(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.answer(
+        "🌍 Смена TZ в разработке. Пока используется TZ из профиля специалиста."
+    )
 
 @router.callback_query(F.data == "owner_panel:change_schedule")
 async def owner_panel_change_schedule(callback: CallbackQuery) -> None:
@@ -719,4 +809,4 @@ async def owner_panel_set_max_sessions(
 
     await callback.answer()
     await callback.message.answer(f"Лимит сессий в день обновлён: {max_sessions}")
-    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name)
+    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)

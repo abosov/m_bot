@@ -214,6 +214,20 @@ class SpecialistCalendarSettings(Base):
 
 class WeeklyAvailability(Base):
     __tablename__ = "weekly_availability"
+    __table_args__ = (
+        CheckConstraint(
+            "((interval_1_start IS NULL AND interval_1_end IS NULL) OR (interval_1_start IS NOT NULL AND interval_1_end IS NOT NULL AND interval_1_start < interval_1_end))",
+            name="ck_weekly_availability_interval_1_pair",
+        ),
+        CheckConstraint(
+            "((interval_2_start IS NULL AND interval_2_end IS NULL) OR (interval_2_start IS NOT NULL AND interval_2_end IS NOT NULL AND interval_2_start < interval_2_end))",
+            name="ck_weekly_availability_interval_2_pair",
+        ),
+        CheckConstraint(
+            "((interval_3_start IS NULL AND interval_3_end IS NULL) OR (interval_3_start IS NOT NULL AND interval_3_end IS NOT NULL AND interval_3_start < interval_3_end))",
+            name="ck_weekly_availability_interval_3_pair",
+        ),
+    )
 
     weekly_availability_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=False, index=True)

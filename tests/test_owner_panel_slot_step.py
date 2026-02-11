@@ -33,6 +33,8 @@ def test_validate_interval_pair_allows_both_null() -> None:
 def test_validate_interval_pair_rejects_half_filled_pair() -> None:
     with pytest.raises(owner_panel.AvailabilityValidationError):
         owner_panel._validate_interval_pair(start=time(9, 0), end=None)
+    with pytest.raises(owner_panel.AvailabilityValidationError):
+        owner_panel._validate_interval_pair(start=None, end=time(12, 0))
 
 
 def test_validate_interval_pair_rejects_non_positive_interval() -> None:
@@ -67,8 +69,12 @@ async def test_apply_defaults_uses_expected_profile_defaults(monkeypatch) -> Non
     async def fake_apply_weekly_defaults(**kwargs):
         captured["weekly"] = kwargs
 
+    async def fake_send_owner_panel(*args, **kwargs):
+        captured["owner_panel"] = {"args": args, "kwargs": kwargs}
+
     monkeypatch.setattr(owner_panel, "_update_profile_settings", fake_update_profile_settings)
     monkeypatch.setattr(owner_panel, "_apply_weekly_defaults", fake_apply_weekly_defaults)
+    monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
 
     callback = DummyCallback()
 
@@ -87,3 +93,20 @@ async def test_apply_defaults_uses_expected_profile_defaults(monkeypatch) -> Non
     assert captured["weekly"]["interval_1"] == (time(9, 0), time(12, 0))
     assert captured["weekly"]["interval_2"] == (time(13, 0), time(17, 0))
     assert captured["weekly"]["interval_3"] == (time(17, 0), time(21, 0))
+
+
+def test_format_intervals_for_ui_hides_null_intervals() -> None:
+    row = type(
+        "Row",
+        (),
+        {
+            "interval_1_start": time(9, 0),
+            "interval_1_end": time(12, 0),
+            "interval_2_start": None,
+            "interval_2_end": None,
+            "interval_3_start": time(17, 0),
+            "interval_3_end": time(21, 0),
+        },
+    )()
+
+    assert owner_panel._format_intervals_for_ui(row) == "09:00–12:00, 17:00–21:00"

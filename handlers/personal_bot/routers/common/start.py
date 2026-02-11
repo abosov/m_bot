@@ -16,12 +16,18 @@ async def personal_start(
     actor: str,
     specialist_id,
     public_name: str | None,
+    owner_tg_user_id: int | None,
 ) -> None:
     if actor == "specialist":
         if command.args and command.args != "owner_panel":
             await message.answer("ℹ️ Неизвестный старт-параметр. Открываю панель специалиста.")
 
-        await send_owner_panel(message=message, specialist_id=specialist_id, public_name=public_name)
+        await send_owner_panel(
+            message=message,
+            specialist_id=specialist_id,
+            public_name=public_name,
+            owner_tg_user_id=owner_tg_user_id,
+        )
         await message.answer(
             "Доступно сейчас:\n"
             "• /status — состояние интеграций\n"
