@@ -89,7 +89,11 @@
 Weekly availability задана в координатах timezone specialist.
 Поэтому базовая генерация candidate slots выполняется в timezone specialist,
 после чего применяется фильтрация по:
-- cutoff-правило next day + 21:00 (TZ specialist),
+- cutoff-правилу next day + 21:00 (TZ specialist),
+- шагу `slot_step_min ∈ {60,30,15,10}` (дефолт 15),
+- длительности сессии (дефолт 60) и буферу (дефолт 10, только правило расчёта слотов, не отдельное Google-событие),
+- склейке стыкующихся интервалов availability в единый диапазон,
+- лимиту `max_sessions_per_day` (дефолт 4),
 - границам периода (UTC),
 - занятости Google Calendar (UTC).
 

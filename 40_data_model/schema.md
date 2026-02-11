@@ -56,7 +56,7 @@ UQ:
 - `specialist_timezone` text NOT NULL
   (IANA timezone; источник истины = Google calendar timezone)
 - `session_duration_min` int NOT NULL DEFAULT 60
-- `session_buffer_min` int NOT NULL DEFAULT 0
+- `session_buffer_min` int NOT NULL DEFAULT 10
 - `cancel_window_hours` int NOT NULL DEFAULT 12
 - `created_at` timestamp NOT NULL
 - `updated_at` timestamp NOT NULL
@@ -339,11 +339,12 @@ IDX:
 ---
 
 ## 15) Минимальные бизнес-ограничения (MVP)
-- бронирование/изменение: только на следующий календарный день до 21:00 предыдущего дня (TZ specialist)
+- бронирование/изменение: только на следующий календарный день до 21:00 предыдущего дня (TZ specialist); если текущее время в TZ specialist > 21:00, следующий день недоступен, запись начинается с послезавтра
 - `slot_step_min` на specialist_profile: {60,30,15,10}, дефолт 15
 - `max_sessions_per_day` на specialist_profile: дефолт 4
 - `session_duration_min` на уровне specialist_profile (15–480, пресеты 30/45/60/75/90)
-- `session_buffer_min` на уровне specialist_profile (0–120)
+- `session_buffer_min` на уровне specialist_profile (0–120), дефолт 10; буфер — только правило расчёта слотов, не отдельное событие Google Calendar
+- стыкующиеся интервалы availability склеиваются в единый диапазон при проверке доступности (например, 13:00–17:00 + 17:00–21:00 => 13:00–21:00)
 - `cancel_window_hours` по умолчанию 12
 
 ---
