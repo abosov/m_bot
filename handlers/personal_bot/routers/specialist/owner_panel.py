@@ -24,9 +24,9 @@ _WEEKDAY_LABELS = {
 }
 
 _DEFAULT_WORKING_HOURS = [
-    (time(10, 0), time(13, 0)),
-    (time(14, 0), time(17, 0)),
-    (time(18, 0), time(20, 0)),
+    (time(9, 0), time(12, 0)),
+    (time(13, 0), time(17, 0)),
+    (time(17, 0), time(21, 0)),
 ]
 
 
@@ -70,7 +70,7 @@ async def send_owner_panel(message: Message, specialist_id, public_name: str | N
             f"{_format_time(sample_day.interval_3_start)}–{_format_time(sample_day.interval_3_end)}"
         )
     else:
-        intervals_text = "10:00–13:00, 14:00–17:00, 18:00–20:00"
+        intervals_text = "09:00–12:00, 13:00–17:00, 17:00–21:00"
 
     text = (
         f"⚙️ Базовые настройки, {display_name}.\n\n"
@@ -145,7 +145,7 @@ async def owner_panel_apply_defaults(
     await callback.message.answer(
         "✅ Готово. Применены базовые настройки:\n"
         "• Пн–Пт рабочие, Сб–Вс выходные\n"
-        "• Интервалы: 10:00–13:00, 14:00–17:00, 18:00–20:00\n"
+        "• Интервалы: 09:00–12:00, 13:00–17:00, 17:00–21:00\n"
         "• Длительность: 60 мин, буфер: 10 мин\n\n"
         "Теперь можно проверять /status и переходить к расширенным настройкам (в разработке)."
     )
