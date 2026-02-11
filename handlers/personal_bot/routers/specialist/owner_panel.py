@@ -13,6 +13,8 @@ _DEFAULT_DURATION_MIN = 60
 _DEFAULT_BUFFER_MIN = 10
 _DEFAULT_CANCEL_WINDOW_HOURS = 12
 _DEFAULT_MAX_SESSIONS_PER_DAY = 4
+_DEFAULT_SLOT_STEP_MIN = 15
+_ALLOWED_SLOT_STEPS_MIN = {60, 30, 15, 10}
 
 _WEEKDAY_LABELS = {
     0: "Пн",
@@ -35,8 +37,24 @@ def _owner_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ Применить настройки по умолчанию", callback_data="owner_panel:apply_defaults")],
+            [InlineKeyboardButton(text="Шаг слотов", callback_data="owner_panel:slot_step_menu")],
             [InlineKeyboardButton(text="🛠 Настроить вручную", callback_data="owner_panel:manual")],
             [InlineKeyboardButton(text="⏭ Пропустить", callback_data="owner_panel:skip")],
+        ]
+    )
+
+
+def _slot_step_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="60", callback_data="owner:slot_step:60"),
+                InlineKeyboardButton(text="30", callback_data="owner:slot_step:30"),
+            ],
+            [
+                InlineKeyboardButton(text="15", callback_data="owner:slot_step:15"),
+                InlineKeyboardButton(text="10", callback_data="owner:slot_step:10"),
+            ],
         ]
     )
 
@@ -79,6 +97,7 @@ async def send_owner_panel(message: Message, specialist_id, public_name: str | N
         f"• Интервалы (утро/день/вечер): {intervals_text}\n"
         f"• Длительность сессии: {(profile.session_duration_min if profile else _DEFAULT_DURATION_MIN)} мин\n"
         f"• Буфер между сессиями: {(profile.session_buffer_min if profile else _DEFAULT_BUFFER_MIN)} мин\n"
+        f"• Шаг начала слотов: {(profile.slot_step_min if profile else _DEFAULT_SLOT_STEP_MIN)} мин\n"
         f"• Окно отмены: {(profile.cancel_window_hours if profile else _DEFAULT_CANCEL_WINDOW_HOURS)} ч\n"
         f"• Максимум сессий в день: {(profile.max_sessions_per_day if profile else _DEFAULT_MAX_SESSIONS_PER_DAY)}\n\n"
         "Правило записи: бронирование и изменение доступны только на следующий день и только до 21:00 предыдущего дня по вашему времени.\n\n"
@@ -105,6 +124,7 @@ async def owner_panel_apply_defaults(
                 specialist_timezone="UTC",
                 session_duration_min=_DEFAULT_DURATION_MIN,
                 session_buffer_min=_DEFAULT_BUFFER_MIN,
+                slot_step_min=_DEFAULT_SLOT_STEP_MIN,
                 cancel_window_hours=_DEFAULT_CANCEL_WINDOW_HOURS,
                 max_sessions_per_day=_DEFAULT_MAX_SESSIONS_PER_DAY,
             )
@@ -117,6 +137,8 @@ async def owner_panel_apply_defaults(
                 profile.cancel_window_hours = _DEFAULT_CANCEL_WINDOW_HOURS
             if profile.max_sessions_per_day <= 0:
                 profile.max_sessions_per_day = _DEFAULT_MAX_SESSIONS_PER_DAY
+            if profile.slot_step_min not in _ALLOWED_SLOT_STEPS_MIN:
+                profile.slot_step_min = _DEFAULT_SLOT_STEP_MIN
 
         existing = (
             await session.execute(
@@ -153,10 +175,65 @@ async def owner_panel_apply_defaults(
         "• Пн–Пт рабочие, Сб–Вс выходные\n"
         "• Интервалы: 09:00–12:00, 13:00–17:00, 17:00–21:00\n"
         "• Длительность: 60 мин, буфер: 10 мин\n"
+        "• Шаг начала слотов: 15 мин\n"
         "• Максимум сессий в день: 4\n"
         "Правило записи: бронирование и изменение доступны только на следующий день и только до 21:00 предыдущего дня по вашему времени.\n\n"
         "Теперь можно проверять /status и переходить к расширенным настройкам (в разработке)."
     )
+
+
+@router.callback_query(F.data == "owner_panel:slot_step_menu")
+async def owner_panel_slot_step_menu(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.answer(
+        "Выберите шаг начала слотов (в минутах):",
+        reply_markup=_slot_step_keyboard(),
+    )
+
+
+@router.callback_query(F.data.startswith("owner:slot_step:"))
+async def owner_panel_set_slot_step(
+    callback: CallbackQuery,
+    specialist_id,
+    owner_tg_user_id: int | None,
+    public_name: str | None,
+) -> None:
+    try:
+        step_min = int((callback.data or "").split(":")[-1])
+    except ValueError:
+        await callback.answer("Некорректный шаг", show_alert=True)
+        return
+
+    if step_min not in _ALLOWED_SLOT_STEPS_MIN:
+        await callback.answer("Некорректный шаг", show_alert=True)
+        return
+
+    async with async_session_factory() as session:
+        profile = await session.get(SpecialistProfile, specialist_id)
+        if profile is None:
+            if owner_tg_user_id is None:
+                await callback.answer("Профиль не найден", show_alert=True)
+                return
+            profile = SpecialistProfile(
+                specialist_id=specialist_id,
+                public_name=public_name or "Специалист",
+                owner_tg_user_id=owner_tg_user_id,
+                owner_tg_username=None,
+                specialist_timezone="UTC",
+                session_duration_min=_DEFAULT_DURATION_MIN,
+                session_buffer_min=_DEFAULT_BUFFER_MIN,
+                max_sessions_per_day=_DEFAULT_MAX_SESSIONS_PER_DAY,
+                slot_step_min=_DEFAULT_SLOT_STEP_MIN,
+                cancel_window_hours=_DEFAULT_CANCEL_WINDOW_HOURS,
+            )
+            session.add(profile)
+
+        profile.slot_step_min = step_min
+        await session.commit()
+
+    await callback.answer()
+    await callback.message.answer(f"Шаг начала слотов обновлён: {step_min} мин")
+    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name)
 
 
 @router.callback_query(F.data == "owner_panel:manual")

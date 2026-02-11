@@ -8,6 +8,7 @@ from sqlalchemy import (
     BigInteger, Boolean, String, ForeignKey, DateTime, Time, 
     Integer, Text, Enum as SAEnum, func, Float, CheckConstraint
 )
+from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, validates
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
@@ -124,6 +125,10 @@ class SpecialistProfile(Base):
             "max_sessions_per_day >= 1 AND max_sessions_per_day <= 20",
             name="ck_specialist_profile_max_sessions_per_day",
         ),
+        CheckConstraint(
+            "slot_step_min IN (60, 30, 15, 10)",
+            name="ck_specialist_profile_slot_step_min",
+        ),
     )
 
     specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), primary_key=True)
@@ -134,6 +139,7 @@ class SpecialistProfile(Base):
     session_duration_min: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     session_buffer_min: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_sessions_per_day: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
+    slot_step_min: int = Column(Integer, nullable=False, server_default="15", default=15)
     cancel_window_hours: Mapped[int] = mapped_column(Integer, default=12, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
