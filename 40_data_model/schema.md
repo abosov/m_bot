@@ -154,6 +154,23 @@ IDX:
 - `interval_3_end` time NULL
 - `updated_at` timestamp NOT NULL
 
+### Отключённый интервал
+
+Интервал считается отключённым, если:
+- `interval_X_start = NULL`
+- `interval_X_end = NULL`
+
+В этом случае:
+- интервал не отображается клиенту,
+- не участвует в расчёте доступности,
+- не передаётся в `merge_intervals()`.
+
+Запрещённое состояние:
+- `start != NULL` и `end == NULL`
+- `start == NULL` и `end != NULL`
+
+Если оба значения заданы:
+- должно выполняться `start < end`.
 
 UQ:
 - `UQ_weekly_availability_day` (`specialist_id`, `weekday`)

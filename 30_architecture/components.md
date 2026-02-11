@@ -219,6 +219,16 @@ Heartbeat throttling (контракт):
   - лимит `max_sessions_per_day` (дефолт 4)
 - фильтрация кандидатов по занятости из Google
 
+Pipeline AvailabilityService:
+1. Load intervals for weekday.
+2. Filter out NULL/NULL.
+3. Validate pairs (оба NULL или оба заданы; состояния NULL/value и value/NULL запрещены).
+4. Merge styk-v-styk intervals.
+5. Generate slot starts.
+6. Apply buffer.
+7. Apply max_sessions_per_day.
+8. Apply next-day + cutoff 21:00.
+
 Вход:
 - `specialist_id`
 - `period_start_utc`, `period_end_utc`

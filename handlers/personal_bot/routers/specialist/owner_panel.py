@@ -33,6 +33,17 @@ _DEFAULT_WORKING_HOURS = [
 ]
 
 
+class AvailabilityValidationError(ValueError):
+    """Ошибка валидации интервала weekly availability."""
+
+
+def _validate_interval_pair(*, start: time | None, end: time | None) -> None:
+    if (start is None) ^ (end is None):
+        raise AvailabilityValidationError("Interval start/end must be both NULL or both set.")
+    if start is not None and end is not None and start >= end:
+        raise AvailabilityValidationError("Interval start must be earlier than end.")
+
+
 
 def _owner_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -152,6 +163,10 @@ async def _apply_weekly_defaults(
     interval_2: tuple[time, time] | None,
     interval_3: tuple[time, time] | None,
 ) -> None:
+    _validate_interval_pair(start=interval_1[0] if interval_1 else None, end=interval_1[1] if interval_1 else None)
+    _validate_interval_pair(start=interval_2[0] if interval_2 else None, end=interval_2[1] if interval_2 else None)
+    _validate_interval_pair(start=interval_3[0] if interval_3 else None, end=interval_3[1] if interval_3 else None)
+
     async with async_session_factory() as session:
         existing = (
             await session.execute(
