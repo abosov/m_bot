@@ -213,7 +213,7 @@ Heartbeat throttling (контракт):
   - период недели в TZ клиента (границы периода)
   - длительность сессии
   - минимальный буфер между сессиями
-  - шаг 30 минут
+  - шаг `slot_step_min ∈ {60,30,15,10}` (дефолт 15)
 - фильтрация кандидатов по занятости из Google
 
 Вход:
@@ -221,7 +221,7 @@ Heartbeat throttling (контракт):
 - `period_start_utc`, `period_end_utc`
 - `session_duration_min`
 - `session_buffer_min`
-- `slot_step_min=30`
+- `slot_step_min` на specialist_profile: {60,30,15,10}, дефолт 15
 
 Выход:
 - список `slots` (start/end в UTC + представление для TZ client)

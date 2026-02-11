@@ -92,7 +92,7 @@
    - session_duration
    - session_buffer_min
 5. генерирует candidate slots:
-   - шаг 30 минут
+   - шаг `slot_step_min ∈ {60,30,15,10}` (дефолт 15)
    - в интервалах weekly availability (TZ specialist)
    - учитывает lead_time
    - следующий доступный старт = `end_of_previous_session + session_buffer_min`

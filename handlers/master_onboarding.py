@@ -488,7 +488,10 @@ async def cmd_start(message: types.Message, state: FSMContext):
             specialist = spec_result.scalar_one()
 
             # Анализируем данные (Attribute Safety Check)
-            has_profile = specialist.profile is not None
+            has_profile = (
+                specialist.profile is not None
+                and bool((specialist.profile.public_name or "").strip())
+            )
             
             # Проверяем список telegram_bots (не .bot, не .telegram_bot!)
             # Ищем предсказуемо: активный бот с самым свежим updated_at/created_at
@@ -501,7 +504,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
             if has_profile and has_bot and has_oauth and smoke_ok and specialist.status == SpecialistStatus.onboarding:
                 await finalize_specialist_if_ready(specialist.specialist_id)
-                specialist.status = SpecialistStatus.active
 
             specialist_name = specialist.profile.public_name if has_profile else "Не задано"
             

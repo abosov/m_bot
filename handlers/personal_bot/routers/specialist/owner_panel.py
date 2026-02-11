@@ -100,7 +100,7 @@ async def send_owner_panel(message: Message, specialist_id, public_name: str | N
         f"• Шаг начала слотов: {(profile.slot_step_min if profile else _DEFAULT_SLOT_STEP_MIN)} мин\n"
         f"• Окно отмены: {(profile.cancel_window_hours if profile else _DEFAULT_CANCEL_WINDOW_HOURS)} ч\n"
         f"• Максимум сессий в день: {(profile.max_sessions_per_day if profile else _DEFAULT_MAX_SESSIONS_PER_DAY)}\n\n"
-        "Правило записи: бронирование и изменение доступны только на следующий день и только до 21:00 предыдущего дня по вашему времени.\n\n"
+        "Правило записи: Запись и изменение доступны только на следующий день и только до 21:00 предыдущего дня по времени специалиста.\n\n"
         "Можно быстро применить рекомендуемые дефолты."
     )
     await message.answer(text, reply_markup=_owner_panel_keyboard())
@@ -130,8 +130,9 @@ async def owner_panel_apply_defaults(
             )
             session.add(profile)
         elif profile:
-            profile.session_duration_min = _DEFAULT_DURATION_MIN
-            if profile.session_buffer_min == 0:
+            if profile.session_duration_min <= 0:
+                profile.session_duration_min = _DEFAULT_DURATION_MIN
+            if profile.session_buffer_min <= 0:
                 profile.session_buffer_min = _DEFAULT_BUFFER_MIN
             if profile.cancel_window_hours <= 0:
                 profile.cancel_window_hours = _DEFAULT_CANCEL_WINDOW_HOURS
@@ -177,7 +178,7 @@ async def owner_panel_apply_defaults(
         "• Длительность: 60 мин, буфер: 10 мин\n"
         "• Шаг начала слотов: 15 мин\n"
         "• Максимум сессий в день: 4\n"
-        "Правило записи: бронирование и изменение доступны только на следующий день и только до 21:00 предыдущего дня по вашему времени.\n\n"
+        "Правило записи: Запись и изменение доступны только на следующий день и только до 21:00 предыдущего дня по времени специалиста.\n\n"
         "Теперь можно проверять /status и переходить к расширенным настройкам (в разработке)."
     )
 

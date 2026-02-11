@@ -21,7 +21,7 @@
      - при неуспешном smoke-test сохраняется статус failed и предлагается повторная проверка через `calendar:smoke`;
      - доступна смена календаря через экран выбора действия (создать новый или выбрать существующий).
 6. Smoke-test календаря (create+delete test event).
-7. Перевод `specialist.status` в `active` и выдача deep-link personal bot.
+7. Перевод `specialist.status` в `active` только после успешного smoke-test и выдача deep-link personal bot (`?start=owner_panel`).
 
 ## Правила готовности
 Онбординг считается завершённым только если одновременно выполнены:
@@ -29,7 +29,7 @@
 - подключён активный personal bot;
 - Google OAuth в состоянии connected;
 - выбран/создан рабочий календарь;
-- smoke-test календаря успешен.
+- `last_smoke_test_status = ok` (smoke-test календаря успешен).
 
 ## Важные edge-cases
 - `refresh_token missing`:
@@ -43,3 +43,6 @@
 2. Подключить Google.
 3. Создать календарь и дождаться успешного smoke-test.
 4. Проверить, что `specialist.status=active` и personal bot отвечает на `/start`.
+
+
+После активации master bot отправляет deep-link в personal bot: `https://t.me/<bot_username>?start=owner_panel` для базовых настроек.
