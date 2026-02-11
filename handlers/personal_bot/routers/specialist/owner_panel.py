@@ -12,6 +12,7 @@ router = Router(name="personal_bot_specialist_owner_panel")
 _DEFAULT_DURATION_MIN = 60
 _DEFAULT_BUFFER_MIN = 10
 _DEFAULT_CANCEL_WINDOW_HOURS = 12
+_DEFAULT_MAX_SESSIONS_PER_DAY = 4
 
 _WEEKDAY_LABELS = {
     0: "Пн",
@@ -78,7 +79,9 @@ async def send_owner_panel(message: Message, specialist_id, public_name: str | N
         f"• Интервалы (утро/день/вечер): {intervals_text}\n"
         f"• Длительность сессии: {(profile.session_duration_min if profile else _DEFAULT_DURATION_MIN)} мин\n"
         f"• Буфер между сессиями: {(profile.session_buffer_min if profile else _DEFAULT_BUFFER_MIN)} мин\n"
-        f"• Окно отмены: {(profile.cancel_window_hours if profile else _DEFAULT_CANCEL_WINDOW_HOURS)} ч\n\n"
+        f"• Окно отмены: {(profile.cancel_window_hours if profile else _DEFAULT_CANCEL_WINDOW_HOURS)} ч\n"
+        f"• Максимум сессий в день: {(profile.max_sessions_per_day if profile else _DEFAULT_MAX_SESSIONS_PER_DAY)}\n\n"
+        "Правило записи: бронирование и изменение доступны только на следующий день и только до 21:00 предыдущего дня по вашему времени.\n\n"
         "Можно быстро применить рекомендуемые дефолты."
     )
     await message.answer(text, reply_markup=_owner_panel_keyboard())
@@ -103,6 +106,7 @@ async def owner_panel_apply_defaults(
                 session_duration_min=_DEFAULT_DURATION_MIN,
                 session_buffer_min=_DEFAULT_BUFFER_MIN,
                 cancel_window_hours=_DEFAULT_CANCEL_WINDOW_HOURS,
+                max_sessions_per_day=_DEFAULT_MAX_SESSIONS_PER_DAY,
             )
             session.add(profile)
         elif profile:
@@ -111,6 +115,8 @@ async def owner_panel_apply_defaults(
                 profile.session_buffer_min = _DEFAULT_BUFFER_MIN
             if profile.cancel_window_hours <= 0:
                 profile.cancel_window_hours = _DEFAULT_CANCEL_WINDOW_HOURS
+            if profile.max_sessions_per_day <= 0:
+                profile.max_sessions_per_day = _DEFAULT_MAX_SESSIONS_PER_DAY
 
         existing = (
             await session.execute(
@@ -146,7 +152,9 @@ async def owner_panel_apply_defaults(
         "✅ Готово. Применены базовые настройки:\n"
         "• Пн–Пт рабочие, Сб–Вс выходные\n"
         "• Интервалы: 09:00–12:00, 13:00–17:00, 17:00–21:00\n"
-        "• Длительность: 60 мин, буфер: 10 мин\n\n"
+        "• Длительность: 60 мин, буфер: 10 мин\n"
+        "• Максимум сессий в день: 4\n"
+        "Правило записи: бронирование и изменение доступны только на следующий день и только до 21:00 предыдущего дня по вашему времени.\n\n"
         "Теперь можно проверять /status и переходить к расширенным настройкам (в разработке)."
     )
 

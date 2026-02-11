@@ -120,6 +120,10 @@ class SpecialistProfile(Base):
             "session_buffer_min >= 0 AND session_buffer_min <= 120",
             name="ck_specialist_profile_session_buffer_min",
         ),
+        CheckConstraint(
+            "max_sessions_per_day >= 1 AND max_sessions_per_day <= 20",
+            name="ck_specialist_profile_max_sessions_per_day",
+        ),
     )
 
     specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), primary_key=True)
@@ -129,6 +133,7 @@ class SpecialistProfile(Base):
     specialist_timezone: Mapped[str] = mapped_column(String, nullable=False)
     session_duration_min: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     session_buffer_min: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_sessions_per_day: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
     cancel_window_hours: Mapped[int] = mapped_column(Integer, default=12, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -142,6 +147,10 @@ class SpecialistProfile(Base):
     @validates("session_buffer_min")
     def validate_session_buffer_min(self, key: str, value: int) -> int:
         return _validate_int_range(value, 0, 120, key)
+
+    @validates("max_sessions_per_day")
+    def validate_max_sessions_per_day(self, key: str, value: int) -> int:
+        return _validate_int_range(value, 1, 20, key)
 
 
 class TelegramBot(Base):
