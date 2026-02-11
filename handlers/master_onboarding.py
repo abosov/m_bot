@@ -86,6 +86,113 @@ def _calendar_action_keyboard() -> types.InlineKeyboardMarkup:
     )
 
 
+def _format_calendar_label(item: dict) -> str:
+    summary = item.get("summary") or "Без названия"
+    marker = ""
+    if item.get("primary"):
+        marker = " (основной)"
+    elif item.get("accessRole") == "reader":
+        marker = " (только чтение)"
+    return f"📅 {summary}{marker}"
+
+
+def _normalize_calendar_items(items: list[dict]) -> list[dict]:
+    normalized: list[dict] = []
+    for item in items:
+        if not item.get("id"):
+            continue
+        normalized.append(
+            {
+                "id": item.get("id"),
+                "summary": item.get("summary"),
+                "timeZone": item.get("timeZone"),
+                "primary": bool(item.get("primary")),
+                "accessRole": item.get("accessRole"),
+            }
+        )
+    return normalized
+
+
+def _calendar_select_keyboard(items: list[dict], page: int, per_page: int) -> types.InlineKeyboardMarkup:
+    total = len(items)
+    if total == 0:
+        return types.InlineKeyboardMarkup(
+            inline_keyboard=[[types.InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")]]
+        )
+
+    pages = max(1, (total + per_page - 1) // per_page)
+    page = max(0, min(page, pages - 1))
+    start = page * per_page
+    end = min(start + per_page, total)
+
+    rows: list[list[types.InlineKeyboardButton]] = []
+    for idx in range(start, end):
+        rows.append(
+            [
+                types.InlineKeyboardButton(
+                    text=_format_calendar_label(items[idx]),
+                    callback_data=f"calendar:pick:{idx}",
+                )
+            ]
+        )
+
+    nav: list[types.InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(types.InlineKeyboardButton(text="⬅️ Prev", callback_data=f"calendar:page:{page - 1}"))
+    if page < pages - 1:
+        nav.append(types.InlineKeyboardButton(text="Next ➡️", callback_data=f"calendar:page:{page + 1}"))
+    if nav:
+        rows.append(nav)
+
+    rows.append([types.InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")])
+    return types.InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _calendar_select_text(total: int, page: int, per_page: int, has_readonly: bool) -> str:
+    pages = max(1, (total + per_page - 1) // per_page)
+    readonly_note = "\n⚠️ В списке есть календари только для чтения — запись в них недоступна." if has_readonly else ""
+    return (
+        "📂 Выберите рабочий Google Календарь.\n"
+        f"Найдено календарей: {total}. Страница {page + 1}/{pages}.\n"
+        "После выбора будет запущен smoke-test (создание и удаление тестового события)."
+        f"{readonly_note}"
+    )
+
+
+async def _start_calendar_select(callback: types.CallbackQuery, state: FSMContext) -> None:
+    tg_user_id = callback.from_user.id
+    async with async_session_factory() as session:
+        auth = (
+            await session.execute(
+                select(SpecialistAuthTelegram).where(SpecialistAuthTelegram.tg_user_id == tg_user_id)
+            )
+        ).scalar_one_or_none()
+
+    if not auth:
+        await callback.message.answer("⚠️ Профиль специалиста не найден. Нажмите /start.")
+        await callback.answer()
+        return
+
+    items = await list_calendars(auth.specialist_id)
+    items_norm = _normalize_calendar_items(items)
+    if not items_norm:
+        await callback.message.answer(
+            "⚠️ Календарей не найдено / нет доступа. Переподключите Google аккаунт через /start."
+        )
+        await callback.answer()
+        return
+
+    await state.update_data(cal_items=items_norm, cal_page=0, cal_per_page=6)
+    await state.set_state(OnboardingStates.waiting_for_calendar_action)
+
+    has_readonly = any(item.get("accessRole") == "reader" for item in items_norm)
+    await callback.message.answer(
+        _calendar_select_text(len(items_norm), 0, 6, has_readonly),
+        reply_markup=_calendar_select_keyboard(items_norm, 0, 6),
+    )
+    await callback.answer()
+
+
 def _is_valid_public_name(public_name: str) -> bool:
     return 2 <= len(public_name) <= 80
 
@@ -764,19 +871,170 @@ async def process_bot_token(message: types.Message, state: FSMContext):
 
 
 @router.callback_query(F.data == "calendar:select")
-async def calendar_select_stub(callback: types.CallbackQuery, state: FSMContext):
-    await state.set_state(OnboardingStates.waiting_for_calendar_action)
-    text = (
-        "ℹ️ Функция выбора существующего календаря будет добавлена в следующем релизе.\n"
-        "Сейчас используйте ‘Создать отдельный календарь’."
+async def calendar_select(callback: types.CallbackQuery, state: FSMContext):
+    try:
+        await _start_calendar_select(callback, state)
+    except GoogleCalendarInsufficientPermissionsError:
+        await callback.message.answer(
+            "⚠️ Google подключен, но доступов недостаточно для просмотра календарей. "
+            "Переподключите аккаунт через /start и выдайте все запрошенные права."
+        )
+        await callback.answer()
+    except GoogleCalendarError as exc:
+        await callback.message.answer(f"⚠️ Ошибка Google Calendar: {exc}")
+        await callback.answer()
+    except Exception:
+        logger.exception("calendar_select failed")
+        await callback.message.answer("⚠️ Не удалось получить список календарей. Попробуйте позже.")
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("calendar:page:"))
+async def calendar_select_page(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    items = data.get("cal_items") or []
+    per_page = int(data.get("cal_per_page") or 6)
+    if not items:
+        await callback.message.answer("⚠️ Список календарей устарел. Нажмите /start и попробуйте снова.")
+        await callback.answer()
+        return
+
+    try:
+        page = int((callback.data or "").split(":")[-1])
+    except ValueError:
+        await callback.answer("Некорректная страница")
+        return
+
+    max_page = max(0, (len(items) - 1) // per_page)
+    page = max(0, min(page, max_page))
+    await state.update_data(cal_page=page)
+
+    has_readonly = any(item.get("accessRole") == "reader" for item in items)
+    await callback.message.edit_text(
+        _calendar_select_text(len(items), page, per_page, has_readonly),
+        reply_markup=_calendar_select_keyboard(items, page, per_page),
     )
-    await callback.message.answer(text)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("calendar:pick:"))
+async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
+    tg_user_id = callback.from_user.id
+    data = await state.get_data()
+    items = data.get("cal_items") or []
+
+    try:
+        idx = int((callback.data or "").split(":")[-1])
+    except ValueError:
+        await callback.answer("Некорректный выбор")
+        return
+
+    if idx < 0 or idx >= len(items):
+        await callback.message.answer("⚠️ Выбранный календарь не найден. Откройте список заново через /start.")
+        await callback.answer()
+        return
+
+    calendar = items[idx]
+
+    try:
+        async with async_session_factory() as session:
+            auth = (
+                await session.execute(
+                    select(SpecialistAuthTelegram).where(SpecialistAuthTelegram.tg_user_id == tg_user_id)
+                )
+            ).scalar_one_or_none()
+            if not auth:
+                await callback.message.answer("⚠️ Профиль специалиста не найден. Нажмите /start.")
+                await callback.answer()
+                return
+
+            specialist = (
+                await session.execute(
+                    select(Specialist)
+                    .options(selectinload(Specialist.profile), selectinload(Specialist.calendar_settings))
+                    .where(Specialist.specialist_id == auth.specialist_id)
+                )
+            ).scalar_one_or_none()
+
+        if not specialist or not specialist.profile:
+            await callback.message.answer("⚠️ Сначала заполните профиль через /start.")
+            await callback.answer()
+            return
+
+        calendar_id = calendar.get("id")
+        summary = calendar.get("summary")
+        calendar_tz = calendar.get("timeZone") or specialist.profile.specialist_timezone or "UTC"
+
+        await _upsert_calendar_settings(
+            specialist.specialist_id,
+            calendar_id=calendar_id,
+            calendar_summary=summary,
+            calendar_tz=calendar_tz,
+            source=SpecialistCalendarSource.selected,
+        )
+
+        smoke_ok = False
+        try:
+            await create_and_cleanup_test_event(specialist.specialist_id, calendar_id, calendar_tz)
+            await _upsert_calendar_settings(
+                specialist.specialist_id,
+                calendar_id=calendar_id,
+                calendar_summary=summary,
+                calendar_tz=calendar_tz,
+                source=SpecialistCalendarSource.selected,
+                smoke_status="ok",
+            )
+            smoke_ok = True
+        except Exception as smoke_exc:
+            await _upsert_calendar_settings(
+                specialist.specialist_id,
+                calendar_id=calendar_id,
+                calendar_summary=summary,
+                calendar_tz=calendar_tz,
+                source=SpecialistCalendarSource.selected,
+                smoke_status="failed",
+                smoke_error=str(smoke_exc)[:255],
+            )
+            await callback.message.answer(
+                "❌ Календарь выбран, но smoke-test не пройден. "
+                "Проверьте права доступа к календарю и нажмите ‘Проверить доступ (smoke-test)’."
+            )
+
+        if smoke_ok:
+            await finalize_specialist_if_ready(specialist.specialist_id)
+            personal_username = await _notify_personal_bot_welcome(specialist.specialist_id, tg_user_id)
+            deep_link = f"https://t.me/{personal_username}" if personal_username else ""
+
+            await state.clear()
+            await callback.message.answer(
+                "✅ Календарь подключён, всё готово. Теперь используйте вашего бота: "
+                f"@{personal_username}\n{deep_link}"
+            )
+
+        await callback.answer()
+    except Exception:
+        logger.exception("calendar_pick failed")
+        await callback.message.answer("⚠️ Не удалось применить выбранный календарь. Попробуйте позже.")
+        await callback.answer()
+
+
+@router.callback_query(F.data == "calendar:cancel_select")
+async def calendar_select_cancel(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer("Выбор календаря отменён. Нажмите /start.")
     await callback.answer()
 
 
 @router.callback_query(F.data == "calendar:switch_stub")
-async def calendar_switch_stub(callback: types.CallbackQuery):
-    await callback.message.answer("ℹ️ Смена календаря будет доступна в следующем релизе.")
+async def calendar_switch_stub(callback: types.CallbackQuery, state: FSMContext):
+    keyboard = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text="🆕 Создать новый", callback_data="calendar:create")],
+            [types.InlineKeyboardButton(text="📂 Выбрать существующий", callback_data="calendar:select")],
+            [types.InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")],
+        ]
+    )
+    await callback.message.answer("Выберите способ смены календаря:", reply_markup=keyboard)
     await callback.answer()
 
 

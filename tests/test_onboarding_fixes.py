@@ -466,3 +466,129 @@ async def test_google_oauth_callback_token_exchange_network_error_returns_networ
 
     assert response.status_code == 200
     assert "network error" in response.text.lower()
+
+
+def test_calendar_select_keyboard_and_text_navigation(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("MASTER_BOT_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
+    monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+
+    import handlers.master_onboarding as onboarding
+
+    items = [
+        {"id": f"cal-{i}", "summary": f"Calendar {i}", "timeZone": "UTC", "primary": False, "accessRole": "owner"}
+        for i in range(7)
+    ]
+
+    kb_page0 = onboarding._calendar_select_keyboard(items, page=0, per_page=6)
+    buttons0 = [btn for row in kb_page0.inline_keyboard for btn in row]
+    assert any(btn.callback_data == "calendar:page:1" for btn in buttons0)
+    assert not any(btn.callback_data == "calendar:page:-1" for btn in buttons0)
+    assert any(btn.callback_data == "calendar:pick:0" for btn in buttons0)
+    assert any(btn.callback_data == "calendar:pick:5" for btn in buttons0)
+
+    kb_page1 = onboarding._calendar_select_keyboard(items, page=1, per_page=6)
+    buttons1 = [btn for row in kb_page1.inline_keyboard for btn in row]
+    assert any(btn.callback_data == "calendar:page:0" for btn in buttons1)
+    assert any(btn.callback_data == "calendar:pick:6" for btn in buttons1)
+
+    text = onboarding._calendar_select_text(total=7, page=1, per_page=6, has_readonly=True)
+    assert "Страница 2/2" in text
+    assert "только для чтения" in text
+
+
+@pytest.mark.asyncio
+async def test_calendar_pick_success_sets_selected_and_smoke_ok(tmp_path, monkeypatch):
+    _, database = _load_web_app(tmp_path, monkeypatch)
+
+    import handlers.master_onboarding as onboarding
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.onboarding))
+        session.add(
+            database.SpecialistAuthTelegram(
+                specialist_id=specialist_id,
+                tg_user_id=777,
+                tg_username="spec",
+                tg_first_name="Spec",
+                tg_last_name=None,
+            )
+        )
+        session.add(
+            database.SpecialistProfile(
+                specialist_id=specialist_id,
+                public_name="Spec",
+                owner_tg_user_id=777,
+                owner_tg_username="spec",
+                specialist_timezone="Europe/Moscow",
+            )
+        )
+        await session.commit()
+
+    monkeypatch.setattr(onboarding, "async_session_factory", database.async_session_factory)
+
+    upsert_calls = []
+
+    async def _upsert_stub(*args, **kwargs):
+        upsert_calls.append(kwargs)
+
+    async def _smoke_stub(specialist_id_arg, calendar_id_arg, tz_arg):
+        assert specialist_id_arg == specialist_id
+        assert calendar_id_arg == "cal-1"
+        assert tz_arg == "Europe/Moscow"
+
+    async def _finalize_stub(_sid):
+        return None
+
+    async def _welcome_stub(_sid, _tg_user_id):
+        return "my_personal_bot"
+
+    monkeypatch.setattr(onboarding, "_upsert_calendar_settings", _upsert_stub)
+    monkeypatch.setattr(onboarding, "create_and_cleanup_test_event", _smoke_stub)
+    monkeypatch.setattr(onboarding, "finalize_specialist_if_ready", _finalize_stub)
+    monkeypatch.setattr(onboarding, "_notify_personal_bot_welcome", _welcome_stub)
+
+    class _State:
+        async def get_data(self):
+            return {
+                "cal_items": [
+                    {
+                        "id": "cal-1",
+                        "summary": "Work",
+                        "timeZone": "Europe/Moscow",
+                        "primary": False,
+                        "accessRole": "owner",
+                    }
+                ]
+            }
+
+        async def clear(self):
+            return None
+
+    class _Message:
+        def __init__(self):
+            self.sent = []
+
+        async def answer(self, text, reply_markup=None):
+            self.sent.append((text, reply_markup))
+
+    class _Callback:
+        def __init__(self):
+            self.from_user = SimpleNamespace(id=777)
+            self.data = "calendar:pick:0"
+            self.message = _Message()
+
+        async def answer(self, *args, **kwargs):
+            return None
+
+    callback = _Callback()
+    await onboarding.calendar_pick(callback, _State())
+
+    assert len(upsert_calls) == 2
+    assert upsert_calls[0]["source"] == database.SpecialistCalendarSource.selected
+    assert upsert_calls[1]["source"] == database.SpecialistCalendarSource.selected
+    assert upsert_calls[1]["smoke_status"] == "ok"
