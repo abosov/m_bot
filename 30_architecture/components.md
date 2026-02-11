@@ -221,13 +221,19 @@ Heartbeat throttling (контракт):
 
 Pipeline AvailabilityService:
 1. Load intervals for weekday.
-2. Filter out NULL/NULL.
+2. Filter out NULL/NULL (отключённые блоки не участвуют в генерации).
 3. Validate pairs (оба NULL или оба заданы; состояния NULL/value и value/NULL запрещены).
-4. Merge styk-v-styk intervals.
+4. В domain-валидации допустимости слота выполнить merge styk-v-styk intervals.
 5. Generate slot starts.
 6. Apply buffer.
 7. Apply max_sessions_per_day.
-8. Apply next-day + cutoff 21:00.
+8. Apply next-day + cutoff 21:00 (TZ specialist).
+
+Источник дефолтов:
+- После финализации US-01 (smoke-test = ok, перед/при переводе specialist в active) сервис `apply_specialist_defaults_if_missing()`
+  идемпотентно создаёт недостающие настройки specialist_profile и weekly_availability.
+- Timezone берётся из выбранного Google Calendar, fallback `UTC`.
+- Если weekly_availability уже существует, сервис её не перезаписывает.
 
 Вход:
 - `specialist_id`

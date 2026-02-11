@@ -84,12 +84,14 @@ curl -i -sS "$BASE_URL/readyz"
 Под `SpecialistOwner` в personal bot:
 
 1. Открыть deep-link `?start=owner_panel` (или `/start` owner).
-2. Пройти wizard базовых настроек и сохранить дефолты (интервалы `09:00–12:00` / `13:00–17:00` / `17:00–21:00`, длительность 60, буфер 10, `slot_step_min=15`, `max_sessions_per_day=4`).
-3. `/status` — видно:
+2. Проверить, что owner panel сразу показывает: дефолты уже применены автоматически после US-01.
+3. Проверить текущие значения (timezone, интервалы, duration/buffer, slot_step, max/day, cancel window).
+4. Изменить минимум один параметр (например, `slot_step_min` и/или `max_sessions_per_day`).
+5. `/status` — видно:
    - статус подключения Google,
    - поля календаря,
    - информацию о последнем smoke-тесте (если есть).
-4. `/help` — приходит справка.
+6. `/help` — приходит справка.
 
 ## 3.4 Personal bot (роль: client)
 

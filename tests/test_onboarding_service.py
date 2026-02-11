@@ -79,24 +79,41 @@ async def test_is_specialist_ready_true_when_all_requirements_met(monkeypatch):
 async def test_finalize_specialist_if_ready_switches_onboarding_to_active(monkeypatch):
     specialist_id = uuid.uuid4()
 
+    captured = {}
+
     class Session:
         committed = False
 
         async def get(self, model, sid):
             assert sid == specialist_id
-            return types.SimpleNamespace(status=SpecialistStatus.onboarding)
+            name = getattr(model, "__name__", "")
+            if name == "Specialist":
+                return types.SimpleNamespace(status=SpecialistStatus.onboarding)
+            if name == "SpecialistCalendarSettings":
+                return types.SimpleNamespace(calendar_time_zone="Europe/Berlin")
+            if name == "SpecialistProfile":
+                return types.SimpleNamespace(public_name="Name", owner_tg_user_id=123)
+            if name == "SpecialistAuthTelegram":
+                return types.SimpleNamespace(tg_user_id=123)
+            return None
 
         async def commit(self):
             self.committed = True
 
+    async def _apply_defaults(session, sid, *, preferred_timezone=None):
+        captured["sid"] = sid
+        captured["preferred_timezone"] = preferred_timezone
+
     session = Session()
     monkeypatch.setattr(onboarding, "is_specialist_ready", lambda _sid: _ready_true())
     monkeypatch.setattr(onboarding, "async_session_factory", lambda: DummySessionCtx(session))
+    monkeypatch.setattr(onboarding, "apply_specialist_defaults_if_missing", _apply_defaults)
 
     changed = await onboarding.finalize_specialist_if_ready(specialist_id)
 
     assert changed is True
     assert session.committed is True
+    assert captured == {"sid": specialist_id, "preferred_timezone": "Europe/Berlin"}
 
 
 @pytest.mark.asyncio

@@ -48,10 +48,10 @@ def _validate_interval_pair(*, start: time | None, end: time | None) -> None:
 def _owner_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🧙 Пройти мастер настроек", callback_data="owner_wizard:start")],
-            [InlineKeyboardButton(text="✅ Применить дефолты", callback_data="owner_panel:apply_defaults")],
-            [InlineKeyboardButton(text="Шаг слотов", callback_data="owner_panel:slot_step_menu")],
-            [InlineKeyboardButton(text="🛠 Настроить вручную", callback_data="owner_panel:manual")],
+            [InlineKeyboardButton(text="📅 Изменить расписание", callback_data="owner_panel:change_schedule")],
+            [InlineKeyboardButton(text="⚙️ Изменить параметры слотов", callback_data="owner_panel:slot_params_menu")],
+            [InlineKeyboardButton(text="👌 Оставить как есть", callback_data="owner_panel:keep")],
+            [InlineKeyboardButton(text="♻️ Сбросить на дефолты", callback_data="owner_panel:apply_defaults")],
         ]
     )
 
@@ -69,6 +69,19 @@ def _slot_step_keyboard() -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+
+def _max_sessions_keyboard() -> InlineKeyboardMarkup:
+    rows = []
+    row = []
+    for value in range(1, 11):
+        row.append(InlineKeyboardButton(text=str(value), callback_data=f"owner:max_sessions:{value}"))
+        if len(row) == 5:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _decision_keyboard(*, keep_data: str, change_data: str) -> InlineKeyboardMarkup:
@@ -248,12 +261,6 @@ async def _load_profile_and_rows(specialist_id):
 async def send_owner_panel(message: Message, specialist_id, public_name: str | None) -> None:
     profile, rows = await _load_profile_and_rows(specialist_id)
 
-    if not _has_configured_weekly(rows):
-        await message.answer(
-            "👋 Похоже, базовые настройки расписания ещё не заполнены. Запускаю мастер из 4 шагов."
-        )
-        await _send_wizard_step_days(message)
-        return
 
     display_name = public_name or (profile.public_name if profile else "специалист")
     sample_day = next((row for row in rows if row.is_working), None)
@@ -268,7 +275,9 @@ async def send_owner_panel(message: Message, specialist_id, public_name: str | N
         intervals_text = "09:00–12:00, 13:00–17:00, 17:00–21:00"
 
     text = (
-        f"⚙️ Базовые настройки, {display_name}.\n\n"
+        f"✅ Базовые настройки уже применены автоматически после онбординга, {display_name}.\n"
+        "Хотите изменить их сейчас?\n\n"
+        f"• Таймзона: {(profile.specialist_timezone if profile else 'UTC')}\n"
         f"• Рабочие дни: {_working_days(rows)}\n"
         f"• Интервалы (утро/день/вечер): {intervals_text}\n"
         f"• Длительность сессии: {(profile.session_duration_min if profile else _DEFAULT_DURATION_MIN)} мин\n"
@@ -618,6 +627,29 @@ async def owner_panel_slot_step_menu(callback: CallbackQuery) -> None:
     )
 
 
+@router.callback_query(F.data == "owner_panel:slot_params_menu")
+async def owner_panel_slot_params_menu(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.answer(
+        "Что хотите изменить?",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="Шаг слотов", callback_data="owner_panel:slot_step_menu")],
+                [InlineKeyboardButton(text="Максимум сессий/день", callback_data="owner_panel:max_sessions_menu")],
+            ]
+        ),
+    )
+
+
+@router.callback_query(F.data == "owner_panel:max_sessions_menu")
+async def owner_panel_max_sessions_menu(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.answer(
+        "Выберите максимум сессий в день:",
+        reply_markup=_max_sessions_keyboard(),
+    )
+
+
 @router.callback_query(F.data.startswith("owner:slot_step:"))
 async def owner_panel_set_slot_step(
     callback: CallbackQuery,
@@ -647,9 +679,44 @@ async def owner_panel_set_slot_step(
     await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name)
 
 
-@router.callback_query(F.data == "owner_panel:manual")
-async def owner_panel_manual(callback: CallbackQuery) -> None:
+@router.callback_query(F.data == "owner_panel:change_schedule")
+async def owner_panel_change_schedule(callback: CallbackQuery) -> None:
     await callback.answer()
     await callback.message.answer(
-        "🛠 Ручная настройка скоро появится. Пока используйте мастер или дефолтные параметры."
+        "📅 Изменение расписания в разработке. Пока можно использовать мастер настроек."
     )
+
+
+@router.callback_query(F.data == "owner_panel:keep")
+async def owner_panel_keep(callback: CallbackQuery) -> None:
+    await callback.answer("Отлично")
+    await callback.message.answer("👌 Оставили текущие настройки без изменений.")
+
+
+@router.callback_query(F.data.startswith("owner:max_sessions:"))
+async def owner_panel_set_max_sessions(
+    callback: CallbackQuery,
+    specialist_id,
+    owner_tg_user_id: int | None,
+    public_name: str | None,
+) -> None:
+    try:
+        max_sessions = int((callback.data or "").split(":")[-1])
+    except ValueError:
+        await callback.answer("Некорректное значение", show_alert=True)
+        return
+
+    if max_sessions < 1 or max_sessions > 10:
+        await callback.answer("Некорректное значение", show_alert=True)
+        return
+
+    await _update_profile_settings(
+        specialist_id=specialist_id,
+        max_sessions_per_day=max_sessions,
+        owner_tg_user_id=owner_tg_user_id,
+        public_name=public_name,
+    )
+
+    await callback.answer()
+    await callback.message.answer(f"Лимит сессий в день обновлён: {max_sessions}")
+    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name)

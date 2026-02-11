@@ -5,12 +5,14 @@ from sqlalchemy import select
 from database import (
     Specialist,
     SpecialistProfile,
+    SpecialistAuthTelegram,
     SpecialistCalendarSettings,
     SpecialistStatus,
     TelegramBot,
     TelegramBotStatus,
     async_session_factory,
 )
+from services.specialist_defaults import apply_specialist_defaults_if_missing
 
 
 async def is_specialist_ready(specialist_id: uuid.UUID) -> bool:
@@ -64,6 +66,27 @@ async def finalize_specialist_if_ready(specialist_id: uuid.UUID) -> bool:
 
         if specialist.status != SpecialistStatus.onboarding:
             return False
+
+        calendar_settings = await session.get(SpecialistCalendarSettings, specialist_id)
+        preferred_timezone = (
+            calendar_settings.calendar_time_zone
+            if calendar_settings and (calendar_settings.calendar_time_zone or "").strip()
+            else None
+        )
+        await apply_specialist_defaults_if_missing(
+            session,
+            specialist_id,
+            preferred_timezone=preferred_timezone,
+        )
+
+        # Safety net for extremely old rows that may miss owner/public fields.
+        profile = await session.get(SpecialistProfile, specialist_id)
+        if profile is not None:
+            auth = await session.get(SpecialistAuthTelegram, specialist_id)
+            if not (profile.public_name or "").strip():
+                profile.public_name = "Специалист"
+            if (profile.owner_tg_user_id or 0) <= 0 and auth is not None:
+                profile.owner_tg_user_id = auth.tg_user_id
 
         specialist.status = SpecialistStatus.active
         await session.commit()
