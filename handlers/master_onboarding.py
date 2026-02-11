@@ -686,11 +686,17 @@ async def process_public_name(message: types.Message, state: FSMContext):
                     owner_tg_user_id=tg_user_id,
                     owner_tg_username=message.from_user.username,
                     specialist_timezone="UTC",
+                    session_duration_min=60,
+                    session_buffer_min=10,
                 )
                 session.add(profile)
             else:
                 profile.public_name = public_name
                 profile.owner_tg_user_id = tg_user_id
+                if profile.session_duration_min <= 0:
+                    profile.session_duration_min = 60
+                if profile.session_buffer_min < 0:
+                    profile.session_buffer_min = 10
             await session.commit()
 
         await state.set_state(OnboardingStates.waiting_for_bot_token)

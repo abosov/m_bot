@@ -115,8 +115,9 @@ Heartbeat throttling (контракт):
   - принятие bot_token
   - запуск Google OAuth
   - выбор/создание календаря
-  - настройка weekly availability
+  - минимальная проверка календаря (smoke-test) и перевод в personal bot
 - работать только в контексте master_bot
+- расписание (weekly availability), длительность и буфер настраиваются в personal bot (US-02)
 
 Основные вызовы:
 - `TelegramService.getMe` (валидация bot_token)

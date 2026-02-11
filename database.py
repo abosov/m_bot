@@ -111,7 +111,6 @@ class SpecialistAuthTelegram(Base):
 
 class SpecialistProfile(Base):
     __tablename__ = "specialist_profile"
-    # TODO: Ensure booking/availability logic uses session_duration_min + session_buffer_min (buffer is not a calendar event).
     __table_args__ = (
         CheckConstraint(
             "session_duration_min >= 15 AND session_duration_min <= 480",
@@ -329,10 +328,11 @@ async def get_db_session() -> AsyncSession:
         yield session
 
 async def init_db():
-    """Helper to create tables (for MVP startup).
+    """Helper to create tables for local/dev environments.
 
-    TODO: add a migration for existing databases to include specialist_profile.session_buffer_min
-    and constraints for session_duration_min/session_buffer_min.
+    Note: in production, schema updates for existing databases must be applied
+    explicitly before restart (DDL scripts/migrations), then this helper can run
+    safely as a no-op for already existing tables.
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

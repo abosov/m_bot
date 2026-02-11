@@ -74,6 +74,7 @@
 
 1. `[VPS]` Подготовить окружение и убедиться, что обязательные переменные заданы в `/etc/zumbot/backend.env`.
 2. `[VPS]` Применить SQL-миграции/DDL (используются SQL-скрипты, Alembic не используется).
+   - Для уже существующих БД убедиться, что в `specialist_profile` есть поля `session_duration_min`, `session_buffer_min` и действуют соответствующие CHECK-ограничения (`duration > 0`, `buffer >= 0` по бизнес-правилам MVP).
 3. `[VPS]` Запустить backend через systemd (socket activation):
    ```bash
    sudo systemctl restart zumbot-backend.socket zumbot-backend.service
