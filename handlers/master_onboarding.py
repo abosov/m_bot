@@ -1147,15 +1147,39 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
 
         if smoke_ok:
             await finalize_specialist_if_ready(specialist.specialist_id)
-            personal_username = await _notify_personal_bot_welcome(specialist.specialist_id, tg_user_id)
-            deep_link = _build_personal_deep_link(personal_username)
-
             await state.clear()
-            await callback.message.answer(
-                "✅ Календарь подключён. Master-онбординг завершён.\n"
-                "Чтобы завершить онбординг полностью, перейдите в персональный бот и подтвердите/настройте параметры:\n"
-                f"@{personal_username}\n{deep_link}"
-            )
+
+            deep_link = ""
+            personal_username = None
+            post_actions_failed = False
+            try:
+                personal_username = await _notify_personal_bot_welcome(specialist.specialist_id, tg_user_id)
+                deep_link = _build_personal_deep_link(personal_username)
+            except Exception as post_exc:
+                post_actions_failed = True
+                logger.warning(
+                    "calendar_pick post actions failed specialist_id=%s tg_user_id=%s",
+                    specialist.specialist_id,
+                    tg_user_id,
+                    exc_info=True,
+                )
+                await notify_exception(
+                    where="handlers.master_onboarding.calendar_pick.post_actions",
+                    exc=post_exc,
+                    context={"tg_user_id": tg_user_id, "specialist_id": str(specialist.specialist_id)},
+                    event=callback,
+                )
+
+            if post_actions_failed:
+                await callback.message.answer(
+                    "✅ Календарь подключён. Если личный бот не открылся автоматически — откройте его вручную."
+                )
+            else:
+                await callback.message.answer(
+                    "✅ Календарь подключён. Master-онбординг завершён.\n"
+                    "Чтобы завершить онбординг полностью, перейдите в персональный бот и подтвердите/настройте параметры:\n"
+                    f"@{personal_username}\n{deep_link}"
+                )
 
         await callback.answer()
     except Exception as exc:
@@ -1387,15 +1411,39 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
             return
 
         await finalize_specialist_if_ready(specialist.specialist_id)
-        personal_username = await _notify_personal_bot_welcome(specialist.specialist_id, tg_user_id)
-        deep_link = _build_personal_deep_link(personal_username)
-
         await state.clear()
-        await callback.message.answer(
-            "✅ Календарь подключён. Master-онбординг завершён.\n"
-            "Чтобы завершить онбординг полностью, перейдите в персональный бот и подтвердите/настройте параметры:\n"
-            f"@{personal_username}\n{deep_link}"
-        )
+
+        deep_link = ""
+        personal_username = None
+        post_actions_failed = False
+        try:
+            personal_username = await _notify_personal_bot_welcome(specialist.specialist_id, tg_user_id)
+            deep_link = _build_personal_deep_link(personal_username)
+        except Exception as post_exc:
+            post_actions_failed = True
+            logger.warning(
+                "calendar_create post actions failed specialist_id=%s tg_user_id=%s",
+                specialist.specialist_id,
+                tg_user_id,
+                exc_info=True,
+            )
+            await notify_exception(
+                where="handlers.master_onboarding.calendar_create.post_actions",
+                exc=post_exc,
+                context={"tg_user_id": tg_user_id, "specialist_id": str(specialist.specialist_id)},
+                event=callback,
+            )
+
+        if post_actions_failed:
+            await callback.message.answer(
+                "✅ Календарь подключён. Если личный бот не открылся автоматически — откройте его вручную."
+            )
+        else:
+            await callback.message.answer(
+                "✅ Календарь подключён. Master-онбординг завершён.\n"
+                "Чтобы завершить онбординг полностью, перейдите в персональный бот и подтвердите/настройте параметры:\n"
+                f"@{personal_username}\n{deep_link}"
+            )
         await callback.answer()
 
     except GoogleCalendarInsufficientPermissionsError:

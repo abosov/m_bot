@@ -216,3 +216,11 @@ async def test_personal_start_client_gets_placeholder():
 
     assert len(message.answers) == 1
     assert "клиентская заглушка" in message.answers[0][0]
+
+def test_onboarding_keyboard_with_calendar_contains_calendar_and_existing_actions():
+    keyboard = start_router._onboarding_keyboard_with_calendar()
+    callback_data = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+
+    assert "calendar:switch_stub" in callback_data
+    assert "onboarding:keep" in callback_data
+    assert "onboarding:change" in callback_data

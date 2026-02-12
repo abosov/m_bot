@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from aiogram import F, Router
 from aiogram.filters import CommandObject, CommandStart
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from config import SUPPORT_TG_URL
 from database import Specialist, SpecialistProfile, async_session_factory
@@ -36,10 +38,27 @@ def _onboarding_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def _onboarding_keyboard_with_calendar() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📅 Изменить календарь", callback_data="calendar:switch_stub")],
+            [InlineKeyboardButton(text="✏️ Изменить настройки", callback_data="onboarding:change")],
+            [InlineKeyboardButton(text="👌 Оставить как есть", callback_data="onboarding:keep")],
+            [InlineKeyboardButton(text="Позже", callback_data="onboarding:later")],
+        ]
+    )
+
+
 async def _load_specialist_and_profile(specialist_id):
     async with async_session_factory() as session:
-        specialist = await session.get(Specialist, specialist_id)
-        profile = await session.get(SpecialistProfile, specialist_id)
+        specialist = (
+            await session.execute(
+                select(Specialist)
+                .options(selectinload(Specialist.profile), selectinload(Specialist.calendar_settings))
+                .where(Specialist.specialist_id == specialist_id)
+            )
+        ).scalar_one_or_none()
+        profile = specialist.profile if specialist else await session.get(SpecialistProfile, specialist_id)
     return specialist, profile
 
 
@@ -67,6 +86,15 @@ async def _render_onboarding_screen(message: Message, specialist_id) -> None:
         )
         return
 
+    calendar_settings = getattr(specialist, "calendar_settings", None)
+    calendar_label = "не выбран"
+    smoke_note = ""
+    if calendar_settings and getattr(calendar_settings, "calendar_id", None):
+        calendar_label = calendar_settings.calendar_summary or "Без названия"
+        smoke_status = getattr(calendar_settings, "last_smoke_test_status", None)
+        if smoke_status in {"ok", "failed"}:
+            smoke_note = f" (smoke-test: {smoke_status})"
+
     text = (
         "🧩 Продолжим онбординг в персональном боте.\n\n"
         "Настройки по умолчанию:\n"
@@ -76,9 +104,10 @@ async def _render_onboarding_screen(message: Message, specialist_id) -> None:
         f"• Макс. сессий в день: {profile.max_sessions_per_day}\n"
         f"• Шаг слотов: {profile.slot_step_min} мин\n"
         f"• Окно отмены: {profile.cancel_window_hours} ч\n\n"
+        f"📅 Календарь: {calendar_label}{smoke_note}\n\n"
         "Подтвердите настройки или измените их перед завершением онбординга."
     )
-    await message.answer(text, reply_markup=_onboarding_keyboard())
+    await message.answer(text, reply_markup=_onboarding_keyboard_with_calendar())
 
 
 @router.message(CommandStart())
