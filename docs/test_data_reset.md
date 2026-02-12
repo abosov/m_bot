@@ -22,6 +22,9 @@ notes: "optional global notes"
 Команда: `zumbot-test-reset` (symlink на `scripts/test_data_reset_run.py`).
 
 Поведение обёртки:
+- работает из любой текущей директории (cwd может быть любым);
+- всегда запускает `scripts/test_data_reset.py` через python из `backend/.venv/bin/python3`;
+- запускает дочерний процесс с `cwd=/opt/zumbot/backend` (repo_root), чтобы относительные пути были стабильными;
 - автоматически читает `/etc/zumbot/backend.env` и подхватывает `DB_URL`;
 - выбирает registry автоматически:
   1) `/etc/zumbot/test_accounts.yaml`,

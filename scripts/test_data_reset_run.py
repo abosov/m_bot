@@ -90,9 +90,14 @@ def ensure_apply_guards(args: argparse.Namespace) -> None:
         raise RuntimeError('Apply cancelled by user.')
 
 
-def build_cli_command(python_executable: Path, script_path: Path, passthrough_args: list[str], registry_path: Path) -> list[str]:
-    command = [str(python_executable), str(script_path), *passthrough_args]
-    if not has_option(passthrough_args, '--registry'):
+def build_cli_command(
+    python_executable: Path,
+    script_path: Path,
+    passthrough_args: list[str],
+    registry_path: Path | None,
+) -> list[str]:
+    command = [str(python_executable.resolve()), str(script_path.resolve()), *passthrough_args]
+    if registry_path is not None and not has_option(passthrough_args, '--registry'):
         command.extend(['--registry', str(registry_path)])
     if not has_option(passthrough_args, '--format'):
         command.extend(['--format', 'text'])
@@ -114,7 +119,7 @@ def main() -> int:
 
     try:
         ensure_apply_guards(args)
-        registry_path = resolve_registry_path(repo_root)
+        registry_path = resolve_registry_path(repo_root) if not has_option(passthrough_args, '--registry') else None
     except Exception as exc:
         print(f'ERROR: {exc}')
         return 2
@@ -131,7 +136,7 @@ def main() -> int:
 
     command = build_cli_command(python_executable, script_path, passthrough_args, registry_path)
     print(f"Running: {' '.join(shlex.quote(item) for item in command)}")
-    proc = subprocess.run(command, env=child_env)
+    proc = subprocess.run(command, env=child_env, cwd=str(repo_root))
     return int(proc.returncode)
 
 

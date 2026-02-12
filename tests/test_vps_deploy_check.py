@@ -23,3 +23,11 @@ def test_check_script_contains_build_and_dependency_checks() -> None:
     assert "print_git_and_build_info" in content
     assert "PyYAML import failed" in content
     assert "check_migrations_applied" in content
+
+
+def test_check_yaml_import_uses_venv_python3_and_simple_inline_import() -> None:
+    content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert 'local venv_python="${VENV_DIR}/bin/python3"' in content
+    assert "\"${venv_python}\" -c \"import yaml; print('OK')\" >/dev/null" in content
+    assert 'source "${VENV_DIR}/bin/activate"' not in content
