@@ -4,6 +4,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MIGRATIONS_DIR="${SCRIPT_DIR}/migrations"
+ENV_FILE="/etc/zumbot/backend.env"
+
+load_env_if_needed() {
+  if [[ -n "${DB_URL:-}" ]]; then
+    return 0
+  fi
+
+  if [[ -f "${ENV_FILE}" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "${ENV_FILE}"
+    set +a
+  fi
+}
 
 ensure_vps_runtime() {
   if [[ "$(uname -s)" != "Linux" ]]; then
@@ -39,7 +53,10 @@ sql_escape_literal() {
 ensure_requirements() {
   command -v psql >/dev/null 2>&1 || { echo "psql is required" >&2; exit 1; }
   command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required" >&2; exit 1; }
-  [[ -n "${DB_URL:-}" ]] || { echo "DB_URL is required" >&2; exit 1; }
+  [[ -n "${DB_URL:-}" ]] || {
+    echo "DB_URL is required. Export DB_URL or define it in ${ENV_FILE}" >&2
+    exit 1
+  }
 }
 
 apply_migrations() {
@@ -85,6 +102,7 @@ apply_migrations() {
 
 main() {
   ensure_vps_runtime
+  load_env_if_needed
   ensure_requirements
   apply_migrations
 }

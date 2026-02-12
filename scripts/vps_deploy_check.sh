@@ -11,6 +11,7 @@ MIGRATE_SCRIPT="${REPO_DIR}/scripts/db_migrate.sh"
 MODE="checks"
 LOG_PATH="/tmp/zumbot_deploy_$(date +%Y%m%d_%H%M%S).log"
 APP_BASE_URL="http://127.0.0.1:8000"
+VERSION_FILE="${REPO_DIR}/VERSION"
 
 normalize_db_url() {
   local db_url="$1"
@@ -42,6 +43,34 @@ run_step() {
   log "== ${name} =="
   "$@"
   pass "${name}"
+}
+
+
+print_git_and_build_info() {
+  local git_head build_number
+  git_head="$(git -C "${REPO_DIR}" log -1 --pretty=format:'%h %s')"
+  build_number="unknown"
+  if [[ -f "${VERSION_FILE}" ]]; then
+    build_number="$(tr -d '[:space:]' < "${VERSION_FILE}")"
+  fi
+  log "[INFO] git HEAD: ${git_head}"
+  log "[INFO] build number: ${build_number}"
+}
+
+check_yaml_import() {
+  sudo -u zumbot bash -lc "cd '${REPO_DIR}' && source .venv/bin/activate && python -c 'import yaml; print("PyYAML OK")'" >/dev/null     || die "PyYAML import failed in .venv. Install deps (pip install -r requirements.txt) and verify requirements include PyYAML."
+}
+
+check_migrations_applied() {
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+
+  [[ -n "${DB_URL:-}" ]] || die "DB_URL is required in ${ENV_FILE}"
+  local db_url_for_cli
+  db_url_for_cli="$(normalize_db_url "${DB_URL}")"
+  env DB_URL="${db_url_for_cli}" bash "${MIGRATE_SCRIPT}" || die "Migration check/apply failed"
 }
 
 check_cmd() {
@@ -180,11 +209,14 @@ run_checks() {
   run_step "Check repository" check_repo
   run_step "Check env file" check_env_file
   run_step "Check venv" check_venv
+  run_step "Print git/build info" print_git_and_build_info
+  run_step "Check PyYAML import" check_yaml_import
   run_step "Check systemd units" check_systemd_units
   run_step "Check /healthz" check_http_endpoint "http://127.0.0.1:8000/healthz" "/healthz"
   run_step "Check /readyz" check_http_endpoint "http://127.0.0.1:8000/readyz" "/readyz"
   run_step "Check nginx config" check_nginx
   run_step "Check migrations directory" check_migrations_read_only
+  run_step "Check/apply migrations" check_migrations_applied
 }
 
 run_deploy() {
@@ -192,6 +224,7 @@ run_deploy() {
   run_step "git pull --ff-only origin main" git -C "${REPO_DIR}" pull --ff-only origin main
 
   run_step "pip install requirements" sudo -u zumbot bash -lc "cd '${REPO_DIR}' && source .venv/bin/activate && pip install -r requirements.txt"
+  run_step "Install test reset command" ln -sfn "${REPO_DIR}/scripts/test_data_reset_run.py" /usr/local/bin/zumbot-test-reset
 
   set -a
   # shellcheck disable=SC1090
@@ -264,6 +297,7 @@ main() {
   parse_args "$@"
 
   log "== zumbot ${MODE} =="
+  print_git_and_build_info
 
   if [[ "$(id -u)" -ne 0 ]]; then
     die "run as root"

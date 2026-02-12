@@ -20,7 +20,7 @@ sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/vps_deploy_check.sh'
 sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/vps_deploy_check.sh --mode deploy'
 ```
 
-`vps_deploy_check.sh` в режиме `checks` делает только проверки (без `git pull`, `pip install`, миграций и рестарта).
+`vps_deploy_check.sh` в режиме `checks` делает только валидации без `git pull`/`pip install`/`restart`, но выполняет idempotent-проверку миграций через `scripts/db_migrate.sh` (с автозагрузкой `/etc/zumbot/backend.env`).
 
 `vps_deploy_check.sh --mode deploy` выполняет ручной деплой и затем пост-проверки:
 - `git fetch` + `git pull --ff-only origin main`;
@@ -229,30 +229,26 @@ sudo journalctl -u zumbot-backend.service -n 300 --no-pager
 
 ## Безопасный сброс тестовых данных smoke-аккаунтов
 
-Для очистки тестовых данных используйте только реестр тестовых Telegram-аккаунтов.
+Используйте команду `zumbot-test-reset` (symlink на `scripts/test_data_reset_run.py`).
 
-1. Скопируйте пример и заполните локальный файл:
+Реестр выбирается автоматически:
+1) `/etc/zumbot/test_accounts.yaml` (prod, права `600`, владелец `zumbot`);
+2) fallback `config/test_accounts.yaml`.
 
-```bash
-cp config/test_accounts.example.yaml config/test_accounts.yaml
-```
-
-2. Проверьте, какие записи будут удалены (без изменений в БД):
+`DB_URL` подхватывается автоматически из `/etc/zumbot/backend.env`.
 
 ```bash
-python scripts/test_data_reset.py --dry-run
-```
+# dry-run по умолчанию
+zumbot-test-reset
 
-3. Примените удаление только после проверки отчёта:
-
-```bash
-python scripts/test_data_reset.py --apply
+# apply только с двойным подтверждением
+zumbot-test-reset --apply --i-know-what-i-am-doing --yes
 ```
 
 Дополнительно:
-- выборочные аккаунты по именам: `python scripts/test_data_reset.py --apply --names smoke_specialist_1 smoke_client_1`;
-- явные `tg_user_id` без реестра: `python scripts/test_data_reset.py --apply --tg-user-ids 123 456`;
-- при срабатывании safety guard используйте `--force` только осознанно.
+- выборочные аккаунты: `zumbot-test-reset --names smoke_specialist_1 smoke_client_1`;
+- явные `tg_user_id`: `zumbot-test-reset --tg-user-ids 123 456`;
+- форс-режим (осознанно): `zumbot-test-reset --apply --i-know-what-i-am-doing --yes --force`.
 
 Скрипт удаляет только связанные данные тестовых аккаунтов и не трогает глобальные heartbeat-записи (`service_heartbeats`).
 

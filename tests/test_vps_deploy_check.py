@@ -17,8 +17,9 @@ def test_check_script_is_checks_only() -> None:
     assert "systemctl restart" not in checks_block
 
 
-def test_migrations_check_is_read_only() -> None:
+def test_check_script_contains_build_and_dependency_checks() -> None:
     content = SCRIPT_PATH.read_text(encoding="utf-8")
 
-    assert "read-only check" in content
-    assert "psql" not in content
+    assert "print_git_and_build_info" in content
+    assert "PyYAML import failed" in content
+    assert "check_migrations_applied" in content

@@ -225,7 +225,7 @@ Nginx security snippet: `docs/snippets/nginx_security.conf`.
 6) **Включить TLS**
    - Получить сертификаты через certbot для обоих доменов.
 7) **Проверить health**
-   - `GET https://api.zumbot.ru/healthz` → `200`.
+   - `GET https://api.zumbot.ru/healthz` → `200` + build info (`version`, `build_number`, `commit_sha`, `build_date_utc`).
    - `GET https://api.zumbot.ru/readyz` → `200` (если всё готово).
 
 Важно:
@@ -316,13 +316,19 @@ pytest -q
 
 ## Безопасный сброс smoke-данных
 
-Для очистки тестовых Telegram-аккаунтов используйте `scripts/test_data_reset.py` и реестр `config/test_accounts.yaml`.
+Для очистки тестовых Telegram-аккаунтов используйте команду-обёртку `zumbot-test-reset` (symlink на `scripts/test_data_reset_run.py`).
+
+Реестр в production: `/etc/zumbot/test_accounts.yaml` (рекомендуемые права `600`, владелец `zumbot`).
+Если системный реестр отсутствует, fallback: `config/test_accounts.yaml`.
 
 Быстрый старт:
 ```bash
-cp config/test_accounts.example.yaml config/test_accounts.yaml
-python3 scripts/test_data_reset.py --dry-run
-python3 scripts/test_data_reset.py --apply
+# dry-run по умолчанию
+zumbot-test-reset
+
+# реальное удаление: двойное подтверждение
+zumbot-test-reset --apply --i-know-what-i-am-doing --yes
 ```
 
+Скрипт автоматически подхватывает `DB_URL` из `/etc/zumbot/backend.env`.
 Подробная инструкция и safety-алгоритм: `docs/test_data_reset.md`.

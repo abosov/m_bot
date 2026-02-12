@@ -35,6 +35,7 @@ from logging_middleware import log_outbound_message
 from services import heartbeat
 from services.telegram.bot_factory import close_personal_bot_cache
 from services.telegram.personal_dispatcher import process_update
+from services.build_info import get_build_info
 import config
 from admin_api import router as admin_router
 
@@ -92,7 +93,7 @@ else:
 
 @app.get("/healthz")
 async def healthz():
-    return {"status": "ok", "service": "backend"}
+    return {"status": "ok", "service": "backend", **get_build_info()}
 
 
 async def readyz():
