@@ -1,3 +1,4 @@
+import logging
 import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -9,9 +10,12 @@ from sqlalchemy import select
 import config
 from database import GoogleOAuth, async_session_factory
 from services.crypto import decrypt_token
+from services.alerting import notify_exception
 
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3"
+
+logger = logging.getLogger(__name__)
 
 
 class GoogleCalendarError(Exception):
@@ -24,6 +28,16 @@ class GoogleCalendarInsufficientPermissionsError(GoogleCalendarError):
 
 class GoogleCalendarAuthError(GoogleCalendarError):
     pass
+
+
+async def _notify_google_calendar_exception(where: str, exc: Exception, specialist_id: uuid.UUID | None = None) -> None:
+    if isinstance(exc, GoogleCalendarInsufficientPermissionsError):
+        return
+    await notify_exception(
+        where=where,
+        exc=exc,
+        context={"specialist_id": str(specialist_id)} if specialist_id else None,
+    )
 
 
 def required_scopes() -> list[str]:
@@ -91,100 +105,120 @@ def _raise_calendar_error(response: requests.Response) -> None:
 
 
 async def list_calendars(specialist_id: uuid.UUID) -> list[dict[str, Any]]:
-    headers = await _build_headers(specialist_id)
-    response = await asyncio.to_thread(
-        requests.get,
-        f"{GOOGLE_CALENDAR_BASE_URL}/users/me/calendarList",
-        headers=headers,
-        timeout=10,
-    )
-    if response.status_code != 200:
-        _raise_calendar_error(response)
-    return response.json().get("items", [])
+    try:
+        headers = await _build_headers(specialist_id)
+        response = await asyncio.to_thread(
+            requests.get,
+            f"{GOOGLE_CALENDAR_BASE_URL}/users/me/calendarList",
+            headers=headers,
+            timeout=10,
+        )
+        if response.status_code != 200:
+            _raise_calendar_error(response)
+        return response.json().get("items", [])
+    except Exception as exc:
+        await _notify_google_calendar_exception("services.google_calendar.list_calendars", exc, specialist_id)
+        raise
 
 
 async def get_calendar(specialist_id: uuid.UUID, calendar_id: str) -> dict[str, Any]:
-    headers = await _build_headers(specialist_id)
-    response = await asyncio.to_thread(
-        requests.get,
-        f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}",
-        headers=headers,
-        timeout=10,
-    )
-    if response.status_code != 200:
-        _raise_calendar_error(response)
-    return response.json()
+    try:
+        headers = await _build_headers(specialist_id)
+        response = await asyncio.to_thread(
+            requests.get,
+            f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}",
+            headers=headers,
+            timeout=10,
+        )
+        if response.status_code != 200:
+            _raise_calendar_error(response)
+        return response.json()
+    except Exception as exc:
+        await _notify_google_calendar_exception("services.google_calendar.get_calendar", exc, specialist_id)
+        raise
 
 
 async def create_bot_calendar(specialist_id: uuid.UUID, public_name: str, tz: str = "UTC") -> dict[str, Any]:
-    headers = await _build_headers(specialist_id)
-    payload = {
-        "summary": f"Zumbot - {public_name}",
-        "description": "Calendar created by Zumbot for booking sessions",
-        "timeZone": tz,
-    }
-    response = await asyncio.to_thread(
-        requests.post,
-        f"{GOOGLE_CALENDAR_BASE_URL}/calendars",
-        headers=headers,
-        json=payload,
-        timeout=10,
-    )
-    if response.status_code not in (200, 201):
-        _raise_calendar_error(response)
-    return response.json()
+    try:
+        headers = await _build_headers(specialist_id)
+        payload = {
+            "summary": f"Zumbot - {public_name}",
+            "description": "Calendar created by Zumbot for booking sessions",
+            "timeZone": tz,
+        }
+        response = await asyncio.to_thread(
+            requests.post,
+            f"{GOOGLE_CALENDAR_BASE_URL}/calendars",
+            headers=headers,
+            json=payload,
+            timeout=10,
+        )
+        if response.status_code not in (200, 201):
+            _raise_calendar_error(response)
+        return response.json()
+    except Exception as exc:
+        await _notify_google_calendar_exception("services.google_calendar.create_bot_calendar", exc, specialist_id)
+        raise
 
 
 async def ensure_calendar_access(specialist_id: uuid.UUID, calendar_id: str) -> bool:
-    headers = await _build_headers(specialist_id)
-    response = await asyncio.to_thread(
-        requests.get,
-        f"{GOOGLE_CALENDAR_BASE_URL}/users/me/calendarList/{calendar_id}",
-        headers=headers,
-        timeout=10,
-    )
-    if response.status_code != 200:
-        _raise_calendar_error(response)
-
-    role = response.json().get("accessRole")
-    if role not in {"owner", "writer"}:
-        raise GoogleCalendarInsufficientPermissionsError(
-            f"Calendar access role '{role}' is not enough to create events"
+    try:
+        headers = await _build_headers(specialist_id)
+        response = await asyncio.to_thread(
+            requests.get,
+            f"{GOOGLE_CALENDAR_BASE_URL}/users/me/calendarList/{calendar_id}",
+            headers=headers,
+            timeout=10,
         )
-    return True
+        if response.status_code != 200:
+            _raise_calendar_error(response)
+
+        role = response.json().get("accessRole")
+        if role not in {"owner", "writer"}:
+            raise GoogleCalendarInsufficientPermissionsError(
+                f"Calendar access role '{role}' is not enough to create events"
+            )
+        return True
+    except Exception as exc:
+        await _notify_google_calendar_exception("services.google_calendar.ensure_calendar_access", exc, specialist_id)
+        raise
 
 
 async def create_and_cleanup_test_event(specialist_id: uuid.UUID, calendar_id: str, tz: str = "UTC") -> None:
-    headers = await _build_headers(specialist_id)
-    start_dt = datetime.now(timezone.utc) + timedelta(minutes=7)
-    end_dt = start_dt + timedelta(minutes=5)
+    try:
+        headers = await _build_headers(specialist_id)
+        start_dt = datetime.now(timezone.utc) + timedelta(minutes=7)
+        end_dt = start_dt + timedelta(minutes=5)
 
-    payload = {
-        "summary": "Zumbot test event (auto)",
-        "description": "Created automatically to verify access",
-        "start": {"dateTime": start_dt.isoformat(), "timeZone": tz},
-        "end": {"dateTime": end_dt.isoformat(), "timeZone": tz},
-    }
+        payload = {
+            "summary": "Zumbot test event (auto)",
+            "description": "Created automatically to verify access",
+            "start": {"dateTime": start_dt.isoformat(), "timeZone": tz},
+            "end": {"dateTime": end_dt.isoformat(), "timeZone": tz},
+        }
 
-    create_response = await asyncio.to_thread(
-        requests.post,
-        f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}/events",
-        headers=headers,
-        json=payload,
-        timeout=10,
-    )
-    if create_response.status_code not in (200, 201):
-        _raise_calendar_error(create_response)
+        create_response = await asyncio.to_thread(
+            requests.post,
+            f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}/events",
+            headers=headers,
+            json=payload,
+            timeout=10,
+        )
+        if create_response.status_code not in (200, 201):
+            _raise_calendar_error(create_response)
 
-    event_id = create_response.json().get("id")
-    if not event_id:
-        raise GoogleCalendarError("Smoke-test event id is missing")
+        event_id = create_response.json().get("id")
+        if not event_id:
+            raise GoogleCalendarError("Smoke-test event id is missing")
 
-    delete_response = await asyncio.to_thread(
-        requests.delete,
-        f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}/events/{event_id}",
-        headers=headers,
-        timeout=10,
-    )
-    if delete_response.status_code not in (200, 204):
-        _raise_calendar_error(delete_response)
+        delete_response = await asyncio.to_thread(
+            requests.delete,
+            f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}/events/{event_id}",
+            headers=headers,
+            timeout=10,
+        )
+        if delete_response.status_code not in (200, 204):
+            _raise_calendar_error(delete_response)
+    except Exception as exc:
+        await _notify_google_calendar_exception("services.google_calendar.create_and_cleanup_test_event", exc, specialist_id)
+        raise

@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from database import async_session_factory, MessageLog, LogDirection, TelegramBot, SpecialistProfile
 from services.redaction import redact_exception, redact_text
+from services.alerting import notify_exception
 
 # Структура кэша: bot_id -> {'id': uuid, 'name': str, 'bot_username': str}
 # В продакшене лучше использовать Redis или TTLCache
@@ -191,6 +192,11 @@ class StructLoggingMiddleware(BaseMiddleware):
         except Exception as e:
             is_error = True
             error_details = redact_exception(traceback.format_exc())
+            await notify_exception(
+                where="logging_middleware.StructLoggingMiddleware",
+                exc=e,
+                context={"bot_id": bot_id, "tg_user_id": tg_user_id, "handler_name": handler_name},
+            )
             raise e
         finally:
             # --- Обновление лога ---

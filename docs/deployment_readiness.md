@@ -65,6 +65,11 @@
 | `SERVICE_NAME` | Имя сервиса для heartbeat | `backend` | optional | `config.py`, `web_server.py` |
 | `ADMIN_API_KEY` | Включение закрытого admin API | `strong-random-value` | optional | `config.py`, `web_server.py`, `admin_api.py` |
 | `LISTEN_FDS` / `LISTEN_PID` | Systemd socket activation | `1` / `<pid>` | optional | `main.py` |
+| `ALERTS_ENABLED` | Включение Telegram-алертов для админов | `false`/`true` | optional (default `false`) | `config.py`, `services/alerting.py` |
+| `ALERTS_TELEGRAM_CHAT_ID` | Chat ID для алертов (личка/группа/канал) | `-1001234567890` | required if alerts enabled | `config.py`, `services/alerting.py` |
+| `ALERTS_TELEGRAM_TOKEN` | Отдельный bot token для алертов (если пусто — используется `MASTER_BOT_TOKEN`) | `123456:***` | optional | `config.py`, `services/alerting.py` |
+| `ALERTS_THROTTLE_SECONDS` | Минимальный интервал между отправками алертов | `60` | optional | `config.py`, `services/alerting.py` |
+| `ALERTS_DEDUP_WINDOW_SECONDS` | Окно дедупликации одинаковых ошибок | `300` | optional | `config.py`, `services/alerting.py` |
 
 Примечания:
 - В коде используется `DB_URL`; переменная `DATABASE_URL` — это внутреннее имя Python-константы.
@@ -284,3 +289,41 @@
 2. Убедиться по логам, что shutdown завершён без исключений закрытия сессий.
 3. Выполнить start.
 4. Повторить smoke-check минимум по `/healthz`, `/readyz` и webhook.
+
+
+## Telegram Alerts (Система оповещений об ошибках)
+
+### Что отправляется
+- Критические ошибки webhook и callback-обработчиков.
+- Исключения в Google OAuth / Google Calendar сервисах.
+- Падения фоновых задач и необработанные исключения в основном цикле.
+
+Сообщения проходят санитайзинг: удаляются токены, секреты, пароли и чувствительные строки подключения.
+
+### Как подготовить чат/канал
+1. Создайте приватный чат, группу или канал для алертов.
+2. Добавьте alert-бота (или master-бота, если используется fallback) администратором чата/канала.
+3. Получите `chat_id`:
+   - для группы/канала: отправьте сообщение и проверьте `getUpdates`;
+   - для личного чата: достаточно написать боту и посмотреть `chat.id` в `getUpdates`.
+
+Пример проверки:
+```bash
+curl -fsS "https://api.telegram.org/bot${ALERTS_TELEGRAM_TOKEN:-$MASTER_BOT_TOKEN}/getUpdates"
+```
+
+### Как включить в production
+Добавьте в `/etc/zumbot/backend.env`:
+```dotenv
+ALERTS_ENABLED=true
+ALERTS_TELEGRAM_CHAT_ID=-1001234567890
+# опционально, если нужен отдельный бот для алертов
+# ALERTS_TELEGRAM_TOKEN=123456:XXX
+ALERTS_THROTTLE_SECONDS=60
+ALERTS_DEDUP_WINDOW_SECONDS=300
+```
+
+После изменения env перезапустите сервис:
+```bash
+sudo systemctl restart zumbot-backend.service
+```

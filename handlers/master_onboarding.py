@@ -58,6 +58,7 @@ from services.google_calendar import (
 from services.onboarding import finalize_specialist_if_ready
 from config import BACKEND_BASE_URL
 from services.specialist_onboarding import get_specialist_by_tg_user_id, set_master_onboarding_completed
+from services.alerting import notify_exception
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -909,6 +910,11 @@ async def process_bot_token(message: types.Message, state: FSMContext):
                 bot_info.id,
                 e.__class__.__name__,
             )
+            await notify_exception(
+                where="handlers.master_onboarding.process_bot_token.webhook",
+                exc=e,
+                context={"specialist_id": str(specialist_id), "bot_id": bot_info.id},
+            )
             text_out = "❌ Не удалось настроить webhook из-за временной ошибки Telegram. Попробуйте отправить токен ещё раз."
             await message.answer(text_out)
             await log_outbound_message(message.bot, tg_user_id, text_out, fsm_state="waiting_for_bot_token", user_handle=user_handle)
@@ -958,9 +964,14 @@ async def process_bot_token(message: types.Message, state: FSMContext):
             specialist_name=specialist_name
         )
 
-    except Exception:
+    except Exception as exc:
         error_trace = traceback.format_exc()
         await _log_error_to_db(message.bot, tg_user_id, error_trace, "process_bot_token")
+        await notify_exception(
+            where="handlers.master_onboarding.process_bot_token",
+            exc=exc,
+            context={"tg_user_id": tg_user_id},
+        )
         await message.answer("⚠️ Критическая ошибка при подключении бота.")
 
 
@@ -975,10 +986,20 @@ async def calendar_select(callback: types.CallbackQuery, state: FSMContext):
         )
         await callback.answer()
     except GoogleCalendarError as exc:
+        await notify_exception(
+            where="handlers.master_onboarding.calendar_select.google",
+            exc=exc,
+            context={"tg_user_id": callback.from_user.id},
+        )
         await callback.message.answer(f"⚠️ Ошибка Google Calendar: {exc}")
         await callback.answer()
-    except Exception:
+    except Exception as exc:
         logger.exception("calendar_select failed")
+        await notify_exception(
+            where="handlers.master_onboarding.calendar_select",
+            exc=exc,
+            context={"tg_user_id": callback.from_user.id},
+        )
         await callback.message.answer("⚠️ Не удалось получить список календарей. Попробуйте позже.")
         await callback.answer()
 
@@ -1107,8 +1128,13 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
             )
 
         await callback.answer()
-    except Exception:
+    except Exception as exc:
         logger.exception("calendar_pick failed")
+        await notify_exception(
+            where="handlers.master_onboarding.calendar_pick",
+            exc=exc,
+            context={"tg_user_id": callback.from_user.id},
+        )
         await callback.message.answer("⚠️ Не удалось применить выбранный календарь. Попробуйте позже.")
         await callback.answer()
 
@@ -1347,10 +1373,20 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
     except GoogleCalendarError as exc:
         logger.exception("Google calendar operation failed")
+        await notify_exception(
+            where="handlers.master_onboarding.calendar_create.google",
+            exc=exc,
+            context={"tg_user_id": callback.from_user.id},
+        )
         await callback.message.answer(f"⚠️ Ошибка Google Calendar: {exc}")
         await callback.answer()
-    except Exception:
+    except Exception as exc:
         logger.exception("calendar_create failed")
+        await notify_exception(
+            where="handlers.master_onboarding.calendar_create",
+            exc=exc,
+            context={"tg_user_id": callback.from_user.id},
+        )
         await callback.message.answer("⚠️ Не удалось подключить календарь. Попробуйте позже.")
         await callback.answer()
 
@@ -1447,7 +1483,12 @@ async def full_onboarding_recheck(callback: types.CallbackQuery):
                 reply_markup=_full_onboarding_guard_keyboard(deep_link),
             )
         await callback.answer()
-    except Exception:
+    except Exception as exc:
         logger.exception("full_onboarding_recheck failed tg_user_id=%s", tg_user_id)
+        await notify_exception(
+            where="handlers.master_onboarding.full_onboarding_recheck",
+            exc=exc,
+            context={"tg_user_id": tg_user_id},
+        )
         await callback.message.answer("⚠️ Не удалось проверить статус онбординга. Попробуйте позже.")
         await callback.answer()

@@ -27,6 +27,7 @@ from logging_middleware import StructLoggingMiddleware
 # Импортируем веб-сервер
 from web_server import app as fastapi_app
 from services.heartbeat import heartbeat_task
+from services.alerting import notify_exception
 
 async def start_web_server():
     """Запуск uvicorn в асинхронном режиме"""
@@ -60,6 +61,10 @@ async def start_web_server():
         server.should_exit = True
         await server.shutdown()
         raise
+    except Exception as exc:
+        logger.exception("Web server crashed")
+        await notify_exception(where="main.start_web_server", exc=exc)
+        raise
 
 async def start_bot():
     """Запуск Telegram бота"""
@@ -85,6 +90,10 @@ async def start_bot():
         await dp.start_polling(bot, handle_signals=False)
     except asyncio.CancelledError:
         logger.info("🤖 Bot polling cancelled...")
+    except Exception as exc:
+        logger.exception("Master bot polling crashed")
+        await notify_exception(where="main.start_bot.polling", exc=exc)
+        raise
     finally:
         await bot.session.close()
         logger.info("🤖 Bot session closed.")
@@ -127,11 +136,18 @@ async def main():
         if shutdown_task not in done:
             for task in done:
                 if task.exception():
-                    raise task.exception()
+                    exc = task.exception()
+                    await notify_exception(
+                        where="main.task_supervisor",
+                        exc=exc if isinstance(exc, Exception) else RuntimeError(str(exc)),
+                        context={"task_name": task.get_name() if hasattr(task, "get_name") else "unknown"},
+                    )
+                    raise exc
     except asyncio.CancelledError:
         logger.info("Main tasks cancelled, shutting down...")
-    except Exception:
+    except Exception as exc:
         logger.error("Unexpected error in main loop", exc_info=True)
+        await notify_exception(where="main.main", exc=exc)
         raise
     finally:
         # Корректное завершение при ошибке или отмене
@@ -161,6 +177,10 @@ if __name__ == "__main__":
     except (KeyboardInterrupt, SystemExit):
         logger.info("🛑 Application stopped manually.")
         raise
-    except Exception:
+    except Exception as exc:
         logger.error("Fatal startup error", exc_info=True)
+        try:
+            asyncio.run(notify_exception(where="main.__main__", exc=exc))
+        except Exception:
+            logger.warning("Failed to send startup alert", exc_info=True)
         sys.exit(1)

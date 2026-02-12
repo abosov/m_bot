@@ -1,3 +1,4 @@
+import logging
 import secrets
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import config
 from database import OAuthState, OAuthStateType
+from services.alerting import notify_exception
 
 # Конфигурация клиента Google из переменных окружения
 # В продакшене лучше использовать файл client_secrets.json, но для MVP соберем словарь вручную
@@ -27,6 +29,8 @@ SCOPES = [
     'https://www.googleapis.com/auth/calendar.events',
 ]
 REDIRECT_URI = config.GOOGLE_REDIRECT_URI
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_google_oauth_config() -> None:
@@ -98,7 +102,15 @@ def exchange_code_for_token(code: str) -> Tuple[str, str, Any]:
 
 
 async def exchange_code_for_token_async(code: str, timeout: int = 15) -> Tuple[str, str, Any]:
-    return await asyncio.wait_for(
-        asyncio.to_thread(exchange_code_for_token, code),
-        timeout=timeout,
-    )
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(exchange_code_for_token, code),
+            timeout=timeout,
+        )
+    except Exception as exc:
+        logger.warning("Google OAuth token exchange failed", exc_info=True)
+        await notify_exception(
+            where="services.google_oauth.exchange_code_for_token_async",
+            exc=exc,
+        )
+        raise
