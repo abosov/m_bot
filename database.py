@@ -85,6 +85,8 @@ class Specialist(Base):
     status: Mapped[SpecialistStatus] = mapped_column(SAEnum(SpecialistStatus), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    master_onboarding_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    full_onboarding_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     auth_telegram: Mapped["SpecialistAuthTelegram"] = relationship(back_populates="specialist", uselist=False)

@@ -55,6 +55,7 @@ from services.google_calendar import (
 )
 from services.onboarding import finalize_specialist_if_ready
 from config import BACKEND_BASE_URL
+from services.specialist_onboarding import get_specialist_by_tg_user_id, set_master_onboarding_completed
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -84,6 +85,32 @@ def _safe_username(username: str | None) -> str:
         username = username[1:]
     return username
 
+
+
+def _build_personal_deep_link(bot_username: str | None) -> str:
+    safe_username = _safe_username(bot_username)
+    return f"https://t.me/{safe_username}?start=owner_panel" if safe_username else ""
+
+
+def _full_onboarding_guard_keyboard(deep_link: str) -> types.InlineKeyboardMarkup:
+    rows = []
+    if deep_link:
+        rows.append([types.InlineKeyboardButton(text="🚀 Перейти в персональный бот", url=deep_link)])
+    rows.append([types.InlineKeyboardButton(text="🔁 Я уже завершил — проверить снова", callback_data="full_onboarding:recheck")])
+    return types.InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _check_full_onboarding_or_prompt(message: types.Message, specialist: Specialist, personal_bot_username: str | None) -> bool:
+    if specialist.full_onboarding_completed_at is not None:
+        return True
+
+    deep_link = _build_personal_deep_link(personal_bot_username)
+    await message.answer(
+        "⏳ Онбординг ещё не завершён. Завершите его в персональном боте.\n"
+        f"{deep_link if deep_link else 'Откройте вашего персонального бота по username.'}",
+        reply_markup=_full_onboarding_guard_keyboard(deep_link),
+    )
+    return False
 
 
 def _calendar_action_keyboard() -> types.InlineKeyboardMarkup:
@@ -374,6 +401,13 @@ async def cmd_status(message: types.Message):
             )
             return
 
+        specialist = await get_specialist_by_tg_user_id(tg_user_id)
+        if specialist is None:
+            await message.answer("⚠️ Профиль специалиста не найден. Нажмите /start для регистрации.")
+            return
+        if not await _check_full_onboarding_or_prompt(message, specialist, tg_bot.bot_username):
+            return
+
         logger.info(
             "Status check requested: specialist_id=%s bot_id=%s",
             auth_entry.specialist_id,
@@ -553,8 +587,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
             if specialist.status == SpecialistStatus.active and has_bot:
                 await state.clear()
                 personal_bot_username = active_bot.bot_username
-                safe_username = _safe_username(personal_bot_username)
-                personal_link = f"https://t.me/{safe_username}?start=owner_panel" if safe_username else ""
+                personal_link = _build_personal_deep_link(personal_bot_username)
                 final_text = (
                     f"✅ Вы активны. Откройте личного бота: @{personal_bot_username}.\n\n"
                     "Через личного бота вы управляете настройками и проверяете статусы интеграций."
@@ -821,6 +854,8 @@ async def process_bot_token(message: types.Message, state: FSMContext):
 
             await session.commit()
 
+        await set_master_onboarding_completed(specialist_id)
+
         # 3. Установка вебхука с retry
         temp_bot_webhook = Bot(token=raw_token)
         try:
@@ -1020,12 +1055,12 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
         if smoke_ok:
             await finalize_specialist_if_ready(specialist.specialist_id)
             personal_username = await _notify_personal_bot_welcome(specialist.specialist_id, tg_user_id)
-            safe_username = _safe_username(personal_username)
-            deep_link = f"https://t.me/{safe_username}?start=owner_panel" if safe_username else ""
+            deep_link = _build_personal_deep_link(personal_username)
 
             await state.clear()
             await callback.message.answer(
-                "✅ Календарь подключён, всё готово. Теперь используйте вашего бота: "
+                "✅ Календарь подключён. Master-онбординг завершён.\n"
+                "Чтобы завершить онбординг полностью, перейдите в персональный бот и подтвердите/настройте параметры:\n"
                 f"@{personal_username}\n{deep_link}"
             )
 
@@ -1252,12 +1287,12 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
 
         await finalize_specialist_if_ready(specialist.specialist_id)
         personal_username = await _notify_personal_bot_welcome(specialist.specialist_id, tg_user_id)
-        safe_username = _safe_username(personal_username)
-        deep_link = f"https://t.me/{safe_username}?start=owner_panel" if safe_username else ""
+        deep_link = _build_personal_deep_link(personal_username)
 
         await state.clear()
         await callback.message.answer(
-            "✅ Календарь подключён, всё готово. Теперь используйте вашего бота: "
+            "✅ Календарь подключён. Master-онбординг завершён.\n"
+            "Чтобы завершить онбординг полностью, перейдите в персональный бот и подтвердите/настройте параметры:\n"
             f"@{personal_username}\n{deep_link}"
         )
         await callback.answer()
@@ -1335,3 +1370,42 @@ async def calendar_list_probe(callback: types.CallbackQuery):
     except Exception:
         await callback.message.answer("Не удалось получить список календарей.")
     await callback.answer()
+
+
+@router.callback_query(F.data == "full_onboarding:recheck")
+async def full_onboarding_recheck(callback: types.CallbackQuery):
+    tg_user_id = callback.from_user.id
+    try:
+        specialist = await get_specialist_by_tg_user_id(tg_user_id)
+        if specialist is None:
+            await callback.message.answer("⚠️ Профиль специалиста не найден. Нажмите /start.")
+            await callback.answer()
+            return
+
+        async with async_session_factory() as session:
+            bot = (
+                await session.execute(
+                    select(TelegramBot)
+                    .where(
+                        TelegramBot.specialist_id == specialist.specialist_id,
+                        TelegramBot.status == TelegramBotStatus.active,
+                    )
+                    .order_by(TelegramBot.created_at.desc())
+                )
+            ).scalars().first()
+
+        if specialist.full_onboarding_completed_at is not None:
+            await callback.message.answer("✅ Полный онбординг уже завершён. Можно продолжать работу в master-боте.")
+        else:
+            username = bot.bot_username if bot else None
+            deep_link = _build_personal_deep_link(username)
+            await callback.message.answer(
+                "⏳ Онбординг ещё не завершён. Завершите его в персональном боте:\n"
+                f"{deep_link if deep_link else 'Откройте персональный бот по username.'}",
+                reply_markup=_full_onboarding_guard_keyboard(deep_link),
+            )
+        await callback.answer()
+    except Exception:
+        logger.exception("full_onboarding_recheck failed tg_user_id=%s", tg_user_id)
+        await callback.message.answer("⚠️ Не удалось проверить статус онбординга. Попробуйте позже.")
+        await callback.answer()
