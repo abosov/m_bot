@@ -42,6 +42,9 @@ class AlertEvent:
     where: str
     error: str | None = None
     message: str | None = None
+    stage: str | None = None
+    user_message: str | None = None
+    username: str | None = None
     context: dict[str, Any] = field(default_factory=dict)
 
 
@@ -108,10 +111,24 @@ def _normalize_message(message: str | None) -> str:
     return normalized
 
 
+def _sanitize_text(value: str | None, max_length: int = _MAX_FIELD_LENGTH) -> str:
+    if not value:
+        return ""
+
+    text = " ".join(value.split())
+    for pattern in _TOKEN_PATTERNS:
+        text = pattern.sub(_replacement_for_pattern(pattern, text), text)
+
+    if len(text) > max_length:
+        text = f"{text[:max_length]}..."
+    return text
+
+
 def _dedup_key(event: AlertEvent) -> str:
     context = sanitize_context(event.context)
     stable_parts = [
         event.where,
+        event.stage or "",
         event.error or "",
         _normalize_message(event.message),
         str(context.get("specialist_id", "")),
@@ -129,13 +146,26 @@ def _format_alert(event: AlertEvent) -> str:
         f"ALERT: {event.title[:120]}",
         "",
         f"env={config.APP_ENV}",
-        f"where={event.where[:150]}",
     ]
+
+    if event.stage:
+        lines.append(f"stage={event.stage[:80]}")
+
+    lines.append(
+        f"where={event.where[:150]}",
+    )
 
     if event.error:
         lines.append(f"error={event.error[:120]}")
     if event.message:
         lines.append(f"message={_normalize_message(event.message)}")
+    if event.username:
+        safe_username = event.username.lstrip("@")[:64]
+        lines.append(f"username=@{safe_username}")
+    if event.user_message:
+        safe_user_message = _sanitize_text(event.user_message, max_length=_MAX_FIELD_LENGTH)
+        if safe_user_message:
+            lines.append(f'user_message="{safe_user_message}"')
 
     for key, value in safe_context.items():
         lines.append(f"{key}={value}")
@@ -233,7 +263,14 @@ async def notify_admin(event: AlertEvent) -> None:
                 _dedup_cache.pop(key, None)
 
 
-async def notify_exception(where: str, exc: Exception, context: dict | None = None) -> None:
+async def notify_exception(
+    where: str,
+    exc: Exception,
+    context: dict | None = None,
+    stage: str | None = None,
+    user_message: str | None = None,
+    username: str | None = None,
+) -> None:
     await notify_admin(
         AlertEvent(
             title="Unhandled exception",
@@ -241,5 +278,8 @@ async def notify_exception(where: str, exc: Exception, context: dict | None = No
             error=exc.__class__.__name__,
             message=str(exc),
             context=sanitize_context(context),
+            stage=stage,
+            user_message=user_message,
+            username=username,
         )
     )

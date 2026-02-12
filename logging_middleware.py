@@ -196,6 +196,7 @@ class StructLoggingMiddleware(BaseMiddleware):
                 where="logging_middleware.StructLoggingMiddleware",
                 exc=e,
                 context={"bot_id": bot_id, "tg_user_id": tg_user_id, "handler_name": handler_name},
+                stage="personal_bot",
             )
             raise e
         finally:

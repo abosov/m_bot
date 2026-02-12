@@ -63,7 +63,7 @@ async def start_web_server():
         raise
     except Exception as exc:
         logger.exception("Web server crashed")
-        await notify_exception(where="main.start_web_server", exc=exc)
+        await notify_exception(where="main.start_web_server", exc=exc, stage="webhook")
         raise
 
 async def start_bot():
@@ -92,7 +92,7 @@ async def start_bot():
         logger.info("🤖 Bot polling cancelled...")
     except Exception as exc:
         logger.exception("Master bot polling crashed")
-        await notify_exception(where="main.start_bot.polling", exc=exc)
+        await notify_exception(where="main.start_bot.polling", exc=exc, stage="master_onboarding")
         raise
     finally:
         await bot.session.close()
@@ -141,13 +141,14 @@ async def main():
                         where="main.task_supervisor",
                         exc=exc if isinstance(exc, Exception) else RuntimeError(str(exc)),
                         context={"task_name": task.get_name() if hasattr(task, "get_name") else "unknown"},
+                        stage="background_task",
                     )
                     raise exc
     except asyncio.CancelledError:
         logger.info("Main tasks cancelled, shutting down...")
     except Exception as exc:
         logger.error("Unexpected error in main loop", exc_info=True)
-        await notify_exception(where="main.main", exc=exc)
+        await notify_exception(where="main.main", exc=exc, stage="background_task")
         raise
     finally:
         # Корректное завершение при ошибке или отмене
@@ -181,7 +182,7 @@ if __name__ == "__main__":
     except Exception as exc:
         logger.error("Fatal startup error", exc_info=True)
         try:
-            asyncio.run(notify_exception(where="main.__main__", exc=exc))
+            asyncio.run(notify_exception(where="main.__main__", exc=exc, stage="background_task"))
         except Exception:
             logger.warning("Failed to send startup alert", exc_info=True)
         sys.exit(1)

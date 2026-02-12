@@ -37,6 +37,7 @@ async def _notify_google_calendar_exception(where: str, exc: Exception, speciali
         where=where,
         exc=exc,
         context={"specialist_id": str(specialist_id)} if specialist_id else None,
+        stage="google_oauth",
     )
 
 
