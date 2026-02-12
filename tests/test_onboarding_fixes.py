@@ -206,8 +206,8 @@ async def test_notify_personal_bot_welcome_picks_most_recent_active_bot(tmp_path
             self.default = default
             self.session = SimpleNamespace(close=self._close)
 
-        async def send_message(self, chat_id, text, request_timeout):
-            sent.append((self.token, chat_id, text, request_timeout))
+        async def send_message(self, chat_id, text, request_timeout=None, **kwargs):
+            sent.append((self.token, chat_id, text, request_timeout, kwargs))
 
         async def _close(self):
             return None
@@ -218,7 +218,7 @@ async def test_notify_personal_bot_welcome_picks_most_recent_active_bot(tmp_path
 
     assert username == "newer_bot"
     assert sent == [
-        ("decrypted::enc-newer", 777, "🎉 Личный бот готов к работе.", 6.0),
+        ("decrypted::enc-newer", 777, "🎉 Личный бот готов к работе.", 6.0, {}),
     ]
 
 
@@ -256,7 +256,7 @@ async def test_notify_personal_bot_welcome_returns_username_on_send_error(tmp_pa
         def __init__(self, token, default):
             self.session = SimpleNamespace(close=self._close)
 
-        async def send_message(self, chat_id, text, request_timeout):
+        async def send_message(self, chat_id, text, request_timeout=None, **kwargs):
             raise onboarding.TelegramNetworkError(method="sendMessage", message="network down")
 
         async def _close(self):
@@ -301,11 +301,46 @@ async def test_google_oauth_callback_valid_state_consumes_and_upserts_token(tmp_
 
     monkeypatch.setattr(web_server, "list_calendars", _fake_list_calendars)
 
+    async with database.async_session_factory() as session:
+        session.add(
+            database.SpecialistAuthTelegram(
+                specialist_id=specialist_id,
+                tg_user_id=777,
+                tg_username="spec",
+                tg_first_name="Spec",
+                tg_last_name=None,
+            )
+        )
+        session.add(
+            database.SpecialistProfile(
+                specialist_id=specialist_id,
+                public_name="Spec",
+                owner_tg_user_id=777,
+                owner_tg_username="spec",
+                specialist_timezone="Europe/Moscow",
+            )
+        )
+        await session.commit()
+
+    sent = []
+
+    class _BotStub:
+        async def send_message(self, chat_id, text, **kwargs):
+            sent.append({"chat_id": chat_id, "text": text, **kwargs})
+
+    monkeypatch.setattr(web_server, "bot", _BotStub())
+
     client = TestClient(web_server.app)
     response = client.get(f"/google/oauth/callback?code=fake&state={state_value}")
 
     assert response.status_code == 200
     assert "Успешно" in response.text
+    assert len(sent) == 1
+    assert sent[0]["chat_id"] == 777
+    keyboard = sent[0]["reply_markup"]
+    callbacks = [btn.callback_data for row in keyboard.inline_keyboard for btn in row]
+    assert "calendar:create" in callbacks
+    assert "calendar:select" in callbacks
 
     async with database.async_session_factory() as session:
         oauth = await session.get(database.GoogleOAuth, specialist_id)

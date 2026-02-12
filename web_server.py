@@ -11,6 +11,7 @@ from sqlalchemy import select, update
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from database import (
     async_session_factory, 
@@ -40,6 +41,16 @@ import config
 from admin_api import router as admin_router
 
 logger = logging.getLogger(__name__)
+
+
+def build_calendar_action_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🆕 Создать новый", callback_data="calendar:create")],
+            [InlineKeyboardButton(text="📂 Выбрать существующий", callback_data="calendar:select")],
+            [InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")],
+        ]
+    )
 
 
 @asynccontextmanager
@@ -431,13 +442,15 @@ async def google_oauth_callback(request: Request):
             if auth_data and bot is not None:
                 if permissions_ok:
                     text_out = "✅ **Google подключен!**\n\nШаг 4 из 4: выберите действие с календарем в master bot (создать отдельный или выбрать существующий)."
+                    reply_markup = build_calendar_action_keyboard()
                 else:
                     text_out = (
                         "⚠️ Google подключен, но доступов недостаточно для создания календаря/событий.\n"
                         "Переподключите аккаунт через кнопку в master bot и выдайте все права."
                     )
+                    reply_markup = None
                 try:
-                    await bot.send_message(chat_id=auth_data.tg_user_id, text=text_out)
+                    await bot.send_message(chat_id=auth_data.tg_user_id, text=text_out, reply_markup=reply_markup)
                     await log_outbound_message(
                         bot=bot,
                         tg_user_id=auth_data.tg_user_id,
