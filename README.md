@@ -222,6 +222,7 @@ Google Calendar — источник истины для:
 
 Подробный VPS-runbook (ручной деплой, smoke-check, базовая nginx-защита и fail2ban): `docs/runbook_vps.md`.
 Nginx security snippet: `docs/snippets/nginx_security.conf`.
+Логи runtime и упаковка для выгрузки: `docs/logging.md`. 
 6) **Включить TLS**
    - Получить сертификаты через certbot для обоих доменов.
 7) **Проверить health**

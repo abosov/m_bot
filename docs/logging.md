@@ -147,6 +147,41 @@ python scripts/export_logs.py \
   --out /tmp/message_logs_redacted.jsonl
 ```
 
+### Runtime logs
+По умолчанию runtime-логи backend пишутся в stdout/stderr процесса и доступны через
+`journalctl` (если backend запущен под systemd).
+
+- Базовый источник:
+  - `journalctl -u zumbot-backend.service --since "24 hours ago" --no-pager`
+- Если в окружении задан `LOG_DIR` и директория существует, runtime-логи пишутся
+  в файлы (типовая структура):
+  - `app.log` — общий лог приложения;
+  - `http.log` — HTTP/access контекст;
+  - `bot.log` — события Telegram-ботов.
+
+Ротация файлов в `LOG_DIR` настраивается параметрами:
+- `maxBytes` — максимальный размер файла до ротации;
+- `backupCount` — число архивных файлов (`*.log.*`).
+
+Для упаковки runtime-логов в единый архив используйте:
+
+```bash
+scripts/collect_runtime_logs.sh
+```
+
+Архив будет создан в `/tmp`:
+
+```text
+/tmp/zumbot_logs_bundle_<UTC>.tar.gz
+```
+
+Что входит в архив:
+- `journalctl_zumbot-backend.log` (за последние 24 часа по умолчанию, либо последние N строк);
+- `runtime_logs/*.log` и `runtime_logs/*.log.*` из `LOG_DIR` (если задана и существует);
+- `deploy_logs/zumbot_deploy_*.log` и `deploy_logs/zumbot_deploy_check_*.log` (если есть).
+
+Важно: скрипт не читает и не копирует `.env*` файлы и не предназначен для выгрузки секретов.
+
 ### Snapshot/backup БД (SQLite/PostgreSQL)
 Скрипт `scripts/db_snapshot.sh` делает снапшот только нужных таблиц логов.
 Для PostgreSQL используются стандартные переменные окружения `PGHOST/PGUSER/PGPASSWORD/PGDATABASE`
