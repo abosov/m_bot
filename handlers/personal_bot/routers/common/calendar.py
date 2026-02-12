@@ -20,9 +20,25 @@ from services.google_calendar import list_calendars, create_bot_calendar, create
 from services.specialist_defaults import apply_specialist_defaults_if_missing
 from services.notify import notify_exception
 from handlers.personal_bot.routers.common.start import _render_onboarding_screen
+from services.log_context import log_event
 
 router = Router(name="personal_bot_common_calendar")
 logger = logging.getLogger(__name__)
+
+
+def _log_personal_handler(*, callback: types.CallbackQuery, handler_name: str, fsm_state: str | None, outcome: str) -> None:
+    log_event(
+        logger,
+        logging.INFO,
+        event="personal_handler",
+        bot_id=callback.bot.id,
+        tg_user_id=callback.from_user.id if callback.from_user else None,
+        handler_name=handler_name,
+        fsm_state=fsm_state,
+        outcome=outcome,
+        update_type="callback_query",
+        text_length=None,
+    )
 
 
 class PersonalGoogleCalendarPickState(StatesGroup):
@@ -113,6 +129,7 @@ async def _get_specialist_id_by_tg_user_id(tg_user_id: int):
 
 @router.callback_query(F.data == "calendar:switch_stub")
 async def personal_calendar_switch_stub(callback: types.CallbackQuery, state: FSMContext):
+    _log_personal_handler(callback=callback, handler_name="personal_calendar_switch_stub", fsm_state=await state.get_state(), outcome="start")
     specialist_id = await _get_specialist_id_by_tg_user_id(callback.from_user.id)
     if not specialist_id:
         await callback.message.answer("⚠️ Профиль специалиста не найден. Нажмите /start.")
@@ -128,6 +145,7 @@ async def personal_calendar_switch_stub(callback: types.CallbackQuery, state: FS
 
 @router.callback_query(F.data == "calendar:create")
 async def personal_calendar_create(callback: types.CallbackQuery, state: FSMContext):
+    _log_personal_handler(callback=callback, handler_name="personal_calendar_create", fsm_state=await state.get_state(), outcome="start")
     tg_user_id = callback.from_user.id
     specialist_id = await _get_specialist_id_by_tg_user_id(tg_user_id)
     if not specialist_id:
@@ -195,6 +213,7 @@ async def personal_calendar_create(callback: types.CallbackQuery, state: FSMCont
 
 @router.callback_query(F.data == "calendar:select")
 async def personal_calendar_select(callback: types.CallbackQuery, state: FSMContext):
+    _log_personal_handler(callback=callback, handler_name="personal_calendar_select", fsm_state=await state.get_state(), outcome="start")
     specialist_id = await _get_specialist_id_by_tg_user_id(callback.from_user.id)
     if not specialist_id:
         await callback.message.answer("⚠️ Профиль специалиста не найден. Нажмите /start.")
@@ -230,6 +249,7 @@ async def personal_calendar_select(callback: types.CallbackQuery, state: FSMCont
 
 @router.callback_query(F.data.startswith("calendar:page:"))
 async def personal_calendar_page(callback: types.CallbackQuery, state: FSMContext):
+    _log_personal_handler(callback=callback, handler_name="personal_calendar_page", fsm_state=await state.get_state(), outcome="start")
     data = await state.get_data()
     items = data.get("items") or []
     try:
@@ -251,6 +271,7 @@ async def personal_calendar_page(callback: types.CallbackQuery, state: FSMContex
 
 @router.callback_query(F.data.startswith("calendar:pick:"))
 async def personal_calendar_pick(callback: types.CallbackQuery, state: FSMContext):
+    _log_personal_handler(callback=callback, handler_name="personal_calendar_pick", fsm_state=await state.get_state(), outcome="start")
     data = await state.get_data()
     items = data.get("items") or []
 
@@ -302,6 +323,7 @@ async def personal_calendar_pick(callback: types.CallbackQuery, state: FSMContex
 
 @router.callback_query(F.data == "calendar:cancel_select")
 async def personal_calendar_cancel_select(callback: types.CallbackQuery, state: FSMContext):
+    _log_personal_handler(callback=callback, handler_name="personal_calendar_cancel_select", fsm_state=await state.get_state(), outcome="start")
     await state.clear()
     specialist_id = await _get_specialist_id_by_tg_user_id(callback.from_user.id)
     if specialist_id:
@@ -313,6 +335,7 @@ async def personal_calendar_cancel_select(callback: types.CallbackQuery, state: 
 
 @router.callback_query(F.data == "calendar:smoke")
 async def personal_calendar_smoke(callback: types.CallbackQuery, state: FSMContext):
+    _log_personal_handler(callback=callback, handler_name="personal_calendar_smoke", fsm_state=await state.get_state(), outcome="start")
     specialist_id = await _get_specialist_id_by_tg_user_id(callback.from_user.id)
     if not specialist_id:
         await callback.message.answer("⚠️ Профиль специалиста не найден. Нажмите /start.")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -21,8 +22,11 @@ from services.log_exporter import (
     serialize_service_heartbeat,
 )
 from services.test_data_reset import TestDataResetError, execute_test_data_reset
+from services.log_context import log_event
+from services.request_context import get_request_id
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+logger = logging.getLogger(__name__)
 
 
 class AdminTestDataResetRequest(BaseModel):
@@ -69,33 +73,52 @@ async def admin_logs(
     redact: bool = Query(default=True),
     _auth: None = Depends(require_admin_key),
 ):
+    request_id = get_request_id()
     since_dt = parse_iso_datetime(since) if since else None
     until_dt = parse_iso_datetime(until) if until else None
     limit_value = clamp_limit(limit)
     specialist_uuid = parse_uuid(specialist_id)
 
-    async with async_session_factory() as session:
-        stmt = select(MessageLog)
-        if since_dt:
-            stmt = stmt.where(MessageLog.created_at >= since_dt)
-        if until_dt:
-            stmt = stmt.where(MessageLog.created_at <= until_dt)
-        if bot_id is not None:
-            stmt = stmt.where(MessageLog.bot_id == bot_id)
-        if specialist_uuid is not None:
-            stmt = stmt.where(MessageLog.specialist_id == specialist_uuid)
-        if tg_user_id is not None:
-            stmt = stmt.where(MessageLog.tg_user_id == tg_user_id)
-        if direction is not None:
-            stmt = stmt.where(MessageLog.direction == direction)
-        if is_error is not None:
-            stmt = stmt.where(MessageLog.is_error == is_error)
-        stmt = stmt.order_by(MessageLog.created_at.asc())
-        stmt = stmt.limit(limit_value).offset(offset)
-        result = await session.execute(stmt)
-        if config.APP_ENV == "prod" and not redact:
-            raise HTTPException(status_code=403, detail="Unredacted logs are disabled in production")
-        items = [serialize_message_log(row, redact=redact) for row in result.scalars().all()]
+    log_event(
+        logger,
+        logging.INFO,
+        event="admin_query",
+        request_id=request_id,
+        path="/admin/logs",
+        tg_user_id=tg_user_id,
+        is_error=is_error,
+        created_at_since=since,
+        created_at_until=until,
+        limit=limit_value,
+        offset=offset,
+    )
+
+    try:
+        async with async_session_factory() as session:
+            stmt = select(MessageLog)
+            if since_dt:
+                stmt = stmt.where(MessageLog.created_at >= since_dt)
+            if until_dt:
+                stmt = stmt.where(MessageLog.created_at <= until_dt)
+            if bot_id is not None:
+                stmt = stmt.where(MessageLog.bot_id == bot_id)
+            if specialist_uuid is not None:
+                stmt = stmt.where(MessageLog.specialist_id == specialist_uuid)
+            if tg_user_id is not None:
+                stmt = stmt.where(MessageLog.tg_user_id == tg_user_id)
+            if direction is not None:
+                stmt = stmt.where(MessageLog.direction == direction)
+            if is_error is not None:
+                stmt = stmt.where(MessageLog.is_error == is_error)
+            stmt = stmt.order_by(MessageLog.created_at.asc())
+            stmt = stmt.limit(limit_value).offset(offset)
+            result = await session.execute(stmt)
+            if config.APP_ENV == "prod" and not redact:
+                raise HTTPException(status_code=403, detail="Unredacted logs are disabled in production")
+            items = [serialize_message_log(row, redact=redact) for row in result.scalars().all()]
+    except Exception:
+        logger.exception("admin_logs failed request_id=%s", request_id)
+        raise
 
     return {"items": items, "limit": limit_value, "offset": offset}
 

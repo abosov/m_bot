@@ -11,9 +11,25 @@ from config import SUPPORT_TG_URL
 from database import Specialist, SpecialistProfile, async_session_factory
 from handlers.personal_bot.routers.specialist.owner_panel import send_owner_panel
 from services.specialist_defaults import apply_specialist_defaults_if_missing
+from services.log_context import log_event
 
 router = Router(name="personal_bot_common_start")
 logger = logging.getLogger(__name__)
+
+
+def _log_personal_handler(*, handler_name: str, bot_id, tg_user_id: int | None, fsm_state: str | None, outcome: str, update_type: str, text_length: int | None = None) -> None:
+    log_event(
+        logger,
+        logging.INFO,
+        event="personal_handler",
+        bot_id=bot_id,
+        tg_user_id=tg_user_id,
+        handler_name=handler_name,
+        fsm_state=fsm_state,
+        outcome=outcome,
+        update_type=update_type,
+        text_length=text_length,
+    )
 
 
 def _fallback_public_name(message: Message, public_name: str | None) -> str:
@@ -122,6 +138,15 @@ async def personal_start(
     public_name: str | None,
     owner_tg_user_id: int | None,
 ) -> None:
+    _log_personal_handler(
+        handler_name="personal_start",
+        bot_id=message.bot.id,
+        tg_user_id=message.from_user.id if message.from_user else None,
+        fsm_state=None,
+        outcome="start",
+        update_type="message",
+        text_length=len(message.text or ""),
+    )
     if actor == "specialist":
         resolved_public_name = _fallback_public_name(message, public_name)
         resolved_owner_tg_user_id = owner_tg_user_id or (message.from_user.id if message.from_user else None)
@@ -199,6 +224,14 @@ async def personal_start(
 
 @router.callback_query(F.data == "onboarding:keep")
 async def onboarding_keep(callback: CallbackQuery, specialist_id, public_name: str | None, owner_tg_user_id: int | None) -> None:
+    _log_personal_handler(
+        handler_name="onboarding_keep",
+        bot_id=callback.bot.id,
+        tg_user_id=callback.from_user.id if callback.from_user else None,
+        fsm_state=None,
+        outcome="start",
+        update_type="callback_query",
+    )
     try:
         async with async_session_factory() as session:
             specialist = await session.get(Specialist, specialist_id)
@@ -229,6 +262,14 @@ async def onboarding_keep(callback: CallbackQuery, specialist_id, public_name: s
 
 @router.callback_query(F.data == "onboarding:change")
 async def onboarding_change(callback: CallbackQuery, specialist_id, public_name: str | None, owner_tg_user_id: int | None) -> None:
+    _log_personal_handler(
+        handler_name="onboarding_change",
+        bot_id=callback.bot.id,
+        tg_user_id=callback.from_user.id if callback.from_user else None,
+        fsm_state=None,
+        outcome="start",
+        update_type="callback_query",
+    )
     try:
         await callback.message.answer(
             "✏️ Откройте панель и измените параметры. После этого нажмите «👌 Оставить как есть» в онбординге.",
@@ -251,6 +292,14 @@ async def onboarding_change(callback: CallbackQuery, specialist_id, public_name:
 
 @router.callback_query(F.data == "onboarding:later")
 async def onboarding_later(callback: CallbackQuery) -> None:
+    _log_personal_handler(
+        handler_name="onboarding_later",
+        bot_id=callback.bot.id,
+        tg_user_id=callback.from_user.id if callback.from_user else None,
+        fsm_state=None,
+        outcome="start",
+        update_type="callback_query",
+    )
     try:
         await callback.message.answer(
             "⏳ Вы можете завершить онбординг позже. В master-боте часть функций пока будет недоступна. "

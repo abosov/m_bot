@@ -1,6 +1,7 @@
 import logging
 import secrets
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Tuple, Any
 import uuid
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import config
 from database import OAuthState, OAuthStateType
 from services.alerting import notify_exception
+from services.log_context import log_event
 
 # Конфигурация клиента Google из переменных окружения
 # В продакшене лучше использовать файл client_secrets.json, но для MVP соберем словарь вручную
@@ -102,13 +104,32 @@ def exchange_code_for_token(code: str) -> Tuple[str, str, Any]:
 
 
 async def exchange_code_for_token_async(code: str, timeout: int = 15) -> Tuple[str, str, Any]:
+    started = time.monotonic()
     try:
-        return await asyncio.wait_for(
+        result = await asyncio.wait_for(
             asyncio.to_thread(exchange_code_for_token, code),
             timeout=timeout,
         )
+        log_event(
+            logger,
+            logging.INFO,
+            event="google_api_call",
+            alias="exchange_code_for_token",
+            duration_ms=int((time.monotonic() - started) * 1000),
+            outcome="ok",
+        )
+        return result
     except Exception as exc:
-        logger.warning("Google OAuth token exchange failed", exc_info=True)
+        log_event(
+            logger,
+            logging.ERROR,
+            event="google_api_call",
+            alias="exchange_code_for_token",
+            duration_ms=int((time.monotonic() - started) * 1000),
+            outcome="error",
+            exception_class=exc.__class__.__name__,
+        )
+        logger.error("Google OAuth token exchange failed exception_class=%s", exc.__class__.__name__)
         await notify_exception(
             where="services.google_oauth.exchange_code_for_token_async",
             exc=exc,

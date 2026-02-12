@@ -59,6 +59,7 @@ from services.onboarding import finalize_specialist_if_ready
 from config import BACKEND_BASE_URL
 from services.specialist_onboarding import get_specialist_by_tg_user_id, set_master_onboarding_completed
 from services.alerting import notify_exception
+from services.log_context import log_event
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -743,7 +744,19 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
 @router.message(F.text == "🚀 Стать специалистом")
 async def start_flow(message: types.Message, state: FSMContext):
+    prev_state = await state.get_state()
     await state.set_state(OnboardingStates.waiting_for_public_name)
+    log_event(
+        logger,
+        logging.INFO,
+        event="onboarding_step",
+        specialist_id=None,
+        tg_user_id=message.from_user.id,
+        from_state=prev_state,
+        to_state=OnboardingStates.waiting_for_public_name.state,
+        action="start",
+        outcome="ok",
+    )
     user_handle = _get_handle(message.from_user)
     
     text_out = (
@@ -760,8 +773,19 @@ async def process_public_name(message: types.Message, state: FSMContext):
     public_name = (message.text or "").strip()
     tg_user_id = message.from_user.id
     user_handle = _get_handle(message.from_user)
+    from_state = await state.get_state()
 
     if not _is_valid_public_name(public_name):
+        reason = "too_short" if len(public_name) < 2 else "too_long"
+        log_event(
+            logger,
+            logging.WARNING,
+            event="onboarding_validation_error",
+            tg_user_id=tg_user_id,
+            stage="public_name",
+            reason=reason,
+            text_length=len(public_name),
+        )
         text_out = (
             "⚠️ Некорректное публичное имя. Используйте от 2 до 80 символов.\n"
             "Пример: *Психолог Анна* или *Иван Иванов*."
@@ -775,6 +799,17 @@ async def process_public_name(message: types.Message, state: FSMContext):
             user_handle=user_handle,
         )
         await state.set_state(OnboardingStates.waiting_for_public_name)
+        log_event(
+            logger,
+            logging.INFO,
+            event="onboarding_step",
+            specialist_id=None,
+            tg_user_id=tg_user_id,
+            from_state=from_state,
+            to_state=OnboardingStates.waiting_for_public_name.state,
+            action="public_name_retry",
+            outcome="validation_error",
+        )
         return
 
     try:
@@ -808,6 +843,17 @@ async def process_public_name(message: types.Message, state: FSMContext):
             await session.commit()
 
         await state.set_state(OnboardingStates.waiting_for_bot_token)
+        log_event(
+            logger,
+            logging.INFO,
+            event="onboarding_step",
+            specialist_id=str(auth_entry.specialist_id),
+            tg_user_id=tg_user_id,
+            from_state=from_state,
+            to_state=OnboardingStates.waiting_for_bot_token.state,
+            action="public_name_submit",
+            outcome="ok",
+        )
         
         text_out = (
             f"✅ Имя сохранено: **{public_name}**\n\n"
@@ -836,6 +882,7 @@ async def process_bot_token(message: types.Message, state: FSMContext):
     
     specialist_id = None
     specialist_name = None
+    from_state = await state.get_state()
 
     try:
         # Получаем данные специалиста
@@ -856,6 +903,15 @@ async def process_bot_token(message: types.Message, state: FSMContext):
         try:
             bot_info = await temp_bot.get_me(request_timeout=5.0)
         except Exception as e:
+            log_event(
+                logger,
+                logging.WARNING,
+                event="onboarding_validation_error",
+                tg_user_id=tg_user_id,
+                stage="bot_token",
+                reason=e.__class__.__name__,
+                token_length=len(raw_token),
+            )
             text_out = f"❌ **Неверный токен**\nОшибка: `{e}`\nПроверьте токен и пришлите снова."
             await send_user_message(message, text_out, fsm_state="waiting_for_bot_token")
             return
@@ -952,6 +1008,17 @@ async def process_bot_token(message: types.Message, state: FSMContext):
 
         # 4. Финиш
         await state.clear()
+        log_event(
+            logger,
+            logging.INFO,
+            event="onboarding_step",
+            specialist_id=str(specialist_id) if specialist_id else None,
+            tg_user_id=tg_user_id,
+            from_state=from_state,
+            to_state=None,
+            action="save_bot_token",
+            outcome="ok",
+        )
         
         async with async_session_factory() as session:
             oauth_state = await create_oauth_state(
@@ -1001,8 +1068,22 @@ async def process_bot_token(message: types.Message, state: FSMContext):
 
 @router.callback_query(F.data == "calendar:select")
 async def calendar_select(callback: types.CallbackQuery, state: FSMContext):
+    from_state = await state.get_state()
     try:
         await _start_calendar_select(callback, state)
+        data = await state.get_data()
+        log_event(
+            logger,
+            logging.INFO,
+            event="onboarding_step",
+            specialist_id=None,
+            tg_user_id=callback.from_user.id,
+            from_state=from_state,
+            to_state=OnboardingStates.waiting_for_calendar_action.state,
+            action="select_calendar",
+            outcome="ok",
+            calendars_count=len(data.get("cal_items") or []),
+        )
     except GoogleCalendarInsufficientPermissionsError:
         await callback.message.answer(
             "⚠️ Google подключен, но доступов недостаточно для просмотра календарей. "
@@ -1073,11 +1154,27 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
     try:
         idx = int((callback.data or "").split(":")[-1])
     except ValueError:
+        log_event(
+            logger,
+            logging.WARNING,
+            event="onboarding_validation_error",
+            tg_user_id=tg_user_id,
+            stage="calendar_pick",
+            reason="invalid_index",
+        )
         await callback.answer("Некорректный выбор")
         return
 
     if idx < 0 or idx >= len(items):
         await callback.message.answer("⚠️ Выбранный календарь не найден. Откройте список заново через /start.")
+        log_event(
+            logger,
+            logging.WARNING,
+            event="onboarding_validation_error",
+            tg_user_id=tg_user_id,
+            stage="calendar_pick",
+            reason="index_out_of_range",
+        )
         await callback.answer()
         return
 
@@ -1152,6 +1249,17 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
         if smoke_ok:
             await finalize_specialist_if_ready(specialist.specialist_id)
             await state.clear()
+            log_event(
+                logger,
+                logging.INFO,
+                event="onboarding_step",
+                specialist_id=str(specialist.specialist_id),
+                tg_user_id=tg_user_id,
+                from_state=OnboardingStates.waiting_for_calendar_action.state,
+                to_state=None,
+                action="select_calendar",
+                outcome="ok",
+            )
 
             deep_link = ""
             personal_username = None
@@ -1438,6 +1546,17 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
 
         await finalize_specialist_if_ready(specialist.specialist_id)
         await state.clear()
+        log_event(
+            logger,
+            logging.INFO,
+            event="onboarding_step",
+            specialist_id=str(specialist.specialist_id),
+            tg_user_id=tg_user_id,
+            from_state=OnboardingStates.waiting_for_calendar_action.state,
+            to_state=None,
+            action="create_calendar",
+            outcome="ok",
+        )
 
         deep_link = ""
         personal_username = None

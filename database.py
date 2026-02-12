@@ -1,5 +1,6 @@
 import uuid
 import enum
+import logging
 from datetime import datetime, time
 from typing import Optional, List
 
@@ -12,13 +13,16 @@ from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, validates
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from services.log_context import log_event
 
 # Получение URL БД
 DATABASE_URL = config.DATABASE_URL
+logger = logging.getLogger(__name__)
 
 # --- Настройка движка ---
 engine = create_async_engine(DATABASE_URL, echo=False)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+log_event(logger, logging.INFO, event="db_engine_init", outcome="ok")
 
 # Базовый класс для моделей
 class Base(DeclarativeBase):
@@ -357,8 +361,18 @@ class ServiceHeartbeat(Base):
 
 async def get_db_session() -> AsyncSession:
     """Dependency helper for FastAPI/Aiogram handlers"""
-    async with async_session_factory() as session:
-        yield session
+    try:
+        async with async_session_factory() as session:
+            yield session
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            event="db_error",
+            stage="get_db_session",
+            exception_class=exc.__class__.__name__,
+        )
+        raise
 
 async def init_db():
     """Helper to create tables for local/dev environments.
@@ -367,5 +381,15 @@ async def init_db():
     explicitly before restart (DDL scripts/migrations), then this helper can run
     safely as a no-op for already existing tables.
     """
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            event="db_error",
+            stage="init_db",
+            exception_class=exc.__class__.__name__,
+        )
+        raise

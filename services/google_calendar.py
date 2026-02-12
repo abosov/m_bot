@@ -13,6 +13,7 @@ import config
 from database import GoogleOAuth, async_session_factory
 from services.crypto import decrypt_token
 from services.alerting import notify_exception
+from services.log_context import log_event
 
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3"
@@ -71,6 +72,7 @@ async def _get_refresh_token(specialist_id: uuid.UUID) -> str:
 async def _build_headers(specialist_id: uuid.UUID) -> dict[str, str]:
     refresh_token = await _get_refresh_token(specialist_id)
 
+    started = time.monotonic()
     response = await asyncio.to_thread(
         requests.post,
         GOOGLE_TOKEN_URL,
@@ -81,6 +83,16 @@ async def _build_headers(specialist_id: uuid.UUID) -> dict[str, str]:
             "grant_type": "refresh_token",
         },
         timeout=10,
+    )
+    log_event(
+        logger,
+        logging.INFO,
+        event="google_api_call",
+        alias="oauth_refresh_token",
+        duration_ms=int((time.monotonic() - started) * 1000),
+        outcome="ok" if response.status_code == 200 else "error",
+        http_status=response.status_code,
+        specialist_id=specialist_id,
     )
 
     if response.status_code != 200:
@@ -161,6 +173,7 @@ async def _calendar_request_with_retry(
 
 
 async def list_calendars(specialist_id: uuid.UUID) -> list[dict[str, Any]]:
+    started = time.monotonic()
     try:
         headers = await _build_headers(specialist_id)
         response = await _calendar_request_with_retry(
@@ -171,8 +184,24 @@ async def list_calendars(specialist_id: uuid.UUID) -> list[dict[str, Any]]:
         )
         if response.status_code != 200:
             _raise_calendar_error(response)
-        return response.json().get("items", [])
+        items = response.json().get("items", [])
+        log_event(
+            logger,
+            logging.INFO,
+            event="google_api_call",
+            alias="list_calendars",
+            duration_ms=int((time.monotonic() - started) * 1000),
+            outcome="ok",
+            http_status=response.status_code,
+            events_count=len(items),
+            specialist_id=specialist_id,
+        )
+        return items
     except Exception as exc:
+        logger.exception(
+            "google calendar call failed",
+            extra={"event": "google_api_call", "alias": "list_calendars", "exception_class": exc.__class__.__name__},
+        )
         await _notify_google_calendar_exception("services.google_calendar.list_calendars", exc, specialist_id)
         raise
 
@@ -195,6 +224,7 @@ async def get_calendar(specialist_id: uuid.UUID, calendar_id: str) -> dict[str, 
 
 
 async def create_bot_calendar(specialist_id: uuid.UUID, public_name: str, tz: str = "UTC") -> dict[str, Any]:
+    started = time.monotonic()
     try:
         headers = await _build_headers(specialist_id)
         payload = {
@@ -211,8 +241,24 @@ async def create_bot_calendar(specialist_id: uuid.UUID, public_name: str, tz: st
         )
         if response.status_code not in (200, 201):
             _raise_calendar_error(response)
-        return response.json()
+        payload = response.json()
+        log_event(
+            logger,
+            logging.INFO,
+            event="google_api_call",
+            alias="create_bot_calendar",
+            duration_ms=int((time.monotonic() - started) * 1000),
+            outcome="ok",
+            http_status=response.status_code,
+            events_count=1,
+            specialist_id=specialist_id,
+        )
+        return payload
     except Exception as exc:
+        logger.exception(
+            "google calendar call failed",
+            extra={"event": "google_api_call", "alias": "create_bot_calendar", "exception_class": exc.__class__.__name__},
+        )
         await _notify_google_calendar_exception("services.google_calendar.create_bot_calendar", exc, specialist_id)
         raise
 
