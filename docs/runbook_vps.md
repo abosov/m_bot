@@ -255,3 +255,43 @@ python scripts/test_data_reset.py --apply
 - при срабатывании safety guard используйте `--force` только осознанно.
 
 Скрипт удаляет только связанные данные тестовых аккаунтов и не трогает глобальные heartbeat-записи (`service_heartbeats`).
+
+## Диагностика после онбординга и действий
+
+Цель: собрать полный диагностический пакет в 1 команду на VPS и забрать его в 1 команду на локальной машине.
+
+### 1 команда на VPS
+
+```bash
+sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --owner-tg-id 123
+```
+
+Скрипт создаёт архив вида `/tmp/zumbot_diag_<UTCSTAMP>.tar.gz`, а также `summary.txt` и артефакты (journal/systemd/docker/nginx/db).
+
+### 1 команда на локальном Mac
+
+```bash
+bash scripts/diag_fetch_local.sh root@<host>
+```
+
+Скрипт сам найдёт последний архив на VPS, скачает его в `~/Downloads/zumbot_diag/`, распакует и выведет путь + команды для просмотра.
+
+### Типовые короткие сценарии
+
+После регистрации специалиста (по owner tg id):
+
+```bash
+sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --owner-tg-id 123 --with-db-dump
+```
+
+После изменения slot_step/session_duration/max_sessions_per_day (по specialist id):
+
+```bash
+sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --specialist-id <specialist_uuid>
+```
+
+После бронирования клиентом (узкое окно по времени):
+
+```bash
+sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --specialist-id <specialist_uuid> --since "30 minutes ago"
+```
