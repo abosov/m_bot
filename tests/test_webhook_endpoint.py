@@ -5,6 +5,7 @@ os.environ.setdefault("MASTER_BOT_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcd
 os.environ.setdefault("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
 import types
+import logging
 import uuid
 
 from fastapi.testclient import TestClient
@@ -105,3 +106,64 @@ def test_personal_webhook_returns_413_for_oversized_payload(monkeypatch):
     assert response.status_code == 413
     assert response.json() == {"detail": "payload_too_large"}
     assert called["value"] is False
+
+
+def test_personal_webhook_logs_without_secret(monkeypatch, caplog):
+    class Session:
+        async def execute(self, stmt):
+            bot = types.SimpleNamespace(
+                bot_user_id=123,
+                specialist_id=uuid.uuid4(),
+                webhook_secret="super-secret-value",
+                status=TelegramBotStatus.active,
+            )
+            return Result(bot)
+
+    async def fake_process_update(bot, raw_update):
+        return None
+
+    monkeypatch.setattr(web_server, "async_session_factory", lambda: DummySessionCtx(Session()))
+    monkeypatch.setattr(web_server, "process_update", fake_process_update)
+
+    client = TestClient(web_server.app)
+    with caplog.at_level(logging.INFO):
+        response = client.post(
+            "/tg/webhook/123/super-secret-value",
+            json={"update_id": 1, "message": {"message_id": 1}},
+        )
+
+    assert response.status_code == 200
+    webhook_logs = [record.getMessage() for record in caplog.records if record.name == "web_server"]
+    assert webhook_logs
+    logs = "\n".join(webhook_logs)
+    assert "super-secret-value" not in logs
+
+
+def test_request_id_header_and_log_present(monkeypatch, caplog):
+    class Session:
+        async def execute(self, stmt):
+            bot = types.SimpleNamespace(
+                bot_user_id=123,
+                specialist_id=uuid.uuid4(),
+                webhook_secret="secret",
+                status=TelegramBotStatus.active,
+            )
+            return Result(bot)
+
+    async def fake_process_update(bot, raw_update):
+        return None
+
+    monkeypatch.setattr(web_server, "async_session_factory", lambda: DummySessionCtx(Session()))
+    monkeypatch.setattr(web_server, "process_update", fake_process_update)
+
+    client = TestClient(web_server.app)
+    with caplog.at_level(logging.INFO):
+        response = client.post(
+            "/tg/webhook/123/secret",
+            json={"update_id": 1},
+            headers={"X-Request-ID": "req-123"},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["X-Request-ID"] == "req-123"
+    assert any("request_id=req-123" in record.getMessage() for record in caplog.records)

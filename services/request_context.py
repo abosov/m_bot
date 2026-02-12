@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+from contextvars import ContextVar
+
+
+_REQUEST_ID_CTX: ContextVar[str] = ContextVar("request_id", default="-")
+
+
+def set_request_id(request_id: str):
+    return _REQUEST_ID_CTX.set(request_id)
+
+
+def reset_request_id(token) -> None:
+    _REQUEST_ID_CTX.reset(token)
+
+
+def get_request_id() -> str:
+    return _REQUEST_ID_CTX.get()
+

@@ -2,10 +2,12 @@ import json
 import asyncio
 import logging
 import time
+import uuid
 import requests
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select, update
 from aiogram import Bot
@@ -37,11 +39,28 @@ from services import heartbeat
 from services.telegram.bot_factory import close_personal_bot_cache
 from services.telegram.personal_dispatcher import process_update
 from services.build_info import get_build_info
+from services.request_context import get_request_id, reset_request_id, set_request_id
 from services.alerting import close_alerting, notify_exception
 import config
 from admin_api import router as admin_router
 
 logger = logging.getLogger(__name__)
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request.state.request_id = request_id
+        token = set_request_id(request_id)
+        try:
+            response = await call_next(request)
+        finally:
+            reset_request_id(token)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+
+def _request_id_from_request(request: Request) -> str:
+    return getattr(request.state, "request_id", get_request_id())
 
 
 def build_calendar_action_keyboard() -> InlineKeyboardMarkup:
@@ -80,6 +99,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(RequestIdMiddleware)
 
 READYZ_DB_TIMEOUT_SEC = 2.0
 READYZ_LOOP_TIMEOUT_SEC = 12.0
@@ -135,12 +155,14 @@ async def readyz():
     latency_ms = int((time.perf_counter() - start_time) * 1000)
     db_status = "ok" if db_ok else "fail"
     loop_status = "ok" if loop_ok else "fail"
-    logger.info(
-        "readyz check result db_ok=%s loop_ok=%s latency_ms=%s",
-        db_ok,
-        loop_ok,
-        latency_ms,
-    )
+    if not (db_ok and loop_ok):
+        logger.warning(
+            "event=readyz_check_error request_id=%s db_ok=%s loop_ok=%s latency_ms=%s",
+            get_request_id(),
+            db_ok,
+            loop_ok,
+            latency_ms,
+        )
 
     await _write_service_heartbeat(
         db_ok=db_ok,
@@ -205,7 +227,7 @@ async def _write_service_heartbeat(
                 )
                 await session.commit()
             LAST_HEARTBEAT_WRITE_TS = now
-            logger.info(
+            logger.debug(
                 "readyz heartbeat stored db_ok=%s loop_ok=%s latency_ms=%s",
                 db_ok,
                 loop_ok,
@@ -230,6 +252,9 @@ async def _read_request_body_with_limit(request: Request, max_bytes: int) -> byt
 @app.post("/tg/webhook/{bot_id}/{secret}")
 async def telegram_personal_webhook(bot_id: int, secret: str, request: Request):
     """Receive updates for personal specialist bots (webhook mode)."""
+    request_id = _request_id_from_request(request)
+    started = time.perf_counter()
+    content_type = request.headers.get("content-type")
     content_length_header = request.headers.get("content-length")
     request_body: bytes | None = None
 
@@ -237,39 +262,56 @@ async def telegram_personal_webhook(bot_id: int, secret: str, request: Request):
         try:
             content_length = int(content_length_header)
             if content_length > MAX_WEBHOOK_BODY_BYTES:
+                duration_ms = int((time.perf_counter() - started) * 1000)
                 logger.warning(
-                    "Webhook payload too large by content-length bot_id=%s size=%s limit=%s",
+                    "event=tg_webhook_error request_id=%s bot_id=%s exception_class=%s duration_ms=%s",
+                    request_id,
                     bot_id,
-                    content_length,
-                    MAX_WEBHOOK_BODY_BYTES,
+                    "PayloadTooLarge",
+                    duration_ms,
                 )
                 return JSONResponse(status_code=413, content={"detail": "payload_too_large"})
         except ValueError:
             request_body = await _read_request_body_with_limit(request, MAX_WEBHOOK_BODY_BYTES)
             if request_body is None:
+                duration_ms = int((time.perf_counter() - started) * 1000)
                 logger.warning(
-                    "Webhook payload too large after body read bot_id=%s limit=%s",
+                    "event=tg_webhook_error request_id=%s bot_id=%s exception_class=%s duration_ms=%s",
+                    request_id,
                     bot_id,
-                    MAX_WEBHOOK_BODY_BYTES,
+                    "PayloadTooLarge",
+                    duration_ms,
                 )
                 return JSONResponse(status_code=413, content={"detail": "payload_too_large"})
     else:
         request_body = await _read_request_body_with_limit(request, MAX_WEBHOOK_BODY_BYTES)
         if request_body is None:
+            duration_ms = int((time.perf_counter() - started) * 1000)
             logger.warning(
-                "Webhook payload too large after body read bot_id=%s limit=%s",
+                "event=tg_webhook_error request_id=%s bot_id=%s exception_class=%s duration_ms=%s",
+                request_id,
                 bot_id,
-                MAX_WEBHOOK_BODY_BYTES,
+                "PayloadTooLarge",
+                duration_ms,
             )
             return JSONResponse(status_code=413, content={"detail": "payload_too_large"})
+
+    body_size_bytes = len(request_body) if request_body is not None else int(content_length_header or 0)
 
     try:
         if request_body is None:
             raw_update = await request.json()
         else:
             raw_update = json.loads(request_body)
-    except Exception:
-        logger.warning("Webhook payload is not valid JSON bot_id=%s", bot_id)
+    except Exception as exc:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        logger.warning(
+            "event=tg_webhook_error request_id=%s bot_id=%s exception_class=%s duration_ms=%s",
+            request_id,
+            bot_id,
+            type(exc).__name__,
+            duration_ms,
+        )
         return Response(status_code=200)
 
     async with async_session_factory() as session:
@@ -281,27 +323,27 @@ async def telegram_personal_webhook(bot_id: int, secret: str, request: Request):
         tg_bot = (await session.execute(stmt)).scalar_one_or_none()
 
     if tg_bot is None:
-        logger.warning("Webhook auth failed for bot_id=%s", bot_id)
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        logger.warning(
+            "event=tg_webhook_error request_id=%s bot_id=%s exception_class=%s duration_ms=%s",
+            request_id,
+            bot_id,
+            "WebhookAuthFailed",
+            duration_ms,
+        )
         return JSONResponse(status_code=404, content={"detail": "not_found"})
 
-    update_id = raw_update.get("update_id")
-    update_type = next((key for key in raw_update.keys() if key != "update_id"), "unknown")
-    logger.info(
-        "Webhook update accepted bot_id=%s specialist_id=%s update_id=%s update_type=%s",
-        bot_id,
-        tg_bot.specialist_id,
-        update_id,
-        update_type,
-    )
-
+    status_code = 200
     try:
         await process_update(tg_bot, raw_update)
     except Exception as exc:
+        duration_ms = int((time.perf_counter() - started) * 1000)
         logger.exception(
-            "Webhook processing failed bot_id=%s specialist_id=%s update_id=%s",
+            "event=tg_webhook_error request_id=%s bot_id=%s exception_class=%s duration_ms=%s",
+            request_id,
             bot_id,
-            tg_bot.specialist_id,
-            update_id,
+            type(exc).__name__,
+            duration_ms,
         )
         await notify_exception(
             where="web_server.telegram_personal_webhook",
@@ -309,23 +351,45 @@ async def telegram_personal_webhook(bot_id: int, secret: str, request: Request):
             context={
                 "bot_id": bot_id,
                 "specialist_id": str(tg_bot.specialist_id),
-                "update_id": update_id,
-                "update_type": update_type,
+                "request_id": request_id,
             },
         )
 
-    return Response(status_code=200)
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    logger.info(
+        "event=tg_webhook_in request_id=%s bot_id=%s body_size_bytes=%s content_type=%s duration_ms=%s status_code=%s",
+        request_id,
+        bot_id,
+        body_size_bytes,
+        content_type,
+        duration_ms,
+        status_code,
+    )
+    return Response(status_code=status_code)
 
 @app.get("/google/oauth/callback", response_class=HTMLResponse)
 async def google_oauth_callback(request: Request):
+    request_id = _request_id_from_request(request)
     code = request.query_params.get("code")
     state = request.query_params.get("state")
     error = request.query_params.get("error")
 
     if error:
+        logger.warning(
+            "event=google_oauth_callback request_id=%s stage=%s outcome=%s",
+            request_id,
+            "state_validate",
+            "error",
+        )
         return f"<h1>Ошибка авторизации: {error}</h1>"
 
     if not code or not state:
+        logger.warning(
+            "event=google_oauth_callback request_id=%s stage=%s outcome=%s",
+            request_id,
+            "state_validate",
+            "error",
+        )
         return "<h1>Ошибка: Отсутствуют обязательные параметры (code, state)</h1>"
 
     try:
@@ -334,6 +398,12 @@ async def google_oauth_callback(request: Request):
             oauth_state = (await session.execute(state_stmt)).scalar_one_or_none()
 
             if oauth_state is None:
+                logger.warning(
+                    "event=google_oauth_callback request_id=%s stage=%s outcome=%s",
+                    request_id,
+                    "state_validate",
+                    "error",
+                )
                 return "<h1>Ошибка: state не найден или уже использован.</h1>"
 
             now_utc = datetime.now(timezone.utc)
@@ -343,37 +413,77 @@ async def google_oauth_callback(request: Request):
             if expires_at <= now_utc:
                 await session.delete(oauth_state)
                 await session.commit()
+                logger.warning(
+                    "event=google_oauth_callback request_id=%s stage=%s outcome=%s",
+                    request_id,
+                    "state_validate",
+                    "error",
+                )
                 return "<h1>Ошибка: state истёк. Запросите новую ссылку из Telegram.</h1>"
 
             if oauth_state.type not in {OAuthStateType.google_connect, OAuthStateType.google_reconnect}:
                 await session.delete(oauth_state)
                 await session.commit()
+                logger.warning(
+                    "event=google_oauth_callback request_id=%s stage=%s outcome=%s",
+                    request_id,
+                    "state_validate",
+                    "error",
+                )
                 return "<h1>Ошибка: Некорректный тип OAuth state.</h1>"
 
             specialist_id = oauth_state.specialist_id
+            logger.info(
+                "event=google_oauth_callback request_id=%s stage=%s outcome=%s specialist_id=%s",
+                request_id,
+                "state_validate",
+                "ok",
+                specialist_id,
+            )
             await session.delete(oauth_state)
             await session.commit()
 
         try:
-            refresh_token, access_token, _ = await exchange_code_for_token_async(code)
+            refresh_token, _access_token, _ = await exchange_code_for_token_async(code)
+            logger.info(
+                "event=google_oauth_callback request_id=%s stage=%s outcome=%s specialist_id=%s",
+                request_id,
+                "token_exchange",
+                "ok",
+                specialist_id,
+            )
         except asyncio.TimeoutError as exc:
-            logger.warning("google_oauth_callback token exchange timeout specialist_state=%s", state)
+            logger.exception(
+                "event=google_oauth_callback request_id=%s stage=%s outcome=%s specialist_id=%s exception_class=%s",
+                request_id,
+                "token_exchange",
+                "error",
+                specialist_id,
+                type(exc).__name__,
+            )
             text_out = "<h1>Ошибка: timeout при обмене кода Google OAuth. Повторите попытку.</h1>"
             await notify_exception(
                 where="web_server.google_oauth_callback.token_exchange",
                 exc=exc,
-                context={"state": state, "specialist_id": str(specialist_id)},
+                context={"specialist_id": str(specialist_id), "request_id": request_id},
                 user_visible_text=text_out,
                 stage="google_oauth",
             )
             return text_out
         except requests.exceptions.RequestException as exc:
-            logger.warning("google_oauth_callback token exchange network error specialist_state=%s", state)
+            logger.exception(
+                "event=google_oauth_callback request_id=%s stage=%s outcome=%s specialist_id=%s exception_class=%s",
+                request_id,
+                "token_exchange",
+                "error",
+                specialist_id,
+                type(exc).__name__,
+            )
             text_out = "<h1>Ошибка: network error при обмене кода Google OAuth. Повторите попытку.</h1>"
             await notify_exception(
                 where="web_server.google_oauth_callback.token_exchange",
                 exc=exc,
-                context={"state": state, "specialist_id": str(specialist_id)},
+                context={"specialist_id": str(specialist_id), "request_id": request_id},
                 user_visible_text=text_out,
                 stage="google_oauth",
             )
@@ -423,6 +533,13 @@ async def google_oauth_callback(request: Request):
                                 exc_info=True,
                             )
 
+                    logger.warning(
+                        "event=google_oauth_callback request_id=%s stage=%s outcome=%s specialist_id=%s",
+                        request_id,
+                        "db_update",
+                        "error",
+                        specialist_id,
+                    )
                     return """
                     <html>
                         <head><title>Google Calendar reconnect required</title></head>
@@ -495,6 +612,14 @@ async def google_oauth_callback(request: Request):
                 except Exception:
                     logger.warning("Failed to send TG notification specialist_id=%s", specialist_id, exc_info=True)
 
+        logger.info(
+            "event=google_oauth_callback request_id=%s stage=%s outcome=%s specialist_id=%s",
+            request_id,
+            "db_update",
+            "ok",
+            specialist_id,
+        )
+
         return """
         <html>
             <head><title>Success</title></head>
@@ -508,12 +633,18 @@ async def google_oauth_callback(request: Request):
         """
 
     except Exception as exc:
-        logger.exception("google_oauth_callback failed specialist_state=%s", state)
+        logger.exception(
+            "event=google_oauth_callback request_id=%s stage=%s outcome=%s exception_class=%s",
+            request_id,
+            "db_update",
+            "error",
+            type(exc).__name__,
+        )
         text_out = "<h1>Произошла ошибка при подключении Google. Попробуйте ещё раз из Telegram.</h1>"
         await notify_exception(
             where="web_server.google_oauth_callback",
             exc=exc,
-            context={"state": state},
+            context={"request_id": request_id},
             user_visible_text=text_out,
             stage="google_oauth",
         )
