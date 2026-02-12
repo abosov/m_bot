@@ -7,7 +7,7 @@ from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.types import TelegramObject, Update
 from sqlalchemy import select
 
-from database import SpecialistProfile, TelegramBot, async_session_factory
+from database import SpecialistAuthTelegram, SpecialistProfile, TelegramBot, async_session_factory
 from handlers.personal_bot import router as personal_router
 from services.telegram.bot_factory import get_personal_bot
 
@@ -79,20 +79,66 @@ class PersonalContextMiddleware(BaseMiddleware):
         if update is not None and tg_bot is not None and tg_bot.specialist_id is not None:
             profile = await _load_specialist_profile(tg_bot.specialist_id)
             sender_id = _get_sender_id(update)
+            auth_tg_user_id = await _load_specialist_auth_tg_user_id(tg_bot.specialist_id)
 
             if profile is not None:
                 data["owner_tg_user_id"] = profile["owner_tg_user_id"]
                 data["public_name"] = profile["public_name"]
-                if sender_id is not None and sender_id == profile["owner_tg_user_id"]:
-                    data["actor"] = "specialist"
+            if data["owner_tg_user_id"] is None:
+                data["owner_tg_user_id"] = auth_tg_user_id
+
+            if sender_id is not None and data["owner_tg_user_id"] is not None and sender_id == data["owner_tg_user_id"]:
+                data["actor"] = "specialist"
 
         return await handler(event, data)
+
+
+async def _load_specialist_auth_tg_user_id(specialist_id) -> int | None:
+    async with async_session_factory() as session:
+        stmt = select(SpecialistAuthTelegram).where(SpecialistAuthTelegram.specialist_id == specialist_id)
+        auth = (await session.execute(stmt)).scalar_one_or_none()
+    return getattr(auth, "tg_user_id", None) if auth is not None else None
+
+
+class PersonalGlobalErrorMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        try:
+            return await handler(event, data)
+        except Exception:
+            update = event if isinstance(event, Update) else None
+            tg_bot: TelegramBot | None = data.get("telegram_bot")
+            bot_username = getattr(tg_bot, "bot_username", None)
+            bot_user_id = getattr(tg_bot, "bot_user_id", None)
+            logger.exception(
+                "personal bot unhandled exception update_id=%s bot_username=%s bot_id=%s",
+                update.update_id if update else None,
+                bot_username,
+                bot_user_id,
+            )
+            if update and update.message and update.message.chat and update.message.chat.type == "private":
+                try:
+                    await update.message.answer(
+                        "⚠️ Возникла ошибка при обработке команды. Попробуйте еще раз или напишите в поддержку."
+                    )
+                except Exception:
+                    logger.exception(
+                        "personal bot failed to send generic error reply update_id=%s bot_id=%s",
+                        update.update_id,
+                        bot_user_id,
+                    )
+            return None
 
 
 def get_personal_dispatcher() -> Dispatcher:
     global _personal_dispatcher
     if _personal_dispatcher is None:
         dp = Dispatcher()
+        dp.update.outer_middleware(PersonalGlobalErrorMiddleware())
         dp.update.middleware(PersonalContextMiddleware())
         dp.include_router(personal_router)
         _personal_dispatcher = dp

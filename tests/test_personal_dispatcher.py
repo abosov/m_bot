@@ -259,3 +259,77 @@ async def test_specialist_role_guard_allows_specialist(monkeypatch):
         await bot.session.close()
 
     assert reached["value"] is True
+
+
+@pytest.mark.asyncio
+async def test_personal_context_middleware_uses_auth_tg_user_id_when_profile_owner_missing(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class Session:
+        async def execute(self, stmt):
+            model_name = stmt.column_descriptions[0]["entity"].__name__
+            if model_name == "SpecialistProfile":
+                profile = type("Profile", (), {"owner_tg_user_id": None, "public_name": "Dr. House"})()
+                return Result(profile)
+            auth = type("Auth", (), {"tg_user_id": 777})()
+            return Result(auth)
+
+    monkeypatch.setattr(personal_dispatcher, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    middleware = personal_dispatcher.PersonalContextMiddleware()
+    tg_bot = type("TgBot", (), {"specialist_id": specialist_id})()
+    update = Update.model_validate(
+        {
+            "update_id": 6,
+            "message": {
+                "message_id": 12,
+                "date": 1,
+                "chat": {"id": 777, "type": "private"},
+                "from": {"id": 777, "is_bot": False, "first_name": "Owner"},
+                "text": "/start",
+            },
+        }
+    )
+
+    seen = {}
+
+    async def handler(event, data):
+        seen.update({k: data.get(k) for k in ["actor", "owner_tg_user_id", "public_name"]})
+        return None
+
+    await middleware(handler, update, {"telegram_bot": tg_bot})
+
+    assert seen == {"actor": "specialist", "owner_tg_user_id": 777, "public_name": "Dr. House"}
+
+
+@pytest.mark.asyncio
+async def test_personal_global_error_middleware_replies_in_private_chat(monkeypatch):
+    replies = []
+
+    async def fake_answer(self, text, *args, **kwargs):
+        replies.append(text)
+        return None
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+
+    middleware = personal_dispatcher.PersonalGlobalErrorMiddleware()
+    update = Update.model_validate(
+        {
+            "update_id": 7,
+            "message": {
+                "message_id": 13,
+                "date": 1,
+                "chat": {"id": 777, "type": "private"},
+                "from": {"id": 777, "is_bot": False, "first_name": "Owner"},
+                "text": "/start",
+            },
+        }
+    )
+
+    async def broken_handler(event, data):
+        raise RuntimeError("boom")
+
+    tg_bot = type("TgBot", (), {"bot_username": "x_bot", "bot_user_id": 123})()
+    await middleware(broken_handler, update, {"telegram_bot": tg_bot})
+
+    assert any("Возникла ошибка при обработке команды" in text for text in replies)

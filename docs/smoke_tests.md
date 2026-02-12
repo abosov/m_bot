@@ -149,3 +149,11 @@ python scripts/test_data_reset.py --apply
 1. Завести отдельные Telegram-аккаунты только для smoke.
 2. Выполнять reset только по ним.
 3. Проверять dry-run перед apply при любых сомнениях.
+
+
+## Troubleshooting: personal bot silence
+
+Если в personal bot на `/start` нет ожидаемого ответа:
+- проверьте backend-логи по `update_id`, `bot_username` и `bot_id` (глобальный обработчик ошибок personal dispatcher пишет эти поля при unhandled exception);
+- убедитесь, что в `specialist` используются только поля двухфазного онбординга: `onboarding_master_completed_at` и `onboarding_personal_completed_at`;
+- при ошибке в handler'е personal bot должен отправить безопасный ответ пользователю: `Возникла ошибка при обработке команды...` или `Возникла ошибка при открытии панели...` вместо "тишины".

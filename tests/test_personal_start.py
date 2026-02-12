@@ -167,6 +167,40 @@ async def test_personal_start_specialist_without_specialist_id_sends_error(monke
     assert "Не удалось определить профиль специалиста" in message.answers[0][0]
 
 
+
+
+@pytest.mark.asyncio
+async def test_personal_start_specialist_owner_panel_exception_sends_fallback(monkeypatch):
+    async def fake_send_owner_panel(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    specialist = types.SimpleNamespace(
+        onboarding_master_completed_at="2026-02-12T00:00:00Z",
+        onboarding_personal_completed_at="2026-02-12T00:00:00Z",
+    )
+
+    async def fake_load(_specialist_id):
+        return specialist, types.SimpleNamespace()
+
+    monkeypatch.setattr(start_router, "_load_specialist_and_profile", fake_load)
+    monkeypatch.setattr(start_router, "send_owner_panel", fake_send_owner_panel)
+
+    from_user = types.SimpleNamespace(id=987, full_name="Dr Gregory House", first_name="Gregory", last_name="House")
+    message = DummyMessage(from_user=from_user)
+
+    await start_router.personal_start(
+        message=message,
+        command=CommandObject(prefix="/", command="start", mention=None, args=None),
+        actor="specialist",
+        specialist_id="sp-id",
+        public_name=None,
+        owner_tg_user_id=None,
+    )
+
+    assert any("Возникла ошибка при открытии панели" in msg[0] for msg in message.answers)
+    assert not any("Доступно сейчас" in msg[0] for msg in message.answers)
+
+
 @pytest.mark.asyncio
 async def test_personal_start_client_gets_placeholder():
     message = DummyMessage(from_user=types.SimpleNamespace(id=1, full_name="Client", first_name="Client", last_name=None))

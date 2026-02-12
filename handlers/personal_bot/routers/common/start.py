@@ -147,8 +147,7 @@ async def personal_start(
                 resolved_owner_tg_user_id,
             )
             await message.answer(
-                "⚠️ Временная ошибка при открытии персонального бота. "
-                f"Попробуйте позже или обратитесь в поддержку: {SUPPORT_TG_URL}"
+                "⚠️ Возникла ошибка при открытии панели. Попробуйте еще раз или напишите в поддержку."
             )
             return
 
@@ -179,12 +178,16 @@ async def onboarding_keep(callback: CallbackQuery, specialist_id, public_name: s
             await session.commit()
 
         await callback.message.answer("✅ Отлично, онбординг завершён. Открываю панель специалиста.")
-        await send_owner_panel(
-            message=callback.message,
-            specialist_id=specialist_id,
-            public_name=public_name,
-            owner_tg_user_id=owner_tg_user_id,
-        )
+        try:
+            await send_owner_panel(
+                message=callback.message,
+                specialist_id=specialist_id,
+                public_name=public_name,
+                owner_tg_user_id=owner_tg_user_id,
+            )
+        except Exception:
+            logger.exception("onboarding_keep send_owner_panel failed specialist_id=%s", specialist_id)
+            await callback.message.answer("⚠️ Возникла ошибка при открытии панели. Попробуйте еще раз или напишите в поддержку.")
         await callback.answer()
     except Exception:
         logger.exception("onboarding_keep failed specialist_id=%s", specialist_id)
