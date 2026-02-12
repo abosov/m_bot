@@ -279,7 +279,9 @@ pytest -q tests/test_google_calendar_async.py
 - `tests/test_webhook_endpoint.py` — поведение webhook endpoint,
   включая негативные кейсы и ограничение payload (HTTP 413 для слишком больших тел).
 - `tests/test_google_calendar_async.py` — ключевые асинхронные сценарии интеграции
-  с Google Calendar API (retry/timeout/error-handling на уровне сервиса).
+  с Google Calendar API (timeout/error-handling на уровне сервиса).
+  > Planned/TODO: явная стратегия retry для вызовов Google Calendar пока не описана
+  > и не заявляется как реализованная в этом README.
 
 При полном прогоне регрессии:
 ```bash

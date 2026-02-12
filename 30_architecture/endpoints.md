@@ -36,10 +36,22 @@
 [VPS] curl -i "https://api.zumbot.ru/healthz"
 ```
 
-**Ожидаемое тело:**
+**Ожидаемое тело (фактический формат):**
 ```json
-{"status":"ok","service":"backend"}
+{
+  "status": "ok",
+  "service": "backend",
+  "version": "123-abc1234-2026-02-12T00:00:00Z",
+  "build_number": 123,
+  "commit_sha": "abc1234",
+  "build_date_utc": "2026-02-12T00:00:00Z"
+}
 ```
+
+Примечания по полям:
+- `build_number` может быть `null`, если файл `VERSION` отсутствует или некорректен.
+- `commit_sha` может быть `"unknown"`, если недоступен git metadata.
+- `version` формируется как `<build_number|na>-<commit_sha>-<build_date_utc>`.
 
 **Фактическое поведение:** путь `/health` в приложении не зарегистрирован и возвращает `404 Not Found`. Этот путь не используется в production.
 
@@ -47,6 +59,13 @@
 
 ### GET `/readyz`
 **Назначение:** readiness-проверка (доступность БД + живость event loop).
+
+**Включение endpoint через `ENABLE_READYZ`:**
+- Если `ENABLE_READYZ=true` — route `/readyz` регистрируется.
+- Если `ENABLE_READYZ=false` — route `/readyz` не регистрируется и возвращается `404 Not Found`.
+- Дефолт зависит от `APP_ENV`:
+  - `APP_ENV=prod` → `ENABLE_READYZ=true` (по умолчанию);
+  - `APP_ENV=local` (или `dev`/`development`) → `ENABLE_READYZ=false` (по умолчанию).
 **Коды ответа:**
 - `200 OK` — backend готов обрабатывать трафик;
 - `503 Service Unavailable` — backend не готов;

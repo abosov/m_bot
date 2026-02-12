@@ -50,7 +50,7 @@
 | Переменная | Назначение | Пример (без секретов) | Критичность | Где используется |
 |---|---|---|---|---|
 | `APP_ENV` | Режим окружения (`prod`/`local`) | `prod` | optional (автоопределение) | `config.py` |
-| `ENABLE_READYZ` | Включение readiness endpoint | `true` | optional | `config.py`, `web_server.py` |
+| `ENABLE_READYZ` | Включение readiness endpoint | `true` в `prod`, `false` в `local` (если не задан явно) | optional | `config.py`, `web_server.py` |
 | `MASTER_BOT_TOKEN` | Токен master bot (polling и уведомления) | `123456:***` | required (prod) | `config.py`, `main.py`, `web_server.py` |
 | `DB_URL` (`DATABASE_URL` в коде) | Строка подключения к БД | `postgresql+asyncpg://user:***@db:5432/m_bot` | required (prod) | `config.py`, `database.py` |
 | `GOOGLE_CLIENT_ID` (`GOOGLE_OAUTH_CLIENT_ID`) | OAuth client id Google | `1234567890-abc.apps.googleusercontent.com` | required (prod) | `config.py`, `services/google_oauth.py` |
@@ -91,7 +91,7 @@
    curl -fsS https://api.zumbot.ru/readyz
    ```
 
-Примечание: на production `ENABLE_READYZ` должен быть включён.
+Примечание: по умолчанию `ENABLE_READYZ` включён в `prod` и выключен в `local`; при необходимости переопределяется явно через `ENABLE_READYZ=true/false`.
 
 ## D) Systemd socket activation (production)
 
@@ -129,7 +129,8 @@
 ```
 
 Ожидаемый результат:
-- `GET /healthz` → `200` и `{"status":"ok","service":"backend"}` — сервис жив.
+- `GET /healthz` → `200` и JSON с liveness + build metadata:
+  `status`, `service`, `version`, `build_number` (optional: может быть `null`), `commit_sha`, `build_date_utc`.
 - `GET /readyz` → `200` и `{"status":"ready","db":"ok","loop":"ok"}` — сервис готов к работе.
 - `GET /health` → `404` — путь не используется.
 - `GET /ready` → `404` — путь не используется.
