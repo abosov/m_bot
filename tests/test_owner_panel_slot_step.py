@@ -110,3 +110,78 @@ def test_format_intervals_for_ui_hides_null_intervals() -> None:
     )()
 
     assert owner_panel._format_intervals_for_ui(row) == "09:00–12:00, 17:00–21:00"
+
+
+def test_owner_panel_keyboard_has_calendar_menu_button() -> None:
+    keyboard = owner_panel._owner_panel_keyboard()
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+    assert "owner_panel:calendar_menu" in callbacks
+
+
+@pytest.mark.asyncio
+async def test_owner_cal_create_upserts_calendar_settings(monkeypatch) -> None:
+    calls = []
+
+    class DummySession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, model, specialist_id):
+            if model is owner_panel.Specialist:
+                return type("SpecialistObj", (), {"specialist_id": specialist_id})()
+            if model is owner_panel.SpecialistProfile:
+                return type(
+                    "ProfileObj",
+                    (),
+                    {"public_name": "Dr. Test", "specialist_timezone": "Europe/Moscow"},
+                )()
+            return None
+
+    class DummyMessage:
+        def __init__(self):
+            self.answers = []
+
+        async def answer(self, text, **kwargs):
+            self.answers.append((text, kwargs))
+
+    class DummyCallback:
+        def __init__(self):
+            self.message = DummyMessage()
+            self.from_user = type("User", (), {"id": 101})()
+
+        async def answer(self, *args, **kwargs):
+            return None
+
+    async def fake_upsert_calendar_settings(**kwargs):
+        calls.append(kwargs)
+
+    async def fake_create_bot_calendar(*args, **kwargs):
+        return {"id": "cal_1", "summary": "My calendar", "timeZone": "UTC"}
+
+    async def fake_smoke(*args, **kwargs):
+        return None
+
+    async def fake_send_owner_panel(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(owner_panel, "async_session_factory", lambda: DummySession())
+    monkeypatch.setattr(owner_panel, "create_bot_calendar", fake_create_bot_calendar)
+    monkeypatch.setattr(owner_panel, "create_and_cleanup_test_event", fake_smoke)
+    monkeypatch.setattr(owner_panel, "_upsert_calendar_settings", fake_upsert_calendar_settings)
+    monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
+
+    callback = DummyCallback()
+    await owner_panel.owner_calendar_create(
+        callback=callback,
+        specialist_id="sp-id",
+        owner_tg_user_id=123,
+        public_name="Dr. Test",
+    )
+
+    assert len(calls) == 2
+    assert calls[0]["calendar_id"] == "cal_1"
+    assert calls[0]["source"] == owner_panel.SpecialistCalendarSource.created
+    assert calls[1]["smoke_status"] == "ok"

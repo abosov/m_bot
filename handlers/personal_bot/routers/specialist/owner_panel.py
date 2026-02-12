@@ -1,4 +1,4 @@
-from datetime import time
+from datetime import datetime, time, timezone
 import logging
 from typing import Sequence
 
@@ -6,7 +6,15 @@ from aiogram import F, Router
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
 from sqlalchemy import select
 
-from database import SpecialistProfile, WeeklyAvailability, async_session_factory
+from database import (
+    Specialist,
+    SpecialistCalendarSettings,
+    SpecialistCalendarSource,
+    SpecialistProfile,
+    WeeklyAvailability,
+    async_session_factory,
+)
+from services.google_calendar import create_and_cleanup_test_event, create_bot_calendar, list_calendars
 from services.specialist_defaults import (
     ALLOWED_SLOT_STEPS_MIN,
     DEFAULT_BUFFER_MIN,
@@ -21,6 +29,8 @@ from services.specialist_defaults import (
 
 router = Router(name="personal_bot_specialist_owner_panel")
 logger = logging.getLogger(__name__)
+
+_CALENDAR_SELECTION_CACHE: dict[int, list[dict]] = {}
 
 _DEFAULT_DURATION_MIN = DEFAULT_DURATION_MIN
 _DEFAULT_BUFFER_MIN = DEFAULT_BUFFER_MIN
@@ -60,6 +70,7 @@ def _owner_panel_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📅 Изменить расписание", callback_data="owner_panel:change_schedule")],
             [InlineKeyboardButton(text="⏱️ Изменить длительность и буфер", callback_data="owner_panel:change_duration_buffer")],
             [InlineKeyboardButton(text="⚙️ Изменить лимиты (max/day, шаг слота)", callback_data="owner_panel:slot_params_menu")],
+            [InlineKeyboardButton(text="🗓️ Сменить календарь", callback_data="owner_panel:calendar_menu")],
             [InlineKeyboardButton(text="🌍 Сменить TZ", callback_data="owner_panel:change_timezone")],
             [InlineKeyboardButton(text="👌 Оставить как есть", callback_data="owner_panel:keep")],
             [InlineKeyboardButton(text="♻️ Сбросить на дефолты", callback_data="owner_panel:apply_defaults")],
@@ -295,6 +306,62 @@ async def _load_profile_and_rows(specialist_id):
     return profile, rows
 
 
+async def _load_calendar_settings(specialist_id):
+    async with async_session_factory() as session:
+        return await session.get(SpecialistCalendarSettings, specialist_id)
+
+
+async def _upsert_calendar_settings(
+    *,
+    specialist_id,
+    calendar_id: str,
+    calendar_summary: str | None,
+    calendar_tz: str | None,
+    source: SpecialistCalendarSource,
+    smoke_status: str | None = None,
+    smoke_error: str | None = None,
+) -> SpecialistCalendarSettings:
+    async with async_session_factory() as session:
+        settings = await session.get(SpecialistCalendarSettings, specialist_id)
+        now = datetime.now(timezone.utc)
+
+        if settings is None:
+            settings = SpecialistCalendarSettings(
+                specialist_id=specialist_id,
+                calendar_id=calendar_id,
+                calendar_summary=calendar_summary,
+                calendar_time_zone=calendar_tz,
+                source=source,
+            )
+            session.add(settings)
+        else:
+            settings.calendar_id = calendar_id
+            settings.calendar_summary = calendar_summary
+            settings.calendar_time_zone = calendar_tz
+            settings.source = source
+
+        if smoke_status is not None:
+            settings.last_smoke_test_status = smoke_status
+            settings.last_smoke_test_error = smoke_error
+            settings.last_smoke_test_at = now
+
+        await session.commit()
+        return settings
+
+
+def _calendar_info_text(calendar_settings: SpecialistCalendarSettings | None) -> str:
+    if calendar_settings is None:
+        return "🗓 Календарь: Не подключён"
+
+    return (
+        "🗓 Календарь:\n"
+        f"Название: {calendar_settings.calendar_summary or '—'}\n"
+        f"ID: {calendar_settings.calendar_id or '—'}\n"
+        f"TZ: {calendar_settings.calendar_time_zone or '—'}\n"
+        f"Smoke-test: {calendar_settings.last_smoke_test_status or '—'}"
+    )
+
+
 async def _ensure_owner_panel_defaults(
     *,
     specialist_id,
@@ -357,6 +424,7 @@ async def send_owner_panel(
         )
 
     profile, rows = await _load_profile_and_rows(specialist_id)
+    calendar_settings = await _load_calendar_settings(specialist_id)
     if profile is None:
         logger.error("send_owner_panel: SpecialistProfile not found for specialist_id=%s", specialist_id)
         await message.answer(
@@ -379,6 +447,7 @@ async def send_owner_panel(
         f"• Шаг начала слотов: {(profile.slot_step_min or _DEFAULT_SLOT_STEP_MIN)} мин\n"
         f"• Окно отмены: {(profile.cancel_window_hours or _DEFAULT_CANCEL_WINDOW_HOURS)} ч\n"
         f"• Максимум сессий в день: {(profile.max_sessions_per_day or _DEFAULT_MAX_SESSIONS_PER_DAY)}\n\n"
+        f"{_calendar_info_text(calendar_settings)}\n\n"
         "Правило записи: запись и изменение доступны только на следующий день и только до 21:00 предыдущего дня по времени специалиста."
     )
     await message.answer(text, reply_markup=_owner_panel_keyboard())
@@ -720,6 +789,260 @@ async def owner_panel_slot_step_menu(callback: CallbackQuery) -> None:
     await callback.message.answer(
         "Выберите шаг начала слотов (в минутах):",
         reply_markup=_slot_step_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "owner_panel:calendar_menu")
+async def owner_panel_calendar_menu(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.answer(
+        "Выберите действие с календарём:",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🆕 Создать новый", callback_data="owner_cal:create")],
+                [InlineKeyboardButton(text="📂 Выбрать существующий", callback_data="owner_cal:select")],
+                [InlineKeyboardButton(text="🔁 Проверить доступ", callback_data="owner_cal:smoke")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="owner_cal:back")],
+            ]
+        ),
+    )
+
+
+@router.callback_query(F.data == "owner_cal:back")
+async def owner_calendar_back(
+    callback: CallbackQuery,
+    specialist_id,
+    owner_tg_user_id: int | None,
+    public_name: str | None,
+) -> None:
+    await callback.answer()
+    await send_owner_panel(
+        callback.message,
+        specialist_id=specialist_id,
+        public_name=public_name,
+        owner_tg_user_id=owner_tg_user_id,
+    )
+
+
+@router.callback_query(F.data == "owner_cal:create")
+async def owner_calendar_create(
+    callback: CallbackQuery,
+    specialist_id,
+    owner_tg_user_id: int | None,
+    public_name: str | None,
+) -> None:
+    await callback.answer()
+    async with async_session_factory() as session:
+        specialist = await session.get(Specialist, specialist_id)
+        profile = await session.get(SpecialistProfile, specialist_id)
+
+    if specialist is None or profile is None:
+        await callback.message.answer("⚠️ Профиль специалиста не найден.")
+        await send_owner_panel(
+            callback.message,
+            specialist_id=specialist_id,
+            public_name=public_name,
+            owner_tg_user_id=owner_tg_user_id,
+        )
+        return
+
+    calendar = await create_bot_calendar(
+        specialist.specialist_id,
+        profile.public_name,
+        profile.specialist_timezone or "UTC",
+    )
+    calendar_id = calendar.get("id")
+    calendar_summary = calendar.get("summary")
+    if not calendar_id:
+        await callback.message.answer("⚠️ Google не вернул ID календаря.")
+        await send_owner_panel(
+            callback.message,
+            specialist_id=specialist_id,
+            public_name=public_name,
+            owner_tg_user_id=owner_tg_user_id,
+        )
+        return
+    calendar_tz = calendar.get("timeZone") or profile.specialist_timezone or "UTC"
+
+    await _upsert_calendar_settings(
+        specialist_id=specialist.specialist_id,
+        calendar_id=calendar_id,
+        calendar_summary=calendar_summary,
+        calendar_tz=calendar_tz,
+        source=SpecialistCalendarSource.created,
+    )
+
+    try:
+        await create_and_cleanup_test_event(specialist.specialist_id, calendar_id, calendar_tz)
+        await _upsert_calendar_settings(
+            specialist_id=specialist.specialist_id,
+            calendar_id=calendar_id,
+            calendar_summary=calendar_summary,
+            calendar_tz=calendar_tz,
+            source=SpecialistCalendarSource.created,
+            smoke_status="ok",
+            smoke_error=None,
+        )
+        await callback.message.answer("✅ Новый календарь создан, smoke-test успешно выполнен.")
+    except Exception as exc:
+        await _upsert_calendar_settings(
+            specialist_id=specialist.specialist_id,
+            calendar_id=calendar_id,
+            calendar_summary=calendar_summary,
+            calendar_tz=calendar_tz,
+            source=SpecialistCalendarSource.created,
+            smoke_status="failed",
+            smoke_error=str(exc)[:255],
+        )
+        await callback.message.answer("⚠️ Календарь создан, но smoke-test не пройден.")
+
+    await send_owner_panel(
+        callback.message,
+        specialist_id=specialist_id,
+        public_name=public_name,
+        owner_tg_user_id=owner_tg_user_id,
+    )
+
+
+@router.callback_query(F.data == "owner_cal:select")
+async def owner_calendar_select(callback: CallbackQuery, specialist_id) -> None:
+    await callback.answer()
+    items = await list_calendars(specialist_id)
+    if not items:
+        await callback.message.answer("⚠️ В аккаунте Google не найдено доступных календарей.")
+        return
+
+    _CALENDAR_SELECTION_CACHE[callback.from_user.id] = items
+
+    keyboard_rows = []
+    for index, item in enumerate(items):
+        title = item.get("summary") or item.get("id") or f"Календарь {index + 1}"
+        keyboard_rows.append(
+            [InlineKeyboardButton(text=f"{index + 1}. {title}", callback_data=f"owner_cal:pick:{index}")]
+        )
+    keyboard_rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="owner_cal:back")])
+
+    await callback.message.answer(
+        "Выберите календарь:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_rows),
+    )
+
+
+@router.callback_query(F.data.startswith("owner_cal:pick:"))
+async def owner_calendar_pick(
+    callback: CallbackQuery,
+    specialist_id,
+    owner_tg_user_id: int | None,
+    public_name: str | None,
+) -> None:
+    await callback.answer()
+
+    try:
+        pick_index = int((callback.data or "").split(":")[-1])
+    except ValueError:
+        await callback.message.answer("⚠️ Не удалось выбрать календарь.")
+        return
+
+    items = _CALENDAR_SELECTION_CACHE.get(callback.from_user.id) or []
+    if pick_index < 0 or pick_index >= len(items):
+        await callback.message.answer("⚠️ Список календарей устарел. Откройте выбор заново.")
+        return
+
+    item = items[pick_index]
+    calendar_id = item.get("id")
+    summary = item.get("summary")
+    if not calendar_id:
+        await callback.message.answer("⚠️ Выбранный календарь не содержит ID.")
+        return
+    calendar_tz = item.get("timeZone") or "UTC"
+
+    await _upsert_calendar_settings(
+        specialist_id=specialist_id,
+        calendar_id=calendar_id,
+        calendar_summary=summary,
+        calendar_tz=calendar_tz,
+        source=SpecialistCalendarSource.selected,
+    )
+
+    try:
+        await create_and_cleanup_test_event(specialist_id, calendar_id, calendar_tz)
+        await _upsert_calendar_settings(
+            specialist_id=specialist_id,
+            calendar_id=calendar_id,
+            calendar_summary=summary,
+            calendar_tz=calendar_tz,
+            source=SpecialistCalendarSource.selected,
+            smoke_status="ok",
+            smoke_error=None,
+        )
+        await callback.message.answer("✅ Календарь выбран, smoke-test успешно выполнен.")
+    except Exception as exc:
+        await _upsert_calendar_settings(
+            specialist_id=specialist_id,
+            calendar_id=calendar_id,
+            calendar_summary=summary,
+            calendar_tz=calendar_tz,
+            source=SpecialistCalendarSource.selected,
+            smoke_status="failed",
+            smoke_error=str(exc)[:255],
+        )
+        await callback.message.answer("⚠️ Календарь сохранён, но smoke-test не пройден.")
+
+    _CALENDAR_SELECTION_CACHE.pop(callback.from_user.id, None)
+    await send_owner_panel(
+        callback.message,
+        specialist_id=specialist_id,
+        public_name=public_name,
+        owner_tg_user_id=owner_tg_user_id,
+    )
+
+
+@router.callback_query(F.data == "owner_cal:smoke")
+async def owner_calendar_smoke(
+    callback: CallbackQuery,
+    specialist_id,
+    owner_tg_user_id: int | None,
+    public_name: str | None,
+) -> None:
+    await callback.answer()
+    settings = await _load_calendar_settings(specialist_id)
+    if settings is None or not settings.calendar_id:
+        await callback.message.answer("⚠️ Календарь не выбран. Сначала создайте или выберите календарь.")
+        return
+
+    try:
+        await create_and_cleanup_test_event(
+            specialist_id,
+            settings.calendar_id,
+            settings.calendar_time_zone or "UTC",
+        )
+        await _upsert_calendar_settings(
+            specialist_id=specialist_id,
+            calendar_id=settings.calendar_id,
+            calendar_summary=settings.calendar_summary,
+            calendar_tz=settings.calendar_time_zone,
+            source=settings.source,
+            smoke_status="ok",
+            smoke_error=None,
+        )
+        await callback.message.answer("✅ Smoke-test успешно выполнен.")
+    except Exception as exc:
+        await _upsert_calendar_settings(
+            specialist_id=specialist_id,
+            calendar_id=settings.calendar_id,
+            calendar_summary=settings.calendar_summary,
+            calendar_tz=settings.calendar_time_zone,
+            source=settings.source,
+            smoke_status="failed",
+            smoke_error=str(exc)[:255],
+        )
+        await callback.message.answer("❌ Smoke-test не пройден.")
+
+    await send_owner_panel(
+        callback.message,
+        specialist_id=specialist_id,
+        public_name=public_name,
+        owner_tg_user_id=owner_tg_user_id,
     )
 
 
