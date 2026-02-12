@@ -7,11 +7,14 @@ import signal
 import sys
 import uvicorn
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 import config
+from services.runtime_logging import configure_runtime_logging
+
+configure_runtime_logging()
+logger = logging.getLogger(__name__)
+logger.info("Runtime logging configured")
+logger.info("Runtime logging level=%s", config.LOG_LEVEL)
+logger.info("Runtime logging file sink enabled=%s", bool(config.LOG_DIR))
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode

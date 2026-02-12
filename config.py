@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+VALID_LOG_FORMATS = {"kv", "json"}
+
 ENV_LOCAL_FILENAME = ".env.local"
 ENV_LOCAL_PATH = Path(__file__).resolve().parent / ENV_LOCAL_FILENAME
 
@@ -162,6 +164,17 @@ def _parse_int_env_or_default(name: str, default: int, min_value: int, max_value
         return default
 
 
+def _parse_int_env_runtime(name: str, default: int, min_value: int, max_value: int) -> int:
+    try:
+        return parse_int_env(name, default, min_value, max_value)
+    except ValueError as exc:
+        if APP_ENV == "prod" and not is_test_env():
+            logger.error("Invalid %s=%r. Falling back to default %s.", name, os.getenv(name), default)
+        else:
+            logger.warning("Invalid %s=%r. Falling back to default %s (%s).", name, os.getenv(name), default, exc)
+        return default
+
+
 WEB_PORT = _parse_int_env_or_default("WEB_PORT", default=8000, min_value=1, max_value=65535)
 
 DATABASE_URL = os.getenv("DB_URL")
@@ -187,6 +200,13 @@ ALERTS_THROTTLE_SECONDS = _parse_int_env_or_default(
     max_value=86_400,
 )
 ALERTS_DEDUP_WINDOW_SECONDS = int(os.getenv("ALERTS_DEDUP_WINDOW_SECONDS", "300"))
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_DIR = os.getenv("LOG_DIR") or None
+LOG_FILE_PREFIX = os.getenv("LOG_FILE_PREFIX", "zumbot")
+LOG_MAX_BYTES = _parse_int_env_runtime("LOG_MAX_BYTES", default=10_485_760, min_value=1_024, max_value=1_073_741_824)
+LOG_BACKUP_COUNT = _parse_int_env_runtime("LOG_BACKUP_COUNT", default=5, min_value=1, max_value=100)
+LOG_FORMAT = os.getenv("LOG_FORMAT", "kv").strip().lower() or "kv"
 
 
 def _looks_like_database_url(value: str) -> bool:
@@ -232,12 +252,23 @@ def validate_config() -> None:
         ("WEB_PORT", 8000, 1, 65535),
         ("MAX_WEBHOOK_BODY_BYTES", 1_000_000, 1, 10_000_000),
         ("ALERTS_THROTTLE_SECONDS", 60, 0, 86_400),
+        ("LOG_MAX_BYTES", 10_485_760, 1_024, 1_073_741_824),
+        ("LOG_BACKUP_COUNT", 5, 1, 100),
     )
     for name, default, min_value, max_value in int_specs:
         try:
             parse_int_env(name, default, min_value, max_value)
         except ValueError as exc:
             errors.append(str(exc))
+
+    valid_levels = set(logging.getLevelNamesMapping().keys())
+    if LOG_LEVEL not in valid_levels:
+        errors.append(f"LOG_LEVEL must be a valid logging level (got {LOG_LEVEL!r})")
+
+    if LOG_FORMAT not in VALID_LOG_FORMATS:
+        errors.append(
+            f"LOG_FORMAT must be one of {sorted(VALID_LOG_FORMATS)} (got {LOG_FORMAT!r})"
+        )
 
     if errors:
         raise RuntimeError(
