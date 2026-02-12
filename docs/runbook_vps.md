@@ -291,6 +291,23 @@ bash scripts/diag_fetch_local.sh root@<host>
 - `10` — `WARN`,
 - `20` — `FAIL`.
 
+`summary.txt` в check-режиме теперь включает структурированные блоки:
+- `FAILURES` — критичные проблемы (ломают готовность US-01),
+- `WARNINGS` — некритичные проблемы/ограничения,
+- `OVERRIDES (INFO)` — валидные отклонения от дефолтов (это не ошибка),
+- `NOTES` — контекст (например, fallback по timezone).
+
+Пример блока `OVERRIDES (INFO)`:
+
+```text
+OVERRIDES (INFO):
+  - session_duration_min: expected 60, actual 90 (overridden)
+  - slot_step_min: expected 15, actual 30 (overridden)
+  - weekly_availability: differs from defaults (overridden)
+```
+
+Важно: отличия от дефолтов (timezone, длительность сессии, буфер, cancel window, лимиты, weekly availability) считаются `INFO` при валидных значениях и не переводят verdict в `WARN/FAIL`.
+
 В обычном режиме (без `--check`) скрипт по-прежнему завершает работу с `exit 0`.
 
 ### Типовые короткие сценарии

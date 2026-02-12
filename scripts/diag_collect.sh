@@ -25,6 +25,9 @@ CHECK_FINISHED_AT=""
 CHECK_OVERALL="PASS"
 CHECK_FAILURES=()
 CHECK_WARNINGS=()
+CHECK_INFOS=()
+CHECK_INFO_OVERRIDES=()
+CHECK_NOTES=()
 CHECK_PASSES=()
 CHECK_FAILURE_DETAILS=()
 
@@ -57,6 +60,13 @@ PY
 push_pass() { CHECK_PASSES+=("$1"); }
 push_warn() { CHECK_WARNINGS+=("$1"); [[ "$CHECK_OVERALL" == "PASS" ]] && CHECK_OVERALL="WARN"; }
 push_fail() { CHECK_FAILURES+=("$1"); CHECK_OVERALL="FAIL"; }
+push_note() { CHECK_NOTES+=("$1"); }
+push_info() { CHECK_INFOS+=("$1"); }
+push_info_override() {
+  local key="$1" expected="$2" actual="$3" message="$4"
+  CHECK_INFOS+=("${message}")
+  CHECK_INFO_OVERRIDES+=("${key}|${expected}|${actual}|${message}")
+}
 
 log_skip() {
   local name="$1"
@@ -460,32 +470,44 @@ run_db_check_psql() {
 }
 
 run_db_check_python() {
-  python3 - "$DB_URL" "$SPECIALIST_ID" <<'PY'
+  python3 - "$DB_URL" "$SPECIALIST_ID" <<'PYCHECK'
 import asyncio
 import sys
+
+
+def text(v):
+    return '' if v is None else str(v)
+
 
 async def main(db_url: str, specialist_id: str) -> None:
     import asyncpg  # type: ignore
 
     conn = await asyncpg.connect(db_url)
-    specialist = await conn.fetchrow("SELECT id::text AS specialist_id, status::text AS specialist_status FROM specialist WHERE id::text=$1", specialist_id)
+    specialist = await conn.fetchrow(
+        "SELECT status::text AS specialist_status FROM specialist WHERE id::text=$1",
+        specialist_id,
+    )
     profile = await conn.fetchrow(
         """
-        SELECT specialist_id::text, specialist_timezone::text, session_duration_min, session_buffer_min,
-               slot_step_min, max_sessions_per_day, cancel_window_hours
+        SELECT specialist_timezone::text, session_duration_min, session_buffer_min,
+               cancel_window_hours, max_sessions_per_day, slot_step_min
         FROM specialist_profile
         WHERE specialist_id::text=$1
         """,
         specialist_id,
     )
     calendar = await conn.fetchrow(
-        "SELECT specialist_id::text, calendar_id::text, calendar_time_zone::text FROM specialist_calendar_settings WHERE specialist_id::text=$1",
+        "SELECT calendar_id::text, calendar_time_zone::text FROM specialist_calendar_settings WHERE specialist_id::text=$1",
         specialist_id,
     )
-    bot = await conn.fetchrow("SELECT specialist_id::text, status::text AS bot_status FROM telegram_bot WHERE specialist_id::text=$1 LIMIT 1", specialist_id)
+    bot = await conn.fetchrow(
+        "SELECT status::text AS bot_status FROM telegram_bot WHERE specialist_id::text=$1 LIMIT 1",
+        specialist_id,
+    )
     weekly = await conn.fetch(
         """
-        SELECT weekday, interval_1_start_local, interval_1_end_local,
+        SELECT weekday, is_working,
+               interval_1_start_local, interval_1_end_local,
                interval_2_start_local, interval_2_end_local,
                interval_3_start_local, interval_3_end_local
         FROM weekly_availability
@@ -494,61 +516,45 @@ async def main(db_url: str, specialist_id: str) -> None:
         """,
         specialist_id,
     )
-    policy_persisted = await conn.fetchval(
-        """
-        SELECT CASE
-          WHEN to_regclass('public.booking_policy') IS NOT NULL THEN 'true'
-          WHEN EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema='public'
-              AND table_name='specialist_profile'
-              AND column_name IN ('next_day_cutoff_hour', 'next_day_cutoff_time', 'booking_cutoff_hour')
-          ) THEN 'true'
-          ELSE 'false'
-        END
-        """
-    )
     await conn.close()
 
-    invalid = []
-    for r in weekly:
-        vals = [
-            (r['interval_1_start_local'], r['interval_1_end_local']),
-            (r['interval_2_start_local'], r['interval_2_end_local']),
-            (r['interval_3_start_local'], r['interval_3_end_local']),
-        ]
-        if any((a is None) != (b is None) for a, b in vals):
-            invalid.append(
-                f"weekday={r['weekday']} i1={r['interval_1_start_local'] or 'NULL'}/{r['interval_1_end_local'] or 'NULL'} "
-                f"i2={r['interval_2_start_local'] or 'NULL'}/{r['interval_2_end_local'] or 'NULL'} "
-                f"i3={r['interval_3_start_local'] or 'NULL'}/{r['interval_3_end_local'] or 'NULL'}"
+    print(f"SPEC|{text(specialist['specialist_status']) if specialist else ''}")
+    print(f"BOT|{text(bot['bot_status']) if bot else ''}")
+    if calendar:
+        print(f"CAL|{text(calendar['calendar_id'])}|{text(calendar['calendar_time_zone'])}")
+    else:
+        print("CAL||")
+    if profile:
+        print(
+            "PROFILE|{}|{}|{}|{}|{}|{}".format(
+                text(profile['specialist_timezone']),
+                text(profile['session_duration_min']),
+                text(profile['session_buffer_min']),
+                text(profile['cancel_window_hours']),
+                text(profile['max_sessions_per_day']),
+                text(profile['slot_step_min']),
             )
+        )
+    else:
+        print("PROFILE||||||")
 
-    rows = {
-        'specialist_exists': 'true' if specialist else 'false',
-        'specialist_status': specialist['specialist_status'] if specialist else '',
-        'bot_exists': 'true' if bot else 'false',
-        'bot_status': bot['bot_status'] if bot else '',
-        'calendar_exists': 'true' if calendar else 'false',
-        'calendar_id': calendar['calendar_id'] if calendar and calendar['calendar_id'] else '',
-        'calendar_time_zone': calendar['calendar_time_zone'] if calendar and calendar['calendar_time_zone'] else '',
-        'profile_exists': 'true' if profile else 'false',
-        'profile_timezone': profile['specialist_timezone'] if profile and profile['specialist_timezone'] else '',
-        'session_duration_min': str(profile['session_duration_min']) if profile and profile['session_duration_min'] is not None else '',
-        'session_buffer_min': str(profile['session_buffer_min']) if profile and profile['session_buffer_min'] is not None else '',
-        'slot_step_min': str(profile['slot_step_min']) if profile and profile['slot_step_min'] is not None else '',
-        'max_sessions_per_day': str(profile['max_sessions_per_day']) if profile and profile['max_sessions_per_day'] is not None else '',
-        'cancel_window_hours': str(profile['cancel_window_hours']) if profile and profile['cancel_window_hours'] is not None else '',
-        'weekly_count': str(len(weekly)),
-        'weekly_invalid_xor_count': str(len(invalid)),
-        'weekly_invalid_rows': '; '.join(invalid),
-        'policy_persisted': policy_persisted or 'false',
-    }
-    for k, v in rows.items():
-        print(f"{k}|{v}")
+    for r in weekly:
+        print(
+            "WA|{}|{}|{}|{}|{}|{}|{}|{}".format(
+                text(r['weekday']),
+                text(r['is_working']).lower(),
+                text(r['interval_1_start_local']),
+                text(r['interval_1_end_local']),
+                text(r['interval_2_start_local']),
+                text(r['interval_2_end_local']),
+                text(r['interval_3_start_local']),
+                text(r['interval_3_end_local']),
+            )
+        )
+
 
 asyncio.run(main(sys.argv[1], sys.argv[2]))
-PY
+PYCHECK
 }
 
 run_db_check() {
@@ -572,6 +578,29 @@ check_numeric_ge_zero() {
   [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 0 ))
 }
 
+normalize_time_hhmm() {
+  local value="$1"
+  [[ -z "$value" ]] && return
+  if [[ "$value" =~ ^([0-9]{2}):([0-9]{2})(:[0-9]{2})?$ ]]; then
+    printf '%s:%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+  else
+    printf '%s' "$value"
+  fi
+}
+
+interval_pair_half_null() {
+  local s="$1" e="$2"
+  if [[ -z "$s" && -z "$e" ]]; then
+    return 1
+  fi
+  [[ -z "$s" || -z "$e" ]]
+}
+
+interval_pair_both_null() {
+  local s="$1" e="$2"
+  [[ -z "$s" && -z "$e" ]]
+}
+
 append_check_results() {
   local summary_path="${OUT_DIR}/summary.txt"
   {
@@ -580,17 +609,35 @@ append_check_results() {
     echo "  OVERALL: ${CHECK_OVERALL}"
     echo "  specialist_id: ${SPECIALIST_ID:-}"
     echo "  owner_tg_id: ${OWNER_TG_ID:-}"
-    echo "  checks:"
-    local item
-    for item in "${CHECK_PASSES[@]}"; do
-      echo "    - [PASS] ${item}"
-    done
-    for item in "${CHECK_WARNINGS[@]}"; do
-      echo "    - [WARN] ${item}"
-    done
-    for item in "${CHECK_FAILURES[@]}"; do
-      echo "    - [FAIL] ${item}"
-    done
+    if [[ ${#CHECK_FAILURES[@]} -gt 0 ]]; then
+      echo "  FAILURES:"
+      local item
+      for item in "${CHECK_FAILURES[@]}"; do
+        echo "    - ${item}"
+      done
+    fi
+    if [[ ${#CHECK_WARNINGS[@]} -gt 0 ]]; then
+      echo "  WARNINGS:"
+      local item
+      for item in "${CHECK_WARNINGS[@]}"; do
+        echo "    - ${item}"
+      done
+    fi
+    if [[ ${#CHECK_INFO_OVERRIDES[@]} -gt 0 ]]; then
+      echo "  OVERRIDES (INFO):"
+      local raw key expected actual message
+      for raw in "${CHECK_INFO_OVERRIDES[@]}"; do
+        IFS='|' read -r key expected actual message <<< "$raw"
+        echo "    - ${message}"
+      done
+    fi
+    if [[ ${#CHECK_NOTES[@]} -gt 0 ]]; then
+      echo "  NOTES:"
+      local item
+      for item in "${CHECK_NOTES[@]}"; do
+        echo "    - ${item}"
+      done
+    fi
   } >> "$summary_path"
 }
 
@@ -621,6 +668,28 @@ write_summary_json() {
     done
     echo "  ],"
 
+    echo "  \"infos\": ["
+    for i in "${!CHECK_INFO_OVERRIDES[@]}"; do
+      local key expected actual message
+      IFS='|' read -r key expected actual message <<< "${CHECK_INFO_OVERRIDES[$i]}"
+      printf '    {"key": %s, "expected": %s, "actual": %s, "message": %s}' \
+        "$(json_escape "$key")" \
+        "$(json_escape "$expected")" \
+        "$(json_escape "$actual")" \
+        "$(json_escape "$message")"
+      [[ "$i" -lt $((${#CHECK_INFO_OVERRIDES[@]} - 1)) ]] && printf ','
+      echo
+    done
+    echo "  ],"
+
+    echo "  \"notes\": ["
+    for i in "${!CHECK_NOTES[@]}"; do
+      printf '    %s' "$(json_escape "${CHECK_NOTES[$i]}")"
+      [[ "$i" -lt $((${#CHECK_NOTES[@]} - 1)) ]] && printf ','
+      echo
+    done
+    echo "  ],"
+
     echo "  \"passes\": ["
     for i in "${!CHECK_PASSES[@]}"; do
       printf '    %s' "$(json_escape "${CHECK_PASSES[$i]}")"
@@ -630,6 +699,15 @@ write_summary_json() {
     echo "  ]"
     echo "}"
   } > "$path"
+}
+
+register_collection_warnings() {
+  local f
+  for f in SYSTEMD DOCKER NGINX DB_NOT_FOUND DB_HEALTHCHECK; do
+    if [[ -f "${OUT_DIR}/SKIPPED_${f}.txt" ]]; then
+      push_warn "collection source unavailable: ${f}"
+    fi
+  done
 }
 
 perform_checks() {
@@ -658,94 +736,190 @@ perform_checks() {
     return
   fi
 
-  declare -A KV=()
-  while IFS='|' read -r k v; do
-    [[ -z "$k" ]] && continue
-    KV["$k"]="$v"
+  if [[ "$CHECK_ONLY" != "true" ]]; then
+    register_collection_warnings
+  fi
+
+  local specialist_status=""
+  local bot_status=""
+  local calendar_id=""
+  local calendar_tz=""
+  local profile_tz=""
+  local duration=""
+  local buffer=""
+  local cancel=""
+  local max_sessions=""
+  local slot_step=""
+
+  local -a WA_ROWS=()
+  while IFS='|' read -r row_type c1 c2 c3 c4 c5 c6 c7 c8 _; do
+    [[ -z "$row_type" ]] && continue
+    case "$row_type" in
+      SPEC) specialist_status="$c1" ;;
+      BOT) bot_status="$c1" ;;
+      CAL) calendar_id="$c1"; calendar_tz="$c2" ;;
+      PROFILE)
+        profile_tz="$c1"
+        duration="$c2"
+        buffer="$c3"
+        cancel="$c4"
+        max_sessions="$c5"
+        slot_step="$c6"
+        ;;
+      WA) WA_ROWS+=("$c1|$c2|$c3|$c4|$c5|$c6|$c7|$c8") ;;
+    esac
   done < "${OUT_DIR}/db_check_raw.txt"
 
-  if [[ "${KV[specialist_exists]:-false}" == "true" ]]; then
+  if [[ -n "$specialist_status" ]]; then
     push_pass "specialist exists"
   else
     push_fail "specialist not found"
   fi
 
-  if is_active_status "${KV[specialist_status]:-}"; then
+  if is_active_status "$specialist_status"; then
     push_pass "specialist status active"
   else
-    push_fail "specialist status is not active (${KV[specialist_status]:-empty})"
+    push_fail "specialist.status expected active, actual ${specialist_status:-empty}"
   fi
 
-  if [[ "${KV[bot_exists]:-false}" == "true" ]]; then
+  if [[ -n "$bot_status" ]]; then
     push_pass "personal bot exists"
   else
     push_fail "personal bot missing"
   fi
 
-  if is_active_status "${KV[bot_status]:-}"; then
+  if is_active_status "$bot_status"; then
     push_pass "personal bot active"
   else
-    push_fail "personal bot status is not active (${KV[bot_status]:-empty})"
+    push_fail "personal_bot.status expected active, actual ${bot_status:-empty}"
   fi
 
-  if [[ "${KV[calendar_exists]:-false}" == "true" ]]; then
-    push_pass "calendar settings exist"
-  else
-    push_fail "calendar settings missing"
-  fi
-
-  if [[ -n "${KV[calendar_id]:-}" ]]; then
+  if [[ -n "$calendar_id" ]]; then
     push_pass "calendar_id is set"
   else
-    push_fail "calendar_id is empty"
+    push_fail "calendar_id expected non-empty, actual empty"
   fi
 
-  if [[ -n "${KV[calendar_time_zone]:-}" ]]; then
+  if [[ -n "$profile_tz" ]]; then
+    push_pass "profile timezone is set"
+  else
+    push_fail "profile.timezone expected non-empty, actual empty"
+  fi
+
+  if [[ -n "$calendar_tz" ]]; then
     push_pass "calendar_time_zone is set"
-  elif [[ -n "${KV[profile_timezone]:-}" || "${KV[profile_timezone]:-}" == "UTC" ]]; then
-    push_warn "calendar_time_zone missing, profile timezone fallback used"
+    if [[ -n "$profile_tz" && "$profile_tz" != "$calendar_tz" ]]; then
+      push_info_override "specialist_timezone" "calendar ${calendar_tz}" "profile ${profile_tz}" "specialist_timezone: expected calendar ${calendar_tz}, actual profile ${profile_tz} (overridden)"
+    fi
+  elif [[ -n "$profile_tz" ]]; then
+    push_warn "calendar_time_zone missing, fallback used"
+    push_note "calendar_time_zone missing; profile timezone fallback used"
   else
-    push_fail "calendar_time_zone missing and profile timezone missing"
+    push_fail "calendar_time_zone missing and profile.timezone empty"
   fi
 
-  if [[ "${KV[profile_exists]:-false}" != "true" ]]; then
-    push_fail "specialist_profile missing"
+  local duration_valid=true
+  check_numeric_gt_zero "$duration" || duration_valid=false
+  if [[ "$duration_valid" == true ]]; then
+    push_pass "session_duration_min > 0"
   else
-    push_pass "specialist_profile exists"
+    push_fail "session_duration_min expected >0, actual ${duration:-empty}"
   fi
 
-  if [[ -n "${KV[profile_timezone]:-}" ]]; then
-    push_pass "specialist_timezone is set"
+  local buffer_valid=true
+  check_numeric_ge_zero "$buffer" || buffer_valid=false
+  if [[ "$buffer_valid" == true ]]; then
+    push_pass "session_buffer_min >= 0"
   else
-    push_fail "specialist_timezone is empty"
+    push_fail "session_buffer_min expected >=0, actual ${buffer:-empty}"
   fi
 
-  check_numeric_gt_zero "${KV[session_duration_min]:-}" && push_pass "session_duration_min > 0" || push_fail "session_duration_min invalid"
-  check_numeric_ge_zero "${KV[session_buffer_min]:-}" && push_pass "session_buffer_min >= 0" || push_fail "session_buffer_min invalid"
-  if [[ "${KV[slot_step_min]:-}" =~ ^(60|30|15|10)$ ]]; then
+  local cancel_valid=true
+  check_numeric_gt_zero "$cancel" || cancel_valid=false
+  if [[ "$cancel_valid" == true ]]; then
+    push_pass "cancel_window_hours > 0"
+  else
+    push_fail "cancel_window_hours expected >0, actual ${cancel:-empty}"
+  fi
+
+  local max_sessions_valid=true
+  check_numeric_gt_zero "$max_sessions" || max_sessions_valid=false
+  if [[ "$max_sessions_valid" == true ]]; then
+    push_pass "max_sessions_per_day > 0"
+  else
+    push_fail "max_sessions_per_day expected >0, actual ${max_sessions:-empty}"
+  fi
+
+  local slot_step_valid=true
+  if [[ "$slot_step" =~ ^(60|30|15|10)$ ]]; then
     push_pass "slot_step_min is allowed"
   else
-    push_fail "slot_step_min invalid (${KV[slot_step_min]:-empty})"
+    slot_step_valid=false
+    push_fail "slot_step_min expected one of {60,30,15,10}, actual ${slot_step:-empty}"
   fi
-  check_numeric_gt_zero "${KV[max_sessions_per_day]:-}" && push_pass "max_sessions_per_day > 0" || push_fail "max_sessions_per_day invalid"
-  check_numeric_gt_zero "${KV[cancel_window_hours]:-}" && push_pass "cancel_window_hours > 0" || push_fail "cancel_window_hours invalid"
 
-  if [[ "${KV[weekly_count]:-0}" == "7" ]]; then
+  [[ "$duration_valid" == true && "$duration" != "60" ]] && push_info_override "session_duration_min" "60" "$duration" "session_duration_min: expected 60, actual ${duration} (overridden)"
+  [[ "$buffer_valid" == true && "$buffer" != "10" ]] && push_info_override "session_buffer_min" "10" "$buffer" "session_buffer_min: expected 10, actual ${buffer} (overridden)"
+  [[ "$cancel_valid" == true && "$cancel" != "12" ]] && push_info_override "cancel_window_hours" "12" "$cancel" "cancel_window_hours: expected 12, actual ${cancel} (overridden)"
+  [[ "$max_sessions_valid" == true && "$max_sessions" != "4" ]] && push_info_override "max_sessions_per_day" "4" "$max_sessions" "max_sessions_per_day: expected 4, actual ${max_sessions} (overridden)"
+  [[ "$slot_step_valid" == true && "$slot_step" != "15" ]] && push_info_override "slot_step_min" "15" "$slot_step" "slot_step_min: expected 15, actual ${slot_step} (overridden)"
+
+  local wa_count=${#WA_ROWS[@]}
+  if [[ "$wa_count" -eq 7 ]]; then
     push_pass "weekly availability has 7 rows"
   else
-    push_fail "weekly availability rows count is ${KV[weekly_count]:-0}, expected 7"
+    push_fail "weekly availability rows expected 7, actual ${wa_count}"
   fi
 
-  if [[ "${KV[weekly_invalid_xor_count]:-0}" == "0" ]]; then
-    push_pass "weekly availability intervals are NULL/NULL consistent"
-  else
-    push_fail "weekly availability has XOR-NULL interval rows: ${KV[weekly_invalid_rows]:-details missing}"
-  fi
+  local -A weekday_seen=()
+  local weekly_differs=false
+  local weekday working i1s i1e i2s i2e i3s i3e
+  for row in "${WA_ROWS[@]}"; do
+    IFS='|' read -r weekday working i1s i1e i2s i2e i3s i3e <<< "$row"
+    [[ "$weekday" =~ ^[0-6]$ ]] && weekday_seen[$weekday]=1
 
-  if [[ "${KV[policy_persisted]:-false}" == "true" ]]; then
-    push_pass "booking cutoff policy is persisted in DB"
-  else
-    push_warn "policy not persisted"
+    if ! [[ "$weekday" =~ ^[0-6]$ ]]; then
+      push_fail "weekly availability weekday expected 0..6, actual ${weekday:-empty}"
+      continue
+    fi
+
+    if interval_pair_half_null "$i1s" "$i1e" || interval_pair_half_null "$i2s" "$i2e" || interval_pair_half_null "$i3s" "$i3e"; then
+      push_fail "weekly availability has half-NULL interval state at weekday=${weekday} (expected both NULL or both set)"
+    fi
+
+    if [[ "$weekday" =~ ^[0-4]$ ]]; then
+      if [[ "$working" != "true" ]]; then
+        weekly_differs=true
+      fi
+      if interval_pair_both_null "$i1s" "$i1e" && interval_pair_both_null "$i2s" "$i2e" && interval_pair_both_null "$i3s" "$i3e" && [[ "$working" == "true" ]]; then
+        push_warn "weekly availability weekday=${weekday}: is_working=true but all intervals are NULL/NULL"
+      fi
+
+      if ! interval_pair_both_null "$i1s" "$i1e"; then
+        [[ "$(normalize_time_hhmm "$i1s")" == "09:00" && "$(normalize_time_hhmm "$i1e")" == "12:00" ]] || weekly_differs=true
+      fi
+      if ! interval_pair_both_null "$i2s" "$i2e"; then
+        [[ "$(normalize_time_hhmm "$i2s")" == "13:00" && "$(normalize_time_hhmm "$i2e")" == "17:00" ]] || weekly_differs=true
+      fi
+      if ! interval_pair_both_null "$i3s" "$i3e"; then
+        [[ "$(normalize_time_hhmm "$i3s")" == "17:00" && "$(normalize_time_hhmm "$i3e")" == "21:00" ]] || weekly_differs=true
+      fi
+    else
+      if [[ "$working" != "false" ]]; then
+        weekly_differs=true
+      fi
+    fi
+  done
+
+  local day
+  for day in 0 1 2 3 4 5 6; do
+    if [[ -z "${weekday_seen[$day]:-}" ]]; then
+      push_fail "weekly availability missing weekday=${day}"
+    fi
+  done
+
+  if [[ "$weekly_differs" == true ]]; then
+    push_info_override "weekly_availability" "Mon-Fri 09-12/13-17/17-21, Sat-Sun off" "custom" "weekly_availability: differs from defaults (overridden)"
   fi
 
   CHECK_FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
