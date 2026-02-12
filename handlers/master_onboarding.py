@@ -76,6 +76,15 @@ def _get_handle(user: types.User) -> str:
     return " ".join(parts) if parts else str(user.id)
 
 
+def _safe_username(username: str | None) -> str:
+    if not username:
+        return ""
+    username = username.strip()
+    if username.startswith("@"):
+        username = username[1:]
+    return username
+
+
 
 def _calendar_action_keyboard() -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(
@@ -544,17 +553,17 @@ async def cmd_start(message: types.Message, state: FSMContext):
             if specialist.status == SpecialistStatus.active and has_bot:
                 await state.clear()
                 personal_bot_username = active_bot.bot_username
-                personal_link = f"https://t.me/{personal_bot_username}?start=owner_panel"
+                safe_username = _safe_username(personal_bot_username)
+                personal_link = f"https://t.me/{safe_username}?start=owner_panel" if safe_username else ""
                 final_text = (
                     f"✅ Вы активны. Откройте личного бота: @{personal_bot_username}.\n\n"
                     "Через личного бота вы управляете настройками и проверяете статусы интеграций."
                 )
-                keyboard = types.InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [types.InlineKeyboardButton(text="🚀 Открыть личного бота", url=personal_link)],
-                        [types.InlineKeyboardButton(text="🔁 Проверить интеграции", callback_data="calendar:smoke")],
-                    ]
-                )
+                keyboard_rows = []
+                if personal_link:
+                    keyboard_rows.append([types.InlineKeyboardButton(text="🚀 Открыть личного бота", url=personal_link)])
+                keyboard_rows.append([types.InlineKeyboardButton(text="🔁 Проверить интеграции", callback_data="calendar:smoke")])
+                keyboard = types.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
                 await message.answer(final_text, reply_markup=keyboard)
                 await log_outbound_message(
                     message.bot,
@@ -1011,7 +1020,8 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
         if smoke_ok:
             await finalize_specialist_if_ready(specialist.specialist_id)
             personal_username = await _notify_personal_bot_welcome(specialist.specialist_id, tg_user_id)
-            deep_link = f"https://t.me/{personal_username}" if personal_username else ""
+            safe_username = _safe_username(personal_username)
+            deep_link = f"https://t.me/{safe_username}" if safe_username else ""
 
             await state.clear()
             await callback.message.answer(
@@ -1242,7 +1252,8 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
 
         await finalize_specialist_if_ready(specialist.specialist_id)
         personal_username = await _notify_personal_bot_welcome(specialist.specialist_id, tg_user_id)
-        deep_link = f"https://t.me/{personal_username}" if personal_username else ""
+        safe_username = _safe_username(personal_username)
+        deep_link = f"https://t.me/{safe_username}" if safe_username else ""
 
         await state.clear()
         await callback.message.answer(
