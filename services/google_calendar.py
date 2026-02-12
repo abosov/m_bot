@@ -1,5 +1,7 @@
 import logging
 import asyncio
+import random
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -16,6 +18,11 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3"
 
 logger = logging.getLogger(__name__)
+
+_RETRY_MAX_ATTEMPTS = 3
+_RETRY_BASE_DELAY_SECONDS = 0.2
+_RETRY_MAX_DELAY_SECONDS = 1.0
+_RETRY_MAX_TOTAL_SECONDS = 2.0
 
 
 class GoogleCalendarError(Exception):
@@ -105,14 +112,62 @@ def _raise_calendar_error(response: requests.Response) -> None:
     raise GoogleCalendarError(message or f"Google Calendar API failed with status {response.status_code}")
 
 
+async def _calendar_request_with_retry(
+    request_callable,
+    url: str,
+    *,
+    method_name: str,
+    timeout: int = 10,
+    **kwargs,
+) -> requests.Response:
+    start = time.monotonic()
+    attempt = 1
+
+    while True:
+        try:
+            response = await asyncio.to_thread(request_callable, url, timeout=timeout, **kwargs)
+        except requests.RequestException as exc:
+            if attempt >= _RETRY_MAX_ATTEMPTS or (time.monotonic() - start) >= _RETRY_MAX_TOTAL_SECONDS:
+                raise GoogleCalendarError("Google Calendar request failed due to network error") from exc
+            delay = min(_RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1)), _RETRY_MAX_DELAY_SECONDS)
+            delay += random.uniform(0, 0.05)
+            logger.warning(
+                "Transient Google Calendar network error, retrying",
+                extra={"method": method_name, "attempt": attempt, "delay_s": round(delay, 3)},
+            )
+            await asyncio.sleep(delay)
+            attempt += 1
+            continue
+
+        if 500 <= response.status_code < 600:
+            if attempt >= _RETRY_MAX_ATTEMPTS or (time.monotonic() - start) >= _RETRY_MAX_TOTAL_SECONDS:
+                return response
+            delay = min(_RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1)), _RETRY_MAX_DELAY_SECONDS)
+            delay += random.uniform(0, 0.05)
+            logger.warning(
+                "Transient Google Calendar 5xx response, retrying",
+                extra={
+                    "method": method_name,
+                    "attempt": attempt,
+                    "status_code": response.status_code,
+                    "delay_s": round(delay, 3),
+                },
+            )
+            await asyncio.sleep(delay)
+            attempt += 1
+            continue
+
+        return response
+
+
 async def list_calendars(specialist_id: uuid.UUID) -> list[dict[str, Any]]:
     try:
         headers = await _build_headers(specialist_id)
-        response = await asyncio.to_thread(
+        response = await _calendar_request_with_retry(
             requests.get,
             f"{GOOGLE_CALENDAR_BASE_URL}/users/me/calendarList",
+            method_name="GET",
             headers=headers,
-            timeout=10,
         )
         if response.status_code != 200:
             _raise_calendar_error(response)
@@ -125,11 +180,11 @@ async def list_calendars(specialist_id: uuid.UUID) -> list[dict[str, Any]]:
 async def get_calendar(specialist_id: uuid.UUID, calendar_id: str) -> dict[str, Any]:
     try:
         headers = await _build_headers(specialist_id)
-        response = await asyncio.to_thread(
+        response = await _calendar_request_with_retry(
             requests.get,
             f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}",
+            method_name="GET",
             headers=headers,
-            timeout=10,
         )
         if response.status_code != 200:
             _raise_calendar_error(response)
@@ -147,12 +202,12 @@ async def create_bot_calendar(specialist_id: uuid.UUID, public_name: str, tz: st
             "description": "Calendar created by Zumbot for booking sessions",
             "timeZone": tz,
         }
-        response = await asyncio.to_thread(
+        response = await _calendar_request_with_retry(
             requests.post,
             f"{GOOGLE_CALENDAR_BASE_URL}/calendars",
+            method_name="POST",
             headers=headers,
             json=payload,
-            timeout=10,
         )
         if response.status_code not in (200, 201):
             _raise_calendar_error(response)
@@ -165,11 +220,11 @@ async def create_bot_calendar(specialist_id: uuid.UUID, public_name: str, tz: st
 async def ensure_calendar_access(specialist_id: uuid.UUID, calendar_id: str) -> bool:
     try:
         headers = await _build_headers(specialist_id)
-        response = await asyncio.to_thread(
+        response = await _calendar_request_with_retry(
             requests.get,
             f"{GOOGLE_CALENDAR_BASE_URL}/users/me/calendarList/{calendar_id}",
+            method_name="GET",
             headers=headers,
-            timeout=10,
         )
         if response.status_code != 200:
             _raise_calendar_error(response)
@@ -198,12 +253,12 @@ async def create_and_cleanup_test_event(specialist_id: uuid.UUID, calendar_id: s
             "end": {"dateTime": end_dt.isoformat(), "timeZone": tz},
         }
 
-        create_response = await asyncio.to_thread(
+        create_response = await _calendar_request_with_retry(
             requests.post,
             f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}/events",
+            method_name="POST",
             headers=headers,
             json=payload,
-            timeout=10,
         )
         if create_response.status_code not in (200, 201):
             _raise_calendar_error(create_response)
@@ -212,11 +267,11 @@ async def create_and_cleanup_test_event(specialist_id: uuid.UUID, calendar_id: s
         if not event_id:
             raise GoogleCalendarError("Smoke-test event id is missing")
 
-        delete_response = await asyncio.to_thread(
+        delete_response = await _calendar_request_with_retry(
             requests.delete,
             f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}/events/{event_id}",
+            method_name="DELETE",
             headers=headers,
-            timeout=10,
         )
         if delete_response.status_code not in (200, 204):
             _raise_calendar_error(delete_response)

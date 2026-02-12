@@ -78,3 +78,83 @@ async def test_create_bot_calendar_uses_to_thread(monkeypatch):
     assert result == {"id": "cal-1"}
     assert called["to_thread"] is True
     assert called["requests_post"] is True
+
+
+@pytest.mark.asyncio
+async def test_calendar_request_retries_transient_then_succeeds(monkeypatch):
+    calls = {"count": 0}
+
+    class DummyResponse:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+    def flaky_get(url, timeout=None, **kwargs):
+        calls["count"] += 1
+        if calls["count"] < 3:
+            return DummyResponse(503)
+        return DummyResponse(200)
+
+    async def fake_sleep(_delay):
+        return None
+
+    monkeypatch.setattr(google_calendar.random, "uniform", lambda *_args, **_kwargs: 0.0)
+    monkeypatch.setattr(google_calendar.asyncio, "sleep", fake_sleep)
+
+    response = await google_calendar._calendar_request_with_retry(
+        flaky_get,
+        "https://example.test",
+        method_name="GET",
+    )
+
+    assert response.status_code == 200
+    assert calls["count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_calendar_request_does_not_retry_4xx(monkeypatch):
+    calls = {"count": 0}
+
+    class DummyResponse:
+        status_code = 404
+
+    def not_found_get(url, timeout=None, **kwargs):
+        calls["count"] += 1
+        return DummyResponse()
+
+    async def fail_sleep(_delay):
+        raise AssertionError("sleep should not be called for 4xx")
+
+    monkeypatch.setattr(google_calendar.asyncio, "sleep", fail_sleep)
+
+    response = await google_calendar._calendar_request_with_retry(
+        not_found_get,
+        "https://example.test",
+        method_name="GET",
+    )
+
+    assert response.status_code == 404
+    assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_calendar_request_raises_after_retry_exhausted(monkeypatch):
+    calls = {"count": 0}
+
+    def always_fails(url, timeout=None, **kwargs):
+        calls["count"] += 1
+        raise google_calendar.requests.ConnectionError("temporary network issue")
+
+    async def fake_sleep(_delay):
+        return None
+
+    monkeypatch.setattr(google_calendar.random, "uniform", lambda *_args, **_kwargs: 0.0)
+    monkeypatch.setattr(google_calendar.asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(google_calendar.GoogleCalendarError, match="network error"):
+        await google_calendar._calendar_request_with_retry(
+            always_fails,
+            "https://example.test",
+            method_name="GET",
+        )
+
+    assert calls["count"] == 3
