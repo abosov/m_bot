@@ -12,3 +12,4 @@ fastapi
 uvicorn
 google-auth-oauthlib
 requests
+PyYAML

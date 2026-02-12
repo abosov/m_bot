@@ -121,7 +121,7 @@ async def create_test_data_snapshot(
 ) -> dict[str, Any]:
     registry_file = Path(registry_path)
     accounts, _ = _load_registry(registry_file)
-    selected_tg_user_ids, _, _ = _resolve_tg_user_ids(
+    selected_tg_user_ids, _ = _resolve_tg_user_ids(
         registry_accounts=accounts,
         names=None,
         tg_user_ids=None,

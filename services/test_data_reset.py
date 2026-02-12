@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import json
 import uuid
 
-from sqlalchemy import and_, delete, func, or_, select
+import yaml
+from sqlalchemy import and_, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from database import (
@@ -44,22 +44,19 @@ class RegistryAccount:
 class CleanupTarget:
     specialist_id: uuid.UUID
     owner_tg_user_id: int | None
-    client_ids_for_deletion: list[uuid.UUID]
-    delete_all_clients_for_specialist: bool
-    total_clients_for_specialist: int
     specialist_status: SpecialistStatus | None
+    client_ids_for_deletion: list[uuid.UUID]
+    delete_specialist_scope: bool
+    total_clients_for_specialist: int
 
 
 def _load_registry(path: Path) -> tuple[list[RegistryAccount], str | None]:
     if not path.exists():
         raise FileNotFoundError(f"Registry file not found: {path}")
 
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise TestDataResetError(
-            f"Unable to parse registry file {path}. Use JSON-compatible YAML format."
-        ) from exc
+    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(payload, dict):
+        raise TestDataResetError("Registry root must be mapping object.")
 
     accounts_raw = payload.get("accounts")
     if not isinstance(accounts_raw, list):
@@ -74,8 +71,8 @@ def _load_registry(path: Path) -> tuple[list[RegistryAccount], str | None]:
         tg_user_id = item.get("tg_user_id")
         if not isinstance(name, str) or not name:
             raise TestDataResetError("Registry account.name must be a non-empty string.")
-        if not isinstance(role, str) or not role:
-            raise TestDataResetError("Registry account.role must be a non-empty string.")
+        if role not in {"specialist_owner", "client"}:
+            raise TestDataResetError("Registry account.role must be one of: specialist_owner, client.")
         if not isinstance(tg_user_id, int):
             raise TestDataResetError("Registry account.tg_user_id must be an integer.")
         accounts.append(RegistryAccount(name=name, role=role, tg_user_id=tg_user_id))
@@ -83,7 +80,6 @@ def _load_registry(path: Path) -> tuple[list[RegistryAccount], str | None]:
     notes = payload.get("notes")
     if notes is not None and not isinstance(notes, str):
         raise TestDataResetError("Registry field 'notes' must be a string when provided.")
-
     return accounts, notes
 
 
@@ -92,7 +88,7 @@ def _resolve_tg_user_ids(
     registry_accounts: list[RegistryAccount],
     names: list[str] | None,
     tg_user_ids: list[int] | None,
-) -> tuple[set[int], list[str], list[str]]:
+) -> tuple[set[int], list[str]]:
     account_by_name = {account.name: account for account in registry_accounts}
 
     selected_names: list[str] = []
@@ -110,18 +106,7 @@ def _resolve_tg_user_ids(
         selected_names = [account.name for account in registry_accounts]
         selected_ids.update(account.tg_user_id for account in registry_accounts)
 
-    selected_client_ids = [
-        account.name
-        for account in registry_accounts
-        if account.tg_user_id in selected_ids and account.role == "client"
-    ]
-    selected_owner_ids = [
-        account.name
-        for account in registry_accounts
-        if account.tg_user_id in selected_ids and account.role == "specialist_owner"
-    ]
-
-    return selected_ids, selected_names, selected_client_ids + selected_owner_ids
+    return selected_ids, selected_names
 
 
 async def _count_rows(session: AsyncSession, model, where_clause) -> int:
@@ -191,6 +176,20 @@ async def _resolve_specialists(
     return specialists
 
 
+async def _table_exists(session: AsyncSession, table_name: str) -> bool:
+    dialect = session.bind.dialect.name if session.bind else ""
+    if dialect == "postgresql":
+        value = await session.scalar(select(func.to_regclass(f"public.{table_name}")))
+        return value is not None
+    if dialect == "sqlite":
+        value = await session.scalar(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name=:name"),
+            {"name": table_name},
+        )
+        return value is not None
+    return False
+
+
 async def execute_test_data_reset(
     *,
     session_factory: async_sessionmaker[AsyncSession],
@@ -209,243 +208,261 @@ async def execute_test_data_reset(
     if registry_exists:
         registry_accounts, notes = _load_registry(registry_file)
 
-    if not registry_exists and dry_run and not tg_user_ids:
-        raise TestDataResetError(
-            "Registry file is missing and no --tg-user-ids provided. "
-            "For dry-run pass explicit tg ids or create config/test_accounts.yaml."
-        )
+    if not registry_exists and not tg_user_ids:
+        raise TestDataResetError("Registry file is missing and no --tg-user-ids provided.")
 
-    if not registry_exists and not dry_run and not tg_user_ids:
-        raise TestDataResetError(
-            "Refusing --apply without registry file or explicit --tg-user-ids."
-        )
-
-    selected_tg_user_ids, selected_names, selected_registry_names = _resolve_tg_user_ids(
+    selected_tg_user_ids, selected_names = _resolve_tg_user_ids(
         registry_accounts=registry_accounts,
         names=names,
         tg_user_ids=tg_user_ids,
     )
 
+    selected_client_tg_ids = {
+        account.tg_user_id
+        for account in registry_accounts
+        if account.role == "client" and account.tg_user_id in selected_tg_user_ids
+    }
+    selected_owner_tg_ids = {
+        account.tg_user_id
+        for account in registry_accounts
+        if account.role == "specialist_owner" and account.tg_user_id in selected_tg_user_ids
+    }
+
     counts: dict[str, int] = {
         "appointment": 0,
-        "client": 0,
         "weekly_availability": 0,
         "specialist_calendar_settings": 0,
+        "specialist_calendar": 0,
         "google_oauth": 0,
         "oauth_state": 0,
         "telegram_bot": 0,
+        "bot_health_checks": 0,
+        "message_logs": 0,
+        "client": 0,
         "specialist_profile": 0,
         "specialist_auth_telegram": 0,
         "specialist": 0,
-        "message_logs": 0,
-        "bot_health_checks": 0,
     }
-
     deleted_counts = {key: 0 for key in counts}
     warnings: list[str] = []
-    specialist_reports: list[dict] = []
 
     async with session_factory() as session:
         specialists = await _resolve_specialists(session, selected_tg_user_ids)
+        direct_client_rows = (
+            await session.execute(
+                select(Client.client_id, Client.specialist_id).where(Client.tg_user_id.in_(selected_tg_user_ids))
+            )
+        ).all()
+
+        client_ids_by_specialist: dict[uuid.UUID, set[uuid.UUID]] = {}
+        for client_id, specialist_id in direct_client_rows:
+            client_ids_by_specialist.setdefault(specialist_id, set()).add(client_id)
+
         targets: list[CleanupTarget] = []
-
-        selected_registry_clients = {
-            account.tg_user_id
-            for account in registry_accounts
-            if account.role == "client" and account.tg_user_id in selected_tg_user_ids
-        }
-
-        for specialist_id, specialist_data in specialists.items():
+        specialist_ids = set(specialists.keys()) | set(client_ids_by_specialist.keys())
+        for specialist_id in specialist_ids:
+            specialist_data = specialists.get(specialist_id, {})
             owner_tg_user_id = specialist_data.get("owner_tg_user_id")
             specialist_status = specialist_data.get("status")
-            delete_all_clients = bool(owner_tg_user_id in selected_tg_user_ids)
 
-            if specialist_status and specialist_status not in ALLOWED_SPECIALIST_STATUSES and not force:
+            delete_specialist_scope = bool(owner_tg_user_id in selected_owner_tg_ids)
+
+            if delete_specialist_scope and specialist_status and specialist_status not in ALLOWED_SPECIALIST_STATUSES and not force:
                 raise TestDataResetError(
-                    "Refusing cleanup for specialist "
-                    f"{specialist_id}: status={specialist_status.value}. Use --force to override."
+                    f"Refusing specialist deletion for {specialist_id}: status={specialist_status.value}. Use --force."
                 )
 
-            client_filter = Client.specialist_id == specialist_id
-            if not delete_all_clients:
-                if selected_registry_clients:
-                    client_filter = and_(
-                        Client.specialist_id == specialist_id,
-                        Client.tg_user_id.in_(selected_registry_clients),
-                    )
-                else:
-                    client_filter = and_(Client.specialist_id == specialist_id, False)
-
-            client_rows = (
-                (await session.execute(select(Client.client_id).where(client_filter))).scalars().all()
-            )
             total_clients = int(
                 await session.scalar(
                     select(func.count()).select_from(Client).where(Client.specialist_id == specialist_id)
                 )
                 or 0
             )
-
-            if total_clients > max_clients_threshold and not force:
+            if delete_specialist_scope and total_clients > max_clients_threshold and not force:
                 raise TestDataResetError(
-                    "Refusing cleanup for specialist "
-                    f"{specialist_id}: total clients {total_clients} > threshold {max_clients_threshold}. "
-                    "Use --force to override."
+                    f"Refusing specialist deletion for {specialist_id}: clients={total_clients} exceeds threshold={max_clients_threshold}. Use --force."
                 )
+
+            if delete_specialist_scope:
+                if not force and total_clients > 0 and owner_tg_user_id not in selected_owner_tg_ids:
+                    raise TestDataResetError(
+                        f"Refusing mass client deletion for {specialist_id}: owner tg_user_id is not in specialist_owner registry list."
+                    )
+                client_ids = (
+                    await session.execute(
+                        select(Client.client_id).where(Client.specialist_id == specialist_id)
+                    )
+                ).scalars().all()
+            else:
+                candidate_ids = client_ids_by_specialist.get(specialist_id, set())
+                if selected_client_tg_ids:
+                    from_registry = (
+                        await session.execute(
+                            select(Client.client_id).where(
+                                Client.specialist_id == specialist_id,
+                                Client.tg_user_id.in_(selected_client_tg_ids),
+                            )
+                        )
+                    ).scalars().all()
+                    candidate_ids.update(from_registry)
+                client_ids = list(candidate_ids)
 
             targets.append(
                 CleanupTarget(
                     specialist_id=specialist_id,
                     owner_tg_user_id=int(owner_tg_user_id) if owner_tg_user_id is not None else None,
-                    client_ids_for_deletion=list(client_rows),
-                    delete_all_clients_for_specialist=delete_all_clients,
-                    total_clients_for_specialist=total_clients,
                     specialist_status=specialist_status,
+                    client_ids_for_deletion=list(client_ids),
+                    delete_specialist_scope=delete_specialist_scope,
+                    total_clients_for_specialist=total_clients,
                 )
             )
 
+        if not targets:
+            warnings.append("No matching specialists or clients found for selected tg_user_id values.")
+
+        all_target_client_ids = [cid for target in targets for cid in target.client_ids_for_deletion]
+        all_target_specialist_ids = [target.specialist_id for target in targets if target.delete_specialist_scope]
+
+        counts["appointment"] = await _count_rows(
+            session,
+            Appointment,
+            and_(
+                Appointment.specialist_id.in_([target.specialist_id for target in targets]) if targets else False,
+                Appointment.client_id.in_(all_target_client_ids) if all_target_client_ids else False,
+            ),
+        )
+        counts["client"] = await _count_rows(
+            session,
+            Client,
+            Client.client_id.in_(all_target_client_ids) if all_target_client_ids else False,
+        )
+        counts["message_logs"] = await _count_rows(
+            session,
+            MessageLog,
+            or_(
+                MessageLog.tg_user_id.in_(selected_tg_user_ids) if selected_tg_user_ids else False,
+                MessageLog.specialist_id.in_(all_target_specialist_ids) if all_target_specialist_ids else False,
+            ),
+        )
+
         for target in targets:
-            specialist_id = target.specialist_id
+            if not target.delete_specialist_scope:
+                continue
+            sid = target.specialist_id
+            counts["weekly_availability"] += await _count_rows(session, WeeklyAvailability, WeeklyAvailability.specialist_id == sid)
+            counts["specialist_calendar_settings"] += await _count_rows(session, SpecialistCalendarSettings, SpecialistCalendarSettings.specialist_id == sid)
+            counts["google_oauth"] += await _count_rows(session, GoogleOAuth, GoogleOAuth.specialist_id == sid)
+            counts["oauth_state"] += await _count_rows(session, OAuthState, OAuthState.specialist_id == sid)
+            counts["telegram_bot"] += await _count_rows(session, TelegramBot, TelegramBot.specialist_id == sid)
+            counts["bot_health_checks"] += await _count_rows(session, BotHealthCheck, BotHealthCheck.specialist_id == sid)
+            counts["specialist_profile"] += await _count_rows(session, SpecialistProfile, SpecialistProfile.specialist_id == sid)
+            counts["specialist_auth_telegram"] += await _count_rows(session, SpecialistAuthTelegram, SpecialistAuthTelegram.specialist_id == sid)
+            counts["specialist"] += await _count_rows(session, Specialist, Specialist.specialist_id == sid)
 
-            appointment_clause = and_(
-                Appointment.specialist_id == specialist_id,
-                Appointment.client_id.in_(target.client_ids_for_deletion) if target.client_ids_for_deletion else False,
-            )
-            client_clause = and_(
-                Client.specialist_id == specialist_id,
-                Client.client_id.in_(target.client_ids_for_deletion) if target.client_ids_for_deletion else False,
-            )
+        has_specialist_calendar = await _table_exists(session, "specialist_calendar")
+        if has_specialist_calendar and all_target_specialist_ids:
+            for sid in all_target_specialist_ids:
+                value = await session.scalar(
+                    text("SELECT COUNT(*) FROM specialist_calendar WHERE specialist_id = :sid"),
+                    {"sid": str(sid)},
+                )
+                counts["specialist_calendar"] += int(value or 0)
 
-            counts["appointment"] += await _count_rows(session, Appointment, appointment_clause)
-            counts["client"] += await _count_rows(session, Client, client_clause)
-            counts["weekly_availability"] += await _count_rows(
-                session,
-                WeeklyAvailability,
-                WeeklyAvailability.specialist_id == specialist_id,
-            )
-            counts["specialist_calendar_settings"] += await _count_rows(
-                session,
-                SpecialistCalendarSettings,
-                SpecialistCalendarSettings.specialist_id == specialist_id,
-            )
-            counts["google_oauth"] += await _count_rows(
-                session,
-                GoogleOAuth,
-                GoogleOAuth.specialist_id == specialist_id,
-            )
-            counts["oauth_state"] += await _count_rows(
-                session,
-                OAuthState,
-                OAuthState.specialist_id == specialist_id,
-            )
-            counts["telegram_bot"] += await _count_rows(
-                session,
-                TelegramBot,
-                TelegramBot.specialist_id == specialist_id,
-            )
-            counts["specialist_profile"] += await _count_rows(
-                session,
-                SpecialistProfile,
-                SpecialistProfile.specialist_id == specialist_id,
-            )
-            counts["specialist_auth_telegram"] += await _count_rows(
-                session,
-                SpecialistAuthTelegram,
-                SpecialistAuthTelegram.specialist_id == specialist_id,
-            )
-            counts["specialist"] += await _count_rows(
-                session,
-                Specialist,
-                Specialist.specialist_id == specialist_id,
-            )
-
-            specialist_reports.append(
-                {
-                    "specialist_id": str(specialist_id),
-                    "owner_tg_user_id": target.owner_tg_user_id,
-                    "total_clients": target.total_clients_for_specialist,
-                    "deleted_clients_scope": (
-                        "all" if target.delete_all_clients_for_specialist else "registry_clients_only"
-                    ),
-                    "target_client_count": len(target.client_ids_for_deletion),
-                    "status": target.specialist_status.value if target.specialist_status else None,
-                }
-            )
-
-        specialist_ids = [target.specialist_id for target in targets]
-        logs_clause_parts = []
-        if selected_tg_user_ids:
-            logs_clause_parts.append(MessageLog.tg_user_id.in_(selected_tg_user_ids))
-        if specialist_ids:
-            logs_clause_parts.append(MessageLog.specialist_id.in_(specialist_ids))
-        logs_clause = or_(*logs_clause_parts) if logs_clause_parts else False
-
-        bhc_clause_parts = []
-        if specialist_ids:
-            bhc_clause_parts.append(BotHealthCheck.specialist_id.in_(specialist_ids))
-        bhc_clause = or_(*bhc_clause_parts) if bhc_clause_parts else False
-
-        counts["message_logs"] = await _count_rows(session, MessageLog, logs_clause)
-        counts["bot_health_checks"] = await _count_rows(session, BotHealthCheck, bhc_clause)
+        target_report = [
+            {
+                "specialist_id": str(target.specialist_id),
+                "owner_tg_user_id": target.owner_tg_user_id,
+                "status": target.specialist_status.value if target.specialist_status else None,
+                "delete_specialist_scope": target.delete_specialist_scope,
+                "total_clients_for_specialist": target.total_clients_for_specialist,
+                "target_client_ids": [str(v) for v in target.client_ids_for_deletion],
+            }
+            for target in targets
+        ]
 
         if not dry_run:
-            for target in targets:
-                specialist_id = target.specialist_id
-                if target.client_ids_for_deletion:
-                    appointment_delete = await session.execute(
-                        delete(Appointment).where(
-                            Appointment.specialist_id == specialist_id,
-                            Appointment.client_id.in_(target.client_ids_for_deletion),
+            if all_target_client_ids:
+                deleted_counts["appointment"] = int(
+                    (
+                        await session.execute(
+                            delete(Appointment).where(Appointment.client_id.in_(all_target_client_ids))
                         )
-                    )
-                    deleted_counts["appointment"] += int(appointment_delete.rowcount or 0)
+                    ).rowcount
+                    or 0
+                )
 
-                    client_delete = await session.execute(
-                        delete(Client).where(
-                            Client.specialist_id == specialist_id,
-                            Client.client_id.in_(target.client_ids_for_deletion),
-                        )
-                    )
-                    deleted_counts["client"] += int(client_delete.rowcount or 0)
-
-                for key, model, clause in (
-                    ("weekly_availability", WeeklyAvailability, WeeklyAvailability.specialist_id == specialist_id),
-                    (
-                        "specialist_calendar_settings",
-                        SpecialistCalendarSettings,
-                        SpecialistCalendarSettings.specialist_id == specialist_id,
-                    ),
-                    ("google_oauth", GoogleOAuth, GoogleOAuth.specialist_id == specialist_id),
-                    ("oauth_state", OAuthState, OAuthState.specialist_id == specialist_id),
-                    ("telegram_bot", TelegramBot, TelegramBot.specialist_id == specialist_id),
-                    (
-                        "specialist_profile",
-                        SpecialistProfile,
-                        SpecialistProfile.specialist_id == specialist_id,
-                    ),
-                    (
-                        "specialist_auth_telegram",
-                        SpecialistAuthTelegram,
-                        SpecialistAuthTelegram.specialist_id == specialist_id,
-                    ),
-                    ("specialist", Specialist, Specialist.specialist_id == specialist_id),
+            if all_target_specialist_ids:
+                for key, model in (
+                    ("weekly_availability", WeeklyAvailability),
+                    ("specialist_calendar_settings", SpecialistCalendarSettings),
+                    ("google_oauth", GoogleOAuth),
+                    ("oauth_state", OAuthState),
+                    ("telegram_bot", TelegramBot),
+                    ("bot_health_checks", BotHealthCheck),
                 ):
-                    delete_result = await session.execute(delete(model).where(clause))
-                    deleted_counts[key] += int(delete_result.rowcount or 0)
+                    deleted_counts[key] = int(
+                        (
+                            await session.execute(
+                                delete(model).where(model.specialist_id.in_(all_target_specialist_ids))
+                            )
+                        ).rowcount
+                        or 0
+                    )
 
-            if logs_clause_parts:
-                logs_deleted = await session.execute(delete(MessageLog).where(logs_clause))
-                deleted_counts["message_logs"] = int(logs_deleted.rowcount or 0)
-            if bhc_clause_parts:
-                health_deleted = await session.execute(delete(BotHealthCheck).where(bhc_clause))
-                deleted_counts["bot_health_checks"] = int(health_deleted.rowcount or 0)
+                if has_specialist_calendar:
+                    for sid in all_target_specialist_ids:
+                        deleted_counts["specialist_calendar"] += int(
+                            (
+                                await session.execute(
+                                    text("DELETE FROM specialist_calendar WHERE specialist_id = :sid"),
+                                    {"sid": str(sid)},
+                                )
+                            ).rowcount
+                            or 0
+                        )
+
+            if selected_tg_user_ids or all_target_specialist_ids:
+                deleted_counts["message_logs"] = int(
+                    (
+                        await session.execute(
+                            delete(MessageLog).where(
+                                or_(
+                                    MessageLog.tg_user_id.in_(selected_tg_user_ids) if selected_tg_user_ids else False,
+                                    MessageLog.specialist_id.in_(all_target_specialist_ids) if all_target_specialist_ids else False,
+                                )
+                            )
+                        )
+                    ).rowcount
+                    or 0
+                )
+
+            if all_target_client_ids:
+                deleted_counts["client"] = int(
+                    (
+                        await session.execute(delete(Client).where(Client.client_id.in_(all_target_client_ids)))
+                    ).rowcount
+                    or 0
+                )
+
+            if all_target_specialist_ids:
+                for key, model in (
+                    ("specialist_profile", SpecialistProfile),
+                    ("specialist_auth_telegram", SpecialistAuthTelegram),
+                    ("specialist", Specialist),
+                ):
+                    deleted_counts[key] = int(
+                        (
+                            await session.execute(
+                                delete(model).where(model.specialist_id.in_(all_target_specialist_ids))
+                            )
+                        ).rowcount
+                        or 0
+                    )
 
             await session.commit()
-
-    if not specialists:
-        warnings.append("No specialists matched selected tg_user_id list.")
-
     return {
+        "ok": True,
         "dry_run": dry_run,
         "force": force,
         "max_clients_threshold": max_clients_threshold,
@@ -453,9 +470,10 @@ async def execute_test_data_reset(
         "registry_exists": registry_exists,
         "registry_notes": notes,
         "selected_names": selected_names,
-        "selected_registry_names": selected_registry_names,
         "selected_tg_user_ids": sorted(selected_tg_user_ids),
-        "specialists": specialist_reports,
+        "specialist_ids": sorted({item["specialist_id"] for item in target_report}),
+        "client_ids": sorted({client_id for item in target_report for client_id in item["target_client_ids"]}),
+        "targets": target_report,
         "counts": counts,
         "deleted_counts": deleted_counts,
         "warnings": warnings,
@@ -464,19 +482,29 @@ async def execute_test_data_reset(
 
 def format_report(report: dict) -> str:
     mode = "DRY-RUN" if report.get("dry_run", True) else "APPLY"
-    lines = [f"Mode: {mode}"]
+    lines = [f"Result: {'OK' if report.get('ok') else 'FAIL'}", f"Mode: {mode}"]
     lines.append(f"Registry file: {report['registry_path']} (exists={report['registry_exists']})")
     lines.append(f"Selected tg_user_id: {', '.join(map(str, report['selected_tg_user_ids'])) or 'none'}")
-    lines.append(f"Matched specialists: {len(report['specialists'])}")
+    lines.append(f"Target specialists: {', '.join(report.get('specialist_ids', [])) or 'none'}")
+    lines.append(f"Target clients: {', '.join(report.get('client_ids', [])) or 'none'}")
 
-    lines.append("Per-table counts:")
+    lines.append("Planned rows per table:")
     for table_name, count in report["counts"].items():
         lines.append(f"  - {table_name}: {count}")
 
     if not report.get("dry_run", True):
-        lines.append("Deleted rows:")
+        lines.append("Deleted rows per table:")
         for table_name, count in report["deleted_counts"].items():
             lines.append(f"  - {table_name}: {count}")
+
+    for target in report.get("targets", []):
+        lines.append(
+            "Target "
+            f"specialist_id={target['specialist_id']} "
+            f"owner_tg_user_id={target['owner_tg_user_id']} "
+            f"delete_specialist_scope={target['delete_specialist_scope']} "
+            f"clients={len(target['target_client_ids'])}"
+        )
 
     warnings = report.get("warnings") or []
     if warnings:

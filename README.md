@@ -311,3 +311,18 @@ pytest -q
 - `/admin/logs` по умолчанию возвращает redacted-контент; в `APP_ENV=prod` запрос с `redact=false` должен вернуть `403`.
 - `GET /google/oauth/callback` отклоняет повторно использованный или истёкший `state`.
 - webhook-запрос c body больше `MAX_WEBHOOK_BODY_BYTES` получает `413 Payload Too Large`.
+
+---
+
+## Безопасный сброс smoke-данных
+
+Для очистки тестовых Telegram-аккаунтов используйте `scripts/test_data_reset.py` и реестр `config/test_accounts.yaml`.
+
+Быстрый старт:
+```bash
+cp config/test_accounts.example.yaml config/test_accounts.yaml
+python3 scripts/test_data_reset.py --dry-run
+python3 scripts/test_data_reset.py --apply
+```
+
+Подробная инструкция и safety-алгоритм: `docs/test_data_reset.md`.

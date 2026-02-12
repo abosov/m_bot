@@ -349,3 +349,33 @@ async def test_snapshot_restore_keeps_original_uuids(tmp_path, monkeypatch):
     assert target_exists == seeded["specialist_target"]
     assert other_exists == seeded["specialist_other"]
     assert len(clients) == 2
+
+
+@pytest.mark.asyncio
+async def test_cleanup_safety_guard_threshold_requires_force(tmp_path, monkeypatch):
+    database, test_data_reset, _ = load_modules(tmp_path, monkeypatch)
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    await seed_data(database)
+
+    registry_path = tmp_path / "test_accounts.yaml"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "accounts": [
+                    {"name": "smoke_specialist_1", "role": "specialist_owner", "tg_user_id": 111},
+                ],
+                "notes": "threshold test",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(test_data_reset.TestDataResetError):
+        await test_data_reset.execute_test_data_reset(
+            session_factory=database.async_session_factory,
+            dry_run=False,
+            registry_path=registry_path,
+            max_clients_threshold=1,
+        )
