@@ -63,7 +63,7 @@ async def start_web_server():
         raise
     except Exception as exc:
         logger.exception("Web server crashed")
-        await notify_exception(where="main.start_web_server", exc=exc, stage="webhook")
+        await notify_exception(where="main.start_web_server", exc=exc)
         raise
 
 async def start_bot():
@@ -92,7 +92,7 @@ async def start_bot():
         logger.info("🤖 Bot polling cancelled...")
     except Exception as exc:
         logger.exception("Master bot polling crashed")
-        await notify_exception(where="main.start_bot.polling", exc=exc, stage="master_onboarding")
+        await notify_exception(where="main.start_bot.polling", exc=exc, context={"bot_id": bot.id})
         raise
     finally:
         await bot.session.close()

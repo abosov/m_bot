@@ -227,6 +227,8 @@ async def execute_test_data_reset(
         for account in registry_accounts
         if account.role == "specialist_owner" and account.tg_user_id in selected_tg_user_ids
     }
+    if not registry_accounts:
+        selected_owner_tg_ids = set(selected_tg_user_ids)
 
     counts: dict[str, int] = {
         "appointment": 0,

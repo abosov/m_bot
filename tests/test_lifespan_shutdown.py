@@ -19,7 +19,7 @@ class DummyBot:
         self.session = DummySession()
 
 
-def test_lifespan_shutdown_closes_personal_cache_and_master_session(monkeypatch):
+def test_lifespan_shutdown_closes_personal_cache_master_session_and_alerting(monkeypatch):
     calls = []
 
     async def fake_close_personal_bot_cache():
@@ -30,11 +30,15 @@ def test_lifespan_shutdown_closes_personal_cache_and_master_session(monkeypatch)
     async def fake_master_close():
         calls.append("master")
 
+    async def fake_close_alerting():
+        calls.append("alerting")
+
     monkeypatch.setattr(web_server, "close_personal_bot_cache", fake_close_personal_bot_cache)
     monkeypatch.setattr(dummy_bot.session, "close", fake_master_close)
+    monkeypatch.setattr(web_server, "close_alerting", fake_close_alerting)
     monkeypatch.setattr(web_server, "bot", dummy_bot)
 
     with TestClient(web_server.app):
         pass
 
-    assert calls == ["personal", "master"]
+    assert calls == ["personal", "master", "alerting"]

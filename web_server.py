@@ -37,7 +37,7 @@ from services import heartbeat
 from services.telegram.bot_factory import close_personal_bot_cache
 from services.telegram.personal_dispatcher import process_update
 from services.build_info import get_build_info
-from services.alerting import notify_exception
+from services.alerting import close_alerting, notify_exception
 import config
 from admin_api import router as admin_router
 
@@ -71,6 +71,12 @@ async def lifespan(_app: FastAPI):
             logger.info("Master bot session closed on shutdown")
         except Exception:
             logger.warning("Failed to close master bot session on shutdown", exc_info=True)
+
+    try:
+        await close_alerting()
+        logger.info("Alerting bot session closed on shutdown")
+    except Exception:
+        logger.warning("Failed to close alerting bot session on shutdown", exc_info=True)
 
 
 app = FastAPI(lifespan=lifespan)
@@ -352,20 +358,26 @@ async def google_oauth_callback(request: Request):
             refresh_token, access_token, _ = await exchange_code_for_token_async(code)
         except asyncio.TimeoutError as exc:
             logger.warning("google_oauth_callback token exchange timeout specialist_state=%s", state)
+            text_out = "<h1>Ошибка: timeout при обмене кода Google OAuth. Повторите попытку.</h1>"
             await notify_exception(
                 where="web_server.google_oauth_callback.token_exchange",
                 exc=exc,
-                context={"state": state},
+                context={"state": state, "specialist_id": str(specialist_id)},
+                user_visible_text=text_out,
+                stage="google_oauth",
             )
-            return "<h1>Ошибка: timeout при обмене кода Google OAuth. Повторите попытку.</h1>"
+            return text_out
         except requests.exceptions.RequestException as exc:
             logger.warning("google_oauth_callback token exchange network error specialist_state=%s", state)
+            text_out = "<h1>Ошибка: network error при обмене кода Google OAuth. Повторите попытку.</h1>"
             await notify_exception(
                 where="web_server.google_oauth_callback.token_exchange",
                 exc=exc,
-                context={"state": state},
+                context={"state": state, "specialist_id": str(specialist_id)},
+                user_visible_text=text_out,
+                stage="google_oauth",
             )
-            return "<h1>Ошибка: network error при обмене кода Google OAuth. Повторите попытку.</h1>"
+            return text_out
 
         async with async_session_factory() as session:
             stmt = select(GoogleOAuth).where(GoogleOAuth.specialist_id == specialist_id)
@@ -497,9 +509,12 @@ async def google_oauth_callback(request: Request):
 
     except Exception as exc:
         logger.exception("google_oauth_callback failed specialist_state=%s", state)
+        text_out = "<h1>Произошла ошибка при подключении Google. Попробуйте ещё раз из Telegram.</h1>"
         await notify_exception(
             where="web_server.google_oauth_callback",
             exc=exc,
             context={"state": state},
+            user_visible_text=text_out,
+            stage="google_oauth",
         )
-        return "<h1>Произошла ошибка при подключении Google. Попробуйте ещё раз из Telegram.</h1>"
+        return text_out
