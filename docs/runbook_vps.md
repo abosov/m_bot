@@ -258,15 +258,18 @@ python scripts/test_data_reset.py --apply
 
 ## Диагностика после онбординга и действий
 
-Цель: собрать полный диагностический пакет в 1 команду на VPS и забрать его в 1 команду на локальной машине.
+Цель: собрать полный диагностический пакет в 1 команду на VPS и получить автоматический verdict по US-01 и базовым настройкам (`PASS/WARN/FAIL`).
 
-### 1 команда на VPS
+### 1 команда на VPS (сбор + проверка)
 
 ```bash
-sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --owner-tg-id 123
+sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --owner-tg-id 123 --check
 ```
 
-Скрипт создаёт архив вида `/tmp/zumbot_diag_<UTCSTAMP>.tar.gz`, а также `summary.txt` и артефакты (journal/systemd/docker/nginx/db).
+Скрипт создаёт архив вида `/tmp/zumbot_diag_<UTCSTAMP>.tar.gz`, записывает подробности в `summary.txt` (и `summary.json` при `--json`) и печатает в stdout только:
+- путь к архиву,
+- `OVERALL: PASS|WARN|FAIL`,
+- при `FAIL` — строку `See summary.txt in archive`.
 
 ### 1 команда на локальном Mac
 
@@ -276,22 +279,36 @@ bash scripts/diag_fetch_local.sh root@<host>
 
 Скрипт сам найдёт последний архив на VPS, скачает его в `~/Downloads/zumbot_diag/`, распакует и выведет путь + команды для просмотра.
 
+### Диагностика: режим проверки
+
+Новые флаги:
+- `--check` — запуск строгой DB-проверки US-01 + базовых настроек,
+- `--check-only` — только проверка (без логов и архива),
+- `--json` — добавить machine-readable verdict в `summary.json`.
+
+Коды выхода в check-режиме:
+- `0` — `PASS`,
+- `10` — `WARN`,
+- `20` — `FAIL`.
+
+В обычном режиме (без `--check`) скрипт по-прежнему завершает работу с `exit 0`.
+
 ### Типовые короткие сценарии
 
 После регистрации специалиста (по owner tg id):
 
 ```bash
-sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --owner-tg-id 123 --with-db-dump
+sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --owner-tg-id 123 --check
 ```
 
-После изменения slot_step/session_duration/max_sessions_per_day (по specialist id):
+После изменения настроек специалиста (по specialist id):
 
 ```bash
-sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --specialist-id <specialist_uuid>
+sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --specialist-id 456 --check --since "30 minutes ago"
 ```
 
-После бронирования клиентом (узкое окно по времени):
+Только проверка без архива:
 
 ```bash
-sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --specialist-id <specialist_uuid> --since "30 minutes ago"
+sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --owner-tg-id 123 --check-only
 ```
