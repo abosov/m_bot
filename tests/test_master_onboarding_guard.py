@@ -41,7 +41,7 @@ async def test_master_guard_blocks_status_when_full_onboarding_not_completed(mon
         return None
 
     async def fake_get_specialist(_tg_user_id):
-        return types.SimpleNamespace(full_onboarding_completed_at=None)
+        return types.SimpleNamespace(onboarding_master_completed_at="2026-02-12T00:00:00Z", onboarding_personal_completed_at=None)
 
     async def fake_check_bot_status(*args, **kwargs):
         called["status_check"] = True

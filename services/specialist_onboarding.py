@@ -68,15 +68,15 @@ async def set_master_onboarding_completed(specialist_id: UUID, completed_at: dat
         if specialist is None:
             logger.warning("set_master_onboarding_completed: specialist not found specialist_id=%s", specialist_id)
             return
-        specialist.master_onboarding_completed_at = completed_at or datetime.now(timezone.utc)
+        specialist.onboarding_master_completed_at = completed_at or datetime.now(timezone.utc)
         await session.commit()
 
 
-async def set_full_onboarding_completed(specialist_id: UUID, completed_at: datetime | None = None) -> None:
+async def set_personal_onboarding_completed(specialist_id: UUID, completed_at: datetime | None = None) -> None:
     async with async_session_factory() as session:
         specialist = await session.get(Specialist, specialist_id)
         if specialist is None:
-            logger.warning("set_full_onboarding_completed: specialist not found specialist_id=%s", specialist_id)
+            logger.warning("set_personal_onboarding_completed: specialist not found specialist_id=%s", specialist_id)
             return
-        specialist.full_onboarding_completed_at = completed_at or datetime.now(timezone.utc)
+        specialist.onboarding_personal_completed_at = completed_at or datetime.now(timezone.utc)
         await session.commit()

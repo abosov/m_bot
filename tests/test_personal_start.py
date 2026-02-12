@@ -29,7 +29,7 @@ async def test_personal_start_specialist_with_incomplete_onboarding_shows_defaul
     from_user = types.SimpleNamespace(id=987, full_name="Dr Gregory House", first_name="Gregory", last_name="House")
     message = DummyMessage(from_user=from_user)
 
-    specialist = types.SimpleNamespace(full_onboarding_completed_at=None)
+    specialist = types.SimpleNamespace(onboarding_master_completed_at=None, onboarding_personal_completed_at=None)
     profile = types.SimpleNamespace(
         session_duration_min=60,
         session_buffer_min=10,
@@ -70,7 +70,7 @@ async def test_personal_start_specialist_completed_onboarding_opens_owner_panel(
         captured["public_name"] = public_name
         captured["owner_tg_user_id"] = owner_tg_user_id
 
-    specialist = types.SimpleNamespace(full_onboarding_completed_at="2026-02-12T00:00:00Z")
+    specialist = types.SimpleNamespace(onboarding_master_completed_at="2026-02-12T00:00:00Z", onboarding_personal_completed_at="2026-02-12T00:00:00Z")
     profile = types.SimpleNamespace()
 
     async def fake_load(_specialist_id):
@@ -108,7 +108,7 @@ async def test_onboarding_keep_sets_full_onboarding_and_opens_owner_panel(monkey
     callback = DummyCallback(message)
     calls = {"committed": False, "owner_panel": False}
 
-    specialist = types.SimpleNamespace(full_onboarding_completed_at=None)
+    specialist = types.SimpleNamespace(onboarding_master_completed_at=None, onboarding_personal_completed_at=None)
 
     class _Session:
         async def get(self, model, specialist_id):
@@ -137,7 +137,7 @@ async def test_onboarding_keep_sets_full_onboarding_and_opens_owner_panel(monkey
         owner_tg_user_id=111,
     )
 
-    assert specialist.full_onboarding_completed_at is not None
+    assert specialist.onboarding_personal_completed_at is not None
     assert calls["committed"] is True
     assert calls["owner_panel"] is True
 

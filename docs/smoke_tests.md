@@ -77,17 +77,19 @@ curl -i -sS "$BASE_URL/readyz"
 7. Запустить smoke-тест календаря.
 8. Получить deep-link `?start=owner_panel` в personal bot.
 
-Ожидание: после успешного smoke-теста `specialist.status=active`, выдан deep-link в personal bot.
+Ожидание: после успешного smoke-теста `specialist.status=active`, выдан deep-link в personal bot, в БД `onboarding_master_completed_at` заполнен, `onboarding_personal_completed_at` ещё `NULL`.
 
 ## 3.3 Personal bot (роль: specialist)
 
 Под `SpecialistOwner` в personal bot:
 
 1. Открыть deep-link `?start=owner_panel` (или `/start` owner).
-2. Проверить, что owner panel сразу показывает: дефолты уже применены автоматически после US-01.
-3. Проверить текущие значения (timezone, интервалы, duration/buffer, slot_step, max/day, cancel window).
-4. Изменить минимум один параметр (например, `slot_step_min` и/или `max_sessions_per_day`).
-5. `/status` — видно:
+2. Проверить, что нет «тишины»: показывается экран продолжения онбординга и дефолты (изменить / оставить как есть / позже).
+3. Нажать «Оставить как есть» и проверить, что открылась owner panel.
+4. Повторить `/start`: owner panel открывается сразу (без onboarding-экрана).
+5. Проверить текущие значения (timezone, интервалы, duration/buffer, slot_step, max/day, cancel window).
+6. Изменить минимум один параметр (например, `slot_step_min` и/или `max_sessions_per_day`).
+7. `/status` — видно:
    - статус подключения Google,
    - поля календаря,
    - информацию о последнем smoke-тесте (если есть).

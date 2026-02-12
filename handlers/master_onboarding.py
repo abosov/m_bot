@@ -100,13 +100,21 @@ def _full_onboarding_guard_keyboard(deep_link: str) -> types.InlineKeyboardMarku
     return types.InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _needs_personal_onboarding_prompt(specialist: Specialist) -> bool:
+    return (
+        specialist.onboarding_master_completed_at is not None
+        and specialist.onboarding_personal_completed_at is None
+    )
+
+
 async def _check_full_onboarding_or_prompt(message: types.Message, specialist: Specialist, personal_bot_username: str | None) -> bool:
-    if specialist.full_onboarding_completed_at is not None:
+    if not _needs_personal_onboarding_prompt(specialist):
         return True
 
     deep_link = _build_personal_deep_link(personal_bot_username)
     await message.answer(
-        "⏳ Онбординг ещё не завершён. Завершите его в персональном боте.\n"
+        "⏳ Онбординг ещё не завершён полностью. Перейдите в персональный бот, "
+        "чтобы подтвердить/изменить стартовые настройки.\n"
         f"{deep_link if deep_link else 'Откройте вашего персонального бота по username.'}",
         reply_markup=_full_onboarding_guard_keyboard(deep_link),
     )
@@ -405,8 +413,10 @@ async def cmd_status(message: types.Message):
         if specialist is None:
             await message.answer("⚠️ Профиль специалиста не найден. Нажмите /start для регистрации.")
             return
-        if not await _check_full_onboarding_or_prompt(message, specialist, tg_bot.bot_username):
-            return
+        await _check_full_onboarding_or_prompt(message, specialist, tg_bot.bot_username)
+
+        onboarding_master = specialist.onboarding_master_completed_at.isoformat() if specialist.onboarding_master_completed_at else "—"
+        onboarding_personal = specialist.onboarding_personal_completed_at.isoformat() if specialist.onboarding_personal_completed_at else "—"
 
         logger.info(
             "Status check requested: specialist_id=%s bot_id=%s",
@@ -445,6 +455,11 @@ async def cmd_status(message: types.Message):
         else:
             text_out = "⚠️ Временно не удалось проверить бота. Повторите позже."
 
+        text_out = (
+            f"{text_out}\n"
+            f"• Onboarding (master): {onboarding_master}\n"
+            f"• Onboarding (personal): {onboarding_personal}"
+        )
         await message.answer(text_out)
         await log_outbound_message(
             message.bot,
@@ -655,6 +670,14 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 new_state = "waiting_for_calendar_action"
             
             final_text = status_text + next_step_msg
+            if _needs_personal_onboarding_prompt(specialist) and active_bot is not None:
+                deep_link = _build_personal_deep_link(active_bot.bot_username)
+                await message.answer(
+                    "⏳ Онбординг ещё не завершён полностью. Перейдите в персональный бот, "
+                    "чтобы подтвердить/изменить стартовые настройки.\n"
+                    f"{deep_link if deep_link else 'Откройте вашего персонального бота по username.'}",
+                    reply_markup=_full_onboarding_guard_keyboard(deep_link),
+                )
             await message.answer(final_text, reply_markup=keyboard)
             
             await log_outbound_message(
@@ -1394,7 +1417,7 @@ async def full_onboarding_recheck(callback: types.CallbackQuery):
                 )
             ).scalars().first()
 
-        if specialist.full_onboarding_completed_at is not None:
+        if specialist.onboarding_personal_completed_at is not None:
             await callback.message.answer("✅ Полный онбординг уже завершён. Можно продолжать работу в master-боте.")
         else:
             username = bot.bot_username if bot else None

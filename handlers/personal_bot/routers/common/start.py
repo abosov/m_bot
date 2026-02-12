@@ -115,7 +115,16 @@ async def personal_start(
                 )
                 return
 
-            if specialist.full_onboarding_completed_at is None:
+            logger.info(
+                "personal_start actor=%s specialist_id=%s command_args=%s onboarding_master=%s onboarding_personal=%s",
+                actor,
+                specialist_id,
+                command.args,
+                specialist.onboarding_master_completed_at,
+                specialist.onboarding_personal_completed_at,
+            )
+
+            if specialist.onboarding_personal_completed_at is None:
                 if command.args and command.args not in {"owner_panel", "onboarding"}:
                     await message.answer("ℹ️ Неизвестный старт-параметр. Продолжаем онбординг.")
                 await _render_onboarding_screen(message, specialist_id)
@@ -166,7 +175,7 @@ async def onboarding_keep(callback: CallbackQuery, specialist_id, public_name: s
                 await callback.message.answer("⚠️ Профиль специалиста не найден. Нажмите /start в master-боте.")
                 await callback.answer()
                 return
-            specialist.full_onboarding_completed_at = datetime.now(timezone.utc)
+            specialist.onboarding_personal_completed_at = datetime.now(timezone.utc)
             await session.commit()
 
         await callback.message.answer("✅ Отлично, онбординг завершён. Открываю панель специалиста.")
