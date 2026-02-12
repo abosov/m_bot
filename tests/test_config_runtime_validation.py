@@ -13,7 +13,6 @@ def _clear_core_env(monkeypatch):
         "GOOGLE_CLIENT_SECRET",
         "GOOGLE_REDIRECT_URI",
         "BASE_URL",
-        "PUBLIC_SITE_URL",
         "DB_URL",
     ]:
         monkeypatch.delenv(key, raising=False)
@@ -44,8 +43,75 @@ def test_validate_config_fails_in_real_prod_process_without_secrets():
     )
 
     assert result.returncode != 0
-    assert "Missing required production environment variables" in result.stderr
+    assert "Invalid production configuration" in result.stderr
+    assert "Missing required variables" in result.stderr
 
+
+
+
+def test_validate_config_fails_in_prod_process_with_invalid_db_url():
+    repo_root = Path(__file__).resolve().parents[1]
+    valid_base_env = {
+        "APP_ENV": "prod",
+        "MASTER_BOT_TOKEN": "token",
+        "ENCRYPTION_KEY": "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+        "GOOGLE_CLIENT_ID": "cid",
+        "GOOGLE_CLIENT_SECRET": "csecret",
+        "GOOGLE_REDIRECT_URI": "https://example.test/callback",
+        "BASE_URL": "https://example.test",
+        "DB_URL": "not-a-url",
+    }
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import config; config.validate_config()",
+        ],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        env=valid_base_env,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Invalid value for DB_URL" in result.stderr
+
+
+def test_validate_config_fails_in_prod_process_with_invalid_numeric_envs():
+    repo_root = Path(__file__).resolve().parents[1]
+    valid_base_env = {
+        "APP_ENV": "prod",
+        "MASTER_BOT_TOKEN": "token",
+        "ENCRYPTION_KEY": "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+        "GOOGLE_CLIENT_ID": "cid",
+        "GOOGLE_CLIENT_SECRET": "csecret",
+        "GOOGLE_REDIRECT_URI": "https://example.test/callback",
+        "BASE_URL": "https://example.test",
+        "DB_URL": "sqlite+aiosqlite:///./mvp.db",
+        "WEB_PORT": "70000",
+        "MAX_WEBHOOK_BODY_BYTES": "0",
+        "ALERTS_THROTTLE_SECONDS": "-1",
+    }
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import config; config.validate_config()",
+        ],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        env=valid_base_env,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "WEB_PORT must be between 1 and 65535" in result.stderr
+    assert "MAX_WEBHOOK_BODY_BYTES must be between 1 and 10000000" in result.stderr
+    assert "ALERTS_THROTTLE_SECONDS must be between 0 and 86400" in result.stderr
 
 def test_validate_config_skipped_for_test_env(monkeypatch):
     monkeypatch.setenv("APP_ENV", "test")

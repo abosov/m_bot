@@ -17,20 +17,13 @@ from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 
-# Импортируем роутер онбординга
-from handlers.master_onboarding import router as master_onboarding_router
-from database import init_db
-
-# Импортируем Middleware
-from logging_middleware import StructLoggingMiddleware
-
-# Импортируем веб-сервер
-from web_server import app as fastapi_app
 from services.heartbeat import heartbeat_task
 from services.alerting import close_alerting, notify_exception
 
 async def start_web_server():
     """Запуск uvicorn в асинхронном режиме"""
+
+    from web_server import app as fastapi_app
 
     # systemd socket activation: если есть LISTEN_FDS=1 и PID совпал — слушаем fd=3
     listen_fds = os.getenv("LISTEN_FDS")
@@ -68,9 +61,13 @@ async def start_web_server():
 
 async def start_bot():
     """Запуск Telegram бота"""
+    from database import init_db
+    from handlers.master_onboarding import router as master_onboarding_router
+    from logging_middleware import StructLoggingMiddleware
+
     # Инициализация БД
     await init_db()
-    
+
     token = config.MASTER_BOT_TOKEN
     if not token:
         raise ValueError("MASTER_BOT_TOKEN not set")

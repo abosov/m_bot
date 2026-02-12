@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -92,6 +93,22 @@ def _env_or_default(name: str, default: str, *, allow_empty_in_prod: bool = True
         return ""
     return default
 
+
+def parse_int_env(name: str, default: int, min_value: int, max_value: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value.strip() == "":
+        value = default
+    else:
+        try:
+            value = int(raw_value)
+        except ValueError:
+            raise ValueError(f"{name} must be an integer") from None
+
+    if value < min_value or value > max_value:
+        raise ValueError(f"{name} must be between {min_value} and {max_value}")
+
+    return value
+
 ENABLE_READYZ = _parse_bool(os.getenv("ENABLE_READYZ", str(APP_ENV == "prod")))
 TEST_ENCRYPTION_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 
@@ -138,7 +155,14 @@ WEB_HOST = os.getenv("WEB_HOST")
 if not WEB_HOST:
     WEB_HOST = "0.0.0.0" if APP_ENV == "local" else "127.0.0.1"
 
-WEB_PORT = int(os.getenv("WEB_PORT", "8000"))
+def _parse_int_env_or_default(name: str, default: int, min_value: int, max_value: int) -> int:
+    try:
+        return parse_int_env(name, default, min_value, max_value)
+    except ValueError:
+        return default
+
+
+WEB_PORT = _parse_int_env_or_default("WEB_PORT", default=8000, min_value=1, max_value=65535)
 
 DATABASE_URL = os.getenv("DB_URL")
 if not DATABASE_URL and (APP_ENV != "prod" or is_test_env()):
@@ -147,12 +171,38 @@ DATABASE_URL = _require_in_prod("DB_URL", DATABASE_URL)
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "backend")
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
-MAX_WEBHOOK_BODY_BYTES = int(os.getenv("MAX_WEBHOOK_BODY_BYTES", "1000000"))
+MAX_WEBHOOK_BODY_BYTES = _parse_int_env_or_default(
+    "MAX_WEBHOOK_BODY_BYTES",
+    default=1_000_000,
+    min_value=1,
+    max_value=10_000_000,
+)
 ALERTS_ENABLED = _parse_bool(os.getenv("ALERTS_ENABLED", "false"))
 ALERTS_TELEGRAM_CHAT_ID = os.getenv("ALERTS_TELEGRAM_CHAT_ID")
 ALERTS_TELEGRAM_TOKEN = os.getenv("ALERTS_TELEGRAM_TOKEN")
-ALERTS_THROTTLE_SECONDS = int(os.getenv("ALERTS_THROTTLE_SECONDS", "60"))
+ALERTS_THROTTLE_SECONDS = _parse_int_env_or_default(
+    "ALERTS_THROTTLE_SECONDS",
+    default=60,
+    min_value=0,
+    max_value=86_400,
+)
 ALERTS_DEDUP_WINDOW_SECONDS = int(os.getenv("ALERTS_DEDUP_WINDOW_SECONDS", "300"))
+
+
+def _looks_like_database_url(value: str) -> bool:
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return False
+
+    if not parsed.scheme:
+        return False
+
+    # sqlite URL can be sqlite:///./mvp.db (no netloc)
+    if parsed.scheme.startswith("sqlite"):
+        return bool(parsed.path)
+
+    return bool(parsed.netloc)
 
 
 def validate_config() -> None:
@@ -166,14 +216,32 @@ def validate_config() -> None:
         "GOOGLE_CLIENT_SECRET": GOOGLE_CLIENT_SECRET,
         "GOOGLE_REDIRECT_URI": GOOGLE_REDIRECT_URI,
         "BASE_URL": BASE_URL,
-        "PUBLIC_SITE_URL": PUBLIC_SITE_URL,
         "DB_URL": DATABASE_URL,
     }
 
+    errors: list[str] = []
+
     missing = [name for name, value in required_values.items() if not value]
     if missing:
+        errors.append("Missing required variables: " + ", ".join(sorted(missing)))
+
+    if DATABASE_URL and not _looks_like_database_url(DATABASE_URL):
+        errors.append("Invalid value for DB_URL (must be a valid database URL)")
+
+    int_specs = (
+        ("WEB_PORT", 8000, 1, 65535),
+        ("MAX_WEBHOOK_BODY_BYTES", 1_000_000, 1, 10_000_000),
+        ("ALERTS_THROTTLE_SECONDS", 60, 0, 86_400),
+    )
+    for name, default, min_value, max_value in int_specs:
+        try:
+            parse_int_env(name, default, min_value, max_value)
+        except ValueError as exc:
+            errors.append(str(exc))
+
+    if errors:
         raise RuntimeError(
-            "Missing required production environment variables: " + ", ".join(missing)
+            "Invalid production configuration:\n- " + "\n- ".join(errors)
         )
 
     logger.warning(
