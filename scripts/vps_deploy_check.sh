@@ -58,7 +58,10 @@ print_git_and_build_info() {
 }
 
 check_yaml_import() {
-  sudo -u zumbot bash -lc "cd '${REPO_DIR}' && source .venv/bin/activate && python -c 'import yaml; print("PyYAML OK")'" >/dev/null     || die "PyYAML import failed in .venv. Install deps (pip install -r requirements.txt) and verify requirements include PyYAML."
+  local venv_python="${VENV_DIR}/bin/python3"
+  [[ -x "${venv_python}" ]] || die "venv python missing (${venv_python})"
+
+  "${venv_python}" -c "import yaml; print('OK')" >/dev/null || die "PyYAML import failed in .venv. Install deps (pip install -r requirements.txt) and verify requirements include PyYAML."
 }
 
 check_migrations_applied() {
@@ -223,7 +226,8 @@ run_deploy() {
   run_step "git fetch" git -C "${REPO_DIR}" fetch origin
   run_step "git pull --ff-only origin main" git -C "${REPO_DIR}" pull --ff-only origin main
 
-  run_step "pip install requirements" sudo -u zumbot bash -lc "cd '${REPO_DIR}' && source .venv/bin/activate && pip install -r requirements.txt"
+  run_step "pip install requirements" sudo -u zumbot "${VENV_DIR}/bin/python3" -m pip install -r "${REPO_DIR}/requirements.txt"
+  run_step "Verify PyYAML import after pip install" check_yaml_import
   run_step "Install test reset command" ln -sfn "${REPO_DIR}/scripts/test_data_reset_run.py" /usr/local/bin/zumbot-test-reset
 
   set -a

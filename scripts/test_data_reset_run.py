@@ -11,12 +11,11 @@ from pathlib import Path
 
 SYSTEM_ENV_FILE = Path('/etc/zumbot/backend.env')
 SYSTEM_REGISTRY_PATH = Path('/etc/zumbot/test_accounts.yaml')
-DEFAULT_REGISTRY_PATH = Path('config/test_accounts.yaml')
+EXAMPLE_REGISTRY_PATH = Path('config/test_accounts.example.yaml')
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser(description='Запуск безопасного сброса тестовых данных одной командой.')
-    parser.add_argument('--registry', help='Явный путь к registry-файлу (перекрывает авто-выбор).')
     parser.add_argument('--apply', action='store_true', help='Реально применить удаление.')
     parser.add_argument('--yes', action='store_true', help='Подтвердить apply без интерактивного вопроса.')
     parser.add_argument(
@@ -24,15 +23,10 @@ def parse_args() -> argparse.Namespace:
         action='store_true',
         help='Второй safety-флаг, обязателен вместе с --apply.',
     )
-    parser.add_argument('--names', nargs='+', help='Имена аккаунтов из реестра.')
-    parser.add_argument('--tg-user-ids', nargs='+', type=int, help='Список tg_user_id без реестра.')
-    parser.add_argument('--force', action='store_true', help='Отключить safety guards в Python CLI.')
-    parser.add_argument('--max-clients-threshold', type=int, help='Порог клиентов для safety guard.')
-    parser.add_argument('--format', choices=['json', 'text'], help='Формат отчёта.')
-    return parser.parse_args()
+    return parser.parse_known_args(argv)
 
 
-def load_env_file(path: Path) -> None:
+def load_env_file(path: Path, env: dict[str, str]) -> None:
     if not path.exists():
         return
 
@@ -56,25 +50,25 @@ def load_env_file(path: Path) -> None:
         else:
             value = shlex.split(value)[0] if value else ''
 
-        os.environ.setdefault(key, value)
+        env.setdefault(key, value)
 
 
-def resolve_registry_path(explicit_registry: str | None) -> Path:
-    if explicit_registry:
-        resolved = Path(explicit_registry)
-        if not resolved.exists():
-            raise FileNotFoundError(f'Registry file not found: {resolved}')
-        return resolved
+def has_option(argv: list[str], option: str) -> bool:
+    return option in argv or any(arg.startswith(f'{option}=') for arg in argv)
+
+
+def resolve_registry_path(repo_root: Path) -> Path:
+    default_registry_path = repo_root / 'config/test_accounts.yaml'
 
     if SYSTEM_REGISTRY_PATH.exists():
         return SYSTEM_REGISTRY_PATH
 
-    if DEFAULT_REGISTRY_PATH.exists():
-        return DEFAULT_REGISTRY_PATH
+    if default_registry_path.exists():
+        return default_registry_path
 
     raise FileNotFoundError(
-        f'Registry not found. Expected either {SYSTEM_REGISTRY_PATH} or {DEFAULT_REGISTRY_PATH}. '
-        'Create one of them or pass --registry PATH.'
+        f'Registry not found. Expected either {SYSTEM_REGISTRY_PATH} or {default_registry_path}. '
+        f'Create one from {repo_root / EXAMPLE_REGISTRY_PATH} or pass --registry PATH.'
     )
 
 
@@ -96,47 +90,48 @@ def ensure_apply_guards(args: argparse.Namespace) -> None:
         raise RuntimeError('Apply cancelled by user.')
 
 
-def build_cli_command(args: argparse.Namespace, registry_path: Path) -> list[str]:
-    command = [sys.executable, 'scripts/test_data_reset.py', '--registry', str(registry_path)]
-
-    if args.apply:
-        command.append('--apply')
-
-    if args.names:
-        command.extend(['--names', *args.names])
-    if args.tg_user_ids:
-        command.extend(['--tg-user-ids', *[str(value) for value in args.tg_user_ids]])
-    if args.force:
-        command.append('--force')
-    if args.max_clients_threshold is not None:
-        command.extend(['--max-clients-threshold', str(args.max_clients_threshold)])
-    if args.format:
-        command.extend(['--format', args.format])
-
+def build_cli_command(python_executable: Path, script_path: Path, passthrough_args: list[str], registry_path: Path) -> list[str]:
+    command = [str(python_executable), str(script_path), *passthrough_args]
+    if not has_option(passthrough_args, '--registry'):
+        command.extend(['--registry', str(registry_path)])
+    if not has_option(passthrough_args, '--format'):
+        command.extend(['--format', 'text'])
     return command
 
 
 def main() -> int:
-    args = parse_args()
+    repo_root = Path(__file__).resolve().parents[1]
+    python_executable = repo_root / '.venv/bin/python3'
+    script_path = repo_root / 'scripts/test_data_reset.py'
+    args, passthrough_args = parse_args(sys.argv[1:])
+
+    if not python_executable.exists():
+        print(f'ERROR: venv python is missing: {python_executable}')
+        return 2
+    if not script_path.exists():
+        print(f'ERROR: reset script is missing: {script_path}')
+        return 2
 
     try:
-        load_env_file(SYSTEM_ENV_FILE)
         ensure_apply_guards(args)
-        registry_path = resolve_registry_path(args.registry)
+        registry_path = resolve_registry_path(repo_root)
     except Exception as exc:
         print(f'ERROR: {exc}')
         return 2
 
-    if os.getenv('DATABASE_URL') and not os.getenv('DB_URL'):
-        os.environ['DB_URL'] = os.environ['DATABASE_URL']
+    child_env = os.environ.copy()
+    load_env_file(SYSTEM_ENV_FILE, child_env)
 
-    if not os.getenv('DB_URL'):
+    if child_env.get('DATABASE_URL') and not child_env.get('DB_URL'):
+        child_env['DB_URL'] = child_env['DATABASE_URL']
+
+    if not child_env.get('DB_URL'):
         print(f'ERROR: DB_URL is not set. Ensure {SYSTEM_ENV_FILE} contains DB_URL or export it manually.')
         return 2
 
-    command = build_cli_command(args, registry_path)
+    command = build_cli_command(python_executable, script_path, passthrough_args, registry_path)
     print(f"Running: {' '.join(shlex.quote(item) for item in command)}")
-    proc = subprocess.run(command, env=os.environ.copy())
+    proc = subprocess.run(command, env=child_env)
     return int(proc.returncode)
 
 
