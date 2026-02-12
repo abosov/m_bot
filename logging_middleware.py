@@ -199,7 +199,7 @@ class StructLoggingMiddleware(BaseMiddleware):
                 event=event,
                 data=data,
             )
-            raise e
+            raise
         finally:
             # --- Обновление лога ---
             processing_time = time.time() - start_time
