@@ -58,6 +58,7 @@ async def test_personal_start_specialist_with_incomplete_onboarding_shows_defaul
     )
 
     assert any("Настройки по умолчанию" in msg[0] for msg in message.answers)
+    assert any("Текущий календарь: не выбран" in msg[0] for msg in message.answers)
     assert not any("Доступно сейчас" in msg[0] for msg in message.answers)
 
 

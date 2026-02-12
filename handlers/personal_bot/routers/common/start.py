@@ -87,13 +87,16 @@ async def _render_onboarding_screen(message: Message, specialist_id) -> None:
         return
 
     calendar_settings = getattr(specialist, "calendar_settings", None)
-    calendar_label = "не выбран"
-    smoke_note = ""
+    current_calendar_lines = ["Текущий календарь: не выбран"]
     if calendar_settings and getattr(calendar_settings, "calendar_id", None):
-        calendar_label = calendar_settings.calendar_summary or "Без названия"
         smoke_status = getattr(calendar_settings, "last_smoke_test_status", None)
-        if smoke_status in {"ok", "failed"}:
-            smoke_note = f" (smoke-test: {smoke_status})"
+        if smoke_status not in {"ok", "failed"}:
+            smoke_status = "unknown"
+        current_calendar_lines = [
+            f"Текущий календарь: {calendar_settings.calendar_summary or calendar_settings.calendar_id}",
+            f"Часовой пояс: {calendar_settings.calendar_time_zone or 'UTC'}",
+            f"Smoke-test: {smoke_status}",
+        ]
 
     text = (
         "🧩 Продолжим онбординг в персональном боте.\n\n"
@@ -104,7 +107,7 @@ async def _render_onboarding_screen(message: Message, specialist_id) -> None:
         f"• Макс. сессий в день: {profile.max_sessions_per_day}\n"
         f"• Шаг слотов: {profile.slot_step_min} мин\n"
         f"• Окно отмены: {profile.cancel_window_hours} ч\n\n"
-        f"📅 Календарь: {calendar_label}{smoke_note}\n\n"
+        f"{chr(10).join(current_calendar_lines)}\n\n"
         "Подтвердите настройки или измените их перед завершением онбординга."
     )
     await message.answer(text, reply_markup=_onboarding_keyboard_with_calendar())

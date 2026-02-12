@@ -1067,6 +1067,8 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
     tg_user_id = callback.from_user.id
     data = await state.get_data()
     items = data.get("cal_items") or []
+    picked_calendar_id: str | None = None
+    specialist_id_for_context = None
 
     try:
         idx = int((callback.data or "").split(":")[-1])
@@ -1107,6 +1109,8 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
             return
 
         calendar_id = calendar.get("id")
+        picked_calendar_id = calendar_id
+        specialist_id_for_context = specialist.specialist_id
         summary = calendar.get("summary")
         calendar_tz = calendar.get("timeZone") or specialist.profile.specialist_timezone or "UTC"
 
@@ -1184,15 +1188,33 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
     except Exception as exc:
         logger.exception("calendar_pick failed")
-        text_out = "⚠️ Не удалось применить выбранный календарь. Попробуйте позже."
-        await notify_exception(
-            where="handlers.master_onboarding.calendar_pick",
-            exc=exc,
-            context={"tg_user_id": callback.from_user.id},
-            event=callback,
-            user_visible_text=text_out,
-        )
-        await callback.message.answer(text_out)
+        if picked_calendar_id is not None:
+            text_out = (
+                "✅ Календарь выбран/подключён, но произошла ошибка на финальном шаге. "
+                "Продолжайте в личном боте; если он не открылся автоматически — откройте вручную."
+            )
+            await notify_exception(
+                where="handlers.master_onboarding.calendar_pick.post_pick_unexpected",
+                exc=exc,
+                context={
+                    "tg_user_id": callback.from_user.id,
+                    "specialist_id": str(specialist_id_for_context) if specialist_id_for_context else None,
+                    "calendar_id": picked_calendar_id,
+                },
+                event=callback,
+                user_visible_text=text_out,
+            )
+            await callback.message.answer(text_out)
+        else:
+            text_out = "⚠️ Не удалось применить выбранный календарь. Попробуйте позже."
+            await notify_exception(
+                where="handlers.master_onboarding.calendar_pick",
+                exc=exc,
+                context={"tg_user_id": callback.from_user.id, "specialist_id": str(specialist_id_for_context) if specialist_id_for_context else None},
+                event=callback,
+                user_visible_text=text_out,
+            )
+            await callback.message.answer(text_out)
         await callback.answer()
 
 
@@ -1347,6 +1369,9 @@ async def _notify_personal_bot_welcome(specialist_id: uuid.UUID, tg_user_id: int
 @router.callback_query(F.data == "calendar:create")
 async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
     tg_user_id = callback.from_user.id
+    created_calendar_id: str | None = None
+    created_calendar_summary: str | None = None
+    specialist_id_for_context = None
     try:
         async with async_session_factory() as session:
             auth = (await session.execute(select(SpecialistAuthTelegram).where(SpecialistAuthTelegram.tg_user_id == tg_user_id))).scalar_one_or_none()
@@ -1373,6 +1398,9 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
         calendar = await create_bot_calendar(specialist.specialist_id, profile.public_name, profile.specialist_timezone or "UTC")
         calendar_id = calendar.get("id")
         summary = calendar.get("summary")
+        created_calendar_id = calendar_id
+        created_calendar_summary = summary
+        specialist_id_for_context = specialist.specialist_id
         calendar_tz = calendar.get("timeZone") or profile.specialist_timezone or "UTC"
 
         await _upsert_calendar_settings(
@@ -1466,15 +1494,34 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
     except Exception as exc:
         logger.exception("calendar_create failed")
-        text_out = "⚠️ Не удалось подключить календарь. Попробуйте позже."
-        await notify_exception(
-            where="handlers.master_onboarding.calendar_create",
-            exc=exc,
-            context={"tg_user_id": callback.from_user.id},
-            event=callback,
-            user_visible_text=text_out,
-        )
-        await callback.message.answer(text_out)
+        if created_calendar_id is not None:
+            text_out = (
+                "✅ Календарь создан/подключён, но произошла ошибка на финальном шаге. "
+                "Если личный бот не открылся автоматически — откройте его вручную и продолжайте настройку."
+            )
+            await notify_exception(
+                where="handlers.master_onboarding.calendar_create.post_create_unexpected",
+                exc=exc,
+                context={
+                    "tg_user_id": callback.from_user.id,
+                    "specialist_id": str(specialist_id_for_context) if specialist_id_for_context else None,
+                    "calendar_id": created_calendar_id,
+                    "calendar_summary": created_calendar_summary,
+                },
+                event=callback,
+                user_visible_text=text_out,
+            )
+            await callback.message.answer(text_out)
+        else:
+            text_out = "⚠️ Не удалось подключить календарь. Попробуйте позже."
+            await notify_exception(
+                where="handlers.master_onboarding.calendar_create",
+                exc=exc,
+                context={"tg_user_id": callback.from_user.id, "specialist_id": str(specialist_id_for_context) if specialist_id_for_context else None},
+                event=callback,
+                user_visible_text=text_out,
+            )
+            await callback.message.answer(text_out)
         await callback.answer()
 
 
