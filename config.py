@@ -84,11 +84,11 @@ def _require_in_prod(name: str, value: str | None) -> str | None:
     return value
 
 
-def _env_or_default(name: str, default: str) -> str:
+def _env_or_default(name: str, default: str, *, allow_empty_in_prod: bool = True) -> str:
     value = os.getenv(name)
     if value:
         return value
-    if APP_ENV == "prod" and not is_test_env():
+    if APP_ENV == "prod" and not is_test_env() and allow_empty_in_prod:
         return ""
     return default
 
@@ -124,6 +124,14 @@ BACKEND_BASE_URL = BASE_URL
 PUBLIC_SITE_URL = _require_in_prod(
     "PUBLIC_SITE_URL",
     _env_or_default("PUBLIC_SITE_URL", "https://zumbot.ru"),
+)
+SUPPORT_TG_URL = _require_in_prod(
+    "SUPPORT_TG_URL",
+    _env_or_default(
+        "SUPPORT_TG_URL",
+        "https://t.me/zumbot_support",
+        allow_empty_in_prod=False,
+    ),
 )
 
 WEB_HOST = os.getenv("WEB_HOST")

@@ -2,11 +2,10 @@ from aiogram import Router
 from aiogram.filters import CommandObject, CommandStart
 from aiogram.types import Message
 
+from config import SUPPORT_TG_URL
 from handlers.personal_bot.routers.specialist.owner_panel import send_owner_panel
 
 router = Router(name="personal_bot_common_start")
-
-_SUPPORT_URL = "https://t.me/zumbot_support"
 
 
 @router.message(CommandStart())
@@ -32,7 +31,7 @@ async def personal_start(
             "Доступно сейчас:\n"
             "• /status — состояние интеграций\n"
             "• /help — список команд\n\n"
-            f"Поддержка: {_SUPPORT_URL}"
+            f"Поддержка: {SUPPORT_TG_URL}"
         )
         return
 

@@ -210,6 +210,7 @@ Google Calendar — источник истины для:
      - `GOOGLE_REDIRECT_URI=https://api.zumbot.ru/google/oauth/callback`
      - `BASE_URL=https://api.zumbot.ru`
      - `PUBLIC_SITE_URL=https://zumbot.ru`
+     - `SUPPORT_TG_URL=https://t.me/zumbot_support` (optional)
      - `ENABLE_READYZ=true`
    - При необходимости задать `WEB_HOST` и `WEB_PORT`.
 4) **Запуск приложения через systemd**
