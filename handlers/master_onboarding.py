@@ -1202,7 +1202,6 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
                     "calendar_id": picked_calendar_id,
                 },
                 event=callback,
-                user_visible_text=text_out,
             )
             await callback.message.answer(text_out)
         else:
@@ -1212,7 +1211,6 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
                 exc=exc,
                 context={"tg_user_id": callback.from_user.id, "specialist_id": str(specialist_id_for_context) if specialist_id_for_context else None},
                 event=callback,
-                user_visible_text=text_out,
             )
             await callback.message.answer(text_out)
         await callback.answer()
@@ -1488,7 +1486,6 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
             exc=exc,
             context={"tg_user_id": callback.from_user.id},
             event=callback,
-            user_visible_text=text_out,
         )
         await callback.message.answer(text_out)
         await callback.answer()
@@ -1509,7 +1506,6 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
                     "calendar_summary": created_calendar_summary,
                 },
                 event=callback,
-                user_visible_text=text_out,
             )
             await callback.message.answer(text_out)
         else:
@@ -1519,7 +1515,6 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
                 exc=exc,
                 context={"tg_user_id": callback.from_user.id, "specialist_id": str(specialist_id_for_context) if specialist_id_for_context else None},
                 event=callback,
-                user_visible_text=text_out,
             )
             await callback.message.answer(text_out)
         await callback.answer()

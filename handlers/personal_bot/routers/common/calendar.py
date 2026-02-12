@@ -187,7 +187,6 @@ async def personal_calendar_create(callback: types.CallbackQuery, state: FSMCont
             exc=exc,
             context={"tg_user_id": tg_user_id},
             event=callback,
-            user_visible_text="⚠️ Не удалось подключить календарь. Попробуйте позже.",
         )
         await callback.message.answer("⚠️ Не удалось подключить календарь. Попробуйте позже.")
 
@@ -351,7 +350,6 @@ async def personal_calendar_smoke(callback: types.CallbackQuery, state: FSMConte
             exc=exc,
             context={"tg_user_id": callback.from_user.id},
             event=callback,
-            user_visible_text="⚠️ Smoke-test не пройден.",
         )
         await callback.message.answer("⚠️ Smoke-test не пройден.")
 
