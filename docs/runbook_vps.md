@@ -20,13 +20,13 @@ sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/vps_deploy_check.sh'
 sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/vps_deploy_check.sh --mode deploy'
 ```
 
-`vps_deploy_check.sh` в режиме `checks` делает только валидации без `git pull`/`pip install`/`restart`, но выполняет idempotent-проверку миграций через `scripts/db_migrate.sh` (с автозагрузкой `/etc/zumbot/backend.env`).
+`vps_deploy_check.sh` в режиме `checks` делает только валидации без `git pull`/`pip install`/`restart`, но выполняет idempotent-проверку миграций через `scripts/run_migrations.sh` (обёртка над `scripts/db_migrate.sh`, с автозагрузкой `/etc/zumbot/backend.env`).
 
 `vps_deploy_check.sh --mode deploy` выполняет ручной деплой и затем пост-проверки:
 - `git fetch` + `git pull --ff-only origin main`;
 - `pip install -r requirements.txt` в `.venv` от пользователя `zumbot`;
 - загрузка env из `/etc/zumbot/backend.env`;
-- запуск SQL-миграций (`scripts/db_migrate.sh`);
+- запуск SQL-миграций (`scripts/run_migrations.sh`);
 - `systemctl restart zumbot-backend.service`;
 - ожидание `/readyz`;
 - запуск пост-проверок.

@@ -592,3 +592,28 @@ async def test_calendar_pick_success_sets_selected_and_smoke_ok(tmp_path, monkey
     assert upsert_calls[0]["source"] == database.SpecialistCalendarSource.selected
     assert upsert_calls[1]["source"] == database.SpecialistCalendarSource.selected
     assert upsert_calls[1]["smoke_status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_send_safe_html_message_fallbacks_to_plain_text(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("MASTER_BOT_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
+    monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+
+    import handlers.master_onboarding as onboarding
+
+    calls: list[dict] = []
+
+    class _MessageStub:
+        async def answer(self, text, parse_mode=None, reply_markup=None):
+            calls.append({"text": text, "parse_mode": parse_mode, "reply_markup": reply_markup})
+            if len(calls) == 1:
+                raise onboarding.TelegramBadRequest(method="sendMessage", message="can't parse entities")
+            return "ok"
+
+    result = await onboarding._send_safe_html_message(_MessageStub(), "<b>hello</b>")
+
+    assert result == "ok"
+    assert len(calls) == 2
+    assert calls[0]["parse_mode"] == onboarding.ParseMode.HTML
+    assert calls[1]["parse_mode"] is None

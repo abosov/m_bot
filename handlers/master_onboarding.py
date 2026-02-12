@@ -5,6 +5,7 @@ import traceback
 import logging
 import asyncio
 import time
+from html import escape
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -15,6 +16,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.exceptions import (
+    TelegramBadRequest,
     TelegramAPIError,
     TelegramNetworkError,
     TelegramRetryAfter,
@@ -107,12 +109,27 @@ def _needs_personal_onboarding_prompt(specialist: Specialist) -> bool:
     )
 
 
+async def _send_safe_html_message(
+    message: types.Message,
+    text: str,
+    *,
+    reply_markup=None,
+) -> types.Message:
+    try:
+        return await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+    except TelegramBadRequest as exc:
+        preview = text.replace("\n", " ")[:280]
+        logger.warning("Telegram HTML parse failed in master_onboarding; fallback to plain text. preview=%r error=%s", preview, exc)
+        return await message.answer(text, parse_mode=None, reply_markup=reply_markup)
+
+
 async def _check_full_onboarding_or_prompt(message: types.Message, specialist: Specialist, personal_bot_username: str | None) -> bool:
     if not _needs_personal_onboarding_prompt(specialist):
         return True
 
     deep_link = _build_personal_deep_link(personal_bot_username)
-    await message.answer(
+    await _send_safe_html_message(
+        message,
         "⏳ Онбординг ещё не завершён полностью. Перейдите в персональный бот, "
         "чтобы подтвердить/изменить стартовые настройки.\n"
         f"{deep_link if deep_link else 'Откройте вашего персонального бота по username.'}",
@@ -513,11 +530,12 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 await session.commit()
                 
                 text_out = (
-                    "👋 **Добро пожаловать в платформу записи клиентов!**\n\n"
+                    "👋 <b>Добро пожаловать в платформу записи клиентов!</b>\n\n"
                     "Я помогу вам создать личного бота и подключить Google Календарь.\n"
                     "Нажмите кнопку ниже, чтобы начать настройку."
                 )
-                await message.answer(
+                await _send_safe_html_message(
+                    message,
                     text_out,
                     reply_markup=types.ReplyKeyboardMarkup(
                         keyboard=[[types.KeyboardButton(text="🚀 Стать специалистом")]],
@@ -566,33 +584,33 @@ async def cmd_start(message: types.Message, state: FSMContext):
             specialist_name = specialist.profile.public_name if has_profile else "Не задано"
             
             # Формируем чек-лист
-            status_text = "📋 **Ваш статус настройки:**\n\n"
+            status_text = "📋 <b>Ваш статус настройки:</b>\n\n"
             
             if has_profile:
-                status_text += f"✅ **Имя:** {specialist_name}\n"
+                status_text += f"✅ <b>Имя:</b> {escape(specialist_name)}\n"
             else:
-                status_text += "❌ **Имя:** Не задано\n"
+                status_text += "❌ <b>Имя:</b> Не задано\n"
                 
             if has_bot:
-                status_text += f"✅ **Бот:** @{active_bot.bot_username}\n"
+                status_text += f"✅ <b>Бот:</b> @{escape(active_bot.bot_username or '')}\n"
             else:
-                status_text += "❌ **Бот:** Не подключен\n"
+                status_text += "❌ <b>Бот:</b> Не подключен\n"
                 
             if specialist.status == SpecialistStatus.active:
-                status_text += "✅ **Статус:** Активен\n"
+                status_text += "✅ <b>Статус:</b> Активен\n"
             else:
-                status_text += "⏳ **Статус:** Онбординг\n"
+                status_text += "⏳ <b>Статус:</b> Онбординг\n"
 
             if has_oauth:
-                status_text += "✅ **Google OAuth:** Подключен\n"
+                status_text += "✅ <b>Google OAuth:</b> Подключен\n"
             else:
-                status_text += "❌ **Google OAuth:** Не подключен\n"
+                status_text += "❌ <b>Google OAuth:</b> Не подключен\n"
 
             if has_calendar:
-                status_text += f"✅ **Календарь бота:** {specialist.calendar_settings.calendar_summary or specialist.calendar_settings.calendar_id}\n"
-                status_text += "✅ **Smoke-test:** Успешно\n" if smoke_ok else "❌ **Smoke-test:** Не пройден\n"
+                status_text += f"✅ <b>Календарь бота:</b> {escape(specialist.calendar_settings.calendar_summary or specialist.calendar_settings.calendar_id)}\n"
+                status_text += "✅ <b>Smoke-test:</b> Успешно\n" if smoke_ok else "❌ <b>Smoke-test:</b> Не пройден\n"
             else:
-                status_text += "❌ **Календарь бота:** Не выбран\n"
+                status_text += "❌ <b>Календарь бота:</b> Не выбран\n"
 
             # Логика восстановления состояния (FSM)
             keyboard = None
@@ -604,7 +622,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 personal_bot_username = active_bot.bot_username
                 personal_link = _build_personal_deep_link(personal_bot_username)
                 final_text = (
-                    f"✅ Вы активны. Откройте личного бота: @{personal_bot_username}.\n\n"
+                    f"✅ Вы активны. Откройте личного бота: @{escape(personal_bot_username or '')}.\n\n"
                     "Через личного бота вы управляете настройками и проверяете статусы интеграций."
                 )
                 keyboard_rows = []
@@ -612,7 +630,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
                     keyboard_rows.append([types.InlineKeyboardButton(text="🚀 Открыть личного бота", url=personal_link)])
                 keyboard_rows.append([types.InlineKeyboardButton(text="🔁 Проверить интеграции", callback_data="calendar:smoke")])
                 keyboard = types.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
-                await message.answer(final_text, reply_markup=keyboard)
+                await _send_safe_html_message(message, final_text, reply_markup=keyboard)
                 await log_outbound_message(
                     message.bot,
                     tg_user_id,
@@ -625,13 +643,13 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
             if not has_profile:
                 await state.set_state(OnboardingStates.waiting_for_public_name)
-                next_step_msg = "\n👇 **Действие:** Введите ваше публичное имя для клиентов."
+                next_step_msg = "\n👇 <b>Действие:</b> Введите ваше публичное имя для клиентов."
                 keyboard = types.ReplyKeyboardRemove()
                 new_state = "waiting_for_public_name"
             
             elif not has_bot:
                 await state.set_state(OnboardingStates.waiting_for_bot_token)
-                next_step_msg = "\n👇 **Действие:** Пришлите токен вашего бота от @BotFather."
+                next_step_msg = "\n👇 <b>Действие:</b> Пришлите токен вашего бота от @BotFather."
                 keyboard = types.ReplyKeyboardRemove()
                 new_state = "waiting_for_bot_token"
 
@@ -643,7 +661,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 )
                 await session.commit()
                 auth_url = get_auth_url(oauth_state)
-                next_step_msg = "\n👇 **Действие:** Подключите Google аккаунт через кнопку ниже."
+                next_step_msg = "\n👇 <b>Действие:</b> Подключите Google аккаунт через кнопку ниже."
                 keyboard = types.InlineKeyboardMarkup(
                     inline_keyboard=[[
                         types.InlineKeyboardButton(text="🔗 Подключить Google Календарь", url=auth_url)
@@ -665,20 +683,21 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
             else:
                 await state.set_state(OnboardingStates.waiting_for_calendar_action)
-                next_step_msg = "\n👇 **Действие:** Выберите как подключить рабочий календарь бота."
+                next_step_msg = "\n👇 <b>Действие:</b> Выберите как подключить рабочий календарь бота."
                 keyboard = _calendar_action_keyboard()
                 new_state = "waiting_for_calendar_action"
             
             final_text = status_text + next_step_msg
             if _needs_personal_onboarding_prompt(specialist) and active_bot is not None:
                 deep_link = _build_personal_deep_link(active_bot.bot_username)
-                await message.answer(
+                await _send_safe_html_message(
+                    message,
                     "⏳ Онбординг ещё не завершён полностью. Перейдите в персональный бот, "
                     "чтобы подтвердить/изменить стартовые настройки.\n"
                     f"{deep_link if deep_link else 'Откройте вашего персонального бота по username.'}",
                     reply_markup=_full_onboarding_guard_keyboard(deep_link),
                 )
-            await message.answer(final_text, reply_markup=keyboard)
+            await _send_safe_html_message(message, final_text, reply_markup=keyboard)
             
             await log_outbound_message(
                 message.bot, 
