@@ -195,8 +195,9 @@ class StructLoggingMiddleware(BaseMiddleware):
             await notify_exception(
                 where="logging_middleware.StructLoggingMiddleware",
                 exc=e,
-                context={"bot_id": bot_id, "tg_user_id": tg_user_id, "handler_name": handler_name},
-                stage="personal_bot",
+                context={"bot_id": bot_id, "tg_user_id": tg_user_id, "handler_name": handler_name, "fsm_state": fsm_state},
+                event=event,
+                data=data,
             )
             raise e
         finally:

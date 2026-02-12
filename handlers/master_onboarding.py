@@ -124,6 +124,27 @@ async def _send_safe_html_message(
         return await message.answer(text, parse_mode=None, reply_markup=reply_markup)
 
 
+
+
+async def send_user_message(
+    message: types.Message,
+    text_out: str,
+    *,
+    reply_markup=None,
+    fsm_state: str | None = None,
+    specialist_name: str | None = None,
+) -> types.Message:
+    sent = await message.answer(text_out, reply_markup=reply_markup)
+    await log_outbound_message(
+        bot=message.bot,
+        tg_user_id=message.from_user.id,
+        content=text_out,
+        fsm_state=fsm_state,
+        specialist_name=specialist_name,
+        user_handle=_get_handle(message.from_user),
+    )
+    return sent
+
 async def _check_full_onboarding_or_prompt(message: types.Message, specialist: Specialist, personal_bot_username: str | None) -> bool:
     if not _needs_personal_onboarding_prompt(specialist):
         return True
@@ -836,8 +857,7 @@ async def process_bot_token(message: types.Message, state: FSMContext):
             bot_info = await temp_bot.get_me(request_timeout=5.0)
         except Exception as e:
             text_out = f"❌ **Неверный токен**\nОшибка: `{e}`\nПроверьте токен и пришлите снова."
-            await message.answer(text_out)
-            await log_outbound_message(message.bot, tg_user_id, text_out, fsm_state="waiting_for_bot_token", user_handle=user_handle)
+            await send_user_message(message, text_out, fsm_state="waiting_for_bot_token")
             return
         finally:
             await temp_bot.session.close()
@@ -915,12 +935,10 @@ async def process_bot_token(message: types.Message, state: FSMContext):
                 where="handlers.master_onboarding.process_bot_token.webhook",
                 exc=e,
                 context={"specialist_id": str(specialist_id), "bot_id": bot_info.id},
-                stage="master_onboarding",
-                username=message.from_user.username,
-                user_message=text_out,
+                event=message,
+                user_visible_text=text_out,
             )
-            await message.answer(text_out)
-            await log_outbound_message(message.bot, tg_user_id, text_out, fsm_state="waiting_for_bot_token", user_handle=user_handle)
+            await send_user_message(message, text_out, fsm_state="waiting_for_bot_token")
             await state.set_state(OnboardingStates.waiting_for_bot_token)
             return
         finally:
@@ -975,11 +993,10 @@ async def process_bot_token(message: types.Message, state: FSMContext):
             where="handlers.master_onboarding.process_bot_token",
             exc=exc,
             context={"tg_user_id": tg_user_id},
-            stage="master_onboarding",
-            username=message.from_user.username,
-            user_message=text_out,
+            event=message,
+            user_visible_text=text_out,
         )
-        await message.answer(text_out)
+        await send_user_message(message, text_out)
 
 
 @router.callback_query(F.data == "calendar:select")
@@ -998,9 +1015,8 @@ async def calendar_select(callback: types.CallbackQuery, state: FSMContext):
             where="handlers.master_onboarding.calendar_select.google",
             exc=exc,
             context={"tg_user_id": callback.from_user.id},
-            stage="master_onboarding",
-            username=callback.from_user.username,
-            user_message=text_out,
+            event=callback,
+            user_visible_text=text_out,
         )
         await callback.message.answer(text_out)
         await callback.answer()
@@ -1011,9 +1027,8 @@ async def calendar_select(callback: types.CallbackQuery, state: FSMContext):
             where="handlers.master_onboarding.calendar_select",
             exc=exc,
             context={"tg_user_id": callback.from_user.id},
-            stage="master_onboarding",
-            username=callback.from_user.username,
-            user_message=text_out,
+            event=callback,
+            user_visible_text=text_out,
         )
         await callback.message.answer(text_out)
         await callback.answer()
@@ -1150,9 +1165,8 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
             where="handlers.master_onboarding.calendar_pick",
             exc=exc,
             context={"tg_user_id": callback.from_user.id},
-            stage="master_onboarding",
-            username=callback.from_user.username,
-            user_message=text_out,
+            event=callback,
+            user_visible_text=text_out,
         )
         await callback.message.answer(text_out)
         await callback.answer()
@@ -1397,9 +1411,8 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
             where="handlers.master_onboarding.calendar_create.google",
             exc=exc,
             context={"tg_user_id": callback.from_user.id},
-            stage="master_onboarding",
-            username=callback.from_user.username,
-            user_message=text_out,
+            event=callback,
+            user_visible_text=text_out,
         )
         await callback.message.answer(text_out)
         await callback.answer()
@@ -1410,9 +1423,8 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
             where="handlers.master_onboarding.calendar_create",
             exc=exc,
             context={"tg_user_id": callback.from_user.id},
-            stage="master_onboarding",
-            username=callback.from_user.username,
-            user_message=text_out,
+            event=callback,
+            user_visible_text=text_out,
         )
         await callback.message.answer(text_out)
         await callback.answer()
@@ -1517,9 +1529,8 @@ async def full_onboarding_recheck(callback: types.CallbackQuery):
             where="handlers.master_onboarding.full_onboarding_recheck",
             exc=exc,
             context={"tg_user_id": tg_user_id},
-            stage="master_onboarding",
-            username=callback.from_user.username,
-            user_message=text_out,
+            event=callback,
+            user_visible_text=text_out,
         )
         await callback.message.answer(text_out)
         await callback.answer()

@@ -306,7 +306,6 @@ async def telegram_personal_webhook(bot_id: int, secret: str, request: Request):
                 "update_id": update_id,
                 "update_type": update_type,
             },
-            stage="webhook",
         )
 
     return Response(status_code=200)
@@ -357,7 +356,6 @@ async def google_oauth_callback(request: Request):
                 where="web_server.google_oauth_callback.token_exchange",
                 exc=exc,
                 context={"state": state},
-                stage="google_oauth",
             )
             return "<h1>Ошибка: timeout при обмене кода Google OAuth. Повторите попытку.</h1>"
         except requests.exceptions.RequestException as exc:
@@ -366,7 +364,6 @@ async def google_oauth_callback(request: Request):
                 where="web_server.google_oauth_callback.token_exchange",
                 exc=exc,
                 context={"state": state},
-                stage="google_oauth",
             )
             return "<h1>Ошибка: network error при обмене кода Google OAuth. Повторите попытку.</h1>"
 
@@ -504,6 +501,5 @@ async def google_oauth_callback(request: Request):
             where="web_server.google_oauth_callback",
             exc=exc,
             context={"state": state},
-            stage="google_oauth",
         )
         return "<h1>Произошла ошибка при подключении Google. Попробуйте ещё раз из Telegram.</h1>"

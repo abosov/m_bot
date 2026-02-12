@@ -1,4 +1,5 @@
 import asyncio
+import types
 from unittest.mock import AsyncMock
 
 import pytest
@@ -61,6 +62,7 @@ async def test_deduplication_suppresses_same_error(monkeypatch):
         return dummy
 
     monkeypatch.setattr(alerting, "_get_alert_bot", fake_get_alert_bot)
+    monkeypatch.setattr(alerting, "resolve_stage", AsyncMock(return_value="master_bot"))
     alerting._dedup_cache.clear()
     alerting._last_sent_ts = 0.0
 
@@ -84,6 +86,7 @@ async def test_two_identical_errors_send_once(monkeypatch):
         return dummy
 
     monkeypatch.setattr(alerting, "_get_alert_bot", fake_get_alert_bot)
+    monkeypatch.setattr(alerting, "resolve_stage", AsyncMock(return_value="personal_bot"))
     alerting._dedup_cache.clear()
     alerting._last_sent_ts = 0.0
 
@@ -111,7 +114,7 @@ async def test_close_alerting_closes_bot_session(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_alert_contains_stage_username_and_trimmed_user_message(monkeypatch):
+async def test_alert_contains_stage_and_user_fields(monkeypatch):
     monkeypatch.setattr(alerting.config, "ALERTS_ENABLED", True)
     monkeypatch.setattr(alerting.config, "ALERTS_TELEGRAM_CHAT_ID", "-1001")
     monkeypatch.setattr(alerting.config, "ALERTS_DEDUP_WINDOW_SECONDS", 300)
@@ -123,32 +126,66 @@ async def test_alert_contains_stage_username_and_trimmed_user_message(monkeypatc
         return dummy
 
     monkeypatch.setattr(alerting, "_get_alert_bot", fake_get_alert_bot)
+    monkeypatch.setattr(alerting, "resolve_stage", AsyncMock(return_value="master_bot"))
     alerting._dedup_cache.clear()
     alerting._last_sent_ts = 0.0
 
-    long_user_message = "token=1234567:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi " + ("x" * 400)
+    event = types.SimpleNamespace(
+        from_user=types.SimpleNamespace(id=777, username="ivanov", first_name="Ivan", last_name="Ivanov"),
+        text="/start my very long message " + ("x" * 400),
+    )
+
     await alerting.notify_exception(
         "tests.where",
         RuntimeError("boom"),
-        {},
-        stage="master_onboarding",
-        username="ivanov",
-        user_message=long_user_message,
+        {"bot_id": 1},
+        event=event,
+        data={"handler_name": "cmd_start", "fsm_state": "Onboarding:wait"},
+        user_visible_text="token=1234567:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi " + ("y" * 400),
     )
 
     assert len(dummy.messages) == 1
     text = dummy.messages[0][1]
-    assert "stage=master_onboarding" in text
-    assert "username=@ivanov" in text
-    assert "user_message=\"" in text
+    assert "stage=master_bot" in text
+    assert "user=@ivanov (tg_user_id=777)" in text
+    assert "handler=cmd_start" in text
+    assert "fsm=Onboarding:wait" in text
+    assert 'inbound="' in text
+    assert 'user_visible="' in text
     assert "[REDACTED]" in text
-
-    user_message_line = next(line for line in text.splitlines() if line.startswith("user_message="))
-    assert len(user_message_line) <= 320
 
 
 @pytest.mark.asyncio
-async def test_deduplication_respects_stage(monkeypatch):
+async def test_resolve_stage_master_vs_personal(monkeypatch):
+    alerting._personal_bot_cache.clear()
+
+    monkeypatch.setattr(alerting, "_is_personal_bot_id", AsyncMock(return_value=True))
+    assert await alerting.resolve_stage(100) == "personal_bot"
+
+    monkeypatch.setattr(alerting, "_is_personal_bot_id", AsyncMock(return_value=False))
+    assert await alerting.resolve_stage(200) == "master_bot"
+    assert await alerting.resolve_stage(None) == "web_server"
+
+
+def test_user_context_builder():
+    event = types.SimpleNamespace(
+        from_user=types.SimpleNamespace(id=999, username=None, first_name="Ada", last_name="Lovelace"),
+        text="hello " + ("a" * 400),
+    )
+    data = {"handler_name": "input_handler", "fsm_state": "S1"}
+
+    ctx = alerting.build_user_context_from_update(event, data)
+
+    assert ctx["tg_user_id"] == 999
+    assert ctx["user_handle"] == "tg://user?id=999"
+    assert ctx["user_name"] == "Ada Lovelace"
+    assert ctx["handler_name"] == "input_handler"
+    assert ctx["fsm_state"] == "S1"
+    assert len(ctx["inbound_text"]) <= 303
+
+
+@pytest.mark.asyncio
+async def test_dedup_not_affected_by_user_visible_text(monkeypatch):
     monkeypatch.setattr(alerting.config, "ALERTS_ENABLED", True)
     monkeypatch.setattr(alerting.config, "ALERTS_TELEGRAM_CHAT_ID", "-1001")
     monkeypatch.setattr(alerting.config, "ALERTS_DEDUP_WINDOW_SECONDS", 300)
@@ -160,15 +197,12 @@ async def test_deduplication_respects_stage(monkeypatch):
         return dummy
 
     monkeypatch.setattr(alerting, "_get_alert_bot", fake_get_alert_bot)
+    monkeypatch.setattr(alerting, "resolve_stage", AsyncMock(return_value="master_bot"))
     alerting._dedup_cache.clear()
     alerting._last_sent_ts = 0.0
 
     exc = RuntimeError("same failure")
-    await alerting.notify_exception("same.where", exc, {"specialist_id": 123}, stage="master_onboarding")
-    await alerting.notify_exception("same.where", exc, {"specialist_id": 123}, stage="master_onboarding")
+    await alerting.notify_exception("same.where", exc, {"specialist_id": 123}, user_visible_text="first")
+    await alerting.notify_exception("same.where", exc, {"specialist_id": 123}, user_visible_text="second")
 
     assert len(dummy.messages) == 1
-
-    await alerting.notify_exception("same.where", exc, {"specialist_id": 123}, stage="webhook")
-
-    assert len(dummy.messages) == 2

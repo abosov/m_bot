@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from aiogram import Bot
+from aiogram.types import CallbackQuery, Message, TelegramObject, Update, User
 
 import config
 
@@ -43,8 +44,13 @@ class AlertEvent:
     error: str | None = None
     message: str | None = None
     stage: str | None = None
-    user_message: str | None = None
-    username: str | None = None
+    user_handle: str | None = None
+    tg_user_id: int | None = None
+    inbound_text: str | None = None
+    user_visible_text: str | None = None
+    handler_name: str | None = None
+    fsm_state: str | None = None
+    user_name: str | None = None
     context: dict[str, Any] = field(default_factory=dict)
 
 
@@ -84,6 +90,88 @@ _dedup_cache: dict[str, float] = {}
 _last_sent_ts = 0.0
 _alert_bot: Bot | None = None
 _alert_bot_token: str | None = None
+_personal_bot_cache: dict[int, bool] = {}
+
+
+
+
+async def _is_personal_bot_id(bot_id: int) -> bool:
+    from sqlalchemy import select
+
+    from database import TelegramBot, async_session_factory
+
+    async with async_session_factory() as session:
+        stmt = select(TelegramBot.bot_user_id).where(TelegramBot.bot_user_id == bot_id)
+        return (await session.execute(stmt)).first() is not None
+
+async def resolve_stage(bot_id: int | None) -> str:
+    if not bot_id:
+        return "web_server"
+
+    if bot_id in _personal_bot_cache:
+        return "personal_bot" if _personal_bot_cache[bot_id] else "master_bot"
+
+    exists = await _is_personal_bot_id(bot_id)
+    _personal_bot_cache[bot_id] = exists
+    return "personal_bot" if exists else "master_bot"
+
+
+def _truncate_text(value: str | None) -> str | None:
+    text = _sanitize_text(value, max_length=_MAX_FIELD_LENGTH)
+    return text or None
+
+
+def _resolve_user_handle(user: User | None) -> str | None:
+    if not user:
+        return None
+    if user.username:
+        return f"@{user.username}"
+    return f"tg://user?id={user.id}"
+
+
+def build_user_context_from_update(event: TelegramObject | None, data: dict | None) -> dict[str, Any]:
+    payload = data or {}
+    user: User | None = None
+    inbound_text: str | None = None
+
+    actual_event = event
+    if isinstance(event, Update):
+        actual_event = event.message or event.callback_query or event
+
+    if isinstance(actual_event, Message):
+        user = actual_event.from_user
+        inbound_text = actual_event.text or actual_event.caption
+    elif isinstance(actual_event, CallbackQuery):
+        user = actual_event.from_user
+        inbound_text = actual_event.data
+    elif hasattr(actual_event, "from_user"):
+        user = getattr(actual_event, "from_user", None)
+        inbound_text = getattr(actual_event, "text", None) or getattr(actual_event, "data", None)
+
+    result: dict[str, Any] = {}
+    if user:
+        name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
+        result["tg_user_id"] = user.id
+        result["user_handle"] = _resolve_user_handle(user)
+        if name:
+            result["user_name"] = name
+
+    if inbound_text:
+        result["inbound_text"] = _truncate_text(inbound_text)
+
+    handler = payload.get("handler_name")
+    if not handler:
+        handler_obj = payload.get("handler")
+        if hasattr(handler_obj, "callback"):
+            handler = handler_obj.callback.__name__
+    if handler:
+        result["handler_name"] = str(handler)
+
+    fsm_state = payload.get("fsm_state")
+    if fsm_state:
+        result["fsm_state"] = str(fsm_state)
+
+    return result
 
 
 async def close_alerting() -> None:
@@ -159,13 +247,24 @@ def _format_alert(event: AlertEvent) -> str:
         lines.append(f"error={event.error[:120]}")
     if event.message:
         lines.append(f"message={_normalize_message(event.message)}")
-    if event.username:
-        safe_username = event.username.lstrip("@")[:64]
-        lines.append(f"username=@{safe_username}")
-    if event.user_message:
-        safe_user_message = _sanitize_text(event.user_message, max_length=_MAX_FIELD_LENGTH)
-        if safe_user_message:
-            lines.append(f'user_message="{safe_user_message}"')
+    if event.user_handle:
+        safe_user_handle = _sanitize_text(event.user_handle, max_length=120)
+        if safe_user_handle:
+            if event.tg_user_id:
+                lines.append(f"user={safe_user_handle} (tg_user_id={event.tg_user_id})")
+            else:
+                lines.append(f"user={safe_user_handle}")
+    elif event.tg_user_id:
+        lines.append(f"tg_user_id={event.tg_user_id}")
+
+    if event.handler_name:
+        lines.append(f"handler={_sanitize_text(event.handler_name, max_length=120)}")
+    if event.fsm_state:
+        lines.append(f"fsm={_sanitize_text(event.fsm_state, max_length=120)}")
+    if event.inbound_text:
+        lines.append(f'inbound="{_sanitize_text(event.inbound_text, max_length=_MAX_FIELD_LENGTH)}"')
+    if event.user_visible_text:
+        lines.append(f'user_visible="{_sanitize_text(event.user_visible_text, max_length=_MAX_FIELD_LENGTH)}"')
 
     for key, value in safe_context.items():
         lines.append(f"{key}={value}")
@@ -267,19 +366,39 @@ async def notify_exception(
     where: str,
     exc: Exception,
     context: dict | None = None,
+    *,
+    event: TelegramObject | None = None,
+    data: dict | None = None,
+    user_visible_text: str | None = None,
     stage: str | None = None,
-    user_message: str | None = None,
-    username: str | None = None,
 ) -> None:
+    merged_context = dict(context or {})
+    user_context = build_user_context_from_update(event, data)
+    for key, value in user_context.items():
+        merged_context.setdefault(key, value)
+
+    bot_id = merged_context.get("bot_id")
+    if bot_id is None and data and data.get("bot") is not None:
+        bot_id = getattr(data.get("bot"), "id", None)
+        if bot_id is not None:
+            merged_context.setdefault("bot_id", bot_id)
+
+    resolved_stage = stage or await resolve_stage(bot_id)
+
     await notify_admin(
         AlertEvent(
             title="Unhandled exception",
             where=where,
             error=exc.__class__.__name__,
             message=str(exc),
-            context=sanitize_context(context),
-            stage=stage,
-            user_message=user_message,
-            username=username,
+            context=sanitize_context(merged_context),
+            stage=resolved_stage,
+            user_handle=merged_context.get("user_handle"),
+            tg_user_id=merged_context.get("tg_user_id"),
+            inbound_text=merged_context.get("inbound_text"),
+            user_visible_text=_truncate_text(user_visible_text),
+            handler_name=merged_context.get("handler_name"),
+            fsm_state=merged_context.get("fsm_state"),
+            user_name=merged_context.get("user_name"),
         )
     )

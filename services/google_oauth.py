@@ -112,6 +112,5 @@ async def exchange_code_for_token_async(code: str, timeout: int = 15) -> Tuple[s
         await notify_exception(
             where="services.google_oauth.exchange_code_for_token_async",
             exc=exc,
-            stage="google_oauth",
         )
         raise
