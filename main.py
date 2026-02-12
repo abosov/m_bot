@@ -27,7 +27,7 @@ from logging_middleware import StructLoggingMiddleware
 # Импортируем веб-сервер
 from web_server import app as fastapi_app
 from services.heartbeat import heartbeat_task
-from services.alerting import notify_exception
+from services.alerting import close_alerting, notify_exception
 
 async def start_web_server():
     """Запуск uvicorn в асинхронном режиме"""
@@ -168,6 +168,7 @@ async def main():
             shutdown_task,
             return_exceptions=True,
         )
+        await close_alerting()
 
 if __name__ == "__main__":
     try:

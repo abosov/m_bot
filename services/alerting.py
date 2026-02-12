@@ -83,6 +83,22 @@ _alert_bot: Bot | None = None
 _alert_bot_token: str | None = None
 
 
+async def close_alerting() -> None:
+    global _alert_bot, _alert_bot_token
+
+    bot = _alert_bot
+    _alert_bot = None
+    _alert_bot_token = None
+
+    if bot is None:
+        return
+
+    try:
+        await bot.session.close()
+    except Exception:
+        logger.warning("Failed to close alert bot session", exc_info=True)
+
+
 def _normalize_message(message: str | None) -> str:
     if not message:
         return ""
@@ -150,12 +166,26 @@ async def _get_alert_bot() -> Bot | None:
     if _alert_bot is not None and _alert_bot_token == token:
         return _alert_bot
 
-    if _alert_bot is not None:
-        await _alert_bot.session.close()
+    previous_bot = _alert_bot
+    _alert_bot = None
+    _alert_bot_token = None
 
-    _alert_bot = Bot(token=token)
-    _alert_bot_token = token
-    return _alert_bot
+    if previous_bot is not None:
+        try:
+            await previous_bot.session.close()
+        except Exception:
+            logger.warning("Failed to close previous alert bot session", exc_info=True)
+
+    try:
+        new_bot = Bot(token=token)
+    except Exception:
+        _alert_bot = None
+        _alert_bot_token = None
+        raise
+    else:
+        _alert_bot = new_bot
+        _alert_bot_token = token
+        return _alert_bot
 
 
 async def notify_admin(event: AlertEvent) -> None:

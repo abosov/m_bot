@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -92,3 +93,18 @@ async def test_two_identical_errors_send_once(monkeypatch):
     )
 
     assert len(dummy.messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_close_alerting_closes_bot_session(monkeypatch):
+    session_close = AsyncMock()
+    bot = type("BotStub", (), {"session": type("SessionStub", (), {"close": session_close})()})()
+
+    monkeypatch.setattr(alerting, "_alert_bot", bot)
+    monkeypatch.setattr(alerting, "_alert_bot_token", "token")
+
+    await alerting.close_alerting()
+
+    session_close.assert_awaited_once()
+    assert alerting._alert_bot is None
+    assert alerting._alert_bot_token is None
