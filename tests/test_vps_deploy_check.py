@@ -31,3 +31,10 @@ def test_check_yaml_import_uses_venv_python3_and_simple_inline_import() -> None:
     assert 'local venv_python="${VENV_DIR}/bin/python3"' in content
     assert "\"${venv_python}\" -c \"import yaml; print('OK')\" >/dev/null" in content
     assert 'source "${VENV_DIR}/bin/activate"' not in content
+
+
+def test_deploy_installs_zumbot_test_reset_symlink() -> None:
+    content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert "Install test reset command" in content
+    assert "ln -sfn \"${REPO_DIR}/scripts/test_data_reset_run.py\" /usr/local/bin/zumbot-test-reset" in content

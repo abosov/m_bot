@@ -12,9 +12,10 @@ from pathlib import Path
 SYSTEM_ENV_FILE = Path('/etc/zumbot/backend.env')
 SYSTEM_REGISTRY_PATH = Path('/etc/zumbot/test_accounts.yaml')
 EXAMPLE_REGISTRY_PATH = Path('config/test_accounts.example.yaml')
+SAFETY_FLAGS = {'--yes', '--i-know-what-i-am-doing'}
 
 
-def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
+def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Запуск безопасного сброса тестовых данных одной командой.')
     parser.add_argument('--apply', action='store_true', help='Реально применить удаление.')
     parser.add_argument('--yes', action='store_true', help='Подтвердить apply без интерактивного вопроса.')
@@ -23,7 +24,8 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
         action='store_true',
         help='Второй safety-флаг, обязателен вместе с --apply.',
     )
-    return parser.parse_known_args(argv)
+    args, _ = parser.parse_known_args(argv)
+    return args
 
 
 def load_env_file(path: Path, env: dict[str, str]) -> None:
@@ -57,6 +59,10 @@ def has_option(argv: list[str], option: str) -> bool:
     return option in argv or any(arg.startswith(f'{option}=') for arg in argv)
 
 
+def filter_safety_args(argv: list[str]) -> list[str]:
+    return [arg for arg in argv if arg not in SAFETY_FLAGS]
+
+
 def resolve_registry_path(repo_root: Path) -> Path:
     default_registry_path = repo_root / 'config/test_accounts.yaml'
 
@@ -76,18 +82,8 @@ def ensure_apply_guards(args: argparse.Namespace) -> None:
     if not args.apply:
         return
 
-    if not args.i_know_what_i_am_doing:
-        raise RuntimeError('Refusing --apply without --i-know-what-i-am-doing safety flag.')
-
-    if args.yes:
-        return
-
-    if not sys.stdin.isatty():
-        raise RuntimeError('Refusing --apply in non-interactive mode without --yes.')
-
-    answer = input("Type 'yes' to continue applying deletions: ").strip().lower()
-    if answer != 'yes':
-        raise RuntimeError('Apply cancelled by user.')
+    if not args.yes or not args.i_know_what_i_am_doing:
+        raise RuntimeError('Refusing --apply without both safety flags: --yes and --i-know-what-i-am-doing.')
 
 
 def build_cli_command(
@@ -108,7 +104,9 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
     python_executable = repo_root / '.venv/bin/python3'
     script_path = repo_root / 'scripts/test_data_reset.py'
-    args, passthrough_args = parse_args(sys.argv[1:])
+    raw_args = sys.argv[1:]
+    args = parse_args(raw_args)
+    passthrough_args = filter_safety_args(raw_args)
 
     if not python_executable.exists():
         print(f'ERROR: venv python is missing: {python_executable}')

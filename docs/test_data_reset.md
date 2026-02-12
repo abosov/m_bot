@@ -33,8 +33,9 @@ notes: "optional global notes"
 - по умолчанию всегда `DRY-RUN`;
 - для реального удаления нужно двойное подтверждение:
   - `--apply`,
-  - `--i-know-what-i-am-doing`,
-  - и `--yes` (или интерактивный prompt в TTY).
+  - `--yes`,
+  - `--i-know-what-i-am-doing`.
+- safety-флаги `--yes` и `--i-know-what-i-am-doing` обрабатываются только wrapper-ом и не передаются в `test_data_reset.py`.
 
 Поддерживаемые ключи (пробрасываются в Python CLI):
 - `--registry PATH`
@@ -52,12 +53,15 @@ zumbot-test-reset
 # dry-run по конкретным именам
 zumbot-test-reset --names smoke_specialist_1 smoke_client_1
 
-# apply с явным подтверждением
-zumbot-test-reset --apply --i-know-what-i-am-doing --yes
+# apply (реальное удаление) с явным подтверждением
+zumbot-test-reset --apply --yes --i-know-what-i-am-doing
 
 # apply выборочно
-zumbot-test-reset --apply --i-know-what-i-am-doing --yes --tg-user-ids 83691599 123456789
+zumbot-test-reset --apply --yes --i-know-what-i-am-doing --tg-user-ids 83691599 123456789
 ```
+
+> Важно: `zumbot-test-reset` по умолчанию всегда работает в `DRY-RUN`.
+> Для фактического удаления обязателен запуск с `--apply --yes --i-know-what-i-am-doing`.
 
 ## Низкоуровневый CLI (без обёртки)
 Скрипт: `scripts/test_data_reset.py`.
@@ -79,3 +83,13 @@ python3 scripts/test_data_reset.py --apply --registry /etc/zumbot/test_accounts.
 ## Гарантия области удаления
 Удаление ограничено scope’ом тестовых `tg_user_id` и связанных с ними `specialist_id/client_id`.
 Данные других специалистов/клиентов не должны затрагиваться.
+
+
+## Troubleshooting
+- Wrapper перед запуском всегда печатает строку `Running: ...` с фактической командой.
+- Если в этой строке нет `--apply`, значит обёртка не пробросила аргументы и выполняется только dry-run.
+- Временный workaround — запускать скрипт напрямую из venv:
+
+```bash
+sudo -u zumbot -H bash -lc "cd /opt/zumbot/backend && /opt/zumbot/backend/.venv/bin/python3 scripts/test_data_reset.py --registry /etc/zumbot/test_accounts.yaml --format text --apply"
+```
