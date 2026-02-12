@@ -1021,7 +1021,7 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
             await finalize_specialist_if_ready(specialist.specialist_id)
             personal_username = await _notify_personal_bot_welcome(specialist.specialist_id, tg_user_id)
             safe_username = _safe_username(personal_username)
-            deep_link = f"https://t.me/{safe_username}" if safe_username else ""
+            deep_link = f"https://t.me/{safe_username}?start=owner_panel" if safe_username else ""
 
             await state.clear()
             await callback.message.answer(
@@ -1253,7 +1253,7 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
         await finalize_specialist_if_ready(specialist.specialist_id)
         personal_username = await _notify_personal_bot_welcome(specialist.specialist_id, tg_user_id)
         safe_username = _safe_username(personal_username)
-        deep_link = f"https://t.me/{safe_username}" if safe_username else ""
+        deep_link = f"https://t.me/{safe_username}?start=owner_panel" if safe_username else ""
 
         await state.clear()
         await callback.message.answer(

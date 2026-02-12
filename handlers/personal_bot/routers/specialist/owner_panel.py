@@ -1,4 +1,5 @@
 from datetime import time
+import logging
 from typing import Sequence
 
 from aiogram import F, Router
@@ -19,6 +20,7 @@ from services.specialist_defaults import (
 )
 
 router = Router(name="personal_bot_specialist_owner_panel")
+logger = logging.getLogger(__name__)
 
 _DEFAULT_DURATION_MIN = DEFAULT_DURATION_MIN
 _DEFAULT_BUFFER_MIN = DEFAULT_BUFFER_MIN
@@ -327,6 +329,21 @@ async def send_owner_panel(
     public_name: str | None,
     owner_tg_user_id: int | None = None,
 ) -> None:
+    if specialist_id is None:
+        logger.error("send_owner_panel called without specialist_id")
+        await message.answer(
+            "⚠️ Профиль специалиста не найден. Вернитесь в master-бот и завершите онбординг заново."
+        )
+        return
+
+    if owner_tg_user_id is None:
+        logger.error("send_owner_panel called without owner_tg_user_id for specialist_id=%s", specialist_id)
+        await message.answer(
+            "⚠️ Не удалось определить Telegram-профиль владельца бота. "
+            "Вернитесь в master-бот и завершите онбординг заново."
+        )
+        return
+
     defaults_applied = await _ensure_owner_panel_defaults(
         specialist_id=specialist_id,
         owner_tg_user_id=owner_tg_user_id,
@@ -340,22 +357,28 @@ async def send_owner_panel(
         )
 
     profile, rows = await _load_profile_and_rows(specialist_id)
+    if profile is None:
+        logger.error("send_owner_panel: SpecialistProfile not found for specialist_id=%s", specialist_id)
+        await message.answer(
+            "⚠️ Профиль не найден. Вернитесь в master-бот и завершите онбординг заново."
+        )
+        return
 
-    display_name = public_name or (profile.public_name if profile else "специалист")
+    display_name = public_name or profile.public_name or "специалист"
     sample_day = next((row for row in rows if row.is_working), None)
     intervals_text = _format_intervals_for_ui(sample_day)
 
     text = (
         f"✅ Базовые настройки уже применены автоматически после онбординга, {display_name}.\n"
         "Хотите изменить их сейчас?\n\n"
-        f"• Таймзона: {(profile.specialist_timezone if profile else DEFAULT_TIMEZONE)}\n"
+        f"• Таймзона: {(profile.specialist_timezone or DEFAULT_TIMEZONE)}\n"
         f"• Рабочие дни: {_working_days(rows)}\n"
         f"• Интервалы (утро/день/вечер): {intervals_text}\n"
-        f"• Длительность сессии: {(profile.session_duration_min if profile else _DEFAULT_DURATION_MIN)} мин\n"
-        f"• Буфер между сессиями: {(profile.session_buffer_min if profile else _DEFAULT_BUFFER_MIN)} мин\n"
-        f"• Шаг начала слотов: {(profile.slot_step_min if profile else _DEFAULT_SLOT_STEP_MIN)} мин\n"
-        f"• Окно отмены: {(profile.cancel_window_hours if profile else _DEFAULT_CANCEL_WINDOW_HOURS)} ч\n"
-        f"• Максимум сессий в день: {(profile.max_sessions_per_day if profile else _DEFAULT_MAX_SESSIONS_PER_DAY)}\n\n"
+        f"• Длительность сессии: {(profile.session_duration_min or _DEFAULT_DURATION_MIN)} мин\n"
+        f"• Буфер между сессиями: {(profile.session_buffer_min if profile.session_buffer_min is not None else _DEFAULT_BUFFER_MIN)} мин\n"
+        f"• Шаг начала слотов: {(profile.slot_step_min or _DEFAULT_SLOT_STEP_MIN)} мин\n"
+        f"• Окно отмены: {(profile.cancel_window_hours or _DEFAULT_CANCEL_WINDOW_HOURS)} ч\n"
+        f"• Максимум сессий в день: {(profile.max_sessions_per_day or _DEFAULT_MAX_SESSIONS_PER_DAY)}\n\n"
         "Правило записи: запись и изменение доступны только на следующий день и только до 21:00 предыдущего дня по времени специалиста."
     )
     await message.answer(text, reply_markup=_owner_panel_keyboard())
