@@ -99,7 +99,7 @@ def configure_runtime_logging() -> None:
         root_logger.removeHandler(handler)
 
     level_name = config.LOG_LEVEL.upper()
-    level = logging.getLevelNamesMapping().get(level_name, logging.INFO)
+    level = logging._nameToLevel.get(level_name, logging.INFO)
     root_logger.setLevel(level)
 
     formatter = _build_formatter()

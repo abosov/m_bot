@@ -261,7 +261,7 @@ def validate_config() -> None:
         except ValueError as exc:
             errors.append(str(exc))
 
-    valid_levels = set(logging.getLevelNamesMapping().keys())
+    valid_levels = set(logging._nameToLevel.keys())
     if LOG_LEVEL not in valid_levels:
         errors.append(f"LOG_LEVEL must be a valid logging level (got {LOG_LEVEL!r})")
 
