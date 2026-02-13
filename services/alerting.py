@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -281,6 +282,9 @@ def _alerts_enabled() -> bool:
 
 
 def _resolve_alert_token() -> str | None:
+    env_token = os.getenv("ALERTING_BOT_TOKEN")
+    if env_token:
+        return env_token
     return config.ALERTS_TELEGRAM_TOKEN or config.MASTER_BOT_TOKEN
 
 
@@ -289,7 +293,7 @@ async def _get_alert_bot() -> Bot | None:
 
     token = _resolve_alert_token()
     if not token:
-        logger.warning("Alerting skipped: no token configured")
+        logger.info("alerting disabled: ALERTING_BOT_TOKEN not set")
         return None
 
     if _alert_bot is not None and _alert_bot_token == token:
@@ -308,9 +312,10 @@ async def _get_alert_bot() -> Bot | None:
     try:
         new_bot = Bot(token=token)
     except Exception:
+        logger.error("alerting disabled: failed to initialize alert bot", exc_info=True)
         _alert_bot = None
         _alert_bot_token = None
-        raise
+        return None
     else:
         _alert_bot = new_bot
         _alert_bot_token = token
@@ -372,33 +377,50 @@ async def notify_exception(
     user_visible_text: str | None = None,
     stage: str | None = None,
 ) -> None:
-    merged_context = dict(context or {})
-    user_context = build_user_context_from_update(event, data)
-    for key, value in user_context.items():
-        merged_context.setdefault(key, value)
+    try:
+        merged_context = dict(context or {})
+        user_context = build_user_context_from_update(event, data)
+        for key, value in user_context.items():
+            merged_context.setdefault(key, value)
 
-    bot_id = merged_context.get("bot_id")
-    if bot_id is None and data and data.get("bot") is not None:
-        bot_id = getattr(data.get("bot"), "id", None)
-        if bot_id is not None:
-            merged_context.setdefault("bot_id", bot_id)
+        bot_id = merged_context.get("bot_id")
+        if bot_id is None and data and data.get("bot") is not None:
+            bot_id = getattr(data.get("bot"), "id", None)
+            if bot_id is not None:
+                merged_context.setdefault("bot_id", bot_id)
 
-    resolved_stage = stage or await resolve_stage(bot_id)
+        resolved_stage = stage or await resolve_stage(bot_id)
 
-    await notify_admin(
-        AlertEvent(
-            title="Unhandled exception",
-            where=where,
-            error=exc.__class__.__name__,
-            message=str(exc),
-            context=sanitize_context(merged_context),
-            stage=resolved_stage,
-            user_handle=merged_context.get("user_handle"),
-            tg_user_id=merged_context.get("tg_user_id"),
-            inbound_text=merged_context.get("inbound_text"),
-            user_visible_text=_truncate_text(user_visible_text),
-            handler_name=merged_context.get("handler_name"),
-            fsm_state=merged_context.get("fsm_state"),
-            user_name=merged_context.get("user_name"),
+        if not _resolve_alert_token():
+            logger.info(
+                "alerting disabled: ALERTING_BOT_TOKEN not set where=%s stage=%s",
+                where,
+                resolved_stage,
+            )
+            return None
+
+        await notify_admin(
+            AlertEvent(
+                title="Unhandled exception",
+                where=where,
+                error=exc.__class__.__name__,
+                message=str(exc),
+                context=sanitize_context(merged_context),
+                stage=resolved_stage,
+                user_handle=merged_context.get("user_handle"),
+                tg_user_id=merged_context.get("tg_user_id"),
+                inbound_text=merged_context.get("inbound_text"),
+                user_visible_text=_truncate_text(user_visible_text),
+                handler_name=merged_context.get("handler_name"),
+                fsm_state=merged_context.get("fsm_state"),
+                user_name=merged_context.get("user_name"),
+            )
         )
-    )
+    except Exception:
+        logger.error(
+            "notify_exception failed and was suppressed: where=%s stage=%s",
+            where,
+            stage,
+            exc_info=True,
+        )
+        return None

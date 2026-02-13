@@ -4,6 +4,7 @@ import asyncio
 import os
 import logging
 import signal
+import traceback
 import sys
 import uvicorn
 
@@ -58,7 +59,8 @@ async def start_web_server():
         await server.shutdown()
         raise
     except Exception as exc:
-        logger.exception("Web server crashed")
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        logger.error("Web server crashed: exc=%r\n%s", exc, tb)
         await notify_exception(where="main.start_web_server", exc=exc)
         raise
 
@@ -91,7 +93,8 @@ async def start_bot():
     except asyncio.CancelledError:
         logger.info("🤖 Bot polling cancelled...")
     except Exception as exc:
-        logger.exception("Master bot polling crashed")
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        logger.error("Master bot polling crashed: exc=%r\n%s", exc, tb)
         await notify_exception(where="main.start_bot.polling", exc=exc, context={"bot_id": bot.id})
         raise
     finally:
@@ -147,7 +150,8 @@ async def main():
     except asyncio.CancelledError:
         logger.info("Main tasks cancelled, shutting down...")
     except Exception as exc:
-        logger.error("Unexpected error in main loop", exc_info=True)
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        logger.error("Unexpected error in main loop: exc=%r\n%s", exc, tb)
         await notify_exception(where="main.main", exc=exc, stage="background_task")
         raise
     finally:
@@ -180,9 +184,7 @@ if __name__ == "__main__":
         logger.info("🛑 Application stopped manually.")
         raise
     except Exception as exc:
-        logger.error("Fatal startup error", exc_info=True)
-        try:
-            asyncio.run(notify_exception(where="main.__main__", exc=exc, stage="background_task"))
-        except Exception:
-            logger.warning("Failed to send startup alert", exc_info=True)
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        logger.error("Fatal startup error: exc=%r\n%s", exc, tb)
+        asyncio.run(notify_exception(where="main.__main__", exc=exc, stage="background_task"))
         sys.exit(1)

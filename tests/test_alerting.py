@@ -49,6 +49,23 @@ async def test_alerts_disabled_skip_send(monkeypatch):
     assert dummy.messages == []
 
 
+
+
+@pytest.mark.asyncio
+async def test_notify_exception_missing_token_returns_none(monkeypatch, caplog):
+    monkeypatch.setattr(alerting.config, "ALERTS_ENABLED", True)
+    monkeypatch.setattr(alerting.config, "ALERTS_TELEGRAM_CHAT_ID", "-1001")
+    monkeypatch.setattr(alerting.config, "ALERTS_TELEGRAM_TOKEN", "")
+    monkeypatch.setattr(alerting.config, "MASTER_BOT_TOKEN", "")
+    monkeypatch.delenv("ALERTING_BOT_TOKEN", raising=False)
+    monkeypatch.setattr(alerting, "resolve_stage", AsyncMock(return_value="master_bot"))
+
+    caplog.set_level("INFO")
+    result = await alerting.notify_exception("tests.where", RuntimeError("boom"), {}, stage="startup")
+
+    assert result is None
+    assert "alerting disabled: ALERTING_BOT_TOKEN not set" in caplog.text
+
 @pytest.mark.asyncio
 async def test_deduplication_suppresses_same_error(monkeypatch):
     monkeypatch.setattr(alerting.config, "ALERTS_ENABLED", True)

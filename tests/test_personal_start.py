@@ -10,6 +10,8 @@ class DummyMessage:
     def __init__(self, from_user=None):
         self.answers = []
         self.from_user = from_user
+        self.text = ""
+        self.bot = types.SimpleNamespace(id=1)
 
     async def answer(self, text, **kwargs):
         self.answers.append((text, kwargs))
@@ -18,6 +20,8 @@ class DummyMessage:
 class DummyCallback:
     def __init__(self, message):
         self.message = message
+        self.bot = types.SimpleNamespace(id=1)
+        self.from_user = message.from_user
         self.answered = False
 
     async def answer(self, *args, **kwargs):
