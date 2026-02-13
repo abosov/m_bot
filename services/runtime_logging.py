@@ -31,7 +31,14 @@ class SafeLogFilter(logging.Filter):
             else:
                 record.args = tuple(_sanitize_value(None, value, self.max_len) for value in record.args)
 
-        message = record.getMessage()
+        try:
+            message = record.getMessage()
+        except (TypeError, ValueError):
+            safe_message = f"[UNFORMATTABLE LOG] msg={record.msg!r} args={record.args!r}"
+            record.msg = safe_message
+            record.args = ()
+            return True
+
         if len(message) > self.max_len:
             record.msg = f"{message[: self.max_len]}... [TRUNCATED]"
             record.args = ()
@@ -39,7 +46,7 @@ class SafeLogFilter(logging.Filter):
         return True
 
 
-def _sanitize_value(key: str | None, value: object, max_len: int) -> str:
+def _sanitize_value(key: str | None, value: object, max_len: int) -> object:
     key_name = (key or "").strip()
     if key_name and SECRET_KEY_PATTERN.search(key_name):
         return "[REDACTED]"
@@ -47,7 +54,7 @@ def _sanitize_value(key: str | None, value: object, max_len: int) -> str:
     as_text = str(value)
     if len(as_text) > max_len:
         return f"{as_text[:max_len]}... [TRUNCATED]"
-    return as_text
+    return value
 
 
 class KVFormatter(logging.Formatter):

@@ -2,6 +2,8 @@ import importlib
 import logging
 from pathlib import Path
 
+from services.runtime_logging import SafeLogFilter
+
 
 def _reset_logging_state() -> None:
     root = logging.getLogger()
@@ -69,3 +71,37 @@ def test_configure_runtime_logging_with_log_dir_writes_files(monkeypatch, tmp_pa
     assert http_log.exists()
     assert bot_log.exists()
     assert "http-test-entry" in http_log.read_text(encoding="utf-8")
+
+
+def test_safe_log_filter_handles_bad_percent_formatting() -> None:
+    log_filter = SafeLogFilter()
+    record = logging.LogRecord(
+        name="test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="%d",
+        args=("not-a-number",),
+        exc_info=None,
+    )
+
+    assert log_filter.filter(record) is True
+    assert record.args == ()
+    assert "[UNFORMATTABLE LOG]" in str(record.msg)
+    assert "%d" in str(record.msg) or "not-a-number" in str(record.msg)
+
+
+def test_safe_log_filter_keeps_normal_formatting_behavior() -> None:
+    log_filter = SafeLogFilter()
+    record = logging.LogRecord(
+        name="test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="x=%d",
+        args=(1,),
+        exc_info=None,
+    )
+
+    assert log_filter.filter(record) is True
+    assert record.getMessage() == "x=1"
