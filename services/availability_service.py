@@ -9,7 +9,6 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, select
 
 from database import SpecialistCalendarSettings, SpecialistProfile, WeeklyAvailability, async_session_factory
-from services.booking_policy import earliest_allowed_booking_date
 from services.schedule_utils import merge_intervals
 from services.slot_step import iter_slot_starts
 
@@ -119,13 +118,6 @@ class AvailabilityService:
 
         context = await self._repository.get_context_for_date(specialist_id, target_date_local_specialist)
 
-        earliest = earliest_allowed_booking_date(
-            specialist_tz=context.specialist_tz,
-            now_utc=self._now_utc_provider(),
-        )
-        if target_date_local_specialist != earliest:
-            raise ValueError("Target date violates next-day cutoff policy")
-
         merged_intervals = merge_intervals(context.intervals)
         if not merged_intervals:
             return {"morning": [], "day": [], "evening": []}
@@ -154,6 +146,49 @@ class AvailabilityService:
         ]
 
         return self._split_by_part_of_day(filtered)
+
+    async def get_candidate_slots_for_date_range(
+        self,
+        *,
+        specialist_id: UUID,
+        target_date_local_client: date,
+        client_tz: str,
+        interval_start: time,
+        interval_end: time,
+    ) -> list[datetime]:
+        specialist_tz = await self._repository.get_specialist_timezone(specialist_id)
+        target_date_local_specialist = self._to_specialist_local_date(
+            target_date_local_client=target_date_local_client,
+            client_tz=client_tz,
+            specialist_tz=specialist_tz,
+        )
+
+        context = await self._repository.get_context_for_date(specialist_id, target_date_local_specialist)
+        if interval_start >= interval_end:
+            return []
+
+        candidate_starts = self._build_candidates(
+            target_date=target_date_local_specialist,
+            intervals=[(interval_start, interval_end)],
+            duration_min=context.session_duration_min,
+            step_min=context.slot_step_min,
+        )
+
+        busy_intervals = await self._busy_provider.get_busy_for_local_day(
+            specialist_id=specialist_id,
+            specialist_tz=context.specialist_tz,
+            target_date_local_specialist=target_date_local_specialist,
+        )
+
+        if len(busy_intervals) >= context.max_sessions_per_day:
+            return []
+
+        return [
+            start
+            for start in candidate_starts
+            if not self._overlaps_busy(start, context.session_duration_min, busy_intervals)
+            and self._respects_buffer(start, context.session_duration_min, context.session_buffer_min, busy_intervals)
+        ]
 
     @staticmethod
     def _to_specialist_local_date(*, target_date_local_client: date, client_tz: str, specialist_tz: str) -> date:

@@ -112,7 +112,7 @@ async def test_get_candidate_slots_for_date_returns_empty_when_daily_limit_reach
 
 
 @pytest.mark.asyncio
-async def test_get_candidate_slots_for_date_validates_cutoff() -> None:
+async def test_get_candidate_slots_for_date_does_not_apply_cutoff_policy() -> None:
     context = SpecialistAvailabilityContext(
         specialist_tz="UTC",
         session_duration_min=60,
@@ -127,9 +127,38 @@ async def test_get_candidate_slots_for_date_validates_cutoff() -> None:
         now_utc_provider=lambda: datetime(2026, 2, 11, 22, 0, tzinfo=timezone.utc),
     )
 
-    with pytest.raises(ValueError, match="cutoff"):
-        await service.get_candidate_slots_for_date(
-            specialist_id=uuid4(),
-            target_date_local_client=date(2026, 2, 12),
-            client_tz="UTC",
-        )
+    slots = await service.get_candidate_slots_for_date(
+        specialist_id=uuid4(),
+        target_date_local_client=date(2026, 2, 12),
+        client_tz="UTC",
+    )
+
+    assert slots["morning"] == [datetime(2026, 2, 12, 9, 0), datetime(2026, 2, 12, 9, 30), datetime(2026, 2, 12, 10, 0), datetime(2026, 2, 12, 10, 30), datetime(2026, 2, 12, 11, 0)]
+
+
+@pytest.mark.asyncio
+async def test_get_candidate_slots_for_date_range_uses_selected_bounds() -> None:
+    context = SpecialistAvailabilityContext(
+        specialist_tz="UTC",
+        session_duration_min=60,
+        session_buffer_min=15,
+        max_sessions_per_day=4,
+        slot_step_min=30,
+        intervals=[(time(9, 0), time(18, 0))],
+    )
+    busy = [(datetime(2026, 2, 12, 13, 0), datetime(2026, 2, 12, 14, 0))]
+    service = AvailabilityService(
+        repository=FakeRepository(context),
+        busy_provider=FakeBusyProvider(busy),
+        now_utc_provider=lambda: datetime(2026, 2, 11, 10, 0, tzinfo=timezone.utc),
+    )
+
+    slots = await service.get_candidate_slots_for_date_range(
+        specialist_id=uuid4(),
+        target_date_local_client=date(2026, 2, 12),
+        client_tz="UTC",
+        interval_start=time(12, 0),
+        interval_end=time(16, 0),
+    )
+
+    assert slots == [datetime(2026, 2, 12, 14, 30), datetime(2026, 2, 12, 15, 0)]

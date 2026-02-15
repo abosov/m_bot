@@ -10,6 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 
 from database import Client, SpecialistProfile, WeeklyAvailability, async_session_factory
+from services.availability_service import AvailabilityService
 from services.booking_policy import validate_next_day_cutoff
 
 router = Router(name="personal_bot_client_commands")
@@ -25,6 +26,8 @@ _INTERVAL_META = (
     ("day", "День", "interval_2_start", "interval_2_end"),
     ("evening", "Вечер", "interval_3_start", "interval_3_end"),
 )
+
+availability_service = AvailabilityService()
 
 
 def _client_menu_keyboard() -> ReplyKeyboardMarkup:
@@ -93,23 +96,23 @@ def _format_interval_time_range(start: time, end: time) -> str:
     return f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}"
 
 
-def _build_interval_options(row: WeeklyAvailability | None) -> list[tuple[str, str]]:
+def _build_interval_options(row: WeeklyAvailability | None) -> list[tuple[str, str, time, time]]:
     if row is None or not row.is_working:
         return []
 
-    options: list[tuple[str, str]] = []
+    options: list[tuple[str, str, time, time]] = []
     for key, title, start_field, end_field in _INTERVAL_META:
         start = getattr(row, start_field)
         end = getattr(row, end_field)
         if start is None or end is None:
             continue
-        options.append((key, f"{title} {_format_interval_time_range(start, end)}"))
+        options.append((key, f"{title} {_format_interval_time_range(start, end)}", start, end))
     return options
 
 
-def _booking_interval_keyboard(*, selected_day: date, options: list[tuple[str, str]]):
+def _booking_interval_keyboard(*, selected_day: date, options: list[tuple[str, str, time, time]]):
     builder = InlineKeyboardBuilder()
-    for key, title in options:
+    for key, title, _, _ in options:
         builder.button(
             text=title,
             callback_data=f"client_book_interval:{selected_day.isoformat()}:{key}",
@@ -129,9 +132,13 @@ async def _get_weekly_availability_row(*, specialist_id, weekday: int) -> Weekly
         ).scalar_one_or_none()
 
 
-def _format_selected_intervals(selected_intervals: list[str]) -> str:
-    labels = {key: title for key, title, _, _ in _INTERVAL_META}
-    return ", ".join(labels[item] for item in selected_intervals)
+def _format_slot_lines(slots: list[datetime]) -> str:
+    if not slots:
+        return "Нет доступных слотов в выбранном диапазоне."
+    lines = ["Доступные слоты:"]
+    for slot in slots:
+        lines.append(f"• {slot.strftime('%Y-%m-%d %H:%M')}")
+    return "\n".join(lines)
 
 
 @router.message(F.text == "Записаться")
@@ -158,8 +165,11 @@ async def client_pick_day(callback, state: FSMContext, specialist_id) -> None:
     await state.set_state(ClientBookingState.waiting_for_interval)
     await state.update_data(
         booking_date=selected_iso,
-        booking_selected_intervals=[],
         booking_interval_options=[item[0] for item in interval_options],
+        booking_interval_bounds={
+            item[0]: {"start": item[2].strftime("%H:%M"), "end": item[3].strftime("%H:%M")}
+            for item in interval_options
+        },
     )
 
     if not interval_options:
@@ -175,7 +185,7 @@ async def client_pick_day(callback, state: FSMContext, specialist_id) -> None:
 
 
 @router.callback_query(ClientBookingState.waiting_for_interval, F.data.startswith("client_book_interval:"))
-async def client_pick_interval(callback, state: FSMContext) -> None:
+async def client_pick_interval(callback, state: FSMContext, specialist_id) -> None:
     chunks = (callback.data or "").split(":", 2)
     if len(chunks) != 3:
         await callback.answer("Некорректный выбор диапазона", show_alert=True)
@@ -184,25 +194,30 @@ async def client_pick_interval(callback, state: FSMContext) -> None:
     state_data = await state.get_data()
 
     if state_data.get("booking_date") != selected_iso:
-        await state.update_data(booking_date=selected_iso, booking_selected_intervals=[])
+        await state.update_data(booking_date=selected_iso)
 
     allowed_intervals = state_data.get("booking_interval_options", [])
     if interval not in allowed_intervals:
         await callback.answer("Диапазон недоступен", show_alert=True)
         return
 
-    selected_intervals = state_data.get("booking_selected_intervals", [])
-    if interval in selected_intervals:
-        selected_intervals = [item for item in selected_intervals if item != interval]
-    else:
-        selected_intervals.append(interval)
+    bounds = (state_data.get("booking_interval_bounds") or {}).get(interval)
+    if not bounds:
+        await callback.answer("Диапазон недоступен", show_alert=True)
+        return
 
-    order = [item[0] for item in _INTERVAL_META]
-    selected_intervals = sorted(set(selected_intervals), key=order.index)
-    await state.update_data(booking_selected_intervals=selected_intervals)
+    interval_start = time.fromisoformat(bounds["start"])
+    interval_end = time.fromisoformat(bounds["end"])
+    specialist_tz = await _get_specialist_tz(specialist_id)
+    slots = await availability_service.get_candidate_slots_for_date_range(
+        specialist_id=specialist_id,
+        target_date_local_client=date.fromisoformat(selected_iso),
+        client_tz=getattr(specialist_tz, "key", "UTC"),
+        interval_start=interval_start,
+        interval_end=interval_end,
+    )
 
-    intervals_text = _format_selected_intervals(selected_intervals) if selected_intervals else "не выбраны"
-    await callback.message.answer(f"Выбраны диапазоны: {intervals_text} (слоты скоро появятся).")
+    await callback.message.answer(_format_slot_lines(slots))
     await callback.answer()
 
 

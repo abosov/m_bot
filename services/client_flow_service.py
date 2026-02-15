@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, timezone
 from typing import Protocol
 from uuid import UUID
 
 from services.availability_service import AvailabilityService
-from services.slot_ranking import rank_slots_for_interval
 
 INTERVALS = ("morning", "day", "evening")
 _INTERVAL_SET = set(INTERVALS)
@@ -107,20 +106,16 @@ class ClientFlowService:
             client_tz=client_tz,
         )
 
-        ranked: dict[str, list[datetime]] = {interval: [] for interval in INTERVALS}
+        slots_by_interval: dict[str, list[datetime]] = {interval: [] for interval in INTERVALS}
         for interval in selected_intervals:
-            ranked[interval] = _rank_interval_slots(
-                target_date=target_date,
-                interval=interval,
-                candidates=available_by_interval.get(interval, []),
-            )
+            slots_by_interval[interval] = sorted(available_by_interval.get(interval, []))
 
-        empty_intervals = tuple(interval for interval in selected_intervals if not ranked.get(interval))
-        has_any = any(ranked.get(interval) for interval in selected_intervals)
+        empty_intervals = tuple(interval for interval in selected_intervals if not slots_by_interval.get(interval))
+        has_any = any(slots_by_interval.get(interval) for interval in selected_intervals)
         return ClientSlotsView(
             target_date=target_date,
             selected_intervals=tuple(selected_intervals),
-            slots_by_interval=ranked,
+            slots_by_interval=slots_by_interval,
             empty_intervals=empty_intervals,
             is_day_empty=not has_any,
             is_selection_empty=False,
@@ -179,25 +174,3 @@ def _normalize_intervals(raw: object) -> list[str]:
     return sorted(set(filtered), key=INTERVALS.index)
 
 
-def _rank_interval_slots(*, target_date: date, interval: str, candidates: list[datetime]) -> list[datetime]:
-    start_time, end_time = _interval_bounds(interval)
-    interval_start = datetime.combine(target_date, start_time)
-    interval_end = datetime.combine(target_date, end_time)
-
-    return rank_slots_for_interval(
-        interval_start=interval_start,
-        interval_end=interval_end,
-        candidate_starts=sorted(candidates),
-        existing_confirmed_sessions=[],
-        session_duration=60,
-        buffer_minutes=0,
-        max_results=4,
-    )
-
-
-def _interval_bounds(interval: str) -> tuple[time, time]:
-    if interval == "morning":
-        return time(0, 0), time(12, 0)
-    if interval == "day":
-        return time(12, 0), time(18, 0)
-    return time(18, 0), time(23, 59, 59)

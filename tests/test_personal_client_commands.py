@@ -117,8 +117,8 @@ async def test_client_pick_day_shows_available_intervals(monkeypatch):
 
     assert state.state == client_commands.ClientBookingState.waiting_for_interval
     assert state.data["booking_date"] == "2026-02-21"
-    assert state.data["booking_selected_intervals"] == []
     assert state.data["booking_interval_options"] == ["morning", "evening"]
+    assert state.data["booking_interval_bounds"] == {"morning": {"start": "09:00", "end": "12:00"}, "evening": {"start": "18:00", "end": "21:00"}}
     assert message.answers[0][0] == "Выберите диапазон:"
     assert message.answers[0][1].get("reply_markup") is not None
     assert len(callback.answers) == 1
@@ -161,12 +161,12 @@ async def test_client_pick_day_without_intervals_shows_empty_message(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_client_pick_interval_saves_selection_in_fsm():
+async def test_client_pick_interval_shows_slots_as_text(monkeypatch):
     state = DummyState()
     state.data = {
         "booking_date": "2026-02-21",
         "booking_interval_options": ["morning", "day", "evening"],
-        "booking_selected_intervals": [],
+        "booking_interval_bounds": {"day": {"start": "12:00", "end": "18:00"}},
     }
     message = DummyMessage("")
 
@@ -181,10 +181,19 @@ async def test_client_pick_interval_saves_selection_in_fsm():
 
     callback.answer = _callback_answer
 
-    await client_commands.client_pick_interval(callback, state=state)
+    class _Availability:
+        async def get_candidate_slots_for_date_range(self, **kwargs):
+            return [datetime(2026, 2, 21, 12, 0), datetime(2026, 2, 21, 12, 30)]
 
-    assert state.data["booking_selected_intervals"] == ["day"]
-    assert message.answers[0][0] == "Выбраны диапазоны: День (слоты скоро появятся)."
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    monkeypatch.setattr(client_commands, "availability_service", _Availability())
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+
+    await client_commands.client_pick_interval(callback, state=state, specialist_id="sp-id")
+
+    assert message.answers[0][0] == "Доступные слоты:\n• 2026-02-21 12:00\n• 2026-02-21 12:30"
     assert len(callback.answers) == 1
 
 

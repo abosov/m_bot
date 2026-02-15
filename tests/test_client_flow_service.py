@@ -50,7 +50,7 @@ async def test_weekday_pick_and_interval_toggle_store_fsm_state() -> None:
 
 
 @pytest.mark.asyncio
-async def test_build_slots_view_returns_top4_per_selected_interval() -> None:
+async def test_build_slots_view_returns_all_slots_without_ranking() -> None:
     availability = {
         "morning": [
             datetime(2026, 2, 12, 8, 0),
@@ -82,8 +82,10 @@ async def test_build_slots_view_returns_top4_per_selected_interval() -> None:
         callback_data="client_show_slots:2026-02-12",
     )
 
-    assert len(view.slots_by_interval["morning"]) == 4
+    assert len(view.slots_by_interval["morning"]) == 5
     assert len(view.slots_by_interval["day"]) == 4
+    assert view.slots_by_interval["morning"][0] == datetime(2026, 2, 12, 8, 0)
+    assert view.slots_by_interval["morning"][-1] == datetime(2026, 2, 12, 10, 0)
     assert view.empty_intervals == ()
     assert view.is_day_empty is False
     assert view.is_selection_empty is False
