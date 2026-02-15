@@ -3,8 +3,9 @@ import asyncio
 import random
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 from sqlalchemy import select
@@ -323,4 +324,49 @@ async def create_and_cleanup_test_event(specialist_id: uuid.UUID, calendar_id: s
             _raise_calendar_error(delete_response)
     except Exception as exc:
         await _notify_google_calendar_exception("services.google_calendar.create_and_cleanup_test_event", exc, specialist_id)
+        raise
+
+
+async def get_busy_intervals_for_day(
+    *,
+    specialist_id: uuid.UUID,
+    calendar_id: str,
+    specialist_tz: str,
+    target_date_local_specialist: date,
+) -> list[tuple[datetime, datetime]]:
+    try:
+        headers = await _build_headers(specialist_id)
+        specialist_zone = ZoneInfo(specialist_tz)
+        day_start_local = datetime.combine(target_date_local_specialist, datetime.min.time(), tzinfo=specialist_zone)
+        day_end_local = day_start_local + timedelta(days=1)
+
+        payload = {
+            "timeMin": day_start_local.astimezone(timezone.utc).isoformat(),
+            "timeMax": day_end_local.astimezone(timezone.utc).isoformat(),
+            "items": [{"id": calendar_id}],
+        }
+        response = await _calendar_request_with_retry(
+            requests.post,
+            f"{GOOGLE_CALENDAR_BASE_URL}/freeBusy",
+            method_name="POST",
+            headers=headers,
+            json=payload,
+        )
+        if response.status_code != 200:
+            _raise_calendar_error(response)
+
+        busy_items = response.json().get("calendars", {}).get(calendar_id, {}).get("busy", [])
+        result: list[tuple[datetime, datetime]] = []
+        for item in busy_items:
+            busy_start_raw = item.get("start")
+            busy_end_raw = item.get("end")
+            if not busy_start_raw or not busy_end_raw:
+                continue
+            busy_start = datetime.fromisoformat(busy_start_raw.replace("Z", "+00:00")).astimezone(specialist_zone)
+            busy_end = datetime.fromisoformat(busy_end_raw.replace("Z", "+00:00")).astimezone(specialist_zone)
+            result.append((busy_start.replace(tzinfo=None), busy_end.replace(tzinfo=None)))
+
+        return result
+    except Exception as exc:
+        await _notify_google_calendar_exception("services.google_calendar.get_busy_intervals_for_day", exc, specialist_id)
         raise
