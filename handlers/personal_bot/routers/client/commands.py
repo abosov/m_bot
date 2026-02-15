@@ -9,7 +9,7 @@ from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 
-from database import Client, SpecialistProfile, WeeklyAvailability, async_session_factory
+from database import Appointment, BookingState, Client, SpecialistProfile, WeeklyAvailability, async_session_factory
 from services.availability_service import AvailabilityService
 from services.booking_policy import validate_next_day_cutoff
 
@@ -229,6 +229,58 @@ async def client_pick_interval(callback, state: FSMContext, specialist_id) -> No
         _format_slot_lines(slots),
         reply_markup=_booking_slots_keyboard(slots) if slots else None,
     )
+    await callback.answer()
+
+
+@router.callback_query(ClientBookingState.waiting_for_interval, F.data.startswith("client_book_slot:"))
+async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
+    if callback.from_user is None:
+        await callback.answer("Не удалось определить пользователя", show_alert=True)
+        return
+
+    slot_raw = (callback.data or "").removeprefix("client_book_slot:")
+    try:
+        slot_start_local = datetime.fromisoformat(slot_raw)
+    except ValueError:
+        await callback.answer("Некорректный слот", show_alert=True)
+        return
+
+    specialist_tz = await _get_specialist_tz(specialist_id)
+    if slot_start_local.tzinfo is None:
+        slot_start_local = slot_start_local.replace(tzinfo=specialist_tz)
+
+    async with async_session_factory() as session:
+        client = (
+            await session.execute(
+                select(Client)
+                .where(Client.specialist_id == specialist_id)
+                .where(Client.tg_user_id == callback.from_user.id)
+            )
+        ).scalar_one_or_none()
+        if client is None:
+            await callback.answer("Клиент не найден", show_alert=True)
+            return
+
+        profile = await session.get(SpecialistProfile, specialist_id)
+        session_duration_min = profile.session_duration_min if profile is not None else 60
+
+        slot_start_utc = slot_start_local.astimezone(timezone.utc)
+        slot_end_utc = slot_start_utc + timedelta(minutes=session_duration_min)
+
+        session.add(
+            Appointment(
+                specialist_id=specialist_id,
+                client_id=client.client_id,
+                start_at_utc=slot_start_utc,
+                end_at_utc=slot_end_utc,
+                booking_state=BookingState.confirmed,
+                idempotency_key=f"tg:{specialist_id}:{client.client_id}:{slot_start_utc.isoformat()}",
+            )
+        )
+        await session.commit()
+
+    await state.clear()
+    await callback.message.answer("Запись создана", reply_markup=_client_menu_keyboard())
     await callback.answer()
 
 
