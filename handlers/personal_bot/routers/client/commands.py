@@ -1,3 +1,4 @@
+import logging
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -9,11 +10,21 @@ from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 
-from database import Appointment, BookingState, Client, SpecialistProfile, WeeklyAvailability, async_session_factory
+from database import (
+    Appointment,
+    BookingState,
+    Client,
+    SpecialistCalendarSettings,
+    SpecialistProfile,
+    WeeklyAvailability,
+    async_session_factory,
+)
 from services.availability_service import AvailabilityService
 from services.booking_policy import validate_next_day_cutoff
+from services.google_calendar import create_appointment_event
 
 router = Router(name="personal_bot_client_commands")
+logger = logging.getLogger(__name__)
 
 
 class ClientBookingState(StatesGroup):
@@ -267,17 +278,47 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
         slot_start_utc = slot_start_local.astimezone(timezone.utc)
         slot_end_utc = slot_start_utc + timedelta(minutes=session_duration_min)
 
-        session.add(
-            Appointment(
-                specialist_id=specialist_id,
-                client_id=client.client_id,
-                start_at_utc=slot_start_utc,
-                end_at_utc=slot_end_utc,
-                booking_state=BookingState.confirmed,
-                idempotency_key=f"tg:{specialist_id}:{client.client_id}:{slot_start_utc.isoformat()}",
-            )
+        appointment = Appointment(
+            specialist_id=specialist_id,
+            client_id=client.client_id,
+            start_at_utc=slot_start_utc,
+            end_at_utc=slot_end_utc,
+            booking_state=BookingState.confirmed,
+            idempotency_key=f"tg:{specialist_id}:{client.client_id}:{slot_start_utc.isoformat()}",
         )
+        session.add(appointment)
         await session.commit()
+
+        settings = await session.get(SpecialistCalendarSettings, specialist_id)
+        calendar_id = settings.calendar_id if settings is not None else None
+        specialist_tz_name = (
+            profile.specialist_timezone
+            if profile is not None and profile.specialist_timezone
+            else getattr(specialist_tz, "key", "UTC")
+        )
+
+        if calendar_id:
+            try:
+                event = await create_appointment_event(
+                    specialist_id=specialist_id,
+                    calendar_id=calendar_id,
+                    start_at_utc=slot_start_utc,
+                    end_at_utc=slot_end_utc,
+                    specialist_tz=specialist_tz_name,
+                    client_display_name=client.display_name,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to create Google Calendar event for confirmed appointment",
+                    extra={
+                        "specialist_id": str(specialist_id),
+                        "client_id": str(client.client_id),
+                        "appointment_id": str(appointment.appointment_id),
+                    },
+                )
+            else:
+                appointment.gcal_event_id = event.get("id")
+                await session.commit()
 
     await state.clear()
     await callback.message.answer("Запись создана", reply_markup=_client_menu_keyboard())

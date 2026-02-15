@@ -327,6 +327,59 @@ async def create_and_cleanup_test_event(specialist_id: uuid.UUID, calendar_id: s
         raise
 
 
+async def create_appointment_event(
+    *,
+    specialist_id: uuid.UUID,
+    calendar_id: str,
+    start_at_utc: datetime,
+    end_at_utc: datetime,
+    specialist_tz: str,
+    client_display_name: str | None,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    try:
+        headers = await _build_headers(specialist_id)
+        payload = {
+            "summary": f"Сессия с {client_display_name.strip()}" if client_display_name and client_display_name.strip() else "Сессия с клиентом",
+            "description": "Создано автоматически после подтверждения записи в боте",
+            "start": {"dateTime": start_at_utc.isoformat(), "timeZone": specialist_tz},
+            "end": {"dateTime": end_at_utc.isoformat(), "timeZone": specialist_tz},
+        }
+
+        response = await _calendar_request_with_retry(
+            requests.post,
+            f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}/events",
+            method_name="POST",
+            headers=headers,
+            json=payload,
+        )
+        if response.status_code not in (200, 201):
+            _raise_calendar_error(response)
+        body = response.json()
+        if not body.get("id"):
+            raise GoogleCalendarError("Google Calendar event id is missing")
+
+        log_event(
+            logger,
+            logging.INFO,
+            event="google_api_call",
+            alias="create_appointment_event",
+            duration_ms=int((time.monotonic() - started) * 1000),
+            outcome="ok",
+            http_status=response.status_code,
+            events_count=1,
+            specialist_id=specialist_id,
+        )
+        return body
+    except Exception as exc:
+        logger.exception(
+            "google calendar call failed",
+            extra={"event": "google_api_call", "alias": "create_appointment_event", "exception_class": exc.__class__.__name__},
+        )
+        await _notify_google_calendar_exception("services.google_calendar.create_appointment_event", exc, specialist_id)
+        raise
+
+
 async def get_busy_intervals_for_day(
     *,
     specialist_id: uuid.UUID,
