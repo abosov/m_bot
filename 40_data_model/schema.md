@@ -94,7 +94,7 @@
 - PK: `appointment_id`.
 - FK: `specialist_id -> specialist.specialist_id`, `client_id -> client.client_id`.
 - UQ: `idempotency_key`.
-- IDX: `booking_state`.
+- IDX: `booking_state`, `ix_appointment_specialist_id_start_at_utc (specialist_id, start_at_utc)`, `ix_appointment_specialist_id_booking_state_start_at_utc (specialist_id, booking_state, start_at_utc)`, `ix_appointment_client_id_start_at_utc (client_id, start_at_utc)`.
 
 ### 12) oauth_state
 - Поля: `oauth_state_id uuid not null`, `state varchar not null`, `type enum not null`, `specialist_id uuid not null`, `expires_at timestamptz not null`, `created_at timestamptz default now()`.
