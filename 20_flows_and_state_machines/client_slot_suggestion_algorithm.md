@@ -18,11 +18,10 @@
 
 ## 4. Этапы расчета
 
-### Этап 1: Формирование списка занятости (Busy Map)
-Система собирает все блоки, когда специалист недоступен:
-1. **Google Busy**: События из календаря Google.
-2. **Confirmed**: Записи в БД со статусом `confirmed`.
-3. **Pending (Soft Lock)**: Записи в статусе `pending`. Это критично для предотвращения двойных броней в момент, когда один клиент уже нажал на кнопку, а второй только выбирает.
+### Этап 1: Формирование источников данных
+Система использует два раздельных набора:
+1. **Occupancy Source of Truth (`google_busy`)**: события `busy` из Google Calendar. Этот набор является единственным источником занятости для фильтрации доступности.
+2. **Packing Context (`confirmed_sessions`)**: записи в БД со статусом `confirmed`. Этот набор используется только для ранжирования (минимизация «дыр»).
 
 ### Этап 2: Генерация кандидатов
 1.  **Склейка интервалов**: Берутся все рабочие интервалы из `weekly_availability` для выбранного дня и склеиваются, если они идут стык-в-стык.
@@ -33,17 +32,27 @@
     *   **Правило вместимости**: Слот считается валидным, только если вся сессия (`start_time + session_duration_min`) полностью помещается внутри одного из **склеенных** диапазонов.
         *   *Пример*: При диапазоне `09:00–12:00` и сессии 60 минут, последний допустимый старт — `11:00`. Старт в `11:30` невалиден.
         *   *Пример*: При склеенном диапазоне `13:00–21:00` сессия может начаться в `16:30` и закончиться в `17:30`, пересекая границу исходных интервалов.
-    *   Исключаются слоты, пересекающиеся с `Busy Map` (с учетом `session_buffer_min`).
+    *   Исключаются слоты, пересекающиеся с `google_busy` (с учетом `session_buffer_min`).
     *   Применяются правила `max_sessions_per_day` и `cutoff 21:00`.
 
-### Этап 3: Ранжирование (Ranking Logic)
-Для каждой **корзины** (`morning`, `day`, `evening`), запрошенной клиентом, выбираются 3–4 лучших слота из отфильтрованных кандидатов.
+### Этап 3: Строгий ranking (меньший `score` = лучше)
+Для каждой выбранной корзины (`morning`, `day`, `evening`) кандидаты сортируются по скалярному `score`.
 
-1.  **Приоритет 1: Стыковка (Adjacency)**. Слоты, которые минимизируют «дыры» в расписании.
-    -   Слот начинается ровно через `buffer` после окончания любого `Busy Map` блока.
-    -   Слот заканчивается ровно за `buffer` до начала любого `Busy Map` блока.
-2.  **Приоритет 2: Начало диапазона**. Если стыковки невозможны, выбираются слоты, максимально близкие к началу корзины (например, к 09:00).
-3.  **Tie-breaker**: При равном весе выбирается более ранний слот.
+Пусть для кандидата `c`:
+- `d_start(c)` — расстояние в минутах от старта **merged availability interval**, внутри которого лежит `c.start`.
+- `adj(c)` — бинарный признак стыковки с `confirmed_sessions`:
+  - `0`, если `c.start == confirmed.end` **или** `c.end == confirmed.start` хотя бы для одной confirmed-сессии;
+  - `1` в остальных случаях.
+
+Тогда:
+
+`score(c) = 10_000 * adj(c) + d_start(c)`
+
+Сортировка: `(score ASC, c.start ASC)`.
+
+Интерпретация:
+- если в интервале **нет confirmed-сессий**, все `adj(c)=1`, и приоритет автоматически уходит к началу интервала через `d_start`;
+- если confirmed-сессии есть, любой слот со стыковкой (`adj=0`) всегда приоритетнее нестыкующегося (`adj=1`), что минимизирует «дыры».
 
 ### Этап 4: Обработка пустых корзин
 -   Если в выбранной корзине 0 слотов, бот сообщает: «В это время [Утро] окон нет».
@@ -121,25 +130,101 @@
 3. Смерджить пересекающиеся busy-интервалы между собой (только для ускорения проверок).
 4. Проверять пересечения по полуинтервалам `[start, end)` для исключения пограничных ошибок.
 
-### Шаг 6. Сортировка по приоритету
-Для каждого доступного слота вычислить `rank_key`:
+### Шаг 6. Строгая фильтрация и scoring (псевдокод)
 
-1. **Приоритет A: ближе к началу диапазона**
-   - найти релевантный диапазон (утро/день/вечер), в который попадает старт;
-   - `distance_to_range_start = candidate_start - range_start`;
-   - меньшее значение — выше приоритет.
+```text
+INPUT:
+  raw_intervals, specialist_tz, target_date
+  session_duration_min, session_buffer_min, slot_step_min (required)
+  max_sessions_per_day, cutoff_rule
+  google_busy[]
+  confirmed_sessions[]
 
-2. **Приоритет B: ближе к существующим сессиям (packing)**
-   - посчитать минимальную дистанцию до ближайшей существующей сессии этого дня (или busy-блока):
-     - либо по зазору до конца предыдущей,
-     - либо по зазору до начала следующей;
-   - чем меньше зазор, тем выше приоритет.
+merged_intervals = merge_adjacent(raw_intervals)
 
-3. **Tie-breaker**
-   - более раннее время старта выигрывает.
+candidates = []
+for interval in merged_intervals:
+  for start in generate_starts(interval.start, interval.end, slot_step_min):
+    end = start + session_duration_min
 
-Практически: сортировка по ключу вида
-`(distance_to_range_start ASC, distance_to_existing_session ASC, start_time ASC)`.
+    # FILTER 1: slot inside availability
+    if not fully_inside([start, end), interval):
+      continue
+
+    # FILTER 2: slot_step alignment
+    if not aligned_to_step(start, interval.start, slot_step_min):
+      continue
+
+    # FILTER 3: buffer rule (used only in availability check)
+    buffered_slot = [start - session_buffer_min, end + session_buffer_min)
+
+    # FILTER 4: no overlap with google busy (source of truth)
+    if overlaps_any(buffered_slot, google_busy):
+      continue
+
+    # FILTER 5: max sessions per day
+    if count(confirmed_sessions on target_date) >= max_sessions_per_day:
+      continue
+
+    # FILTER 6: cutoff rule
+    if not passes_cutoff(start, cutoff_rule, specialist_tz):
+      continue
+
+    # SCORING PART
+    distance_to_interval_start = minutes_between(interval.start, start)
+    has_adjacency = exists s in confirmed_sessions:
+      (start == s.end) or (end == s.start)
+    adjacency_penalty = 0 if has_adjacency else 1
+    score = 10000 * adjacency_penalty + distance_to_interval_start
+
+    candidates.append({start, end, score})
+
+sorted_candidates = sort_by(candidates, score ASC, start ASC)
+result = take_first(sorted_candidates, 4)
+return result
+```
+
+Примечания:
+- `slot_step_min` обязателен; отсутствие значения — конфигурационная ошибка.
+- Buffer не участвует в ранжировании, только в проверке доступности.
+- Для ranking используются только `confirmed_sessions`.
+- Возвращается максимум `4` слота.
+
+### Шаг 6.1. Примеры расчета
+
+#### Пример A: в интервале нет existing sessions → приоритет к началу
+- `merged_interval`: `09:00–12:00`
+- `session_duration`: `60`, `slot_step`: `30`, `buffer`: `15`
+- `google_busy`: `[]`
+- `confirmed_sessions`: `[]`
+
+Кандидаты: `09:00`, `09:30`, `10:00`, `10:30`, `11:00`.
+
+Так как confirmed-сессий нет, для всех кандидатов `adjacency_penalty = 1`.
+- `09:00`: `score = 10000 + 0 = 10000`
+- `09:30`: `score = 10000 + 30 = 10030`
+- `10:00`: `score = 10000 + 60 = 10060`
+
+Порядок: `09:00`, `09:30`, `10:00`, `10:30`, `11:00`.
+
+#### Пример B: есть existing sessions → приоритет минимизации дыр
+- `merged_interval`: `13:00–18:00`
+- `session_duration`: `60`, `slot_step`: `30`, `buffer`: `15`
+- `google_busy`: `[]`
+- `confirmed_sessions`: `[14:00–15:00]`
+
+Валидные кандидаты: `13:00`, `13:30`, `14:00`, `14:30`, `15:00`, `15:30`, `16:00`, `16:30`, `17:00`.
+
+Adjacency к `14:00–15:00` имеют:
+- `13:00–14:00` (заканчивается в `14:00`),
+- `15:00–16:00` (начинается в `15:00`).
+
+Score:
+- `13:00`: `score = 0 + 0 = 0`
+- `15:00`: `score = 0 + 120 = 120`
+- `13:30`: `score = 10000 + 30 = 10030`
+
+Итог: `13:00` и `15:00` идут выше любого нестыкующегося слота; tie-breaker между ними — более ранний старт (`13:00`).
 
 ### Шаг 7. Возврат результата
 1. Взять первые `N` слотов из отсортированного списка, где `N` в диапазоне `3..4`:
