@@ -3,12 +3,12 @@ from datetime import datetime, timezone
 
 from aiogram import F, Router
 from aiogram.filters import CommandObject, CommandStart
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Message, CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from config import SUPPORT_TG_URL
-from database import Specialist, SpecialistProfile, async_session_factory
+from database import Client, ClientTimezoneSource, Specialist, SpecialistProfile, async_session_factory
 from handlers.personal_bot.routers.specialist.owner_panel import send_owner_panel
 from services.specialist_defaults import apply_specialist_defaults_if_missing
 from services.log_context import log_event
@@ -63,6 +63,51 @@ def _onboarding_keyboard_with_calendar() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Позже", callback_data="onboarding:later")],
         ]
     )
+
+
+def _client_menu_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Записаться")],
+            [KeyboardButton(text="Мои записи (пока stub)")],
+            [KeyboardButton(text="Сменить часовой пояс (пока stub)")],
+        ],
+        resize_keyboard=True,
+    )
+
+
+async def _ensure_client_exists(*, specialist_id, tg_user_id: int, tg_username: str | None) -> Client | None:
+    async with async_session_factory() as session:
+        if specialist_id is None:
+            return None
+
+        existing = (
+            await session.execute(
+                select(Client)
+                .where(Client.specialist_id == specialist_id)
+                .where(Client.tg_user_id == tg_user_id)
+            )
+        ).scalar_one_or_none()
+
+        if existing is not None:
+            if existing.tg_username != tg_username:
+                existing.tg_username = tg_username
+                await session.commit()
+            return existing
+
+        client = Client(
+            specialist_id=specialist_id,
+            tg_user_id=tg_user_id,
+            tg_username=tg_username,
+            display_name=None,
+            client_code=f"tg-{tg_user_id}",
+            client_timezone="UTC",
+            timezone_source=ClientTimezoneSource.default_from_specialist,
+        )
+        session.add(client)
+        await session.commit()
+        await session.refresh(client)
+        return client
 
 
 async def _load_specialist_and_profile(specialist_id):
@@ -216,10 +261,27 @@ async def personal_start(
         )
         return
 
+    if message.from_user is None:
+        await message.answer("⚠️ Не удалось определить пользователя Telegram. Попробуйте ещё раз.")
+        return
+
     try:
-        await message.answer("👋 Запись скоро будет доступна. Пока это клиентская заглушка MVP.")
+        client = await _ensure_client_exists(
+            specialist_id=specialist_id,
+            tg_user_id=message.from_user.id,
+            tg_username=message.from_user.username,
+        )
+        if client is None:
+            await message.answer("⚠️ Не удалось определить специалиста для этого бота.")
+            return
+
+        if not (client.display_name and client.display_name.strip()):
+            await message.answer("👋 Добро пожаловать! Как к вам обращаться?")
+            return
+
+        await message.answer("Меню клиента:", reply_markup=_client_menu_keyboard())
     except Exception:
-        logger.exception("personal_start: failed to send client placeholder")
+        logger.exception("personal_start: failed to render client menu")
 
 
 @router.callback_query(F.data == "onboarding:keep")

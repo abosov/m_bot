@@ -207,20 +207,54 @@ async def test_personal_start_specialist_owner_panel_exception_sends_fallback(mo
 
 
 @pytest.mark.asyncio
-async def test_personal_start_client_gets_placeholder():
-    message = DummyMessage(from_user=types.SimpleNamespace(id=1, full_name="Client", first_name="Client", last_name=None))
+async def test_personal_start_client_creates_client_and_requests_display_name(monkeypatch):
+    message = DummyMessage(from_user=types.SimpleNamespace(id=1, username="client1", full_name="Client", first_name="Client", last_name=None))
+
+    class _Result:
+        @staticmethod
+        def scalar_one_or_none():
+            return None
+
+    class _Session:
+        def __init__(self):
+            self.added = []
+
+        async def execute(self, _stmt):
+            return _Result()
+
+        def add(self, obj):
+            self.added.append(obj)
+
+        async def commit(self):
+            return None
+
+        async def refresh(self, _obj):
+            return None
+
+    session = _Session()
+
+    class _Ctx:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(start_router, "async_session_factory", lambda: _Ctx())
 
     await start_router.personal_start(
         message=message,
         command=CommandObject(prefix="/", command="start", mention=None, args=None),
         actor="client",
-        specialist_id=None,
+        specialist_id="sp-id",
         public_name=None,
         owner_tg_user_id=None,
     )
 
     assert len(message.answers) == 1
-    assert "клиентская заглушка" in message.answers[0][0]
+    assert "Как к вам обращаться" in message.answers[0][0]
+    assert len(session.added) == 1
+    assert session.added[0].tg_user_id == 1
 
 def test_onboarding_keyboard_with_calendar_contains_calendar_and_existing_actions():
     keyboard = start_router._onboarding_keyboard_with_calendar()
