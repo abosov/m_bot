@@ -132,13 +132,21 @@ async def _get_weekly_availability_row(*, specialist_id, weekday: int) -> Weekly
         ).scalar_one_or_none()
 
 
+def _booking_slots_keyboard(slots: list[datetime]):
+    builder = InlineKeyboardBuilder()
+    for slot in slots:
+        builder.button(
+            text=slot.strftime("%H:%M"),
+            callback_data=f"client_book_slot:{slot.isoformat()}",
+        )
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 def _format_slot_lines(slots: list[datetime]) -> str:
     if not slots:
         return "Нет доступных слотов в выбранном диапазоне."
-    lines = ["Доступные слоты:"]
-    for slot in slots:
-        lines.append(f"• {slot.strftime('%Y-%m-%d %H:%M')}")
-    return "\n".join(lines)
+    return "Выберите слот:"
 
 
 @router.message(F.text == "Записаться")
@@ -217,7 +225,10 @@ async def client_pick_interval(callback, state: FSMContext, specialist_id) -> No
         interval_end=interval_end,
     )
 
-    await callback.message.answer(_format_slot_lines(slots))
+    await callback.message.answer(
+        _format_slot_lines(slots),
+        reply_markup=_booking_slots_keyboard(slots) if slots else None,
+    )
     await callback.answer()
 
 

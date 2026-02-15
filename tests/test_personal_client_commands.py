@@ -161,7 +161,7 @@ async def test_client_pick_day_without_intervals_shows_empty_message(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_client_pick_interval_shows_slots_as_text(monkeypatch):
+async def test_client_pick_interval_shows_slots_as_buttons(monkeypatch):
     state = DummyState()
     state.data = {
         "booking_date": "2026-02-21",
@@ -193,7 +193,11 @@ async def test_client_pick_interval_shows_slots_as_text(monkeypatch):
 
     await client_commands.client_pick_interval(callback, state=state, specialist_id="sp-id")
 
-    assert message.answers[0][0] == "Доступные слоты:\n• 2026-02-21 12:00\n• 2026-02-21 12:30"
+    assert message.answers[0][0] == "Выберите слот:"
+    markup = message.answers[0][1].get("reply_markup")
+    assert markup is not None
+    assert len(markup.inline_keyboard) == 1
+    assert [button.text for button in markup.inline_keyboard[0]] == ["12:00", "12:30"]
     assert len(callback.answers) == 1
 
 

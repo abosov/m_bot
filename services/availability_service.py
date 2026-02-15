@@ -10,6 +10,7 @@ from sqlalchemy import and_, select
 
 from database import SpecialistCalendarSettings, SpecialistProfile, WeeklyAvailability, async_session_factory
 from services.schedule_utils import merge_intervals
+from services.slot_ranking import rank_slots_for_interval
 from services.slot_step import iter_slot_starts
 
 
@@ -167,6 +168,9 @@ class AvailabilityService:
         if interval_start >= interval_end:
             return []
 
+        interval_start_dt = datetime.combine(target_date_local_specialist, interval_start)
+        interval_end_dt = datetime.combine(target_date_local_specialist, interval_end)
+
         candidate_starts = self._build_candidates(
             target_date=target_date_local_specialist,
             intervals=[(interval_start, interval_end)],
@@ -183,12 +187,28 @@ class AvailabilityService:
         if len(busy_intervals) >= context.max_sessions_per_day:
             return []
 
-        return [
+        filtered = [
             start
             for start in candidate_starts
             if not self._overlaps_busy(start, context.session_duration_min, busy_intervals)
             and self._respects_buffer(start, context.session_duration_min, context.session_buffer_min, busy_intervals)
         ]
+
+        confirmed_in_interval = [
+            (busy_start, busy_end)
+            for busy_start, busy_end in busy_intervals
+            if busy_start < interval_end_dt and busy_end > interval_start_dt
+        ]
+
+        return rank_slots_for_interval(
+            interval_start=interval_start_dt,
+            interval_end=interval_end_dt,
+            candidate_starts=filtered,
+            existing_confirmed_sessions=confirmed_in_interval,
+            session_duration=context.session_duration_min,
+            buffer_minutes=context.session_buffer_min,
+            max_results=4,
+        )
 
     @staticmethod
     def _to_specialist_local_date(*, target_date_local_client: date, client_tz: str, specialist_tz: str) -> date:
