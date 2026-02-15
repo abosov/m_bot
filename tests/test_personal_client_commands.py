@@ -1,5 +1,5 @@
 import types
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -27,6 +27,9 @@ class DummyState:
 
     async def update_data(self, **kwargs):
         self.data.update(kwargs)
+
+    async def get_data(self):
+        return dict(self.data)
 
 
 @pytest.mark.asyncio
@@ -81,7 +84,7 @@ def test_first_available_day_cutoff_rules():
 
 
 @pytest.mark.asyncio
-async def test_client_pick_day_updates_fsm_and_replies():
+async def test_client_pick_day_shows_available_intervals(monkeypatch):
     state = DummyState()
     message = DummyMessage("")
 
@@ -91,16 +94,98 @@ async def test_client_pick_day_updates_fsm_and_replies():
         answers=[],
     )
 
-    async def _callback_answer():
-        callback.answers.append(True)
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
 
     callback.answer = _callback_answer
 
-    await client_commands.client_pick_day(callback, state=state)
+    row = types.SimpleNamespace(
+        is_working=True,
+        interval_1_start=time(9, 0),
+        interval_1_end=time(12, 0),
+        interval_2_start=None,
+        interval_2_end=None,
+        interval_3_start=time(18, 0),
+        interval_3_end=time(21, 0),
+    )
+    async def _weekly(**_kwargs):
+        return row
 
+    monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+
+    await client_commands.client_pick_day(callback, state=state, specialist_id="sp-id")
+
+    assert state.state == client_commands.ClientBookingState.waiting_for_interval
     assert state.data["booking_date"] == "2026-02-21"
-    assert message.answers[0][0] == "Вы выбрали 21.02.2026. Далее будет выбор времени (в разработке)."
-    assert callback.answers == [True]
+    assert state.data["booking_selected_intervals"] == []
+    assert state.data["booking_interval_options"] == ["morning", "evening"]
+    assert message.answers[0][0] == "Выберите диапазон:"
+    assert message.answers[0][1].get("reply_markup") is not None
+    assert len(callback.answers) == 1
+
+
+@pytest.mark.asyncio
+async def test_client_pick_day_without_intervals_shows_empty_message(monkeypatch):
+    state = DummyState()
+    message = DummyMessage("")
+
+    callback = types.SimpleNamespace(
+        data="client_book_day:2026-02-21",
+        message=message,
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    row = types.SimpleNamespace(
+        is_working=False,
+        interval_1_start=None,
+        interval_1_end=None,
+        interval_2_start=None,
+        interval_2_end=None,
+        interval_3_start=None,
+        interval_3_end=None,
+    )
+    async def _weekly(**_kwargs):
+        return row
+
+    monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+
+    await client_commands.client_pick_day(callback, state=state, specialist_id="sp-id")
+
+    assert message.answers[0][0] == "На выбранный день нет доступных диапазонов."
+    assert len(callback.answers) == 1
+
+
+@pytest.mark.asyncio
+async def test_client_pick_interval_saves_selection_in_fsm():
+    state = DummyState()
+    state.data = {
+        "booking_date": "2026-02-21",
+        "booking_interval_options": ["morning", "day", "evening"],
+        "booking_selected_intervals": [],
+    }
+    message = DummyMessage("")
+
+    callback = types.SimpleNamespace(
+        data="client_book_interval:2026-02-21:day",
+        message=message,
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    await client_commands.client_pick_interval(callback, state=state)
+
+    assert state.data["booking_selected_intervals"] == ["day"]
+    assert message.answers[0][0] == "Выбраны диапазоны: День (слоты скоро появятся)."
+    assert len(callback.answers) == 1
 
 
 @pytest.mark.asyncio
