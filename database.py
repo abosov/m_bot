@@ -6,8 +6,8 @@ from typing import Optional, List
 
 import config
 from sqlalchemy import (
-    BigInteger, Boolean, String, ForeignKey, DateTime, Time, 
-    Integer, Text, Enum as SAEnum, func, Float, CheckConstraint
+    BigInteger, Boolean, String, ForeignKey, DateTime, Time,
+    Integer, Text, Enum as SAEnum, func, Float, CheckConstraint, UniqueConstraint
 )
 from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import UUID
@@ -254,6 +254,13 @@ class WeeklyAvailability(Base):
 
 class Client(Base):
     __tablename__ = "client"
+    __table_args__ = (
+        UniqueConstraint(
+            "specialist_id",
+            "tg_user_id",
+            name="uq_client_specialist_tg_user_id",
+        ),
+    )
 
     client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=False, index=True)

@@ -86,7 +86,7 @@
 - Поля: `client_id uuid not null`, `specialist_id uuid not null`, `tg_user_id bigint not null`, `tg_username varchar null`, `display_name varchar null`, `client_code varchar not null`, `client_timezone varchar not null`, `timezone_source enum not null`, `created_at timestamptz default now()`, `updated_at timestamptz default now()`.
 - PK: `client_id`.
 - FK: `specialist_id -> specialist.specialist_id`.
-- UQ: в ORM не объявлены.
+- UQ: `uq_client_specialist_tg_user_id (specialist_id, tg_user_id)`.
 - IDX: `specialist_id`, `tg_user_id`.
 
 ### 11) appointment
