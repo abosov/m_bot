@@ -1,14 +1,22 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 
 from database import Client, SpecialistProfile, async_session_factory
 from services.booking_policy import validate_next_day_cutoff
 
 router = Router(name="personal_bot_client_commands")
+
+
+class ClientBookingState(StatesGroup):
+    waiting_for_day = State()
 
 
 def _client_menu_keyboard() -> ReplyKeyboardMarkup:
@@ -44,11 +52,59 @@ async def _validate_stub_booking_policy(*, specialist_id, target_start_utc: date
     )
 
 
+async def _get_specialist_tz(specialist_id) -> ZoneInfo:
+    specialist_tz = "UTC"
+    async with async_session_factory() as session:
+        profile = await session.get(SpecialistProfile, specialist_id)
+        if profile and profile.specialist_timezone:
+            specialist_tz = profile.specialist_timezone
+    try:
+        return ZoneInfo(specialist_tz)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
+
+
+def _first_available_day(*, now_utc: datetime, specialist_tz: ZoneInfo) -> date:
+    local_now = now_utc.astimezone(specialist_tz)
+    start_offset_days = 1 if local_now.time() <= time(21, 0) else 2
+    return local_now.date() + timedelta(days=start_offset_days)
+
+
+def _booking_day_keyboard(days: list[date]):
+    builder = InlineKeyboardBuilder()
+    for booking_day in days:
+        builder.button(
+            text=booking_day.strftime("%d.%m (%a)"),
+            callback_data=f"client_book_day:{booking_day.isoformat()}",
+        )
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 @router.message(F.text == "Записаться")
-async def client_book_button(message: Message, actor: str) -> None:
+async def client_book_button(message: Message, actor: str, state: FSMContext, specialist_id) -> None:
     if actor != "client":
         return
-    await message.answer("Запись скоро будет доступна.")
+
+    specialist_tz = await _get_specialist_tz(specialist_id)
+    first_day = _first_available_day(now_utc=datetime.now(timezone.utc), specialist_tz=specialist_tz)
+    available_days = [first_day + timedelta(days=idx) for idx in range(7)]
+
+    await state.set_state(ClientBookingState.waiting_for_day)
+    await state.update_data(booking_available_days=[item.isoformat() for item in available_days])
+    await message.answer("Выберите день:", reply_markup=_booking_day_keyboard(available_days))
+
+
+@router.callback_query(ClientBookingState.waiting_for_day, F.data.startswith("client_book_day:"))
+async def client_pick_day(callback, state: FSMContext) -> None:
+    selected_iso = callback.data.removeprefix("client_book_day:")
+    await state.update_data(booking_date=selected_iso)
+
+    selected_day = date.fromisoformat(selected_iso)
+    await callback.message.answer(
+        f"Вы выбрали {selected_day.strftime('%d.%m.%Y')}. Далее будет выбор времени (в разработке)."
+    )
+    await callback.answer()
 
 
 @router.message(F.text == "Мои записи (пока stub)")
