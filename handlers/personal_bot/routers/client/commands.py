@@ -282,7 +282,6 @@ def _client_appointments_keyboard(*, has_failed: bool):
             callback_data="client_appt:retry_last",
         )
     builder.button(text="Обновить", callback_data="client_appt:list")
-    builder.button(text="В меню", callback_data="client_appt:menu")
     builder.adjust(1)
     return builder.as_markup()
 

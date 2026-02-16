@@ -90,6 +90,7 @@ async def test_my_appointments_shows_empty_text_and_refresh_button(monkeypatch):
     markup = kwargs["reply_markup"]
     buttons = _extract_inline_buttons(markup)
     assert any(button.text == "Обновить" and button.callback_data == "client_appt:list" for button in buttons)
+    assert not any(button.callback_data == "client_appt:menu" for button in buttons)
 
 
 @pytest.mark.asyncio
@@ -126,3 +127,4 @@ async def test_my_appointments_shows_confirmed_and_failed_with_retry_button(monk
         and button.callback_data == "client_appt:retry_last"
         for button in buttons
     )
+    assert not any(button.callback_data == "client_appt:menu" for button in buttons)
