@@ -306,6 +306,8 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
                     end_at_utc=slot_end_utc,
                     specialist_tz=specialist_tz_name,
                     client_display_name=client.display_name,
+                    client_tg_username=client.tg_username,
+                    client_tg_user_id=client.tg_user_id,
                 )
             except Exception:
                 logger.exception(
