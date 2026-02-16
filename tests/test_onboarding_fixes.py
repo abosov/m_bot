@@ -920,3 +920,97 @@ async def test_calendar_create_post_success_exception_shows_final_step_warning(t
     assert any("Календарь создан/подключён" in text for text, _, _ in callback.message.sent)
     assert not any("Не удалось подключить календарь" in text for text, _, _ in callback.message.sent)
     assert callback.answered == 1
+
+
+@pytest.mark.asyncio
+async def test_calendar_create_uses_answer_plain_for_final_deep_link_message_to_avoid_parse_entities(tmp_path, monkeypatch):
+    _, database = _load_web_app(tmp_path, monkeypatch)
+
+    import handlers.master_onboarding as onboarding
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.onboarding))
+        session.add(
+            database.SpecialistAuthTelegram(
+                specialist_id=specialist_id,
+                tg_user_id=777,
+                tg_username="spec",
+                tg_first_name="Spec",
+                tg_last_name=None,
+            )
+        )
+        session.add(
+            database.SpecialistProfile(
+                specialist_id=specialist_id,
+                public_name="Spec",
+                owner_tg_user_id=777,
+                owner_tg_username="spec",
+                specialist_timezone="Europe/Moscow",
+            )
+        )
+        await session.commit()
+
+    monkeypatch.setattr(onboarding, "async_session_factory", database.async_session_factory)
+
+    async def _resolve_tz_stub(*args, **kwargs):
+        return "Europe/Moscow"
+
+    async def _create_calendar_stub(*args, **kwargs):
+        return {"id": "created-cal", "summary": "Spec", "timeZone": "Europe/Moscow"}
+
+    async def _noop_async(*args, **kwargs):
+        return None
+
+    async def _notify_bot_stub(*args, **kwargs):
+        return "zumbot_personal_bot"
+
+    def _build_link_stub(*args, **kwargs):
+        return "https://t.me/zumbot_personal_bot?start=owner_panel"
+
+    monkeypatch.setattr(onboarding, "resolve_tz_for_calendar_creation", _resolve_tz_stub)
+    monkeypatch.setattr(onboarding, "create_bot_calendar", _create_calendar_stub)
+    monkeypatch.setattr(onboarding, "apply_specialist_defaults_if_missing", _noop_async)
+    monkeypatch.setattr(onboarding, "_upsert_calendar_settings", _noop_async)
+    monkeypatch.setattr(onboarding, "create_and_cleanup_test_event", _noop_async)
+    monkeypatch.setattr(onboarding, "finalize_specialist_if_ready", _noop_async)
+    monkeypatch.setattr(onboarding, "_notify_personal_bot_welcome", _notify_bot_stub)
+    monkeypatch.setattr(onboarding, "_build_personal_deep_link", _build_link_stub)
+
+    class _State:
+        async def clear(self):
+            return None
+
+    class _DummyMessage:
+        def __init__(self):
+            self.sent = []
+
+        async def answer(self, text, **kwargs):
+            self.sent.append((text, kwargs))
+
+    class _DummyCallback:
+        def __init__(self):
+            self.from_user = SimpleNamespace(id=777)
+            self.data = "calendar:create"
+            self.message = _DummyMessage()
+            self.answered = 0
+
+        async def answer(self, *args, **kwargs):
+            self.answered += 1
+            return None
+
+    callback = _DummyCallback()
+    await onboarding.calendar_create(callback, _State())
+
+    final_sent = [item for item in callback.message.sent if "Master-онбординг завершён" in item[0]]
+    assert len(final_sent) == 1
+    final_text, final_kwargs = final_sent[0]
+
+    assert "@zumbot_personal_bot" in final_text
+    assert "https://t.me/zumbot_personal_bot?start=owner_panel" in final_text
+    assert final_kwargs.get("parse_mode") is None
+    assert final_kwargs.get("disable_web_page_preview") is True
+    assert callback.answered == 1

@@ -1609,11 +1609,13 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
             )
 
         if post_actions_failed:
-            await callback.message.answer(
+            await _answer_plain(
+                callback.message,
                 "✅ Календарь подключён. Если личный бот не открылся автоматически — откройте его вручную."
             )
         else:
-            await callback.message.answer(
+            await _answer_plain(
+                callback.message,
                 "✅ Календарь подключён. Master-онбординг завершён.\n"
                 "Чтобы завершить онбординг полностью, перейдите в персональный бот и подтвердите/настройте параметры:\n"
                 f"@{personal_username}\n{deep_link}"
@@ -1655,7 +1657,7 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
                 },
                 event=callback,
             )
-            await callback.message.answer(text_out)
+            await _answer_plain(callback.message, text_out)
         else:
             text_out = "⚠️ Не удалось подключить календарь. Попробуйте позже."
             await notify_exception(
