@@ -182,6 +182,15 @@ python scripts/export_logs.py \
 По умолчанию runtime-логи backend пишутся в stdout/stderr процесса и доступны через
 `journalctl` (если backend запущен под systemd).
 
+#### Request context / `request_id`
+- Для runtime/business логов используется request context на базе `ContextVar` в
+  `services/request_context.py`.
+- Текущее значение доступно через `services.request_context.get_request_id()`.
+- Если `request_id` не установлен, возвращается значение по умолчанию `"-"`.
+- Назначение: корреляция логов, событий и алертов в рамках одного запроса/апдейта.
+- Установка/сброс `request_id` на HTTP-запросе выполняется в `RequestIdMiddleware`
+  (`web_server.py`).
+
 - Базовый источник:
   - `journalctl -u zumbot-backend.service --since "24 hours ago" --no-pager`
 - Если в окружении задан `LOG_DIR`, backend создаёт директорию при необходимости и
