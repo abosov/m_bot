@@ -207,6 +207,54 @@ async def list_calendars(specialist_id: uuid.UUID) -> list[dict[str, Any]]:
         raise
 
 
+async def get_primary_calendar_timezone(specialist_id: uuid.UUID) -> str:
+    try:
+        headers = await _build_headers(specialist_id)
+        response = await _calendar_request_with_retry(
+            requests.get,
+            f"{GOOGLE_CALENDAR_BASE_URL}/users/me/calendarList/primary",
+            method_name="GET",
+            headers=headers,
+        )
+        if response.status_code != 200:
+            _raise_calendar_error(response)
+
+        tz = (response.json().get("timeZone") or "").strip()
+        if not tz:
+            tz = "UTC"
+
+        log_event(
+            logger,
+            logging.INFO,
+            event="google_calendar.primary_timezone_fetched",
+            specialist_id=specialist_id,
+            tz=tz,
+        )
+        return tz
+    except Exception as exc:
+        logger.exception(
+            "google calendar primary timezone fetch failed",
+            extra={
+                "event": "google_api_call",
+                "alias": "get_primary_calendar_timezone",
+                "exception_class": exc.__class__.__name__,
+            },
+        )
+        await _notify_google_calendar_exception(
+            "services.google_calendar.get_primary_calendar_timezone",
+            exc,
+            specialist_id,
+        )
+        raise
+
+
+async def resolve_tz_for_calendar_creation(*, specialist_id: uuid.UUID, profile_tz: str | None) -> str:
+    profile_tz_norm = (profile_tz or "").strip()
+    if not profile_tz_norm or profile_tz_norm == "UTC":
+        return await get_primary_calendar_timezone(specialist_id)
+    return profile_tz_norm
+
+
 async def get_calendar(specialist_id: uuid.UUID, calendar_id: str) -> dict[str, Any]:
     try:
         headers = await _build_headers(specialist_id)
