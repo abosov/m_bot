@@ -183,6 +183,18 @@ def _format_interval_time_range(start: time, end: time) -> str:
     return f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}"
 
 
+def _format_interval_title_for_client_tz(
+    *, base_title: str, start_local: time, end_local: time, on_date: date, specialist_tz: ZoneInfo, client_tz: ZoneInfo
+) -> str:
+    start_dt_sp = datetime.combine(on_date, start_local, tzinfo=specialist_tz)
+    end_dt_sp = datetime.combine(on_date, end_local, tzinfo=specialist_tz)
+
+    start_dt_cl = start_dt_sp.astimezone(client_tz)
+    end_dt_cl = end_dt_sp.astimezone(client_tz)
+
+    return f"{base_title} ({start_dt_cl:%H:%M}–{end_dt_cl:%H:%M})"
+
+
 def _build_interval_options(row: WeeklyAvailability | None) -> list[tuple[str, str, time, time]]:
     if row is None or not row.is_working:
         return []
@@ -396,6 +408,24 @@ async def client_pick_day(callback, state: FSMContext, specialist_id) -> None:
     weekly_row = await _get_weekly_availability_row(specialist_id=specialist_id, weekday=selected_day.weekday())
     interval_options = _build_interval_options(weekly_row)
     specialist_tz = await _get_specialist_tz(specialist_id)
+    interval_options_for_ui: list[tuple[str, str, time, time]] = []
+    for key, title, interval_start, interval_end in interval_options:
+        base_title = title.split(" ", 1)[0]
+        interval_options_for_ui.append(
+            (
+                key,
+                _format_interval_title_for_client_tz(
+                    base_title=base_title,
+                    start_local=interval_start,
+                    end_local=interval_end,
+                    on_date=selected_day,
+                    specialist_tz=specialist_tz,
+                    client_tz=client_tz,
+                ),
+                interval_start,
+                interval_end,
+            )
+        )
     session_duration_min = await _get_session_duration_min(specialist_id)
     booking_interval_meta = state_data.get("booking_interval_meta") or {}
 
@@ -417,7 +447,7 @@ async def client_pick_day(callback, state: FSMContext, specialist_id) -> None:
     day_interval_meta = booking_interval_meta.get(selected_iso) or {}
     interval_enabled = {key: bool((day_interval_meta.get(key) or {}).get("enabled", False)) for key, _, _, _ in interval_options}
     interval_options_with_enabled: list[tuple[str, str, time, time, bool]] = []
-    for key, title, interval_start, interval_end in interval_options:
+    for key, title, interval_start, interval_end in interval_options_for_ui:
         is_enabled = interval_enabled.get(key, False)
         interval_options_with_enabled.append((key, title, interval_start, interval_end, is_enabled))
 
