@@ -160,6 +160,14 @@
 2. Убедиться, что календарь создан/выбран и сохранён в `specialist_calendar_settings`.
 3. Проверить результат smoke-test (`last_smoke_test_status=ok`).
 
+### Определение таймзоны при создании календаря
+- При создании Google-календаря для специалиста сначала используется `specialist_timezone`, если в профиле задана валидная IANA TZ и она не равна `UTC`.
+- Если `specialist_timezone` пустая или `UTC`, TZ запрашивается из primary календаря Google (`calendarList/primary`).
+- Если Google API не вернул TZ, используется fallback `UTC`.
+- После создания календаря его `timeZone` сохраняется в `specialist_calendar_settings.calendar_tz`.
+- В `apply_specialist_defaults_if_missing` поле `specialist_timezone` может обновляться из `preferred_timezone`/`calendar_tz` только если текущая TZ пустая или `UTC`.
+- Если текущая `specialist_timezone` уже не `UTC`, она не перезаписывается.
+
 ### 6) Переход в personal bot → `/start`, `/status`
 1. Открыть personal bot по deep-link.
 2. Выполнить `/start` и `/status`.
