@@ -161,8 +161,13 @@ def _format_slot_lines(slots: list[datetime]) -> str:
     return "Выберите слот:"
 
 
-def _client_appointments_keyboard():
+def _client_appointments_keyboard(*, has_failed: bool):
     builder = InlineKeyboardBuilder()
+    if has_failed:
+        builder.button(
+            text="Повторить последнюю не подтвержденную",
+            callback_data="client_appt:retry_last",
+        )
     builder.button(text="Обновить", callback_data="client_appt:list")
     builder.button(text="В меню", callback_data="client_appt:menu")
     builder.adjust(1)
@@ -203,11 +208,13 @@ async def _render_client_appointments(message: Message, specialist_id: UUID, tg_
 
     if not appointments:
         text = "У вас нет будущих записей."
+        has_failed = False
     else:
         state_map = {
             BookingState.confirmed: "подтверждена",
             BookingState.failed: "не подтверждена",
         }
+        has_failed = any(appointment.booking_state == BookingState.failed for appointment in appointments)
         lines = ["Ваши записи:"]
         for appointment in appointments:
             local_start = appointment.start_at_utc.astimezone(client_tz)
@@ -215,7 +222,7 @@ async def _render_client_appointments(message: Message, specialist_id: UUID, tg_
             lines.append(f"{local_start.strftime('%Y-%m-%d %H:%M')} — {status}")
         text = "\n".join(lines)
 
-    await message.answer(text, reply_markup=_client_appointments_keyboard())
+    await message.answer(text, reply_markup=_client_appointments_keyboard(has_failed=has_failed))
 
 
 @router.message(F.text == "Записаться")
@@ -401,6 +408,88 @@ async def client_my_appointments_refresh(callback, specialist_id) -> None:
     if callback.message is None:
         return
     await _render_client_appointments(callback.message, specialist_id, callback.from_user.id)
+
+
+@router.callback_query(F.data == "client_appt:retry_last")
+async def client_my_appointments_retry_last(callback, specialist_id) -> None:
+    if callback.from_user is None:
+        await callback.answer("Профиль клиента не найден. Нажмите /start.", show_alert=True)
+        return
+
+    now_utc = datetime.now(timezone.utc)
+
+    async with async_session_factory() as session:
+        client = (
+            await session.execute(
+                select(Client)
+                .where(Client.specialist_id == specialist_id)
+                .where(Client.tg_user_id == callback.from_user.id)
+            )
+        ).scalar_one_or_none()
+        if client is None:
+            await callback.answer("Профиль клиента не найден. Нажмите /start.", show_alert=True)
+            return
+
+        appointment = (
+            await session.execute(
+                select(Appointment)
+                .where(Appointment.client_id == client.client_id)
+                .where(Appointment.booking_state == BookingState.failed)
+                .where(Appointment.start_at_utc >= now_utc)
+                .order_by(Appointment.start_at_utc.asc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if appointment is None:
+            await callback.answer("Нет записей для повтора", show_alert=True)
+            return
+
+        settings = await session.get(SpecialistCalendarSettings, specialist_id)
+        calendar_id = settings.calendar_id if settings is not None else None
+        if not calendar_id:
+            if callback.message is not None:
+                await callback.message.answer("Запись временно недоступна: календарь не подключён.")
+                await callback.message.answer("Возвращаю в меню.", reply_markup=_client_menu_keyboard())
+            await callback.answer()
+            return
+
+        profile = await session.get(SpecialistProfile, specialist_id)
+        specialist_tz = (
+            profile.specialist_timezone if profile is not None and profile.specialist_timezone else "UTC"
+        )
+
+        appointment.booking_state = BookingState.pending
+        appointment.failure_message = None
+        await session.commit()
+
+        try:
+            event = await create_appointment_event(
+                specialist_id=specialist_id,
+                calendar_id=calendar_id,
+                start_at_utc=appointment.start_at_utc,
+                end_at_utc=appointment.end_at_utc,
+                specialist_tz=specialist_tz,
+                client_display_name=client.display_name,
+                client_tg_username=client.tg_username,
+                client_tg_user_id=client.tg_user_id,
+                client_code=client.client_code,
+            )
+        except Exception:
+            appointment.booking_state = BookingState.failed
+            appointment.failure_message = "google_error"
+            await session.commit()
+            if callback.message is not None:
+                await callback.message.answer("Не удалось подтвердить запись. Попробуйте позже.")
+        else:
+            appointment.gcal_event_id = event.get("id")
+            appointment.booking_state = BookingState.confirmed
+            await session.commit()
+            if callback.message is not None:
+                await callback.message.answer("Запись подтверждена.")
+
+    if callback.message is not None:
+        await _render_client_appointments(callback.message, specialist_id, callback.from_user.id)
+    await callback.answer()
 
 
 @router.callback_query(F.data == "client_appt:menu")
