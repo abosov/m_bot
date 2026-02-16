@@ -332,7 +332,17 @@ async def test_client_pick_slot_logs_google_error_and_keeps_confirmed(monkeypatc
     async def _tz(_specialist_id):
         return ZoneInfo("UTC")
 
-    async def _raise_google_error(**_kwargs):
+    async def _raise_google_error(
+        *,
+        specialist_id,
+        calendar_id,
+        start_at_utc,
+        end_at_utc,
+        specialist_tz,
+        client_display_name,
+        client_tg_username=None,
+        client_tg_user_id=None,
+    ):
         raise RuntimeError("google down")
 
     logged = {"called": False}
