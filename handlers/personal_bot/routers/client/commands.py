@@ -45,7 +45,7 @@ def _client_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="Записаться")],
-            [KeyboardButton(text="Мои записи (пока stub)")],
+            [KeyboardButton(text="Мои записи")],
             [KeyboardButton(text="Сменить часовой пояс (пока stub)")],
         ],
         resize_keyboard=True,
