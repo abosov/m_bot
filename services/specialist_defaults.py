@@ -29,7 +29,8 @@ async def apply_specialist_defaults_if_missing(
     *,
     preferred_timezone: str | None = None,
 ) -> None:
-    timezone = (preferred_timezone or "").strip() or DEFAULT_TIMEZONE
+    preferred_timezone_norm = (preferred_timezone or "").strip()
+    timezone = preferred_timezone_norm or DEFAULT_TIMEZONE
 
     profile = await session.get(SpecialistProfile, specialist_id)
     if profile is None:
@@ -50,7 +51,11 @@ async def apply_specialist_defaults_if_missing(
         )
         session.add(profile)
     else:
-        if not (profile.specialist_timezone or "").strip():
+        current_tz = (profile.specialist_timezone or "").strip()
+        if preferred_timezone_norm:
+            if not current_tz or current_tz == DEFAULT_TIMEZONE:
+                profile.specialist_timezone = preferred_timezone_norm
+        elif not current_tz:
             profile.specialist_timezone = timezone
 
         if profile.session_duration_min is None or profile.session_duration_min <= 0:

@@ -138,3 +138,63 @@ async def test_apply_defaults_uses_utc_when_timezone_not_provided():
     )
 
     assert profile.specialist_timezone == "UTC"
+
+
+@pytest.mark.asyncio
+async def test_apply_defaults_updates_utc_timezone_from_preferred():
+    specialist_id = uuid.uuid4()
+    profile = SpecialistProfile(
+        specialist_id=specialist_id,
+        public_name="Spec",
+        owner_tg_user_id=1,
+        owner_tg_username=None,
+        specialist_timezone="UTC",
+        session_duration_min=60,
+        session_buffer_min=10,
+        cancel_window_hours=12,
+        max_sessions_per_day=4,
+        slot_step_min=15,
+    )
+    weekly_rows = [
+        WeeklyAvailability(specialist_id=specialist_id, weekday=i, is_working=False)
+        for i in range(7)
+    ]
+    session = DummySession(profile=profile, weekly_rows=weekly_rows)
+
+    await specialist_defaults.apply_specialist_defaults_if_missing(
+        session,
+        specialist_id,
+        preferred_timezone="Europe/Berlin",
+    )
+
+    assert profile.specialist_timezone == "Europe/Berlin"
+
+
+@pytest.mark.asyncio
+async def test_apply_defaults_keeps_non_default_timezone_from_preferred():
+    specialist_id = uuid.uuid4()
+    profile = SpecialistProfile(
+        specialist_id=specialist_id,
+        public_name="Spec",
+        owner_tg_user_id=1,
+        owner_tg_username=None,
+        specialist_timezone="Asia/Tokyo",
+        session_duration_min=60,
+        session_buffer_min=10,
+        cancel_window_hours=12,
+        max_sessions_per_day=4,
+        slot_step_min=15,
+    )
+    weekly_rows = [
+        WeeklyAvailability(specialist_id=specialist_id, weekday=i, is_working=False)
+        for i in range(7)
+    ]
+    session = DummySession(profile=profile, weekly_rows=weekly_rows)
+
+    await specialist_defaults.apply_specialist_defaults_if_missing(
+        session,
+        specialist_id,
+        preferred_timezone="Europe/Berlin",
+    )
+
+    assert profile.specialist_timezone == "Asia/Tokyo"
