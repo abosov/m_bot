@@ -170,32 +170,68 @@ async def test_calendar_request_raises_after_retry_exhausted(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("display_name", "tg_username", "tg_user_id", "expected_summary", "expected_description"),
+    (
+        "display_name",
+        "tg_username",
+        "tg_user_id",
+        "client_code",
+        "expected_summary",
+        "expected_description",
+    ),
     [
         (
             "Анна",
             "anna",
             42,
+            None,
             "Сессия с Анна (@anna)",
             "Создано автоматически после подтверждения записи в боте\n"
             "Клиент: Анна\n"
-            "Telegram: @anna (tg_user_id=42)",
+            "Telegram: @anna\n"
+            "Link: https://t.me/anna",
         ),
         (
             None,
             None,
             None,
-            "Сессия с клиентом",
-            "Создано автоматически после подтверждения записи в боте",
+            None,
+            "Сессия с Клиент",
+            "Создано автоматически после подтверждения записи в боте\n"
+            "Клиент: Клиент",
         ),
         (
             "Анна",
             "@anna",
             42,
+            None,
             "Сессия с Анна (@anna)",
             "Создано автоматически после подтверждения записи в боте\n"
             "Клиент: Анна\n"
-            "Telegram: @anna (tg_user_id=42)",
+            "Telegram: @anna\n"
+            "Link: https://t.me/anna",
+        ),
+        (
+            "",
+            None,
+            42,
+            "A-123",
+            "Сессия с Клиент (#A-123)",
+            "Создано автоматически после подтверждения записи в боте\n"
+            "Клиент: Клиент\n"
+            "Client code: A-123\n"
+            "Telegram: tg_user_id=42\n"
+            "Link: tg://user?id=42",
+        ),
+        (
+            "Иван",
+            None,
+            42,
+            None,
+            "Сессия с Иван (tg_id=42)",
+            "Создано автоматически после подтверждения записи в боте\n"
+            "Клиент: Иван\n"
+            "Telegram: tg_user_id=42\n"
+            "Link: tg://user?id=42",
         ),
     ],
 )
@@ -204,6 +240,7 @@ async def test_create_appointment_event_formats_summary_and_description(
     display_name,
     tg_username,
     tg_user_id,
+    client_code,
     expected_summary,
     expected_description,
 ):
@@ -229,6 +266,7 @@ async def test_create_appointment_event_formats_summary_and_description(
         client_display_name=display_name,
         client_tg_username=tg_username,
         client_tg_user_id=tg_user_id,
+        client_code=client_code,
     )
 
     assert event == {"id": "evt-1"}

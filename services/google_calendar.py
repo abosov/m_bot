@@ -385,26 +385,39 @@ async def create_appointment_event(
     client_display_name: str | None,
     client_tg_username: str | None = None,
     client_tg_user_id: int | None = None,
+    client_code: str | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     try:
         headers = await _build_headers(specialist_id)
-        display_name_or_fallback = client_display_name.strip() if client_display_name and client_display_name.strip() else "клиентом"
+        display_name = (client_display_name or "").strip()
+        base_name = display_name or "Клиент"
 
-        username_raw = (client_tg_username or "").strip()
-        if username_raw.startswith("@"):
-            username_raw = username_raw[1:]
+        normalized_username = (client_tg_username or "").strip().lstrip("@") or None
+        display_username = f"@{normalized_username}" if normalized_username else None
 
-        if username_raw:
-            summary = f"Сессия с {display_name_or_fallback} (@{username_raw})"
-            description = (
-                "Создано автоматически после подтверждения записи в боте\n"
-                f"Клиент: {display_name_or_fallback}\n"
-                f"Telegram: @{username_raw} (tg_user_id={client_tg_user_id})"
-            )
+        fallback_summary = f"Сессия с {base_name}"
+        if normalized_username:
+            summary = f"Сессия с {base_name} ({display_username})"
+        elif client_code:
+            summary = f"Сессия с {base_name} (#{client_code})"
+        elif client_tg_user_id:
+            summary = f"Сессия с {base_name} (tg_id={client_tg_user_id})"
         else:
-            summary = f"Сессия с {display_name_or_fallback}"
-            description = "Создано автоматически после подтверждения записи в боте"
+            summary = fallback_summary
+
+        description_lines = ["Создано автоматически после подтверждения записи в боте"]
+        if base_name:
+            description_lines.append(f"Клиент: {base_name}")
+        if client_code:
+            description_lines.append(f"Client code: {client_code}")
+        if normalized_username:
+            description_lines.append(f"Telegram: {display_username}")
+            description_lines.append(f"Link: https://t.me/{normalized_username}")
+        elif client_tg_user_id:
+            description_lines.append(f"Telegram: tg_user_id={client_tg_user_id}")
+            description_lines.append(f"Link: tg://user?id={client_tg_user_id}")
+        description = "\n".join(description_lines)
 
         payload = {
             "summary": summary,
