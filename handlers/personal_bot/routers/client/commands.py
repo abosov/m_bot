@@ -39,6 +39,16 @@ _INTERVAL_META = (
     ("evening", "Вечер", "interval_3_start", "interval_3_end"),
 )
 
+RU_WEEKDAY_SHORT = {
+    0: "Пн",
+    1: "Вт",
+    2: "Ср",
+    3: "Чт",
+    4: "Пт",
+    5: "Сб",
+    6: "Вс",
+}
+
 availability_service = AvailabilityService()
 
 
@@ -168,7 +178,8 @@ def _booking_day_keyboard(days: list[date], *, enabled_by_iso: dict[str, bool]):
         day_iso = booking_day.isoformat()
         is_enabled = enabled_by_iso.get(day_iso, False)
         callback_data = f"client_book_day:{day_iso}" if is_enabled else "noop"
-        button_text = booking_day.strftime("%d.%m (%a)")
+        weekday_ru = RU_WEEKDAY_SHORT[booking_day.weekday()]
+        button_text = f"{booking_day:%d.%m} ({weekday_ru})"
         if callback_data == "noop":
             button_text = f"{button_text} 🚫"
         builder.button(

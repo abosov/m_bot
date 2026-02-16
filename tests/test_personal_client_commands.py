@@ -652,6 +652,20 @@ async def test_disabled_day_button_contains_no_entry_sign(monkeypatch):
 
     assert disabled_button.text.endswith(" 🚫")
     assert not enabled_button.text.endswith(" 🚫")
+    assert enabled_button.text == "23.02 (Пн)"
+    assert disabled_button.text == "20.02 (Пт) 🚫"
+
+
+@pytest.mark.asyncio
+async def test_booking_day_keyboard_russian_weekday():
+    booking_day = date(2026, 2, 16)
+
+    markup = client_commands._booking_day_keyboard(
+        [booking_day],
+        enabled_by_iso={booking_day.isoformat(): True},
+    )
+
+    assert markup.inline_keyboard[0][0].text == "16.02 (Пн)"
 
 
 @pytest.mark.asyncio
