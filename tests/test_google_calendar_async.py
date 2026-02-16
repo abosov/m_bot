@@ -1,5 +1,6 @@
 import os
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 
@@ -8,6 +9,13 @@ os.environ.setdefault("MASTER_BOT_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcd
 os.environ.setdefault("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
 from services import google_calendar
+
+
+class _CreateEventResponse:
+    status_code = 201
+
+    def json(self):
+        return {"id": "evt-1"}
 
 
 @pytest.mark.asyncio
@@ -158,3 +166,74 @@ async def test_calendar_request_raises_after_retry_exhausted(monkeypatch):
         )
 
     assert calls["count"] == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("display_name", "tg_username", "tg_user_id", "expected_summary", "expected_description"),
+    [
+        (
+            "Анна",
+            "anna",
+            42,
+            "Сессия с Анна (@anna)",
+            "Создано автоматически после подтверждения записи в боте\n"
+            "Клиент: Анна\n"
+            "Telegram: @anna (tg_user_id=42)",
+        ),
+        (
+            None,
+            None,
+            None,
+            "Сессия с клиентом",
+            "Создано автоматически после подтверждения записи в боте",
+        ),
+        (
+            "Анна",
+            "@anna",
+            42,
+            "Сессия с Анна (@anna)",
+            "Создано автоматически после подтверждения записи в боте\n"
+            "Клиент: Анна\n"
+            "Telegram: @anna (tg_user_id=42)",
+        ),
+    ],
+)
+async def test_create_appointment_event_formats_summary_and_description(
+    monkeypatch,
+    display_name,
+    tg_username,
+    tg_user_id,
+    expected_summary,
+    expected_description,
+):
+    specialist_id = uuid.uuid4()
+    captured_payload = {}
+
+    async def fake_headers(_specialist_id):
+        return {"Authorization": "Bearer token", "Content-Type": "application/json"}
+
+    async def fake_calendar_request(_request_callable, _url, **kwargs):
+        captured_payload.update(kwargs.get("json") or {})
+        return _CreateEventResponse()
+
+    monkeypatch.setattr(google_calendar, "_build_headers", fake_headers)
+    monkeypatch.setattr(google_calendar, "_calendar_request_with_retry", fake_calendar_request)
+
+    event = await google_calendar.create_appointment_event(
+        specialist_id=specialist_id,
+        calendar_id="primary",
+        start_at_utc=datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc),
+        end_at_utc=datetime(2026, 1, 1, 11, 0, tzinfo=timezone.utc),
+        specialist_tz="UTC",
+        client_display_name=display_name,
+        client_tg_username=tg_username,
+        client_tg_user_id=tg_user_id,
+    )
+
+    assert event == {"id": "evt-1"}
+    assert captured_payload["summary"] == expected_summary
+    assert captured_payload["description"] == expected_description
+    if tg_username:
+        assert "@@" not in captured_payload["summary"]
+        assert "@@" not in captured_payload["description"]
