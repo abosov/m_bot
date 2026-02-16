@@ -119,14 +119,18 @@ async def test_client_menu_buttons_return_stubs(monkeypatch):
         "2026-02-26",
     ]
 
-    appts_msg = DummyMessage("Мои записи (пока stub)", from_user=types.SimpleNamespace(id=42))
+    appts_msg = DummyMessage("Мои записи", from_user=types.SimpleNamespace(id=42))
 
-    async def _render(*_args, **_kwargs):
-        await appts_msg.answer("Мои записи скоро будет доступен")
+    async def _render(message, *_args, **_kwargs):
+        await message.answer("Мои записи скоро будет доступен")
 
     monkeypatch.setattr(client_commands, "_render_client_appointments", _render)
     await client_commands.client_my_appointments_button(appts_msg, actor="client", specialist_id="sp-id")
     assert "скоро будет доступен" in appts_msg.answers[0][0]
+
+    appts_msg_legacy = DummyMessage("Мои записи (пока stub)", from_user=types.SimpleNamespace(id=42))
+    await client_commands.client_my_appointments_button(appts_msg_legacy, actor="client", specialist_id="sp-id")
+    assert "скоро будет доступен" in appts_msg_legacy.answers[0][0]
 
     tz_msg = DummyMessage("Сменить часовой пояс (пока stub)")
     await client_commands.client_change_timezone_button(tz_msg, actor="client")
