@@ -20,7 +20,7 @@ def test_rank_slots_without_existing_confirmed_prefers_early_start() -> None:
         existing_confirmed_sessions=[],
         session_duration=60,
         buffer_minutes=15,
-        max_results=4,
+        max_results=6,
     )
 
     assert ranked == [
@@ -106,7 +106,7 @@ def test_rank_slots_with_multiple_confirmed_sessions() -> None:
         existing_confirmed_sessions=confirmed,
         session_duration=60,
         buffer_minutes=15,
-        max_results=4,
+        max_results=6,
     )
 
     assert ranked == [

@@ -32,7 +32,7 @@ def rank_slots_for_interval(
     existing_confirmed_sessions: Sequence[tuple[datetime, datetime]],
     session_duration: int | timedelta,
     buffer_minutes: int | timedelta,
-    max_results: int = 4,
+    max_results: int = 6,
 ) -> list[datetime]:
     duration_delta = _as_timedelta_minutes(session_duration)
     buffer_delta = _as_timedelta_minutes(buffer_minutes)

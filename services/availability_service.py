@@ -207,7 +207,7 @@ class AvailabilityService:
             existing_confirmed_sessions=confirmed_in_interval,
             session_duration=context.session_duration_min,
             buffer_minutes=context.session_buffer_min,
-            max_results=4,
+            max_results=6,
         )
 
     @staticmethod

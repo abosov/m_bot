@@ -133,7 +133,13 @@ async def test_get_candidate_slots_for_date_does_not_apply_cutoff_policy() -> No
         client_tz="UTC",
     )
 
-    assert slots["morning"] == [datetime(2026, 2, 12, 9, 0), datetime(2026, 2, 12, 9, 30), datetime(2026, 2, 12, 10, 0), datetime(2026, 2, 12, 10, 30), datetime(2026, 2, 12, 11, 0)]
+    assert slots["morning"] == [
+        datetime(2026, 2, 12, 9, 0),
+        datetime(2026, 2, 12, 9, 30),
+        datetime(2026, 2, 12, 10, 0),
+        datetime(2026, 2, 12, 10, 30),
+        datetime(2026, 2, 12, 11, 0),
+    ]
 
 
 @pytest.mark.asyncio
@@ -165,7 +171,7 @@ async def test_get_candidate_slots_for_date_range_uses_selected_bounds() -> None
 
 
 @pytest.mark.asyncio
-async def test_get_candidate_slots_for_date_range_applies_packing_and_limits_to_four() -> None:
+async def test_get_candidate_slots_for_date_range_applies_packing_and_limits_to_six() -> None:
     context = SpecialistAvailabilityContext(
         specialist_tz="UTC",
         session_duration_min=60,
@@ -194,6 +200,8 @@ async def test_get_candidate_slots_for_date_range_applies_packing_and_limits_to_
         datetime(2026, 2, 12, 14, 0),
         datetime(2026, 2, 12, 9, 0),
         datetime(2026, 2, 12, 9, 30),
+        datetime(2026, 2, 12, 10, 0),
+        datetime(2026, 2, 12, 10, 30),
     ]
 
 

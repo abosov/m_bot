@@ -64,6 +64,8 @@ async def test_build_slots_view_returns_all_slots_without_ranking() -> None:
             datetime(2026, 2, 12, 13, 0),
             datetime(2026, 2, 12, 14, 0),
             datetime(2026, 2, 12, 15, 0),
+            datetime(2026, 2, 12, 15, 30),
+            datetime(2026, 2, 12, 16, 0),
         ],
         "evening": [datetime(2026, 2, 12, 18, 0)],
     }
@@ -83,7 +85,7 @@ async def test_build_slots_view_returns_all_slots_without_ranking() -> None:
     )
 
     assert len(view.slots_by_interval["morning"]) == 5
-    assert len(view.slots_by_interval["day"]) == 4
+    assert len(view.slots_by_interval["day"]) == 6
     assert view.slots_by_interval["morning"][0] == datetime(2026, 2, 12, 8, 0)
     assert view.slots_by_interval["morning"][-1] == datetime(2026, 2, 12, 10, 0)
     assert view.empty_intervals == ()
