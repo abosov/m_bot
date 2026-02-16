@@ -87,6 +87,14 @@ async def _get_specialist_tz(specialist_id) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
+async def _get_session_duration_min(specialist_id) -> int:
+    async with async_session_factory() as session:
+        profile = await session.get(SpecialistProfile, specialist_id)
+    if profile is None or profile.session_duration_min is None:
+        return 60
+    return profile.session_duration_min
+
+
 async def _get_client_tz(*, specialist_id, tg_user_id) -> ZoneInfo:
     async with async_session_factory() as session:
         client = (
@@ -157,12 +165,13 @@ def _build_interval_options(row: WeeklyAvailability | None) -> list[tuple[str, s
     return options
 
 
-def _booking_interval_keyboard(*, selected_day: date, options: list[tuple[str, str, time, time]]):
+def _booking_interval_keyboard(*, selected_day: date, options: list[tuple[str, str, time, time, bool]]):
     builder = InlineKeyboardBuilder()
-    for key, title, _, _ in options:
+    for key, title, _, _, is_enabled in options:
+        callback_data = f"client_book_interval:{selected_day.isoformat()}:{key}" if is_enabled else "noop"
         builder.button(
             text=title,
-            callback_data=f"client_book_interval:{selected_day.isoformat()}:{key}",
+            callback_data=callback_data,
         )
     builder.adjust(1)
     return builder.as_markup()
@@ -292,11 +301,29 @@ async def client_pick_day(callback, state: FSMContext, specialist_id) -> None:
     gmt_label = _format_gmt_offset_label(client_tz, on_date=selected_day)
     weekly_row = await _get_weekly_availability_row(specialist_id=specialist_id, weekday=selected_day.weekday())
     interval_options = _build_interval_options(weekly_row)
+    specialist_tz = await _get_specialist_tz(specialist_id)
+    session_duration_min = await _get_session_duration_min(specialist_id)
+
+    interval_enabled: dict[str, bool] = {}
+    interval_options_with_enabled: list[tuple[str, str, time, time, bool]] = []
+    for key, title, interval_start, interval_end in interval_options:
+        slots = await availability_service.get_candidate_slots_for_date_range(
+            specialist_id=specialist_id,
+            target_date_local_client=selected_day,
+            client_tz=getattr(specialist_tz, "key", "UTC"),
+            interval_start=interval_start,
+            interval_end=interval_end,
+        )
+        is_enabled = bool(slots)
+        interval_enabled[key] = is_enabled
+        interval_options_with_enabled.append((key, title, interval_start, interval_end, is_enabled))
 
     await state.set_state(ClientBookingState.waiting_for_interval)
     await state.update_data(
         booking_date=selected_iso,
         booking_interval_options=[item[0] for item in interval_options],
+        booking_interval_enabled=interval_enabled,
+        booking_session_duration_min=session_duration_min,
         booking_interval_bounds={
             item[0]: {"start": item[2].strftime("%H:%M"), "end": item[3].strftime("%H:%M")}
             for item in interval_options
@@ -310,8 +337,13 @@ async def client_pick_day(callback, state: FSMContext, specialist_id) -> None:
 
     await callback.message.answer(
         f"Выберите диапазон ({gmt_label}):",
-        reply_markup=_booking_interval_keyboard(selected_day=selected_day, options=interval_options),
+        reply_markup=_booking_interval_keyboard(selected_day=selected_day, options=interval_options_with_enabled),
     )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "noop")
+async def noop_callback(callback) -> None:
     await callback.answer()
 
 
@@ -329,6 +361,11 @@ async def client_pick_interval(callback, state: FSMContext, specialist_id) -> No
 
     allowed_intervals = state_data.get("booking_interval_options", [])
     if interval not in allowed_intervals:
+        await callback.answer("Диапазон недоступен", show_alert=True)
+        return
+
+    interval_enabled = (state_data.get("booking_interval_enabled") or {}).get(interval)
+    if interval_enabled is False:
         await callback.answer("Диапазон недоступен", show_alert=True)
         return
 
@@ -398,7 +435,7 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
             return
 
         profile = await session.get(SpecialistProfile, specialist_id)
-        session_duration_min = profile.session_duration_min if profile is not None else 60
+        session_duration_min = await _get_session_duration_min(specialist_id)
 
         slot_start_utc = slot_start_local.astimezone(timezone.utc)
         slot_end_utc = slot_start_utc + timedelta(minutes=session_duration_min)

@@ -36,6 +36,15 @@ class DummyState:
         self.data = {}
 
 
+class _AvailabilityByInterval:
+    def __init__(self, by_start_hour: dict[int, list[datetime]]):
+        self.by_start_hour = by_start_hour
+
+    async def get_candidate_slots_for_date_range(self, **kwargs):
+        start = kwargs["interval_start"]
+        return self.by_start_hour.get(start.hour, [])
+
+
 class _Result:
     def __init__(self, value):
         self._value = value
@@ -106,6 +115,7 @@ async def test_client_menu_buttons_return_stubs():
     monkeypatch.setattr(client_commands, "_render_client_appointments", _render)
     await client_commands.client_my_appointments_button(appts_msg, actor="client", specialist_id="sp-id")
     assert "скоро будет доступен" in appts_msg.answers[0][0]
+    monkeypatch.undo()
 
     tz_msg = DummyMessage("Сменить часовой пояс (пока stub)")
     await client_commands.client_change_timezone_button(tz_msg, actor="client")
@@ -151,7 +161,20 @@ async def test_client_pick_day_shows_available_intervals(monkeypatch):
     async def _weekly(**_kwargs):
         return row
 
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    async def _duration(_specialist_id):
+        return 60
+
     monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(client_commands, "_get_session_duration_min", _duration)
+    monkeypatch.setattr(
+        client_commands,
+        "availability_service",
+        _AvailabilityByInterval({9: [datetime(2026, 2, 21, 9, 0)], 18: [datetime(2026, 2, 21, 18, 0)]}),
+    )
     monkeypatch.setattr(
         client_commands,
         "async_session_factory",
@@ -198,7 +221,20 @@ async def test_client_pick_day_without_intervals_shows_empty_message(monkeypatch
     async def _weekly(**_kwargs):
         return row
 
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    async def _duration(_specialist_id):
+        return 60
+
     monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(client_commands, "_get_session_duration_min", _duration)
+    monkeypatch.setattr(
+        client_commands,
+        "availability_service",
+        _AvailabilityByInterval({9: [datetime(2026, 2, 21, 9, 0)], 18: [datetime(2026, 2, 21, 18, 0)]}),
+    )
     monkeypatch.setattr(
         client_commands,
         "async_session_factory",
@@ -309,7 +345,20 @@ async def test_client_pick_day_shows_gmt_in_header(monkeypatch):
     async def _weekly(**_kwargs):
         return row
 
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    async def _duration(_specialist_id):
+        return 60
+
     monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(client_commands, "_get_session_duration_min", _duration)
+    monkeypatch.setattr(
+        client_commands,
+        "availability_service",
+        _AvailabilityByInterval({9: [datetime(2026, 2, 21, 9, 0)], 18: [datetime(2026, 2, 21, 18, 0)]}),
+    )
     monkeypatch.setattr(
         client_commands,
         "async_session_factory",
@@ -643,3 +692,76 @@ async def test_client_capture_display_name_saves_name_and_shows_menu(monkeypatch
     assert session.committed is True
     assert "Приятно познакомиться" in message.answers[0][0]
     assert message.answers[0][1].get("reply_markup") is not None
+
+
+@pytest.mark.asyncio
+async def test_client_pick_day_marks_empty_interval_as_noop_button(monkeypatch):
+    state = DummyState()
+    message = DummyMessage("")
+
+    callback = types.SimpleNamespace(
+        data="client_book_day:2026-02-21",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    row = types.SimpleNamespace(
+        is_working=True,
+        interval_1_start=time(9, 0),
+        interval_1_end=time(12, 0),
+        interval_2_start=None,
+        interval_2_end=None,
+        interval_3_start=time(18, 0),
+        interval_3_end=time(21, 0),
+    )
+
+    async def _weekly(**_kwargs):
+        return row
+
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    async def _duration(_specialist_id):
+        return 60
+
+    monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(client_commands, "_get_session_duration_min", _duration)
+    monkeypatch.setattr(
+        client_commands,
+        "availability_service",
+        _AvailabilityByInterval({9: [], 18: [datetime(2026, 2, 21, 18, 0)]}),
+    )
+    monkeypatch.setattr(
+        client_commands,
+        "async_session_factory",
+        _mock_client_tz_session_factory(timezone_name="UTC"),
+    )
+
+    await client_commands.client_pick_day(callback, state=state, specialist_id="sp-id")
+
+    markup = message.answers[0][1].get("reply_markup")
+    assert markup is not None
+    buttons = [button for row in markup.inline_keyboard for button in row]
+    assert buttons[0].callback_data == "noop"
+    assert buttons[1].callback_data == "client_book_interval:2026-02-21:evening"
+
+
+@pytest.mark.asyncio
+async def test_noop_callback_answers():
+    callback = types.SimpleNamespace(answers=[])
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    await client_commands.noop_callback(callback)
+
+    assert len(callback.answers) == 1
