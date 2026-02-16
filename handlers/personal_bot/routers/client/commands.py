@@ -216,6 +216,30 @@ async def _get_weekly_availability_row(*, specialist_id, weekday: int) -> Weekly
         ).scalar_one_or_none()
 
 
+async def _has_any_slots_in_day(*, specialist_id, day_local: date) -> bool:
+    weekly_row = await _get_weekly_availability_row(specialist_id=specialist_id, weekday=day_local.weekday())
+    if weekly_row is None or not weekly_row.is_working:
+        return False
+
+    interval_options = _build_interval_options(weekly_row)
+    if not interval_options:
+        return False
+
+    specialist_tz = await _get_specialist_tz(specialist_id)
+    for _, _, interval_start, interval_end in interval_options:
+        slots = await availability_service.get_candidate_slots_for_date_range(
+            specialist_id=specialist_id,
+            target_date_local_client=day_local,
+            client_tz=getattr(specialist_tz, "key", "UTC"),
+            interval_start=interval_start,
+            interval_end=interval_end,
+        )
+        if slots:
+            return True
+
+    return False
+
+
 def _booking_slots_keyboard(slots: list[datetime]):
     builder = InlineKeyboardBuilder()
     for slot in slots:
@@ -314,7 +338,12 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
             if is_working_day
             else False
         )
-        enabled_by_iso[booking_day.isoformat()] = is_working_day and not is_day_limit_reached
+        has_slots_in_day = (
+            await _has_any_slots_in_day(specialist_id=specialist_id, day_local=booking_day)
+            if is_working_day and not is_day_limit_reached
+            else False
+        )
+        enabled_by_iso[booking_day.isoformat()] = is_working_day and not is_day_limit_reached and has_slots_in_day
     client_tz = (
         await _get_client_tz(specialist_id=specialist_id, tg_user_id=message.from_user.id)
         if message.from_user is not None

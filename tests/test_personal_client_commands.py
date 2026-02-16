@@ -100,6 +100,12 @@ async def test_client_menu_buttons_return_stubs():
     async def _day_limit_false(**_kwargs):
         return False
 
+    async def _has_slots_true(**_kwargs):
+        return True
+
+    async def _has_slots_true(**_kwargs):
+        return True
+
     monkeypatch.setattr(client_commands, "_is_day_limit_reached", _day_limit_false)
 
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
@@ -328,6 +334,9 @@ async def test_client_book_button_shows_gmt_in_header(monkeypatch):
     async def _day_limit_false(**_kwargs):
         return False
 
+    async def _has_slots_true(**_kwargs):
+        return True
+
     monkeypatch.setattr(client_commands, "_is_day_limit_reached", _day_limit_false)
 
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
@@ -343,9 +352,19 @@ async def test_client_book_button_disables_non_working_days(monkeypatch):
     async def _tz(_specialist_id):
         return ZoneInfo("UTC")
 
+    working_row = types.SimpleNamespace(
+        is_working=True,
+        interval_1_start=time(9, 0),
+        interval_1_end=time(12, 0),
+        interval_2_start=time(13, 0),
+        interval_2_end=time(17, 0),
+        interval_3_start=time(18, 0),
+        interval_3_end=time(21, 0),
+    )
+
     async def _weekly(*, specialist_id, weekday):
         assert specialist_id == "sp-id"
-        return types.SimpleNamespace(is_working=weekday in {0, 2, 4})
+        return working_row if weekday in {0, 2, 4} else types.SimpleNamespace(is_working=False)
 
     monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
     monkeypatch.setattr(client_commands, "_first_available_day", lambda **_kwargs: date(2026, 2, 20))
@@ -353,7 +372,11 @@ async def test_client_book_button_disables_non_working_days(monkeypatch):
     async def _day_limit_false(**_kwargs):
         return False
 
+    async def _has_slots_true(**_kwargs):
+        return True
+
     monkeypatch.setattr(client_commands, "_is_day_limit_reached", _day_limit_false)
+    monkeypatch.setattr(client_commands, "_has_any_slots_in_day", _has_slots_true)
     monkeypatch.setattr(
         client_commands,
         "async_session_factory",
@@ -384,9 +407,22 @@ async def test_client_book_button_disables_day_when_limit_reached(monkeypatch):
     async def _tz(_specialist_id):
         return ZoneInfo("UTC")
 
+    working_row = types.SimpleNamespace(
+        is_working=True,
+        interval_1_start=time(9, 0),
+        interval_1_end=time(12, 0),
+        interval_2_start=time(13, 0),
+        interval_2_end=time(17, 0),
+        interval_3_start=time(18, 0),
+        interval_3_end=time(21, 0),
+    )
+
     async def _weekly(*, specialist_id, weekday):
         assert specialist_id == "sp-id"
-        return types.SimpleNamespace(is_working=True)
+        return working_row
+
+    async def _has_slots_true(**_kwargs):
+        return True
 
     count_calls = {"value": 0}
 
@@ -414,6 +450,7 @@ async def test_client_book_button_disables_day_when_limit_reached(monkeypatch):
     monkeypatch.setattr(client_commands, "_first_available_day", lambda **_kwargs: date(2026, 2, 20))
     monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
     monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+    monkeypatch.setattr(client_commands, "_has_any_slots_in_day", _has_slots_true)
 
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
 
@@ -428,6 +465,62 @@ async def test_client_book_button_disables_day_when_limit_reached(monkeypatch):
         "client_book_day:2026-02-24",
         "client_book_day:2026-02-25",
         "client_book_day:2026-02-26",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_client_book_button_disables_day_when_no_slots_fit_session(monkeypatch):
+    book_msg = DummyMessage("Записаться", from_user=types.SimpleNamespace(id=42))
+    state = DummyState()
+
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    row = types.SimpleNamespace(
+        is_working=True,
+        interval_1_start=time(9, 0),
+        interval_1_end=time(12, 0),
+        interval_2_start=time(13, 0),
+        interval_2_end=time(17, 0),
+        interval_3_start=time(18, 0),
+        interval_3_end=time(21, 0),
+    )
+
+    async def _weekly(*, specialist_id, weekday):
+        assert specialist_id == "sp-id"
+        return row
+
+    async def _day_limit_false(**_kwargs):
+        return False
+
+    class _Availability:
+        async def get_candidate_slots_for_date_range(self, **_kwargs):
+            return []
+
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(client_commands, "_first_available_day", lambda **_kwargs: date(2026, 2, 20))
+    monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    monkeypatch.setattr(client_commands, "_is_day_limit_reached", _day_limit_false)
+    monkeypatch.setattr(client_commands, "availability_service", _Availability())
+    monkeypatch.setattr(
+        client_commands,
+        "async_session_factory",
+        _mock_client_tz_session_factory(timezone_name="UTC"),
+    )
+
+    await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
+
+    markup = book_msg.answers[0][1].get("reply_markup")
+    assert markup is not None
+    buttons = [button for row in markup.inline_keyboard for button in row]
+    assert [button.callback_data for button in buttons] == [
+        "noop",
+        "noop",
+        "noop",
+        "noop",
+        "noop",
+        "noop",
+        "noop",
     ]
 
 
