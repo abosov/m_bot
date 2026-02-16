@@ -147,6 +147,37 @@ python scripts/export_logs.py \
   --out /tmp/message_logs_redacted.jsonl
 ```
 
+При использовании `--redact` скрипт экспорта (`scripts/export_logs.py`) прогоняет
+текстовые поля через `services.redaction.redact_text`, чтобы в бизнес-логах и
+выгрузках не утекали секреты/токены.
+
+Что редактируется в `services/redaction.py`:
+- Telegram bot token в формате `<digits>:<token_part>` → `[REDACTED_TELEGRAM_BOT_TOKEN]`;
+- Bearer-токены в заголовках/строках (`Bearer ...`) → `Bearer [REDACTED_BEARER_TOKEN]`;
+- значения `access_token` и `refresh_token` в key-value представлении
+  (`access_token=...`, `refresh_token: ...`) → `[REDACTED_TOKEN]`;
+- OAuth `code` в query-параметрах (`code=...`) → `[REDACTED_OAUTH_CODE]`.
+
+Дополнительно в middleware логирования есть отдельное подавление контента для
+чувствительных FSM-состояний: например, для
+`MasterOnboarding:waiting_for_bot_token` сохраняется
+`[REDACTED_BOT_TOKEN]` вместо исходного текста. Реализация находится в
+`logging_middleware.py` (`_redact_logged_content`).
+
+Цель этого механизма — не допускать попадания токенов и иных секретов в
+операционные/бизнес-логи и в экспортируемые выгрузки.
+
+Ключевые файлы реализации:
+- `services/redaction.py`
+- `logging_middleware.py`
+- `scripts/export_logs.py`
+
+Короткий чек-лист «как проверить»:
+1. Запустить unit-тесты редактирования:
+   `pytest tests/test_redaction_logging.py`
+2. Выполнить экспорт с редактированием и проверить плейсхолдеры в результате:
+   `python scripts/export_logs.py --source message_logs --redact --limit 10 --out /tmp/message_logs_redacted.jsonl`
+
 ### Runtime logs
 По умолчанию runtime-логи backend пишутся в stdout/stderr процесса и доступны через
 `journalctl` (если backend запущен под systemd).
