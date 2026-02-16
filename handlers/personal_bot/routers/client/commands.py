@@ -330,6 +330,7 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
     first_day = _first_available_day(now_utc=datetime.now(timezone.utc), specialist_tz=specialist_tz)
     available_days = [first_day + timedelta(days=idx) for idx in range(7)]
     enabled_by_iso: dict[str, bool] = {}
+    booking_day_meta: dict[str, dict[str, bool]] = {}
     for booking_day in available_days:
         weekly_row = await _get_weekly_availability_row(specialist_id=specialist_id, weekday=booking_day.weekday())
         is_working_day = weekly_row is not None and weekly_row.is_working
@@ -343,7 +344,15 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
             if is_working_day and not is_day_limit_reached
             else False
         )
-        enabled_by_iso[booking_day.isoformat()] = is_working_day and not is_day_limit_reached and has_slots_in_day
+        is_enabled = is_working_day and not is_day_limit_reached and has_slots_in_day
+        day_iso = booking_day.isoformat()
+        enabled_by_iso[day_iso] = is_enabled
+        booking_day_meta[day_iso] = {
+            "is_working": is_working_day,
+            "limit_reached": is_day_limit_reached,
+            "has_any_slots": has_slots_in_day,
+            "enabled": is_enabled,
+        }
     client_tz = (
         await _get_client_tz(specialist_id=specialist_id, tg_user_id=message.from_user.id)
         if message.from_user is not None
@@ -352,7 +361,11 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
     gmt_label = _format_gmt_offset_label(client_tz)
 
     await state.set_state(ClientBookingState.waiting_for_day)
-    await state.update_data(booking_available_days=[item.isoformat() for item in available_days])
+    await state.update_data(
+        booking_available_days=[item.isoformat() for item in available_days],
+        booking_day_meta=booking_day_meta,
+        booking_interval_meta={},
+    )
     await message.answer(
         f"Выберите день ({gmt_label}):",
         reply_markup=_booking_day_keyboard(available_days, enabled_by_iso=enabled_by_iso),
@@ -363,6 +376,12 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
 async def client_pick_day(callback, state: FSMContext, specialist_id) -> None:
     selected_iso = callback.data.removeprefix("client_book_day:")
     selected_day = date.fromisoformat(selected_iso)
+    state_data = await state.get_data()
+    booking_day_meta = state_data.get("booking_day_meta") or {}
+    if not (booking_day_meta.get(selected_iso) or {}).get("enabled", False):
+        await callback.answer("День недоступен", show_alert=True)
+        return
+
     client_tz = (
         await _get_client_tz(specialist_id=specialist_id, tg_user_id=callback.from_user.id)
         if callback.from_user is not None
@@ -373,19 +392,28 @@ async def client_pick_day(callback, state: FSMContext, specialist_id) -> None:
     interval_options = _build_interval_options(weekly_row)
     specialist_tz = await _get_specialist_tz(specialist_id)
     session_duration_min = await _get_session_duration_min(specialist_id)
+    booking_interval_meta = state_data.get("booking_interval_meta") or {}
 
-    interval_enabled: dict[str, bool] = {}
+    if selected_iso not in booking_interval_meta:
+        booking_interval_meta[selected_iso] = {}
+        for key, _, interval_start, interval_end in interval_options:
+            slots = await availability_service.get_candidate_slots_for_date_range(
+                specialist_id=specialist_id,
+                target_date_local_client=selected_day,
+                client_tz=getattr(specialist_tz, "key", "UTC"),
+                interval_start=interval_start,
+                interval_end=interval_end,
+            )
+            booking_interval_meta[selected_iso][key] = {
+                "enabled": bool(slots),
+                "slot_count": len(slots),
+            }
+
+    day_interval_meta = booking_interval_meta.get(selected_iso) or {}
+    interval_enabled = {key: bool((day_interval_meta.get(key) or {}).get("enabled", False)) for key, _, _, _ in interval_options}
     interval_options_with_enabled: list[tuple[str, str, time, time, bool]] = []
     for key, title, interval_start, interval_end in interval_options:
-        slots = await availability_service.get_candidate_slots_for_date_range(
-            specialist_id=specialist_id,
-            target_date_local_client=selected_day,
-            client_tz=getattr(specialist_tz, "key", "UTC"),
-            interval_start=interval_start,
-            interval_end=interval_end,
-        )
-        is_enabled = bool(slots)
-        interval_enabled[key] = is_enabled
+        is_enabled = interval_enabled.get(key, False)
         interval_options_with_enabled.append((key, title, interval_start, interval_end, is_enabled))
 
     await state.set_state(ClientBookingState.waiting_for_interval)
@@ -393,6 +421,7 @@ async def client_pick_day(callback, state: FSMContext, specialist_id) -> None:
         booking_date=selected_iso,
         booking_interval_options=[item[0] for item in interval_options],
         booking_interval_enabled=interval_enabled,
+        booking_interval_meta=booking_interval_meta,
         booking_session_duration_min=session_duration_min,
         booking_interval_bounds={
             item[0]: {"start": item[2].strftime("%H:%M"), "end": item[3].strftime("%H:%M")}
@@ -434,7 +463,10 @@ async def client_pick_interval(callback, state: FSMContext, specialist_id) -> No
         await callback.answer("Диапазон недоступен", show_alert=True)
         return
 
-    interval_enabled = (state_data.get("booking_interval_enabled") or {}).get(interval)
+    interval_meta = ((state_data.get("booking_interval_meta") or {}).get(selected_iso) or {}).get(interval)
+    interval_enabled = interval_meta.get("enabled") if isinstance(interval_meta, dict) else None
+    if interval_enabled is None:
+        interval_enabled = (state_data.get("booking_interval_enabled") or {}).get(interval)
     if interval_enabled is False:
         await callback.answer("Диапазон недоступен", show_alert=True)
         return
