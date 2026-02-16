@@ -173,6 +173,12 @@
 2. Выполнить `/start` и `/status`.
 3. Убедиться, что bot отвечает и показывает актуальный статус интеграций.
 
+### Активация specialist: `finalize_specialist_if_ready`
+- Функция `finalize_specialist_if_ready(specialist_id)` вызывается в шагах master onboarding после ключевых действий (подключение personal bot, успешный выбор/создание календаря со smoke-test) и при проверке общего чек-листа статуса.
+- Внутри функции `specialist.status` переводится `onboarding -> active` только если выполнен минимум `is_specialist_ready`: есть `SpecialistProfile` с непустым `public_name`, есть активный personal bot, и в `SpecialistCalendarSettings` заполнен `calendar_id` с `last_smoke_test_status=ok`.
+- Перед переводом в `active` вызывается `apply_specialist_defaults_if_missing(...)` с `preferred_timezone=SpecialistCalendarSettings.calendar_time_zone` (если TZ задана), чтобы дозаполнить дефолтные значения (длительность/буфер/таймзона) только для пропущенных полей.
+- Дополнительно применён safety net для legacy-профилей: если в `SpecialistProfile` пустой `public_name`, ставится `"Специалист"`; если `owner_tg_user_id <= 0` и найдена `SpecialistAuthTelegram`, в `owner_tg_user_id` записывается `tg_user_id`.
+
 ## F) Что делается разово, а что на каждый релиз
 
 ### Разово (первичная подготовка VPS)

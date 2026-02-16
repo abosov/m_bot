@@ -79,6 +79,27 @@ curl -i -sS "$BASE_URL/readyz"
 
 Ожидание: после успешного smoke-теста `specialist.status=active`, выдан deep-link в personal bot, в БД `onboarding_master_completed_at` заполнен, `onboarding_personal_completed_at` ещё `NULL`.
 
+### Активация специалиста: `finalize_specialist_if_ready`
+
+Фактический перевод `specialist.status` из `onboarding` в `active` выполняет функция `finalize_specialist_if_ready(specialist_id)`.
+
+Когда она вызывается в потоке онбординга (master bot):
+- после шага подключения personal bot token/webhook;
+- после успешного выбора/создания календаря и smoke-test;
+- при явной проверке smoke-test;
+- при показе статуса в master onboarding (если чек-лист уже собран).
+
+Минимум готовности (`is_specialist_ready`) для активации:
+- есть `SpecialistProfile` с непустым `public_name`;
+- есть активный personal bot (`telegram_bot.status=active`);
+- есть `SpecialistCalendarSettings` с непустым `calendar_id` и `last_smoke_test_status="ok"`.
+
+Что делает `finalize_specialist_if_ready` перед активацией:
+- вызывает `apply_specialist_defaults_if_missing(...)`, передавая `preferred_timezone=SpecialistCalendarSettings.calendar_time_zone` (если timezone задана), чтобы дозаполнить дефолты расписания/сессий и TZ только для пустых полей;
+- применяет safety net для legacy-строк в `SpecialistProfile`/`SpecialistAuthTelegram`:
+  - если `profile.public_name` пустой, ставится `"Специалист"`;
+  - если `profile.owner_tg_user_id <= 0` и есть `SpecialistAuthTelegram`, записывается `tg_user_id`.
+
 ## 3.3 Personal bot (роль: specialist)
 
 Под `SpecialistOwner` в personal bot:
