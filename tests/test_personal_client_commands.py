@@ -525,6 +525,122 @@ async def test_client_book_button_disables_day_when_no_slots_fit_session(monkeyp
     ]
 
 
+
+
+@pytest.mark.asyncio
+async def test_disabled_day_button_contains_no_entry_sign(monkeypatch):
+    book_msg = DummyMessage("Записаться", from_user=types.SimpleNamespace(id=42))
+    state = DummyState()
+
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    async def _weekly(*, specialist_id, weekday):
+        assert specialist_id == "sp-id"
+        return types.SimpleNamespace(is_working=(weekday == 0))
+
+    async def _day_limit_false(**_kwargs):
+        return False
+
+    async def _has_slots_true(**_kwargs):
+        return True
+
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(client_commands, "_first_available_day", lambda **_kwargs: date(2026, 2, 20))
+    monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    monkeypatch.setattr(client_commands, "_is_day_limit_reached", _day_limit_false)
+    monkeypatch.setattr(client_commands, "_has_any_slots_in_day", _has_slots_true)
+    monkeypatch.setattr(
+        client_commands,
+        "async_session_factory",
+        _mock_client_tz_session_factory(timezone_name="UTC"),
+    )
+
+    await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
+
+    markup = book_msg.answers[0][1].get("reply_markup")
+    assert markup is not None
+    buttons = [button for row in markup.inline_keyboard for button in row]
+
+    disabled_button = next(button for button in buttons if button.callback_data == "noop")
+    enabled_button = next(button for button in buttons if button.callback_data != "noop")
+
+    assert disabled_button.text.endswith(" 🚫")
+    assert not enabled_button.text.endswith(" 🚫")
+
+
+@pytest.mark.asyncio
+async def test_disabled_interval_button_contains_no_entry_sign(monkeypatch):
+    state = DummyState()
+    state.data = {
+        "booking_day_meta": {
+            "2026-02-21": {
+                "is_working": True,
+                "limit_reached": False,
+                "has_any_slots": True,
+                "enabled": True,
+            }
+        }
+    }
+    message = DummyMessage("")
+
+    callback = types.SimpleNamespace(
+        data="client_book_day:2026-02-21",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    row = types.SimpleNamespace(
+        is_working=True,
+        interval_1_start=time(9, 0),
+        interval_1_end=time(12, 0),
+        interval_2_start=None,
+        interval_2_end=None,
+        interval_3_start=time(18, 0),
+        interval_3_end=time(21, 0),
+    )
+
+    async def _weekly(**_kwargs):
+        return row
+
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    async def _duration(_specialist_id):
+        return 60
+
+    monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(client_commands, "_get_session_duration_min", _duration)
+    monkeypatch.setattr(
+        client_commands,
+        "availability_service",
+        _AvailabilityByInterval({9: [], 18: [datetime(2026, 2, 21, 18, 0)]}),
+    )
+    monkeypatch.setattr(
+        client_commands,
+        "async_session_factory",
+        _mock_client_tz_session_factory(timezone_name="UTC"),
+    )
+
+    await client_commands.client_pick_day(callback, state=state, specialist_id="sp-id")
+
+    markup = message.answers[0][1].get("reply_markup")
+    assert markup is not None
+    buttons = [button for row in markup.inline_keyboard for button in row]
+
+    disabled_button = next(button for button in buttons if button.callback_data == "noop")
+    enabled_button = next(button for button in buttons if button.callback_data != "noop")
+
+    assert disabled_button.text.endswith(" 🚫")
+    assert not enabled_button.text.endswith(" 🚫")
+
 @pytest.mark.asyncio
 async def test_client_pick_day_shows_gmt_in_header(monkeypatch):
     state = DummyState()

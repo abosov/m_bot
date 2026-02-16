@@ -166,9 +166,13 @@ def _booking_day_keyboard(days: list[date], *, enabled_by_iso: dict[str, bool]):
     builder = InlineKeyboardBuilder()
     for booking_day in days:
         day_iso = booking_day.isoformat()
-        callback_data = f"client_book_day:{day_iso}" if enabled_by_iso.get(day_iso, False) else "noop"
+        is_enabled = enabled_by_iso.get(day_iso, False)
+        callback_data = f"client_book_day:{day_iso}" if is_enabled else "noop"
+        button_text = booking_day.strftime("%d.%m (%a)")
+        if callback_data == "noop":
+            button_text = f"{button_text} 🚫"
         builder.button(
-            text=booking_day.strftime("%d.%m (%a)"),
+            text=button_text,
             callback_data=callback_data,
         )
     builder.adjust(2)
@@ -197,8 +201,9 @@ def _booking_interval_keyboard(*, selected_day: date, options: list[tuple[str, s
     builder = InlineKeyboardBuilder()
     for key, title, _, _, is_enabled in options:
         callback_data = f"client_book_interval:{selected_day.isoformat()}:{key}" if is_enabled else "noop"
+        button_text = f"{title} 🚫" if callback_data == "noop" else title
         builder.button(
-            text=title,
+            text=button_text,
             callback_data=callback_data,
         )
     builder.adjust(1)
