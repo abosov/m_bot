@@ -36,6 +36,31 @@ class DummyState:
         self.data = {}
 
 
+class _Result:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar_one_or_none(self):
+        return self._value
+
+
+def _mock_client_tz_session_factory(*, timezone_name: str | None):
+    class _Session:
+        async def execute(self, _stmt):
+            if timezone_name is None:
+                return _Result(None)
+            return _Result(types.SimpleNamespace(client_timezone=timezone_name))
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    return lambda: _Ctx()
+
+
 @pytest.mark.asyncio
 async def test_client_menu_buttons_return_stubs():
     book_msg = DummyMessage("Записаться")
@@ -51,11 +76,16 @@ async def test_client_menu_buttons_return_stubs():
         "_first_available_day",
         lambda **_kwargs: date(2026, 2, 20),
     )
+    monkeypatch.setattr(
+        client_commands,
+        "async_session_factory",
+        _mock_client_tz_session_factory(timezone_name=None),
+    )
 
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
     monkeypatch.undo()
 
-    assert book_msg.answers[0][0] == "Выберите день:"
+    assert book_msg.answers[0][0] == "Выберите день (GMT+0):"
     assert book_msg.answers[0][1].get("reply_markup") is not None
     assert state.state == client_commands.ClientBookingState.waiting_for_day
     assert state.data["booking_available_days"] == [
@@ -68,8 +98,13 @@ async def test_client_menu_buttons_return_stubs():
         "2026-02-26",
     ]
 
-    appts_msg = DummyMessage("Мои записи (пока stub)")
-    await client_commands.client_my_appointments_button(appts_msg, actor="client")
+    appts_msg = DummyMessage("Мои записи (пока stub)", from_user=types.SimpleNamespace(id=42))
+
+    async def _render(*_args, **_kwargs):
+        await appts_msg.answer("Мои записи скоро будет доступен")
+
+    monkeypatch.setattr(client_commands, "_render_client_appointments", _render)
+    await client_commands.client_my_appointments_button(appts_msg, actor="client", specialist_id="sp-id")
     assert "скоро будет доступен" in appts_msg.answers[0][0]
 
     tz_msg = DummyMessage("Сменить часовой пояс (пока stub)")
@@ -95,6 +130,7 @@ async def test_client_pick_day_shows_available_intervals(monkeypatch):
     callback = types.SimpleNamespace(
         data="client_book_day:2026-02-21",
         message=message,
+        from_user=types.SimpleNamespace(id=42),
         answers=[],
     )
 
@@ -116,6 +152,11 @@ async def test_client_pick_day_shows_available_intervals(monkeypatch):
         return row
 
     monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    monkeypatch.setattr(
+        client_commands,
+        "async_session_factory",
+        _mock_client_tz_session_factory(timezone_name="UTC"),
+    )
 
     await client_commands.client_pick_day(callback, state=state, specialist_id="sp-id")
 
@@ -123,7 +164,7 @@ async def test_client_pick_day_shows_available_intervals(monkeypatch):
     assert state.data["booking_date"] == "2026-02-21"
     assert state.data["booking_interval_options"] == ["morning", "evening"]
     assert state.data["booking_interval_bounds"] == {"morning": {"start": "09:00", "end": "12:00"}, "evening": {"start": "18:00", "end": "21:00"}}
-    assert message.answers[0][0] == "Выберите диапазон:"
+    assert message.answers[0][0] == "Выберите диапазон (GMT+0):"
     assert message.answers[0][1].get("reply_markup") is not None
     assert len(callback.answers) == 1
 
@@ -136,6 +177,7 @@ async def test_client_pick_day_without_intervals_shows_empty_message(monkeypatch
     callback = types.SimpleNamespace(
         data="client_book_day:2026-02-21",
         message=message,
+        from_user=types.SimpleNamespace(id=42),
         answers=[],
     )
 
@@ -157,6 +199,11 @@ async def test_client_pick_day_without_intervals_shows_empty_message(monkeypatch
         return row
 
     monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    monkeypatch.setattr(
+        client_commands,
+        "async_session_factory",
+        _mock_client_tz_session_factory(timezone_name="UTC"),
+    )
 
     await client_commands.client_pick_day(callback, state=state, specialist_id="sp-id")
 
@@ -177,6 +224,7 @@ async def test_client_pick_interval_shows_slots_as_buttons(monkeypatch):
     callback = types.SimpleNamespace(
         data="client_book_interval:2026-02-21:day",
         message=message,
+        from_user=types.SimpleNamespace(id=42),
         answers=[],
     )
 
@@ -194,15 +242,125 @@ async def test_client_pick_interval_shows_slots_as_buttons(monkeypatch):
 
     monkeypatch.setattr(client_commands, "availability_service", _Availability())
     monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(
+        client_commands,
+        "async_session_factory",
+        _mock_client_tz_session_factory(timezone_name="UTC"),
+    )
 
     await client_commands.client_pick_interval(callback, state=state, specialist_id="sp-id")
 
-    assert message.answers[0][0] == "Выберите слот:"
+    assert message.answers[0][0] == "Выберите слот (GMT+0):"
     markup = message.answers[0][1].get("reply_markup")
     assert markup is not None
     assert len(markup.inline_keyboard) == 1
     assert [button.text for button in markup.inline_keyboard[0]] == ["12:00", "12:30"]
     assert len(callback.answers) == 1
+
+
+@pytest.mark.asyncio
+async def test_client_book_button_shows_gmt_in_header(monkeypatch):
+    book_msg = DummyMessage("Записаться", from_user=types.SimpleNamespace(id=42))
+    state = DummyState()
+
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(client_commands, "_first_available_day", lambda **_kwargs: date(2026, 2, 20))
+    monkeypatch.setattr(
+        client_commands,
+        "async_session_factory",
+        _mock_client_tz_session_factory(timezone_name="Europe/Moscow"),
+    )
+
+    await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
+
+    assert book_msg.answers[0][0] == "Выберите день (GMT+3):"
+
+
+@pytest.mark.asyncio
+async def test_client_pick_day_shows_gmt_in_header(monkeypatch):
+    state = DummyState()
+    message = DummyMessage("")
+
+    callback = types.SimpleNamespace(
+        data="client_book_day:2026-02-21",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    row = types.SimpleNamespace(
+        is_working=True,
+        interval_1_start=time(9, 0),
+        interval_1_end=time(12, 0),
+        interval_2_start=None,
+        interval_2_end=None,
+        interval_3_start=time(18, 0),
+        interval_3_end=time(21, 0),
+    )
+
+    async def _weekly(**_kwargs):
+        return row
+
+    monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    monkeypatch.setattr(
+        client_commands,
+        "async_session_factory",
+        _mock_client_tz_session_factory(timezone_name="Europe/Moscow"),
+    )
+
+    await client_commands.client_pick_day(callback, state=state, specialist_id="sp-id")
+
+    assert message.answers[0][0] == "Выберите диапазон (GMT+3):"
+
+
+@pytest.mark.asyncio
+async def test_client_pick_interval_shows_gmt_in_header(monkeypatch):
+    state = DummyState()
+    state.data = {
+        "booking_date": "2026-02-21",
+        "booking_interval_options": ["morning", "day", "evening"],
+        "booking_interval_bounds": {"day": {"start": "12:00", "end": "18:00"}},
+    }
+    message = DummyMessage("")
+
+    callback = types.SimpleNamespace(
+        data="client_book_interval:2026-02-21:day",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    class _Availability:
+        async def get_candidate_slots_for_date_range(self, **kwargs):
+            return [datetime(2026, 2, 21, 12, 0), datetime(2026, 2, 21, 12, 30)]
+
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    monkeypatch.setattr(client_commands, "availability_service", _Availability())
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(
+        client_commands,
+        "async_session_factory",
+        _mock_client_tz_session_factory(timezone_name="Europe/Moscow"),
+    )
+
+    await client_commands.client_pick_interval(callback, state=state, specialist_id="sp-id")
+
+    assert message.answers[0][0] == "Выберите слот (GMT+3):"
 
 
 @pytest.mark.asyncio

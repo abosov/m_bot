@@ -87,6 +87,41 @@ async def _get_specialist_tz(specialist_id) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
+async def _get_client_tz(*, specialist_id, tg_user_id) -> ZoneInfo:
+    async with async_session_factory() as session:
+        client = (
+            await session.execute(
+                select(Client)
+                .where(Client.specialist_id == specialist_id)
+                .where(Client.tg_user_id == tg_user_id)
+            )
+        ).scalar_one_or_none()
+
+    tz_name = client.client_timezone if client and client.client_timezone else "UTC"
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
+
+
+def _format_gmt_offset_label(tz: ZoneInfo, *, on_date: date | None = None) -> str:
+    if on_date is None:
+        local_dt = datetime.now(tz)
+    else:
+        local_dt = datetime.combine(on_date, time(12, 0), tzinfo=tz)
+
+    offset = local_dt.utcoffset() or timedelta(0)
+    total_seconds = int(offset.total_seconds())
+    sign = "+" if total_seconds >= 0 else "-"
+    abs_seconds = abs(total_seconds)
+    hours, remainder = divmod(abs_seconds, 3600)
+    minutes = remainder // 60
+
+    if minutes == 0:
+        return f"GMT{sign}{hours}"
+    return f"GMT{sign}{hours:02d}:{minutes:02d}"
+
+
 def _first_available_day(*, now_utc: datetime, specialist_tz: ZoneInfo) -> date:
     local_now = now_utc.astimezone(specialist_tz)
     start_offset_days = 1 if local_now.time() <= time(21, 0) else 2
@@ -233,16 +268,28 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
     specialist_tz = await _get_specialist_tz(specialist_id)
     first_day = _first_available_day(now_utc=datetime.now(timezone.utc), specialist_tz=specialist_tz)
     available_days = [first_day + timedelta(days=idx) for idx in range(7)]
+    client_tz = (
+        await _get_client_tz(specialist_id=specialist_id, tg_user_id=message.from_user.id)
+        if message.from_user is not None
+        else ZoneInfo("UTC")
+    )
+    gmt_label = _format_gmt_offset_label(client_tz)
 
     await state.set_state(ClientBookingState.waiting_for_day)
     await state.update_data(booking_available_days=[item.isoformat() for item in available_days])
-    await message.answer("Выберите день:", reply_markup=_booking_day_keyboard(available_days))
+    await message.answer(f"Выберите день ({gmt_label}):", reply_markup=_booking_day_keyboard(available_days))
 
 
 @router.callback_query(ClientBookingState.waiting_for_day, F.data.startswith("client_book_day:"))
 async def client_pick_day(callback, state: FSMContext, specialist_id) -> None:
     selected_iso = callback.data.removeprefix("client_book_day:")
     selected_day = date.fromisoformat(selected_iso)
+    client_tz = (
+        await _get_client_tz(specialist_id=specialist_id, tg_user_id=callback.from_user.id)
+        if callback.from_user is not None
+        else ZoneInfo("UTC")
+    )
+    gmt_label = _format_gmt_offset_label(client_tz, on_date=selected_day)
     weekly_row = await _get_weekly_availability_row(specialist_id=specialist_id, weekday=selected_day.weekday())
     interval_options = _build_interval_options(weekly_row)
 
@@ -262,7 +309,7 @@ async def client_pick_day(callback, state: FSMContext, specialist_id) -> None:
         return
 
     await callback.message.answer(
-        "Выберите диапазон:",
+        f"Выберите диапазон ({gmt_label}):",
         reply_markup=_booking_interval_keyboard(selected_day=selected_day, options=interval_options),
     )
     await callback.answer()
@@ -292,17 +339,30 @@ async def client_pick_interval(callback, state: FSMContext, specialist_id) -> No
 
     interval_start = time.fromisoformat(bounds["start"])
     interval_end = time.fromisoformat(bounds["end"])
+    selected_day = date.fromisoformat(selected_iso)
+    client_tz = (
+        await _get_client_tz(specialist_id=specialist_id, tg_user_id=callback.from_user.id)
+        if callback.from_user is not None
+        else ZoneInfo("UTC")
+    )
+    gmt_label = _format_gmt_offset_label(client_tz, on_date=selected_day)
     specialist_tz = await _get_specialist_tz(specialist_id)
     slots = await availability_service.get_candidate_slots_for_date_range(
         specialist_id=specialist_id,
-        target_date_local_client=date.fromisoformat(selected_iso),
+        target_date_local_client=selected_day,
         client_tz=getattr(specialist_tz, "key", "UTC"),
         interval_start=interval_start,
         interval_end=interval_end,
     )
 
+    header = (
+        f"Выберите слот ({gmt_label}):"
+        if slots
+        else f"Нет доступных слотов в выбранном диапазоне ({gmt_label})."
+    )
+
     await callback.message.answer(
-        _format_slot_lines(slots),
+        header,
         reply_markup=_booking_slots_keyboard(slots) if slots else None,
     )
     await callback.answer()
