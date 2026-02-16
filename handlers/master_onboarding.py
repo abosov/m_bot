@@ -54,8 +54,10 @@ from services.google_calendar import (
     create_and_cleanup_test_event,
     create_bot_calendar,
     list_calendars,
+    resolve_tz_for_calendar_creation,
 )
 from services.onboarding import finalize_specialist_if_ready
+from services.specialist_defaults import apply_specialist_defaults_if_missing
 from config import BACKEND_BASE_URL
 from services.specialist_onboarding import get_specialist_by_tg_user_id, set_master_onboarding_completed
 from services.alerting import notify_exception
@@ -1516,13 +1518,25 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
             await callback.answer()
             return
 
-        calendar = await create_bot_calendar(specialist.specialist_id, profile.public_name, profile.specialist_timezone or "UTC")
+        tz_for_create = await resolve_tz_for_calendar_creation(
+            specialist_id=specialist.specialist_id,
+            profile_tz=profile.specialist_timezone,
+        )
+        calendar = await create_bot_calendar(specialist.specialist_id, profile.public_name, tz_for_create)
         calendar_id = calendar.get("id")
         summary = calendar.get("summary")
         created_calendar_id = calendar_id
         created_calendar_summary = summary
         specialist_id_for_context = specialist.specialist_id
-        calendar_tz = calendar.get("timeZone") or profile.specialist_timezone or "UTC"
+        calendar_tz = (calendar.get("timeZone") or tz_for_create or "UTC").strip() or "UTC"
+
+        async with async_session_factory() as session:
+            await apply_specialist_defaults_if_missing(
+                session,
+                specialist.specialist_id,
+                preferred_timezone=calendar_tz,
+            )
+            await session.commit()
 
         await _upsert_calendar_settings(
             specialist.specialist_id,

@@ -16,7 +16,12 @@ from database import (
     SpecialistCalendarSource,
     async_session_factory,
 )
-from services.google_calendar import list_calendars, create_bot_calendar, create_and_cleanup_test_event
+from services.google_calendar import (
+    list_calendars,
+    create_bot_calendar,
+    create_and_cleanup_test_event,
+    resolve_tz_for_calendar_creation,
+)
 from services.specialist_defaults import apply_specialist_defaults_if_missing
 from services.notify import notify_exception
 from handlers.personal_bot.routers.common.start import _render_onboarding_screen
@@ -95,7 +100,14 @@ def _calendar_select_keyboard(*, items: list[dict], page: int, page_size: int) -
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def _upsert_calendar_settings(*, specialist_id: int, calendar_id: str, calendar_summary: str | None, smoke_status: str | None) -> None:
+async def _upsert_calendar_settings(
+    *,
+    specialist_id: int,
+    calendar_id: str,
+    calendar_summary: str | None,
+    calendar_tz: str | None,
+    smoke_status: str | None,
+) -> None:
     async with async_session_factory() as session:
         settings = await session.get(SpecialistCalendarSettings, specialist_id)
         now = datetime.now(timezone.utc)
@@ -105,11 +117,13 @@ async def _upsert_calendar_settings(*, specialist_id: int, calendar_id: str, cal
                 calendar_id=calendar_id,
                 calendar_summary=calendar_summary,
                 source=SpecialistCalendarSource.selected,
+                calendar_time_zone=calendar_tz,
             )
             session.add(settings)
         else:
             settings.calendar_id = calendar_id
             settings.calendar_summary = calendar_summary
+            settings.calendar_time_zone = calendar_tz
 
         settings.last_smoke_test_status = smoke_status
         settings.last_smoke_test_at = now
@@ -175,10 +189,14 @@ async def personal_calendar_create(callback: types.CallbackQuery, state: FSMCont
             return
 
         calendar_name = (profile.public_name or "Специалист").strip() or "Специалист"
-        calendar = await create_bot_calendar(specialist_id, calendar_name, profile.specialist_timezone or "UTC")
+        tz_for_create = await resolve_tz_for_calendar_creation(
+            specialist_id=specialist_id,
+            profile_tz=profile.specialist_timezone,
+        )
+        calendar = await create_bot_calendar(specialist_id, calendar_name, tz_for_create)
         calendar_id = calendar.get("id")
         summary = calendar.get("summary")
-        calendar_tz = calendar.get("timeZone") or profile.specialist_timezone or "UTC"
+        calendar_tz = (calendar.get("timeZone") or tz_for_create or "UTC").strip() or "UTC"
 
         smoke_status = "ok"
         try:
@@ -190,11 +208,16 @@ async def personal_calendar_create(callback: types.CallbackQuery, state: FSMCont
             specialist_id=specialist_id,
             calendar_id=calendar_id,
             calendar_summary=summary,
+            calendar_tz=calendar_tz,
             smoke_status=smoke_status,
         )
 
         async with async_session_factory() as session:
-            await apply_specialist_defaults_if_missing(session, specialist_id)
+            await apply_specialist_defaults_if_missing(
+                session,
+                specialist_id,
+                preferred_timezone=calendar_tz,
+            )
             await session.commit()
 
         await callback.message.answer("✅ Календарь подключён.")
@@ -308,11 +331,12 @@ async def personal_calendar_pick(callback: types.CallbackQuery, state: FSMContex
         specialist_id=specialist_id,
         calendar_id=item["id"],
         calendar_summary=item.get("summary"),
+        calendar_tz=calendar_tz,
         smoke_status=smoke_status,
     )
 
     async with async_session_factory() as session:
-        await apply_specialist_defaults_if_missing(session, specialist_id)
+        await apply_specialist_defaults_if_missing(session, specialist_id, preferred_timezone=calendar_tz)
         await session.commit()
 
     await state.clear()
@@ -358,6 +382,7 @@ async def personal_calendar_smoke(callback: types.CallbackQuery, state: FSMConte
             specialist_id=specialist_id,
             calendar_id=settings.calendar_id,
             calendar_summary=settings.calendar_summary,
+            calendar_tz=tz,
             smoke_status="ok",
         )
         await callback.message.answer("✅ Smoke-test выполнен успешно.")
@@ -366,6 +391,7 @@ async def personal_calendar_smoke(callback: types.CallbackQuery, state: FSMConte
             specialist_id=specialist_id,
             calendar_id=settings.calendar_id,
             calendar_summary=settings.calendar_summary,
+            calendar_tz=tz,
             smoke_status="failed",
         )
         await notify_exception(

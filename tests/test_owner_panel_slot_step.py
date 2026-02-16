@@ -129,6 +129,9 @@ async def test_owner_cal_create_upserts_calendar_settings(monkeypatch) -> None:
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
+        async def commit(self):
+            return None
+
         async def get(self, model, specialist_id):
             if model is owner_panel.Specialist:
                 return type("SpecialistObj", (), {"specialist_id": specialist_id})()
@@ -167,10 +170,18 @@ async def test_owner_cal_create_upserts_calendar_settings(monkeypatch) -> None:
     async def fake_send_owner_panel(*args, **kwargs):
         return None
 
+    async def fake_resolve_tz_for_calendar_creation(*args, **kwargs):
+        return "Europe/Moscow"
+
+    async def fake_apply_defaults(*args, **kwargs):
+        return None
+
     monkeypatch.setattr(owner_panel, "async_session_factory", lambda: DummySession())
+    monkeypatch.setattr(owner_panel, "resolve_tz_for_calendar_creation", fake_resolve_tz_for_calendar_creation)
     monkeypatch.setattr(owner_panel, "create_bot_calendar", fake_create_bot_calendar)
     monkeypatch.setattr(owner_panel, "create_and_cleanup_test_event", fake_smoke)
     monkeypatch.setattr(owner_panel, "_upsert_calendar_settings", fake_upsert_calendar_settings)
+    monkeypatch.setattr(owner_panel, "apply_specialist_defaults_if_missing", fake_apply_defaults)
     monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
 
     callback = DummyCallback()

@@ -14,8 +14,14 @@ from database import (
     WeeklyAvailability,
     async_session_factory,
 )
-from services.google_calendar import create_and_cleanup_test_event, create_bot_calendar, list_calendars
+from services.google_calendar import (
+    create_and_cleanup_test_event,
+    create_bot_calendar,
+    list_calendars,
+    resolve_tz_for_calendar_creation,
+)
 from services.specialist_defaults import (
+    apply_specialist_defaults_if_missing,
     ALLOWED_SLOT_STEPS_MIN,
     DEFAULT_BUFFER_MIN,
     DEFAULT_CANCEL_WINDOW_HOURS,
@@ -846,10 +852,14 @@ async def owner_calendar_create(
         )
         return
 
+    tz_for_create = await resolve_tz_for_calendar_creation(
+        specialist_id=specialist.specialist_id,
+        profile_tz=profile.specialist_timezone,
+    )
     calendar = await create_bot_calendar(
         specialist.specialist_id,
         profile.public_name,
-        profile.specialist_timezone or "UTC",
+        tz_for_create,
     )
     calendar_id = calendar.get("id")
     calendar_summary = calendar.get("summary")
@@ -862,7 +872,7 @@ async def owner_calendar_create(
             owner_tg_user_id=owner_tg_user_id,
         )
         return
-    calendar_tz = calendar.get("timeZone") or profile.specialist_timezone or "UTC"
+    calendar_tz = (calendar.get("timeZone") or tz_for_create or "UTC").strip() or "UTC"
 
     await _upsert_calendar_settings(
         specialist_id=specialist.specialist_id,
@@ -871,6 +881,14 @@ async def owner_calendar_create(
         calendar_tz=calendar_tz,
         source=SpecialistCalendarSource.created,
     )
+
+    async with async_session_factory() as session:
+        await apply_specialist_defaults_if_missing(
+            session,
+            specialist.specialist_id,
+            preferred_timezone=calendar_tz,
+        )
+        await session.commit()
 
     try:
         await create_and_cleanup_test_event(specialist.specialist_id, calendar_id, calendar_tz)
