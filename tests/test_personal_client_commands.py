@@ -90,6 +90,10 @@ async def test_client_menu_buttons_return_stubs():
         "async_session_factory",
         _mock_client_tz_session_factory(timezone_name=None),
     )
+    async def _weekly(**_kwargs):
+        return types.SimpleNamespace(is_working=True)
+
+    monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
 
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
     monkeypatch.undo()
@@ -309,10 +313,51 @@ async def test_client_book_button_shows_gmt_in_header(monkeypatch):
         "async_session_factory",
         _mock_client_tz_session_factory(timezone_name="Europe/Moscow"),
     )
+    async def _weekly(**_kwargs):
+        return types.SimpleNamespace(is_working=True)
+
+    monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
 
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
 
     assert book_msg.answers[0][0] == "Выберите день (GMT+3):"
+
+
+@pytest.mark.asyncio
+async def test_client_book_button_disables_non_working_days(monkeypatch):
+    book_msg = DummyMessage("Записаться", from_user=types.SimpleNamespace(id=42))
+    state = DummyState()
+
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    async def _weekly(*, specialist_id, weekday):
+        assert specialist_id == "sp-id"
+        return types.SimpleNamespace(is_working=weekday in {0, 2, 4})
+
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(client_commands, "_first_available_day", lambda **_kwargs: date(2026, 2, 20))
+    monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    monkeypatch.setattr(
+        client_commands,
+        "async_session_factory",
+        _mock_client_tz_session_factory(timezone_name="UTC"),
+    )
+
+    await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
+
+    markup = book_msg.answers[0][1].get("reply_markup")
+    assert markup is not None
+    buttons = [button for row in markup.inline_keyboard for button in row]
+    assert [button.callback_data for button in buttons] == [
+        "client_book_day:2026-02-20",
+        "noop",
+        "noop",
+        "client_book_day:2026-02-23",
+        "noop",
+        "client_book_day:2026-02-25",
+        "noop",
+    ]
 
 
 @pytest.mark.asyncio

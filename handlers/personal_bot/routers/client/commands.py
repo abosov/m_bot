@@ -136,12 +136,14 @@ def _first_available_day(*, now_utc: datetime, specialist_tz: ZoneInfo) -> date:
     return local_now.date() + timedelta(days=start_offset_days)
 
 
-def _booking_day_keyboard(days: list[date]):
+def _booking_day_keyboard(days: list[date], *, enabled_by_iso: dict[str, bool]):
     builder = InlineKeyboardBuilder()
     for booking_day in days:
+        day_iso = booking_day.isoformat()
+        callback_data = f"client_book_day:{day_iso}" if enabled_by_iso.get(day_iso, False) else "noop"
         builder.button(
             text=booking_day.strftime("%d.%m (%a)"),
-            callback_data=f"client_book_day:{booking_day.isoformat()}",
+            callback_data=callback_data,
         )
     builder.adjust(2)
     return builder.as_markup()
@@ -277,6 +279,10 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
     specialist_tz = await _get_specialist_tz(specialist_id)
     first_day = _first_available_day(now_utc=datetime.now(timezone.utc), specialist_tz=specialist_tz)
     available_days = [first_day + timedelta(days=idx) for idx in range(7)]
+    enabled_by_iso: dict[str, bool] = {}
+    for booking_day in available_days:
+        weekly_row = await _get_weekly_availability_row(specialist_id=specialist_id, weekday=booking_day.weekday())
+        enabled_by_iso[booking_day.isoformat()] = weekly_row is not None and weekly_row.is_working
     client_tz = (
         await _get_client_tz(specialist_id=specialist_id, tg_user_id=message.from_user.id)
         if message.from_user is not None
@@ -286,7 +292,10 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
 
     await state.set_state(ClientBookingState.waiting_for_day)
     await state.update_data(booking_available_days=[item.isoformat() for item in available_days])
-    await message.answer(f"Выберите день ({gmt_label}):", reply_markup=_booking_day_keyboard(available_days))
+    await message.answer(
+        f"Выберите день ({gmt_label}):",
+        reply_markup=_booking_day_keyboard(available_days, enabled_by_iso=enabled_by_iso),
+    )
 
 
 @router.callback_query(ClientBookingState.waiting_for_day, F.data.startswith("client_book_day:"))
