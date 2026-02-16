@@ -608,8 +608,8 @@ async def test_calendar_pick_success_sets_selected_and_smoke_ok(tmp_path, monkey
         def __init__(self):
             self.sent = []
 
-        async def answer(self, text, reply_markup=None):
-            self.sent.append((text, reply_markup))
+        async def answer(self, text, reply_markup=None, **kwargs):
+            self.sent.append((text, reply_markup, kwargs))
 
     class _Callback:
         def __init__(self):
@@ -653,6 +653,111 @@ async def test_send_safe_html_message_fallbacks_to_plain_text(monkeypatch):
     assert calls[0]["parse_mode"] == onboarding.ParseMode.HTML
     assert calls[1]["parse_mode"] is None
 
+
+
+
+@pytest.mark.asyncio
+async def test_calendar_pick_success_message_falls_back_to_plain_text_on_bad_entities(tmp_path, monkeypatch):
+    _, database = _load_web_app(tmp_path, monkeypatch)
+
+    import handlers.master_onboarding as onboarding
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.onboarding))
+        session.add(
+            database.SpecialistAuthTelegram(
+                specialist_id=specialist_id,
+                tg_user_id=777,
+                tg_username="spec",
+                tg_first_name="Spec",
+                tg_last_name=None,
+            )
+        )
+        session.add(
+            database.SpecialistProfile(
+                specialist_id=specialist_id,
+                public_name="Spec",
+                owner_tg_user_id=777,
+                owner_tg_username="spec",
+                specialist_timezone="Europe/Moscow",
+            )
+        )
+        await session.commit()
+
+    monkeypatch.setattr(onboarding, "async_session_factory", database.async_session_factory)
+
+    async def _upsert_stub(*args, **kwargs):
+        return None
+
+    async def _smoke_stub(*args, **kwargs):
+        return None
+
+    async def _finalize_stub(*args, **kwargs):
+        return None
+
+    async def _welcome_stub(*args, **kwargs):
+        return "my_personal_bot"
+
+    monkeypatch.setattr(onboarding, "_upsert_calendar_settings", _upsert_stub)
+    monkeypatch.setattr(onboarding, "create_and_cleanup_test_event", _smoke_stub)
+    monkeypatch.setattr(onboarding, "finalize_specialist_if_ready", _finalize_stub)
+    monkeypatch.setattr(onboarding, "_notify_personal_bot_welcome", _welcome_stub)
+
+    class _State:
+        async def get_data(self):
+            return {
+                "cal_items": [
+                    {
+                        "id": "cal-1",
+                        "summary": "Work",
+                        "timeZone": "Europe/Moscow",
+                        "primary": False,
+                        "accessRole": "owner",
+                    }
+                ]
+            }
+
+        async def clear(self):
+            return None
+
+    class _Message:
+        def __init__(self):
+            self.calls = []
+
+        async def answer(self, text, parse_mode=None, disable_web_page_preview=None, reply_markup=None, **kwargs):
+            self.calls.append(
+                {
+                    "text": text,
+                    "parse_mode": parse_mode,
+                    "disable_web_page_preview": disable_web_page_preview,
+                    "reply_markup": reply_markup,
+                }
+            )
+            if len(self.calls) == 1:
+                raise onboarding.TelegramBadRequest(method="sendMessage", message="can't parse entities")
+            return None
+
+    class _Callback:
+        def __init__(self):
+            self.from_user = SimpleNamespace(id=777)
+            self.data = "calendar:pick:0"
+            self.message = _Message()
+
+        async def answer(self, *args, **kwargs):
+            return None
+
+    callback = _Callback()
+    await onboarding.calendar_pick(callback, _State())
+
+    assert len(callback.message.calls) == 2
+    assert callback.message.calls[0]["parse_mode"] is None
+    assert callback.message.calls[0]["disable_web_page_preview"] is True
+    assert callback.message.calls[1]["parse_mode"] is None
+    assert callback.message.calls[1]["disable_web_page_preview"] is None
 
 @pytest.mark.asyncio
 async def test_calendar_pick_post_success_exception_shows_final_step_warning(tmp_path, monkeypatch):
@@ -718,8 +823,8 @@ async def test_calendar_pick_post_success_exception_shows_final_step_warning(tmp
         def __init__(self):
             self.sent = []
 
-        async def answer(self, text, reply_markup=None):
-            self.sent.append((text, reply_markup))
+        async def answer(self, text, reply_markup=None, **kwargs):
+            self.sent.append((text, reply_markup, kwargs))
 
     class _Callback:
         def __init__(self):
@@ -735,8 +840,8 @@ async def test_calendar_pick_post_success_exception_shows_final_step_warning(tmp
     callback = _Callback()
     await onboarding.calendar_pick(callback, _State())
 
-    assert any("Календарь выбран/подключён" in text for text, _ in callback.message.sent)
-    assert not any("Не удалось применить выбранный календарь" in text for text, _ in callback.message.sent)
+    assert any("Календарь выбран/подключён" in text for text, _, _ in callback.message.sent)
+    assert not any("Не удалось применить выбранный календарь" in text for text, _, _ in callback.message.sent)
     assert callback.answered == 1
 
 
@@ -795,8 +900,8 @@ async def test_calendar_create_post_success_exception_shows_final_step_warning(t
         def __init__(self):
             self.sent = []
 
-        async def answer(self, text, reply_markup=None):
-            self.sent.append((text, reply_markup))
+        async def answer(self, text, reply_markup=None, **kwargs):
+            self.sent.append((text, reply_markup, kwargs))
 
     class _Callback:
         def __init__(self):
@@ -812,6 +917,6 @@ async def test_calendar_create_post_success_exception_shows_final_step_warning(t
     callback = _Callback()
     await onboarding.calendar_create(callback, _State())
 
-    assert any("Календарь создан/подключён" in text for text, _ in callback.message.sent)
-    assert not any("Не удалось подключить календарь" in text for text, _ in callback.message.sent)
+    assert any("Календарь создан/подключён" in text for text, _, _ in callback.message.sent)
+    assert not any("Не удалось подключить календарь" in text for text, _, _ in callback.message.sent)
     assert callback.answered == 1

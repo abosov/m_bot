@@ -125,6 +125,19 @@ async def _send_safe_html_message(
         return await message.answer(text, parse_mode=None, reply_markup=reply_markup)
 
 
+async def _answer_plain(
+    message: types.Message,
+    text: str,
+) -> types.Message:
+    try:
+        return await message.answer(text, parse_mode=None, disable_web_page_preview=True)
+    except TelegramBadRequest as exc:
+        if "can't parse entities" not in str(exc):
+            raise
+        logger.warning("Telegram plain-text fallback in master_onboarding.calendar_pick; retry without preview flags")
+        return await message.answer(text, parse_mode=None)
+
+
 
 
 async def send_user_message(
@@ -1283,15 +1296,17 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
                 )
 
             if post_actions_failed:
-                await callback.message.answer(
-                    "✅ Календарь подключён. Если личный бот не открылся автоматически — откройте его вручную."
+                await _answer_plain(
+                    callback.message,
+                    "✅ Календарь подключён. Если личный бот не открылся автоматически — откройте его вручную.",
                 )
             else:
-                await callback.message.answer(
+                text_out = (
                     "✅ Календарь подключён. Master-онбординг завершён.\n"
                     "Чтобы завершить онбординг полностью, перейдите в персональный бот и подтвердите/настройте параметры:\n"
                     f"@{personal_username}\n{deep_link}"
                 )
+                await _answer_plain(callback.message, text_out)
 
         await callback.answer()
     except Exception as exc:
@@ -1311,7 +1326,7 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
                 },
                 event=callback,
             )
-            await callback.message.answer(text_out)
+            await _answer_plain(callback.message, text_out)
         else:
             text_out = "⚠️ Не удалось применить выбранный календарь. Попробуйте позже."
             await notify_exception(
