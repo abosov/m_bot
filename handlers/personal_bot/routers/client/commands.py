@@ -1,5 +1,6 @@
 import logging
 from datetime import date, datetime, time, timedelta, timezone
+from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import F, Router
@@ -158,6 +159,63 @@ def _format_slot_lines(slots: list[datetime]) -> str:
     if not slots:
         return "Нет доступных слотов в выбранном диапазоне."
     return "Выберите слот:"
+
+
+def _client_appointments_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Обновить", callback_data="client_appt:list")
+    builder.button(text="В меню", callback_data="client_appt:menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+async def _render_client_appointments(message: Message, specialist_id: UUID, tg_user_id: int) -> None:
+    now_utc = datetime.now(timezone.utc)
+
+    async with async_session_factory() as session:
+        client = (
+            await session.execute(
+                select(Client)
+                .where(Client.specialist_id == specialist_id)
+                .where(Client.tg_user_id == tg_user_id)
+            )
+        ).scalar_one_or_none()
+        if client is None:
+            await message.answer("Профиль клиента не найден. Нажмите /start.")
+            return
+
+        appointments = (
+            await session.execute(
+                select(Appointment)
+                .where(Appointment.client_id == client.client_id)
+                .where(Appointment.start_at_utc >= now_utc)
+                .where(Appointment.booking_state.in_((BookingState.confirmed, BookingState.failed)))
+                .order_by(Appointment.start_at_utc.asc())
+                .limit(10)
+            )
+        ).scalars().all()
+
+    tz_name = client.client_timezone or "UTC"
+    try:
+        client_tz = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        client_tz = ZoneInfo("UTC")
+
+    if not appointments:
+        text = "У вас нет будущих записей."
+    else:
+        state_map = {
+            BookingState.confirmed: "подтверждена",
+            BookingState.failed: "не подтверждена",
+        }
+        lines = ["Ваши записи:"]
+        for appointment in appointments:
+            local_start = appointment.start_at_utc.astimezone(client_tz)
+            status = state_map.get(appointment.booking_state, str(appointment.booking_state))
+            lines.append(f"{local_start.strftime('%Y-%m-%d %H:%M')} — {status}")
+        text = "\n".join(lines)
+
+    await message.answer(text, reply_markup=_client_appointments_keyboard())
 
 
 @router.message(F.text == "Записаться")
@@ -328,11 +386,29 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
     await callback.answer()
 
 
-@router.message(F.text == "Мои записи (пока stub)")
-async def client_my_appointments_button(message: Message, actor: str) -> None:
+@router.message(F.text.in_({"Мои записи", "Мои записи (пока stub)"}))
+async def client_my_appointments_button(message: Message, actor: str, specialist_id) -> None:
     if actor != "client":
         return
-    await message.answer("Раздел 'Мои записи' скоро будет доступен.")
+    if message.from_user is None:
+        return
+    await _render_client_appointments(message, specialist_id, message.from_user.id)
+
+
+@router.callback_query(F.data == "client_appt:list")
+async def client_my_appointments_refresh(callback, specialist_id) -> None:
+    await callback.answer()
+    if callback.message is None:
+        return
+    await _render_client_appointments(callback.message, specialist_id, callback.from_user.id)
+
+
+@router.callback_query(F.data == "client_appt:menu")
+async def client_my_appointments_to_menu(callback) -> None:
+    await callback.answer()
+    if callback.message is None:
+        return
+    await callback.message.answer("Возвращаю в меню.", reply_markup=_client_menu_keyboard())
 
 
 @router.message(F.text == "Сменить часовой пояс (пока stub)")
