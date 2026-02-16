@@ -328,7 +328,8 @@ async def _render_client_appointments(message: Message, specialist_id: UUID, tg_
             BookingState.failed: "не подтверждена",
         }
         has_failed = any(appointment.booking_state == BookingState.failed for appointment in appointments)
-        lines = ["Ваши записи:"]
+        gmt_label = _format_gmt_offset_label(client_tz)
+        lines = [f"Ваши записи ({gmt_label}):"]
         for appointment in appointments:
             local_start = appointment.start_at_utc.astimezone(client_tz)
             status = state_map.get(appointment.booking_state, str(appointment.booking_state))
