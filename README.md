@@ -276,6 +276,25 @@ pytest -q tests/test_webhook_endpoint.py
 pytest -q tests/test_google_calendar_async.py
 ```
 
+### Encoding guard (проверка кодировки)
+
+Зачем это нужно:
+- ранно ловит не-UTF-8 файлы и артефакты mojibake до релиза;
+- защищает тексты интерфейса/документации от «кракозябр» после merge и деплоя;
+- уменьшает риск неожиданных ошибок при обработке строк в runtime и в интеграциях.
+
+Локальный запуск:
+
+```bash
+python scripts/check_encoding.py
+```
+
+Строгий режим (warning = fail):
+
+```bash
+python scripts/check_encoding.py --strict-warn
+```
+
 Что покрывают эти проверки:
 - `tests/test_webhook_endpoint.py` — поведение webhook endpoint,
   включая негативные кейсы и ограничение payload (HTTP 413 для слишком больших тел).

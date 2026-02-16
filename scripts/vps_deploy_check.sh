@@ -64,6 +64,16 @@ check_yaml_import() {
   "${venv_python}" -c "import yaml; print('OK')" >/dev/null || die "PyYAML import failed in .venv. Install deps (pip install -r requirements.txt) and verify requirements include PyYAML."
 }
 
+check_encoding_guard() {
+  local venv_python="${VENV_DIR}/bin/python3"
+  local encoding_script="${REPO_DIR}/scripts/check_encoding.py"
+
+  [[ -x "${venv_python}" ]] || die "venv python missing (${venv_python})"
+  [[ -f "${encoding_script}" ]] || die "encoding guard script missing (${encoding_script})"
+
+  "${venv_python}" "${encoding_script}" || die "encoding guard failed"
+}
+
 check_migrations_applied() {
   set -a
   # shellcheck disable=SC1090
@@ -214,6 +224,7 @@ run_checks() {
   run_step "Check venv" check_venv
   run_step "Print git/build info" print_git_and_build_info
   run_step "Check PyYAML import" check_yaml_import
+  run_step "Encoding guard" check_encoding_guard
   run_step "Check systemd units" check_systemd_units
   run_step "Check /healthz" check_http_endpoint "http://127.0.0.1:8000/healthz" "/healthz"
   run_step "Check /readyz" check_http_endpoint "http://127.0.0.1:8000/readyz" "/readyz"

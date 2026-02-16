@@ -22,6 +22,8 @@ sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/vps_deploy_check.sh --mode
 
 `vps_deploy_check.sh` в режиме `checks` делает только валидации без `git pull`/`pip install`/`restart`, но выполняет idempotent-проверку миграций через `scripts/run_migrations.sh` (обёртка над `scripts/db_migrate.sh`, с автозагрузкой `/etc/zumbot/backend.env`).
 
+Отдельным шагом запускается **Encoding guard** (`scripts/check_encoding.py`) для проверки UTF-8 и признаков mojibake в репозитории.
+
 `vps_deploy_check.sh --mode deploy` выполняет ручной деплой и затем пост-проверки:
 - `git fetch` + `git pull --ff-only origin main`;
 - `pip install -r requirements.txt` в `.venv` от пользователя `zumbot`;
@@ -324,4 +326,18 @@ sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --specialist-id 456 --chec
 
 ```bash
 sudo bash /opt/zumbot/backend/scripts/diag_collect.sh --owner-tg-id 123 --check-only
+```
+
+### Локальный запуск Encoding guard
+
+Зачем: чтобы до деплоя находить проблемы кодировки (не-UTF-8 и «кракозябры»/mojibake) и не тащить их в main/prod.
+
+```bash
+python scripts/check_encoding.py
+```
+
+Строгий режим (warning считается ошибкой):
+
+```bash
+python scripts/check_encoding.py --strict-warn
 ```
