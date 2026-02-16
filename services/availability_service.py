@@ -263,9 +263,9 @@ class AvailabilityService:
     def _split_by_part_of_day(starts: list[datetime]) -> dict[str, list[datetime]]:
         result: dict[str, list[datetime]] = {"morning": [], "day": [], "evening": []}
         for start in sorted(starts):
-            if start.hour < 12:
+            if start.hour < 13:
                 result["morning"].append(start)
-            elif start.hour < 18:
+            elif start.hour < 17:
                 result["day"].append(start)
             else:
                 result["evening"].append(start)

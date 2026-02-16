@@ -52,8 +52,8 @@ async def test_get_candidate_slots_for_date_applies_pipeline_and_groups_parts_of
     )
 
     assert slots == {
-        "morning": [datetime(2026, 2, 12, 11, 30)],
-        "day": [datetime(2026, 2, 12, 12, 0)],
+        "morning": [datetime(2026, 2, 12, 11, 30), datetime(2026, 2, 12, 12, 0)],
+        "day": [],
         "evening": [],
     }
 
@@ -195,3 +195,20 @@ async def test_get_candidate_slots_for_date_range_applies_packing_and_limits_to_
         datetime(2026, 2, 12, 9, 0),
         datetime(2026, 2, 12, 9, 30),
     ]
+
+
+def test_split_by_part_of_day_uses_new_boundaries() -> None:
+    starts = [
+        datetime(2026, 2, 12, 12, 30),
+        datetime(2026, 2, 12, 13, 0),
+        datetime(2026, 2, 12, 16, 30),
+        datetime(2026, 2, 12, 17, 0),
+    ]
+
+    slots = AvailabilityService._split_by_part_of_day(starts)
+
+    assert slots == {
+        "morning": [datetime(2026, 2, 12, 12, 30)],
+        "day": [datetime(2026, 2, 12, 13, 0), datetime(2026, 2, 12, 16, 30)],
+        "evening": [datetime(2026, 2, 12, 17, 0)],
+    }
