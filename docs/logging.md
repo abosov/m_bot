@@ -153,15 +153,37 @@ python scripts/export_logs.py \
 
 - Базовый источник:
   - `journalctl -u zumbot-backend.service --since "24 hours ago" --no-pager`
-- Если в окружении задан `LOG_DIR` и директория существует, runtime-логи пишутся
-  в файлы (типовая структура):
-  - `app.log` — общий лог приложения;
-  - `http.log` — HTTP/access контекст;
-  - `bot.log` — события Telegram-ботов.
+- Если в окружении задан `LOG_DIR`, backend создаёт директорию при необходимости и
+  пишет runtime-логи в файлы с префиксом `LOG_FILE_PREFIX`:
+  - `<prefix>.app.log` — общий лог приложения;
+  - `<prefix>.http.log` — HTTP/access контекст (`logger="http"`);
+  - `<prefix>.bot.log` — события Telegram-ботов (`logger="handlers"`).
 
-Ротация файлов в `LOG_DIR` настраивается параметрами:
-- `maxBytes` — максимальный размер файла до ротации;
-- `backupCount` — число архивных файлов (`*.log.*`).
+Пример при `LOG_FILE_PREFIX=zumbot`:
+- `zumbot.app.log`
+- `zumbot.http.log`
+- `zumbot.bot.log`
+
+Ротация файлов в `LOG_DIR` настраивается env-параметрами:
+- `LOG_MAX_BYTES` — максимальный размер файла до ротации;
+- `LOG_BACKUP_COUNT` — число архивных файлов (`*.log.*`).
+
+Формат строк runtime-логов задаётся `LOG_FORMAT`:
+- `kv` (по умолчанию), пример:
+  - `ts=2026-02-16T09:12:34.567890+00:00 level=INFO logger=app msg="service started"`
+- `json`, пример:
+  - `{"ts":"2026-02-16T09:12:34.567890+00:00","level":"INFO","logger":"app","msg":"service started"}`
+
+### ENV runtime logging
+
+| Переменная | Назначение | Пример | Default | Где используется |
+|---|---|---|---|---|
+| `LOG_LEVEL` | Уровень логирования root logger (`DEBUG/INFO/WARNING/...`). | `LOG_LEVEL=INFO` | `INFO` | `config.py` (чтение/валидация) и `services/runtime_logging.py` (`root_logger.setLevel`, уровни `http`/`handlers`). |
+| `LOG_DIR` | Директория для файлов runtime-логов. Если не задана, используются только stdout/stderr. | `LOG_DIR=/var/log/zumbot` | `None` (не задана) | `config.py`; `services/runtime_logging.py` (создание директории, подключение file handlers). |
+| `LOG_FILE_PREFIX` | Префикс имени файлов runtime-логов в `LOG_DIR`. | `LOG_FILE_PREFIX=zumbot` | `zumbot` | `config.py`; `services/runtime_logging.py` (имена `<prefix>.app.log`, `<prefix>.http.log`, `<prefix>.bot.log`). |
+| `LOG_FORMAT` | Формат строки лога: `kv` или `json`. | `LOG_FORMAT=json` | `kv` | `config.py` (нормализация и валидация), `services/runtime_logging.py` (`KVFormatter`/`JSONFormatter`). |
+| `LOG_MAX_BYTES` | Максимальный размер одного log-файла до ротации (`RotatingFileHandler.maxBytes`). | `LOG_MAX_BYTES=10485760` | `10485760` | `config.py` (парсинг/ограничения), `services/runtime_logging.py` (`RotatingFileHandler`). |
+| `LOG_BACKUP_COUNT` | Количество архивных файлов после ротации (`RotatingFileHandler.backupCount`). | `LOG_BACKUP_COUNT=5` | `5` | `config.py` (парсинг/ограничения), `services/runtime_logging.py` (`RotatingFileHandler`). |
 
 Для упаковки runtime-логов в единый архив используйте:
 
