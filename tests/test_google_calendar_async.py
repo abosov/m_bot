@@ -275,3 +275,68 @@ async def test_create_appointment_event_formats_summary_and_description(
     if tg_username:
         assert "@@" not in captured_payload["summary"]
         assert "@@" not in captured_payload["description"]
+
+
+async def _create_appointment_event_and_capture_payload(
+    monkeypatch,
+    *,
+    display_name,
+    username,
+    tg_user_id,
+    client_code,
+):
+    specialist_id = uuid.uuid4()
+    captured_payload = {}
+
+    async def fake_headers(_specialist_id):
+        return {"Authorization": "Bearer token", "Content-Type": "application/json"}
+
+    async def fake_calendar_request(_request_callable, _url, **kwargs):
+        captured_payload.update(kwargs.get("json") or {})
+        return _CreateEventResponse()
+
+    monkeypatch.setattr(google_calendar, "_build_headers", fake_headers)
+    monkeypatch.setattr(google_calendar, "_calendar_request_with_retry", fake_calendar_request)
+
+    await google_calendar.create_appointment_event(
+        specialist_id=specialist_id,
+        calendar_id="primary",
+        start_at_utc=datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc),
+        end_at_utc=datetime(2026, 1, 1, 11, 0, tzinfo=timezone.utc),
+        specialist_tz="UTC",
+        client_display_name=display_name,
+        client_tg_username=username,
+        client_tg_user_id=tg_user_id,
+        client_code=client_code,
+    )
+
+    return captured_payload
+
+
+@pytest.mark.asyncio
+async def test_create_appointment_event_payload_when_username_present(monkeypatch):
+    payload = await _create_appointment_event_and_capture_payload(
+        monkeypatch,
+        display_name="Клиент А",
+        username="anna",
+        tg_user_id=42,
+        client_code="A1",
+    )
+
+    assert "(@anna)" in payload["summary"]
+    assert "https://t.me/anna" in payload["description"]
+
+
+@pytest.mark.asyncio
+async def test_create_appointment_event_payload_when_username_absent(monkeypatch):
+    payload = await _create_appointment_event_and_capture_payload(
+        monkeypatch,
+        display_name="Клиент А",
+        username=None,
+        tg_user_id=42,
+        client_code="A1",
+    )
+
+    assert "(#A1)" in payload["summary"] or "(tg_id=42)" in payload["summary"]
+    assert "tg_user_id=42" in payload["description"]
+    assert "tg://user?id=42" in payload["description"]
