@@ -52,6 +52,9 @@ class _Result:
     def scalar_one_or_none(self):
         return self._value
 
+    def scalar_one(self):
+        return self._value
+
 
 def _mock_client_tz_session_factory(*, timezone_name: str | None):
     class _Session:
@@ -94,6 +97,10 @@ async def test_client_menu_buttons_return_stubs():
         return types.SimpleNamespace(is_working=True)
 
     monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    async def _day_limit_false(**_kwargs):
+        return False
+
+    monkeypatch.setattr(client_commands, "_is_day_limit_reached", _day_limit_false)
 
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
     monkeypatch.undo()
@@ -318,6 +325,11 @@ async def test_client_book_button_shows_gmt_in_header(monkeypatch):
 
     monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
 
+    async def _day_limit_false(**_kwargs):
+        return False
+
+    monkeypatch.setattr(client_commands, "_is_day_limit_reached", _day_limit_false)
+
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
 
     assert book_msg.answers[0][0] == "Выберите день (GMT+3):"
@@ -338,6 +350,10 @@ async def test_client_book_button_disables_non_working_days(monkeypatch):
     monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
     monkeypatch.setattr(client_commands, "_first_available_day", lambda **_kwargs: date(2026, 2, 20))
     monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    async def _day_limit_false(**_kwargs):
+        return False
+
+    monkeypatch.setattr(client_commands, "_is_day_limit_reached", _day_limit_false)
     monkeypatch.setattr(
         client_commands,
         "async_session_factory",
@@ -357,6 +373,61 @@ async def test_client_book_button_disables_non_working_days(monkeypatch):
         "noop",
         "client_book_day:2026-02-25",
         "noop",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_client_book_button_disables_day_when_limit_reached(monkeypatch):
+    book_msg = DummyMessage("Записаться", from_user=types.SimpleNamespace(id=42))
+    state = DummyState()
+
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    async def _weekly(*, specialist_id, weekday):
+        assert specialist_id == "sp-id"
+        return types.SimpleNamespace(is_working=True)
+
+    count_calls = {"value": 0}
+
+    class _Session:
+        async def get(self, model, specialist_id):
+            assert model == client_commands.SpecialistProfile
+            assert specialist_id == "sp-id"
+            return types.SimpleNamespace(max_sessions_per_day=2)
+
+        async def execute(self, stmt):
+            stmt_text = str(stmt)
+            if "count" in stmt_text.lower():
+                count_calls["value"] += 1
+                return _Result(2 if count_calls["value"] == 2 else 0)
+            return _Result(types.SimpleNamespace(client_timezone="UTC"))
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(client_commands, "_first_available_day", lambda **_kwargs: date(2026, 2, 20))
+    monkeypatch.setattr(client_commands, "_get_weekly_availability_row", _weekly)
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+
+    await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
+
+    markup = book_msg.answers[0][1].get("reply_markup")
+    assert markup is not None
+    buttons = [button for row in markup.inline_keyboard for button in row]
+    assert [button.callback_data for button in buttons] == [
+        "client_book_day:2026-02-20",
+        "noop",
+        "client_book_day:2026-02-22",
+        "client_book_day:2026-02-23",
+        "client_book_day:2026-02-24",
+        "client_book_day:2026-02-25",
+        "client_book_day:2026-02-26",
     ]
 
 

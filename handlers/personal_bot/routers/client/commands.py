@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from database import (
     Appointment,
@@ -93,6 +93,32 @@ async def _get_session_duration_min(specialist_id) -> int:
     if profile is None or profile.session_duration_min is None:
         return 60
     return profile.session_duration_min
+
+
+async def _is_day_limit_reached(*, specialist_id, day_local: date, specialist_tz: ZoneInfo) -> bool:
+    day_start_local = datetime.combine(day_local, time(0, 0), tzinfo=specialist_tz)
+    day_end_local = day_start_local + timedelta(days=1)
+    start_utc = day_start_local.astimezone(timezone.utc)
+    end_utc = day_end_local.astimezone(timezone.utc)
+
+    async with async_session_factory() as session:
+        profile = await session.get(SpecialistProfile, specialist_id)
+        max_sessions_per_day = 4
+        if profile is not None and profile.max_sessions_per_day is not None:
+            max_sessions_per_day = profile.max_sessions_per_day
+
+        day_appointments_count = (
+            await session.execute(
+                select(func.count())
+                .select_from(Appointment)
+                .where(Appointment.specialist_id == specialist_id)
+                .where(Appointment.start_at_utc >= start_utc)
+                .where(Appointment.start_at_utc < end_utc)
+                .where(Appointment.booking_state.in_((BookingState.confirmed, BookingState.pending)))
+            )
+        ).scalar_one()
+
+    return day_appointments_count >= max_sessions_per_day
 
 
 async def _get_client_tz(*, specialist_id, tg_user_id) -> ZoneInfo:
@@ -282,7 +308,13 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
     enabled_by_iso: dict[str, bool] = {}
     for booking_day in available_days:
         weekly_row = await _get_weekly_availability_row(specialist_id=specialist_id, weekday=booking_day.weekday())
-        enabled_by_iso[booking_day.isoformat()] = weekly_row is not None and weekly_row.is_working
+        is_working_day = weekly_row is not None and weekly_row.is_working
+        is_day_limit_reached = (
+            await _is_day_limit_reached(specialist_id=specialist_id, day_local=booking_day, specialist_tz=specialist_tz)
+            if is_working_day
+            else False
+        )
+        enabled_by_iso[booking_day.isoformat()] = is_working_day and not is_day_limit_reached
     client_tz = (
         await _get_client_tz(specialist_id=specialist_id, tg_user_id=message.from_user.id)
         if message.from_user is not None
