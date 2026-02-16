@@ -383,13 +383,32 @@ async def create_appointment_event(
     end_at_utc: datetime,
     specialist_tz: str,
     client_display_name: str | None,
+    client_tg_username: str | None = None,
+    client_tg_user_id: int | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     try:
         headers = await _build_headers(specialist_id)
+        display_name_or_fallback = client_display_name.strip() if client_display_name and client_display_name.strip() else "клиентом"
+
+        username_raw = (client_tg_username or "").strip()
+        if username_raw.startswith("@"):
+            username_raw = username_raw[1:]
+
+        if username_raw:
+            summary = f"Сессия с {display_name_or_fallback} (@{username_raw})"
+            description = (
+                "Создано автоматически после подтверждения записи в боте\n"
+                f"Клиент: {display_name_or_fallback}\n"
+                f"Telegram: @{username_raw} (tg_user_id={client_tg_user_id})"
+            )
+        else:
+            summary = f"Сессия с {display_name_or_fallback}"
+            description = "Создано автоматически после подтверждения записи в боте"
+
         payload = {
-            "summary": f"Сессия с {client_display_name.strip()}" if client_display_name and client_display_name.strip() else "Сессия с клиентом",
-            "description": "Создано автоматически после подтверждения записи в боте",
+            "summary": summary,
+            "description": description,
             "start": {"dateTime": start_at_utc.isoformat(), "timeZone": specialist_tz},
             "end": {"dateTime": end_at_utc.isoformat(), "timeZone": specialist_tz},
         }
