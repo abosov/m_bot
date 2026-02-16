@@ -23,6 +23,10 @@ EXCLUDED_DIRS = {
     ".vscode",
 }
 
+EXCLUDED_FILENAMES = {
+    ".DS_Store",
+}
+
 EXCLUDED_EXTENSIONS = {
     ".png",
     ".jpg",
@@ -101,6 +105,8 @@ def resolve_requested_path(repo_root: Path, raw_path: str) -> Path:
 
 def should_skip_file(path: Path) -> bool:
     if any(part in EXCLUDED_DIRS for part in path.parts):
+        return True
+    if path.name in EXCLUDED_FILENAMES:
         return True
     return path.suffix.lower() in EXCLUDED_EXTENSIONS
 
