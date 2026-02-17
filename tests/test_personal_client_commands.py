@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from handlers.personal_bot.routers.client import commands as client_commands
+from handlers.personal_bot.routers.client.commands import CLIENT_TZ_PAGES, _client_tz_keyboard
 
 
 class DummyMessage:
@@ -71,6 +72,30 @@ def _mock_client_tz_session_factory(*, timezone_name: str | None):
             return False
 
     return lambda: _Ctx()
+
+
+def test_client_tz_keyboard_page_1_contains_berlin_and_more():
+    markup = _client_tz_keyboard(1)
+
+    texts = [button.text for row in markup.inline_keyboard for button in row]
+    assert "UTC+1 — Берлин" in texts
+    assert "еще" in texts
+    assert "Отмена" in texts
+
+
+def test_client_tz_keyboard_page_3_has_no_more_button():
+    markup = _client_tz_keyboard(3)
+
+    texts = [button.text for row in markup.inline_keyboard for button in row]
+    assert "еще" not in texts
+    assert "Отмена" in texts
+
+
+def test_client_tz_pages_mapping_is_valid_shape():
+    assert set(CLIENT_TZ_PAGES.keys()) == {1, 2, 3}
+    assert len(CLIENT_TZ_PAGES[1]) == 8
+    assert len(CLIENT_TZ_PAGES[2]) == 8
+    assert len(CLIENT_TZ_PAGES[3]) == 11
 
 
 @pytest.mark.asyncio
