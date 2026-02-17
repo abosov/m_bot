@@ -12,6 +12,7 @@ import config
 import requests
 
 from database import Appointment, AppointmentCalendarLink, BookingState, CalendarSyncState, async_session_factory
+from services.outbox import emit_domain_event as emit_outbox_domain_event
 
 logger = logging.getLogger(__name__)
 GOOGLE_CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3"
@@ -28,10 +29,6 @@ class ReconcileResult:
     result: ReconcileOutcome
     reason: str | None = None
     appointment_id: uuid.UUID | None = None
-
-
-async def emit_domain_event(*, event_type: str, payload: dict[str, Any]) -> None:
-    logger.info("event=domain_event_emit_stub event_type=%s payload=%s", event_type, payload)
 
 
 def _parse_event_datetime(value: dict[str, Any] | None) -> datetime | None:
@@ -151,16 +148,15 @@ async def reconcile_event_to_appointment(
                 return ReconcileResult(result=ReconcileOutcome.NOOP, appointment_id=appointment_id)
 
             appointment.booking_state = BookingState.canceled_by_specialist
-            await emit_domain_event(
-                event_type="appointment_cancelled_by_specialist_calendar",
-                payload={
+            payload = {
                     "appointment_id": str(appointment_id),
                     "specialist_id": str(specialist_id),
                     "client_id": str(appointment.client_id),
                     "calendar_id": calendar_id,
                     "google_event_id": str(event.get("id") or ""),
-                },
-            )
+                }
+            await emit_outbox_domain_event(session, "appointment_cancelled_by_specialist_calendar", payload)
+            logger.info("event=domain_event_enqueued event_type=%s payload=%s", "appointment_cancelled_by_specialist_calendar", payload)
             await session.commit()
             return ReconcileResult(result=ReconcileOutcome.UPDATED, appointment_id=appointment_id)
 
@@ -196,9 +192,7 @@ async def reconcile_event_to_appointment(
         if hasattr(BookingState, "rescheduled"):
             appointment.booking_state = BookingState.rescheduled
 
-        await emit_domain_event(
-            event_type="appointment_rescheduled",
-            payload={
+        payload = {
                 "appointment_id": str(appointment_id),
                 "specialist_id": str(specialist_id),
                 "client_id": str(appointment.client_id),
@@ -207,8 +201,9 @@ async def reconcile_event_to_appointment(
                 "new_start_at_utc": start_at_utc.isoformat(),
                 "start_at_utc": start_at_utc.isoformat(),
                 "end_at_utc": end_at_utc.isoformat(),
-            },
-        )
+            }
+        await emit_outbox_domain_event(session, "appointment_rescheduled", payload)
+        logger.info("event=domain_event_enqueued event_type=%s payload=%s", "appointment_rescheduled", payload)
         await session.commit()
         return ReconcileResult(result=ReconcileOutcome.UPDATED, appointment_id=appointment_id)
 

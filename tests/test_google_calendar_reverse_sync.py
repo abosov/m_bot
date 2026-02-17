@@ -8,7 +8,7 @@ os.environ.setdefault("APP_ENV", "local")
 os.environ.setdefault("MASTER_BOT_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
 os.environ.setdefault("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
-from database import Appointment, BookingState, CalendarSyncState
+from database import Appointment, BookingState, CalendarSyncState, OutboxEvent
 from services import google_calendar
 from services import google_calendar_reverse_sync
 
@@ -189,6 +189,7 @@ async def test_reconcile_event_reschedules_when_notice_is_enough(monkeypatch):
     class Session:
         def __init__(self):
             self.committed = False
+            self.added = []
 
         async def get(self, model, key):
             if model.__name__ == 'Appointment' and key == appointment_id:
@@ -198,16 +199,14 @@ async def test_reconcile_event_reschedules_when_notice_is_enough(monkeypatch):
         async def execute(self, _stmt):
             return _ScalarResult(None)
 
+        def add(self, obj):
+            self.added.append(obj)
+
         async def commit(self):
             self.committed = True
 
     session = Session()
-    emitted = []
 
-    async def fake_emit_domain_event(*, event_type, payload):
-        emitted.append((event_type, payload))
-
-    monkeypatch.setattr(google_calendar_reverse_sync, 'emit_domain_event', fake_emit_domain_event)
     monkeypatch.setattr(google_calendar_reverse_sync, 'async_session_factory', lambda: _DummySessionCtx(session))
 
     event = {
@@ -223,8 +222,10 @@ async def test_reconcile_event_reschedules_when_notice_is_enough(monkeypatch):
     assert appointment.start_at_utc == datetime.fromisoformat(event['start']['dateTime']).astimezone(timezone.utc)
     assert appointment.end_at_utc == datetime.fromisoformat(event['end']['dateTime']).astimezone(timezone.utc)
     assert session.committed is True
-    assert emitted and emitted[0][0] == 'appointment_rescheduled'
-    payload = emitted[0][1]
+    outbox_events = [obj for obj in session.added if isinstance(obj, OutboxEvent)]
+    assert len(outbox_events) == 1
+    assert outbox_events[0].event_type == 'appointment_rescheduled'
+    payload = outbox_events[0].payload_json
     assert payload['appointment_id'] == str(appointment_id)
     assert payload['specialist_id'] == str(specialist_id)
     assert payload['client_id'] == str(client_id)
@@ -268,10 +269,10 @@ async def test_reconcile_event_rejected_when_notice_too_short(monkeypatch):
 
     session = Session()
 
-    async def fake_emit_domain_event(*, event_type, payload):
+    async def fake_emit_outbox_domain_event(session, event_type, payload):
         raise AssertionError('must not emit for rejected reconcile')
 
-    monkeypatch.setattr(google_calendar_reverse_sync, 'emit_domain_event', fake_emit_domain_event)
+    monkeypatch.setattr(google_calendar_reverse_sync, 'emit_outbox_domain_event', fake_emit_outbox_domain_event)
     monkeypatch.setattr(google_calendar_reverse_sync, 'async_session_factory', lambda: _DummySessionCtx(session))
 
     event = {
@@ -326,10 +327,10 @@ async def test_reconcile_event_rejected_on_time_conflict(monkeypatch):
 
     session = Session()
 
-    async def fake_emit_domain_event(*, event_type, payload):
+    async def fake_emit_outbox_domain_event(session, event_type, payload):
         raise AssertionError('must not emit for rejected reconcile')
 
-    monkeypatch.setattr(google_calendar_reverse_sync, 'emit_domain_event', fake_emit_domain_event)
+    monkeypatch.setattr(google_calendar_reverse_sync, 'emit_outbox_domain_event', fake_emit_outbox_domain_event)
     monkeypatch.setattr(google_calendar_reverse_sync, 'async_session_factory', lambda: _DummySessionCtx(session))
 
     event = {
@@ -368,6 +369,7 @@ async def test_reconcile_event_cancels_appointment_when_google_event_cancelled(m
     class Session:
         def __init__(self):
             self.committed = False
+            self.added = []
 
         async def get(self, model, key):
             if model.__name__ == 'Appointment' and key == appointment_id:
@@ -377,16 +379,14 @@ async def test_reconcile_event_cancels_appointment_when_google_event_cancelled(m
         async def execute(self, _stmt):
             return _ScalarResult(None)
 
+        def add(self, obj):
+            self.added.append(obj)
+
         async def commit(self):
             self.committed = True
 
     session = Session()
-    emitted = []
 
-    async def fake_emit_domain_event(*, event_type, payload):
-        emitted.append((event_type, payload))
-
-    monkeypatch.setattr(google_calendar_reverse_sync, 'emit_domain_event', fake_emit_domain_event)
     monkeypatch.setattr(google_calendar_reverse_sync, 'async_session_factory', lambda: _DummySessionCtx(session))
 
     event = {
@@ -400,8 +400,10 @@ async def test_reconcile_event_cancels_appointment_when_google_event_cancelled(m
     assert result.result == google_calendar_reverse_sync.ReconcileOutcome.UPDATED
     assert appointment.booking_state == BookingState.canceled_by_specialist
     assert session.committed is True
-    assert emitted and emitted[0][0] == 'appointment_cancelled_by_specialist_calendar'
-    payload = emitted[0][1]
+    outbox_events = [obj for obj in session.added if isinstance(obj, OutboxEvent)]
+    assert len(outbox_events) == 1
+    assert outbox_events[0].event_type == 'appointment_cancelled_by_specialist_calendar'
+    payload = outbox_events[0].payload_json
     assert payload['appointment_id'] == str(appointment_id)
     assert payload['specialist_id'] == str(specialist_id)
     assert payload['client_id'] == str(client_id)
@@ -441,10 +443,10 @@ async def test_reconcile_event_cancelled_noop_when_appointment_already_cancelled
 
     session = Session()
 
-    async def fake_emit_domain_event(*, event_type, payload):
+    async def fake_emit_outbox_domain_event(session, event_type, payload):
         raise AssertionError('must not emit for noop cancel')
 
-    monkeypatch.setattr(google_calendar_reverse_sync, 'emit_domain_event', fake_emit_domain_event)
+    monkeypatch.setattr(google_calendar_reverse_sync, 'emit_outbox_domain_event', fake_emit_outbox_domain_event)
     monkeypatch.setattr(google_calendar_reverse_sync, 'async_session_factory', lambda: _DummySessionCtx(session))
 
     event = {
