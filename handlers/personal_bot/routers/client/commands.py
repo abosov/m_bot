@@ -983,14 +983,11 @@ async def client_change_timezone_button(
 
     await state.set_state(ClientTimezoneState.waiting_for_timezone)
 
-    max_page = _client_tz_max_page()
-    page = 1
-
     await message.answer(
         f"Текущий часовой пояс: {current_tz}\n"
         "Выберите из списка или отправьте вручную (пример: Europe/Berlin).\n"
-        f"Страница: {page}/{max_page}",
-        reply_markup=_client_tz_keyboard(page),
+        "Страница: 1/3",
+        reply_markup=_client_tz_keyboard(1),
     )
 
 
