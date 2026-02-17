@@ -65,6 +65,10 @@ class GoogleCalendarSyncTokenInvalidError(Exception):
     pass
 
 
+def _is_appointment_cancelled(booking_state: BookingState) -> bool:
+    return booking_state in {BookingState.canceled_by_client, BookingState.canceled_by_specialist}
+
+
 def _extract_appointment_id(event: dict[str, Any]) -> uuid.UUID | None:
     appointment_id_raw = (
         event.get("extendedProperties", {})
@@ -141,6 +145,23 @@ async def reconcile_event_to_appointment(
             return ReconcileResult(result=ReconcileOutcome.REJECTED, reason="appointment_not_found", appointment_id=appointment_id)
         if appointment.specialist_id != specialist_id:
             return ReconcileResult(result=ReconcileOutcome.REJECTED, reason="specialist_mismatch", appointment_id=appointment_id)
+
+        if event.get("status") == "cancelled":
+            if _is_appointment_cancelled(appointment.booking_state):
+                return ReconcileResult(result=ReconcileOutcome.NOOP, appointment_id=appointment_id)
+
+            appointment.booking_state = BookingState.canceled_by_specialist
+            await emit_domain_event(
+                event_type="appointment_cancelled_by_specialist_calendar",
+                payload={
+                    "appointment_id": str(appointment_id),
+                    "specialist_id": str(specialist_id),
+                    "calendar_id": calendar_id,
+                    "google_event_id": str(event.get("id") or ""),
+                },
+            )
+            await session.commit()
+            return ReconcileResult(result=ReconcileOutcome.UPDATED, appointment_id=appointment_id)
 
         start_at_utc = _parse_event_datetime(event.get("start"))
         end_at_utc = _parse_event_datetime(event.get("end"))

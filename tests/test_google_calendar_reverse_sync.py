@@ -340,3 +340,111 @@ async def test_reconcile_event_rejected_on_time_conflict(monkeypatch):
     assert appointment.start_at_utc == old_start
     assert appointment.end_at_utc == old_end
     assert session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_reconcile_event_cancels_appointment_when_google_event_cancelled(monkeypatch):
+    specialist_id = uuid.uuid4()
+    appointment_id = uuid.uuid4()
+    client_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    appointment = Appointment(
+        appointment_id=appointment_id,
+        specialist_id=specialist_id,
+        client_id=client_id,
+        start_at_utc=now + timedelta(hours=30),
+        end_at_utc=now + timedelta(hours=31),
+        booking_state=BookingState.confirmed,
+        idempotency_key='k-4',
+    )
+
+    class Session:
+        def __init__(self):
+            self.committed = False
+
+        async def get(self, model, key):
+            if model.__name__ == 'Appointment' and key == appointment_id:
+                return appointment
+            return None
+
+        async def execute(self, _stmt):
+            return _ScalarResult(None)
+
+        async def commit(self):
+            self.committed = True
+
+    session = Session()
+    emitted = []
+
+    async def fake_emit_domain_event(*, event_type, payload):
+        emitted.append((event_type, payload))
+
+    monkeypatch.setattr(google_calendar_reverse_sync, 'emit_domain_event', fake_emit_domain_event)
+    monkeypatch.setattr(google_calendar_reverse_sync, 'async_session_factory', lambda: _DummySessionCtx(session))
+
+    event = {
+        'id': 'evt-cancel-1',
+        'status': 'cancelled',
+        'extendedProperties': {'private': {'zumbot_appointment_id': str(appointment_id)}},
+    }
+
+    result = await google_calendar_reverse_sync.reconcile_event_to_appointment(event, specialist_id, 'primary')
+
+    assert result.result == google_calendar_reverse_sync.ReconcileOutcome.UPDATED
+    assert appointment.booking_state == BookingState.canceled_by_specialist
+    assert session.committed is True
+    assert emitted and emitted[0][0] == 'appointment_cancelled_by_specialist_calendar'
+
+
+@pytest.mark.asyncio
+async def test_reconcile_event_cancelled_noop_when_appointment_already_cancelled(monkeypatch):
+    specialist_id = uuid.uuid4()
+    appointment_id = uuid.uuid4()
+    client_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    appointment = Appointment(
+        appointment_id=appointment_id,
+        specialist_id=specialist_id,
+        client_id=client_id,
+        start_at_utc=now + timedelta(hours=30),
+        end_at_utc=now + timedelta(hours=31),
+        booking_state=BookingState.canceled_by_specialist,
+        idempotency_key='k-5',
+    )
+
+    class Session:
+        def __init__(self):
+            self.committed = False
+
+        async def get(self, model, key):
+            if model.__name__ == 'Appointment' and key == appointment_id:
+                return appointment
+            return None
+
+        async def execute(self, _stmt):
+            return _ScalarResult(None)
+
+        async def commit(self):
+            self.committed = True
+
+    session = Session()
+
+    async def fake_emit_domain_event(*, event_type, payload):
+        raise AssertionError('must not emit for noop cancel')
+
+    monkeypatch.setattr(google_calendar_reverse_sync, 'emit_domain_event', fake_emit_domain_event)
+    monkeypatch.setattr(google_calendar_reverse_sync, 'async_session_factory', lambda: _DummySessionCtx(session))
+
+    event = {
+        'id': 'evt-cancel-2',
+        'status': 'cancelled',
+        'extendedProperties': {'private': {'zumbot_appointment_id': str(appointment_id)}},
+    }
+
+    result = await google_calendar_reverse_sync.reconcile_event_to_appointment(event, specialist_id, 'primary')
+
+    assert result.result == google_calendar_reverse_sync.ReconcileOutcome.NOOP
+    assert appointment.booking_state == BookingState.canceled_by_specialist
+    assert session.committed is False
