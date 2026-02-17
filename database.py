@@ -7,10 +7,10 @@ from typing import Optional, List
 import config
 from sqlalchemy import (
     BigInteger, Boolean, String, ForeignKey, DateTime, Time,
-    Integer, Text, Enum as SAEnum, func, Float, CheckConstraint, UniqueConstraint
+    Integer, Text, Enum as SAEnum, func, Float, CheckConstraint, UniqueConstraint, JSON
 )
 from sqlalchemy import Column
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, validates
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from services.log_context import log_event
@@ -415,6 +415,18 @@ class ServiceHeartbeat(Base):
     loop_ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class OutboxEvent(Base):
+    __tablename__ = "outbox_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_json: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 
 # --- Dependency Helper ---
