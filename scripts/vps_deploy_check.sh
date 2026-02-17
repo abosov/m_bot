@@ -153,11 +153,13 @@ wait_readyz() {
 
 check_recent_service_errors() {
   local since_window="5 minutes ago"
-  local error_lines traceback_lines
+  local error_lines filtered_error_lines traceback_lines
 
   error_lines="$(journalctl -u "${SERVICE_NAME}" --since "${since_window}" --no-pager -p err || true)"
-  if [[ -n "${error_lines}" ]]; then
-    log "${error_lines}"
+  # journalctl may print "-- No entries --" even when there are no real errors.
+  filtered_error_lines="$(printf '%s\n' "${error_lines}" | sed '/^-- No entries --$/d;/^[[:space:]]*$/d')"
+  if [[ -n "${filtered_error_lines}" ]]; then
+    log "${filtered_error_lines}"
     die "journalctl contains priority=err lines for ${SERVICE_NAME}"
   fi
 
