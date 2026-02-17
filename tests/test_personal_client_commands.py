@@ -1092,6 +1092,52 @@ async def test_client_pick_slot_passes_client_tg_user_id_and_client_code_to_goog
 
     assert captured_kwargs["client_tg_user_id"] == 42
     assert captured_kwargs["client_code"] == "CL-42"
+    assert any(isinstance(obj, client_commands.AppointmentCalendarLink) for obj in session.added)
+
+
+@pytest.mark.asyncio
+async def test_upsert_appointment_calendar_link_updates_existing_row():
+    existing = client_commands.AppointmentCalendarLink(
+        appointment_id="appt-1",
+        specialist_id="sp-1",
+        calendar_id="old-cal",
+        google_event_id="old-event",
+    )
+
+    class _Session:
+        def __init__(self):
+            self.added = []
+
+        async def get(self, model, pk):
+            assert model is client_commands.AppointmentCalendarLink
+            assert pk == "appt-1"
+            return existing
+
+        def add(self, obj):
+            self.added.append(obj)
+
+    session = _Session()
+
+    await client_commands._upsert_appointment_calendar_link(
+        session=session,
+        appointment_id="appt-1",
+        specialist_id="sp-1",
+        calendar_id="new-cal",
+        google_event_id="new-event",
+        google_event={
+            "iCalUID": "ical-1",
+            "etag": "etag-1",
+            "updated": "2026-02-21T12:01:02Z",
+        },
+    )
+
+    assert session.added == []
+    assert existing.calendar_id == "new-cal"
+    assert existing.google_event_id == "new-event"
+    assert existing.ical_uid == "ical-1"
+    assert existing.event_etag == "etag-1"
+    assert existing.event_updated == datetime(2026, 2, 21, 12, 1, 2, tzinfo=timezone.utc)
+    assert existing.last_synced_at is not None
 
 
 @pytest.mark.asyncio

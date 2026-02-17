@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 
 from database import (
     Appointment,
+    AppointmentCalendarLink,
     BookingState,
     Client,
     SpecialistCalendarSettings,
@@ -23,6 +24,7 @@ from database import (
 from services.availability_service import AvailabilityService
 from services.booking_policy import validate_min_hours_before_start
 from services.google_calendar import create_appointment_event
+from services.google_calendar import update_appointment_event
 
 router = Router(name="personal_bot_client_commands")
 logger = logging.getLogger(__name__)
@@ -50,6 +52,43 @@ RU_WEEKDAY_SHORT = {
 }
 
 availability_service = AvailabilityService()
+
+
+def _parse_google_event_updated(raw_updated: str | None):
+    if not raw_updated:
+        return None
+    try:
+        return datetime.fromisoformat(raw_updated.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+async def _upsert_appointment_calendar_link(
+    *,
+    session,
+    appointment_id,
+    specialist_id,
+    calendar_id: str,
+    google_event_id: str,
+    google_event: dict,
+) -> None:
+    link = await session.get(AppointmentCalendarLink, appointment_id)
+    if link is None:
+        link = AppointmentCalendarLink(
+            appointment_id=appointment_id,
+            specialist_id=specialist_id,
+            calendar_id=calendar_id,
+            google_event_id=google_event_id,
+        )
+        session.add(link)
+
+    link.specialist_id = specialist_id
+    link.calendar_id = calendar_id
+    link.google_event_id = google_event_id
+    link.ical_uid = google_event.get("iCalUID")
+    link.event_etag = google_event.get("etag")
+    link.event_updated = _parse_google_event_updated(google_event.get("updated"))
+    link.last_synced_at = datetime.now(timezone.utc)
 
 
 def _client_menu_keyboard() -> ReplyKeyboardMarkup:
@@ -620,17 +659,31 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
 
         if calendar_id:
             try:
-                event = await create_appointment_event(
-                    specialist_id=specialist_id,
-                    calendar_id=calendar_id,
-                    start_at_utc=slot_start_utc,
-                    end_at_utc=slot_end_utc,
-                    specialist_tz=specialist_tz_name,
-                    client_display_name=client.display_name,
-                    client_tg_username=client.tg_username,
-                    client_tg_user_id=client.tg_user_id,
-                    client_code=client.client_code,
-                )
+                if appointment.gcal_event_id:
+                    event = await update_appointment_event(
+                        specialist_id=specialist_id,
+                        calendar_id=calendar_id,
+                        google_event_id=appointment.gcal_event_id,
+                        start_at_utc=slot_start_utc,
+                        end_at_utc=slot_end_utc,
+                        specialist_tz=specialist_tz_name,
+                        client_display_name=client.display_name,
+                        client_tg_username=client.tg_username,
+                        client_tg_user_id=client.tg_user_id,
+                        client_code=client.client_code,
+                    )
+                else:
+                    event = await create_appointment_event(
+                        specialist_id=specialist_id,
+                        calendar_id=calendar_id,
+                        start_at_utc=slot_start_utc,
+                        end_at_utc=slot_end_utc,
+                        specialist_tz=specialist_tz_name,
+                        client_display_name=client.display_name,
+                        client_tg_username=client.tg_username,
+                        client_tg_user_id=client.tg_user_id,
+                        client_code=client.client_code,
+                    )
             except Exception:
                 logger.exception(
                     "Failed to create Google Calendar event for confirmed appointment",
@@ -642,6 +695,25 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
                 )
             else:
                 appointment.gcal_event_id = event.get("id")
+                try:
+                    await _upsert_appointment_calendar_link(
+                        session=session,
+                        appointment_id=appointment.appointment_id,
+                        specialist_id=specialist_id,
+                        calendar_id=calendar_id,
+                        google_event_id=appointment.gcal_event_id,
+                        google_event=event,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to upsert appointment_calendar_link after Google Calendar sync",
+                        extra={
+                            "specialist_id": str(specialist_id),
+                            "appointment_id": str(appointment.appointment_id),
+                            "calendar_id": calendar_id,
+                            "google_event_id": appointment.gcal_event_id,
+                        },
+                    )
                 await session.commit()
 
     await state.clear()
@@ -730,17 +802,31 @@ async def client_my_appointments_retry_last(callback, specialist_id) -> None:
         await session.commit()
 
         try:
-            event = await create_appointment_event(
-                specialist_id=specialist_id,
-                calendar_id=calendar_id,
-                start_at_utc=appointment.start_at_utc,
-                end_at_utc=appointment.end_at_utc,
-                specialist_tz=specialist_tz,
-                client_display_name=client.display_name,
-                client_tg_username=client.tg_username,
-                client_tg_user_id=client.tg_user_id,
-                client_code=client.client_code,
-            )
+            if appointment.gcal_event_id:
+                event = await update_appointment_event(
+                    specialist_id=specialist_id,
+                    calendar_id=calendar_id,
+                    google_event_id=appointment.gcal_event_id,
+                    start_at_utc=appointment.start_at_utc,
+                    end_at_utc=appointment.end_at_utc,
+                    specialist_tz=specialist_tz,
+                    client_display_name=client.display_name,
+                    client_tg_username=client.tg_username,
+                    client_tg_user_id=client.tg_user_id,
+                    client_code=client.client_code,
+                )
+            else:
+                event = await create_appointment_event(
+                    specialist_id=specialist_id,
+                    calendar_id=calendar_id,
+                    start_at_utc=appointment.start_at_utc,
+                    end_at_utc=appointment.end_at_utc,
+                    specialist_tz=specialist_tz,
+                    client_display_name=client.display_name,
+                    client_tg_username=client.tg_username,
+                    client_tg_user_id=client.tg_user_id,
+                    client_code=client.client_code,
+                )
         except Exception:
             appointment.booking_state = BookingState.failed
             appointment.failure_message = "google_error"
@@ -750,6 +836,25 @@ async def client_my_appointments_retry_last(callback, specialist_id) -> None:
         else:
             appointment.gcal_event_id = event.get("id")
             appointment.booking_state = BookingState.confirmed
+            try:
+                await _upsert_appointment_calendar_link(
+                    session=session,
+                    appointment_id=appointment.appointment_id,
+                    specialist_id=specialist_id,
+                    calendar_id=calendar_id,
+                    google_event_id=appointment.gcal_event_id,
+                    google_event=event,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to upsert appointment_calendar_link after Google Calendar sync",
+                    extra={
+                        "specialist_id": str(specialist_id),
+                        "appointment_id": str(appointment.appointment_id),
+                        "calendar_id": calendar_id,
+                        "google_event_id": appointment.gcal_event_id,
+                    },
+                )
             await session.commit()
             if callback.message is not None:
                 await callback.message.answer("Запись подтверждена.")

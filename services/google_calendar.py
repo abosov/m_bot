@@ -460,6 +460,92 @@ async def create_appointment_event(
         raise
 
 
+async def update_appointment_event(
+    *,
+    specialist_id: uuid.UUID,
+    calendar_id: str,
+    google_event_id: str,
+    start_at_utc: datetime,
+    end_at_utc: datetime,
+    specialist_tz: str,
+    client_display_name: str | None,
+    client_tg_username: str | None = None,
+    client_tg_user_id: int | None = None,
+    client_code: str | None = None,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    try:
+        headers = await _build_headers(specialist_id)
+        display_name = (client_display_name or "").strip()
+        base_name = display_name or "Клиент"
+
+        normalized_username = (client_tg_username or "").strip().lstrip("@") or None
+        display_username = f"@{normalized_username}" if normalized_username else None
+
+        fallback_summary = f"Сессия с {base_name}"
+        if normalized_username:
+            summary = f"Сессия с {base_name} ({display_username})"
+        elif client_code:
+            summary = f"Сессия с {base_name} (#{client_code})"
+        elif client_tg_user_id:
+            summary = f"Сессия с {base_name} (tg_id={client_tg_user_id})"
+        else:
+            summary = fallback_summary
+
+        description_lines = ["Создано автоматически после подтверждения записи в боте"]
+        if base_name:
+            description_lines.append(f"Клиент: {base_name}")
+        if client_code:
+            description_lines.append(f"Client code: {client_code}")
+        if normalized_username:
+            description_lines.append(f"Telegram: {display_username}")
+            description_lines.append(f"Link: https://t.me/{normalized_username}")
+        elif client_tg_user_id:
+            description_lines.append(f"Telegram: tg_user_id={client_tg_user_id}")
+            description_lines.append(f"Link: tg://user?id={client_tg_user_id}")
+        description = "\n".join(description_lines)
+
+        payload = {
+            "summary": summary,
+            "description": description,
+            "start": {"dateTime": start_at_utc.isoformat(), "timeZone": specialist_tz},
+            "end": {"dateTime": end_at_utc.isoformat(), "timeZone": specialist_tz},
+        }
+
+        response = await _calendar_request_with_retry(
+            requests.put,
+            f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}/events/{google_event_id}",
+            method_name="PUT",
+            headers=headers,
+            json=payload,
+        )
+        if response.status_code != 200:
+            _raise_calendar_error(response)
+        body = response.json()
+        if not body.get("id"):
+            raise GoogleCalendarError("Google Calendar event id is missing")
+
+        log_event(
+            logger,
+            logging.INFO,
+            event="google_api_call",
+            alias="update_appointment_event",
+            duration_ms=int((time.monotonic() - started) * 1000),
+            outcome="ok",
+            http_status=response.status_code,
+            events_count=1,
+            specialist_id=specialist_id,
+        )
+        return body
+    except Exception as exc:
+        logger.exception(
+            "google calendar call failed",
+            extra={"event": "google_api_call", "alias": "update_appointment_event", "exception_class": exc.__class__.__name__},
+        )
+        await _notify_google_calendar_exception("services.google_calendar.update_appointment_event", exc, specialist_id)
+        raise
+
+
 async def get_busy_intervals_for_day(
     *,
     specialist_id: uuid.UUID,
