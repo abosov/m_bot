@@ -312,14 +312,6 @@ async def create_bot_calendar(specialist_id: uuid.UUID, public_name: str, tz: st
         raise
 
 
-async def run_calendar_reverse_sync(specialist_id: uuid.UUID, calendar_id: str) -> None:
-    logger.info(
-        "event=google_calendar_reverse_sync_scheduled specialist_id=%s calendar_id=%s",
-        specialist_id,
-        calendar_id,
-    )
-
-
 async def ensure_calendar_access(specialist_id: uuid.UUID, calendar_id: str) -> bool:
     try:
         headers = await _build_headers(specialist_id)

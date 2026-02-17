@@ -34,9 +34,9 @@ from services.google_oauth import exchange_code_for_token_async
 from services.google_calendar import (
     GoogleCalendarInsufficientPermissionsError,
     list_calendars,
-    run_calendar_reverse_sync,
     scopes_as_string,
 )
+from services.google_calendar_reverse_sync import run_calendar_reverse_sync
 from services.crypto import encrypt_token
 from logging_middleware import log_outbound_message
 from services import heartbeat
