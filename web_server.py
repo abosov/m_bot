@@ -114,6 +114,10 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
     @app.get("/")
     async def site_index() -> FileResponse:
         return FileResponse(INDEX_FILE)
+
+    @app.head("/")
+    async def site_index_head() -> Response:
+        return Response(status_code=200)
 else:
     logger.warning(
         "Static site disabled: expected index=%s assets_dir=%s",
