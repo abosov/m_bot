@@ -161,7 +161,7 @@ async def _render_onboarding_screen(message: Message, specialist_id) -> None:
         if smoke_status not in {"ok", "failed"}:
             smoke_status = "unknown"
         current_calendar_lines = [
-            f"Текущий календарь: {calendar_settings.calendar_summary or calendar_settings.calendar_id}",
+            f"Текущий календарь: {calendar_settings.calendar_summary or 'подключён'}",
             f"Часовой пояс: {calendar_settings.calendar_time_zone or 'UTC'}",
             f"Smoke-test: {smoke_status}",
         ]

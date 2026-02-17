@@ -72,7 +72,6 @@ async def personal_status(message: Message, specialist_id) -> None:
         and specialist.google_oauth.status == GoogleOAuthStatus.connected
     )
 
-    calendar_id = specialist.calendar_settings.calendar_id if specialist.calendar_settings else None
     calendar_summary = specialist.calendar_settings.calendar_summary if specialist.calendar_settings else None
     smoke_status = specialist.calendar_settings.last_smoke_test_status if specialist.calendar_settings else None
 
@@ -85,7 +84,6 @@ async def personal_status(message: Message, specialist_id) -> None:
         f"• Статус специалиста: {_status_to_text(specialist.status)}\n"
         f"• Personal bot: {bot_username}\n"
         f"• Google OAuth: {'connected' if oauth_connected else 'not_connected'}\n"
-        f"• Календарь ID: {calendar_id or '—'}\n"
         f"• Календарь summary: {calendar_summary or '—'}\n"
         f"• Last smoke-test: {smoke_status or '—'}\n"
         f"• Onboarding (master): {onboarding_master}\n"

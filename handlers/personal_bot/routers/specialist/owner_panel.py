@@ -362,7 +362,6 @@ def _calendar_info_text(calendar_settings: SpecialistCalendarSettings | None) ->
     return (
         "🗓 Календарь:\n"
         f"Название: {calendar_settings.calendar_summary or '—'}\n"
-        f"ID: {calendar_settings.calendar_id or '—'}\n"
         f"TZ: {calendar_settings.calendar_time_zone or '—'}\n"
         f"Smoke-test: {calendar_settings.last_smoke_test_status or '—'}"
     )
@@ -933,7 +932,7 @@ async def owner_calendar_select(callback: CallbackQuery, specialist_id) -> None:
 
     keyboard_rows = []
     for index, item in enumerate(items):
-        title = item.get("summary") or item.get("id") or f"Календарь {index + 1}"
+        title = item.get("summary") or f"Календарь {index + 1}"
         keyboard_rows.append(
             [InlineKeyboardButton(text=f"{index + 1}. {title}", callback_data=f"owner_cal:pick:{index}")]
         )

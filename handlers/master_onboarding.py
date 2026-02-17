@@ -646,7 +646,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 status_text += "❌ <b>Google OAuth:</b> Не подключен\n"
 
             if has_calendar:
-                status_text += f"✅ <b>Календарь бота:</b> {escape(specialist.calendar_settings.calendar_summary or specialist.calendar_settings.calendar_id)}\n"
+                status_text += f"✅ <b>Календарь бота:</b> {escape(specialist.calendar_settings.calendar_summary or 'подключён')}\n"
                 status_text += "✅ <b>Smoke-test:</b> Успешно\n" if smoke_ok else "❌ <b>Smoke-test:</b> Не пройден\n"
             else:
                 status_text += "❌ <b>Календарь бота:</b> Не выбран\n"
