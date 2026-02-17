@@ -3,7 +3,7 @@
   --surface: #ffffff;
   --text: #1f2937;
   --muted: #6b7280;
-  --blue: #2f6bff;
+  --blue: #2563EB;
   --blue-soft: #e8efff;
   --border: #e5e7eb;
   --radius: 14px;
@@ -19,7 +19,8 @@ body {
   line-height: 1.5;
 }
 
-.wrap {
+.wrap,
+.container {
   width: min(1120px, 92vw);
   margin: 0 auto;
 }
@@ -42,22 +43,26 @@ body {
 }
 
 .logo {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 10px;
-  color: var(--text);
+  flex-shrink: 0;
   text-decoration: none;
-  font-weight: 700;
 }
 
-.logo-mark {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: var(--blue-soft);
-  color: var(--blue);
+.logo img {
+  display: block;
+  flex-shrink: 0;
+  height: 40px;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.logo-text {
+  margin-left: 10px;
+  font-size: 20px;
+  font-weight: 600;
+  color: #1F2937;
 }
 
 .main-nav {
@@ -87,6 +92,19 @@ body {
   cursor: pointer;
 }
 .button-small { padding: 10px 16px; }
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #2563EB;
+  color: #ffffff;
+  border-radius: 12px;
+  padding: 10px 16px;
+  text-decoration: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .button.ghost {
   background: var(--blue-soft);
   color: var(--blue) !important;
@@ -192,11 +210,34 @@ input, textarea {
   font-size: 0.95rem;
 }
 .site-footer a { color: var(--muted); text-decoration: none; margin-right: 14px; }
-.brand { color: var(--text); font-weight: 600; }
+.logo-footer img {
+  height: 28px;
+}
+
+.logo-footer .logo-text {
+  color: #9ca3af;
+  font-size: 18px;
+}
+
+@media (max-width: 1024px) {
+  .logo img {
+    height: 32px;
+  }
+}
 
 @media (max-width: 900px) {
   .hero { grid-template-columns: 1fr; }
   .cards-grid,
   .cards-grid-2 { grid-template-columns: 1fr; }
   .main-nav { gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+}
+
+@media (max-width: 640px) {
+  .logo img {
+    height: 28px;
+  }
+
+  .logo-text {
+    font-size: 18px;
+  }
 }
