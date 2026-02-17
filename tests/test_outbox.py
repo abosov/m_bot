@@ -174,7 +174,10 @@ async def test_rescheduled_handler_sends_client_and_specialist(monkeypatch):
 
     assert len(sent) == 2
     assert sent[0][0] == "client"
+    assert "Было: 2026-01-02 Пт [10:00]" in sent[0][2]
+    assert "Стало: 2026-01-02 Пт [11:00]" in sent[0][2]
     assert sent[1][0] == "specialist"
+    assert "Новое время: 2026-01-02 Пт [11:00]" in sent[1][2]
 
 
 @pytest.mark.asyncio

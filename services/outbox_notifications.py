@@ -4,6 +4,8 @@ import uuid
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from services.session_datetime import format_session_datetime
+
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,10 +31,10 @@ def _format_dt_for_client(dt_utc: datetime, tz_name: str | None) -> str:
     if tz_name:
         try:
             tz = ZoneInfo(tz_name)
-            return dt_utc.astimezone(tz).strftime("%d.%m.%Y %H:%M")
+            return format_session_datetime(dt_utc, tz)
         except ZoneInfoNotFoundError:
             pass
-    return f"{dt_utc.strftime('%Y-%m-%d %H:%M')} UTC"
+    return format_session_datetime(dt_utc, ZoneInfo("UTC"))
 
 
 async def _already_sent(session: AsyncSession, outbox_event_id: uuid.UUID, target: str) -> bool:
@@ -127,7 +129,7 @@ async def _handle_appointment_rescheduled(session: AsyncSession, event: OutboxEv
         specialist_text = (
             f"Перенос записи #{appointment_id} выполнен.\n"
             f"Клиент: {client.display_name or client.client_code or client.client_id}\n"
-            f"Новое время: {new_start_at_utc.strftime('%Y-%m-%d %H:%M')} UTC"
+            f"Новое время: {format_session_datetime(new_start_at_utc, ZoneInfo('UTC'))}"
         )
         await _send_specialist_message(
             session,

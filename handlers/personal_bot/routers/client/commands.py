@@ -25,6 +25,7 @@ from services.availability_service import AvailabilityService
 from services.booking_policy import validate_min_hours_before_start
 from services.google_calendar import create_appointment_event
 from services.google_calendar import update_appointment_event
+from services.session_datetime import format_session_datetime
 
 router = Router(name="personal_bot_client_commands")
 logger = logging.getLogger(__name__)
@@ -384,9 +385,8 @@ async def _render_client_appointments(message: Message, specialist_id: UUID, tg_
         gmt_label = _format_gmt_offset_label(client_tz)
         lines = [f"Ваши записи ({gmt_label}):"]
         for appointment in appointments:
-            local_start = appointment.start_at_utc.astimezone(client_tz)
             status = state_map.get(appointment.booking_state, str(appointment.booking_state))
-            lines.append(f"{local_start.strftime('%Y-%m-%d %H:%M')} — {status}")
+            lines.append(f"{format_session_datetime(appointment.start_at_utc, client_tz)} — {status}")
         text = "\n".join(lines)
 
     await message.answer(text, reply_markup=_client_appointments_keyboard(has_failed=has_failed))
