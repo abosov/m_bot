@@ -200,6 +200,12 @@ ALERTS_THROTTLE_SECONDS = _parse_int_env_or_default(
     max_value=86_400,
 )
 ALERTS_DEDUP_WINDOW_SECONDS = int(os.getenv("ALERTS_DEDUP_WINDOW_SECONDS", "300"))
+APPOINTMENT_RESCHEDULE_MIN_NOTICE_HOURS = _parse_int_env_runtime(
+    "APPOINTMENT_RESCHEDULE_MIN_NOTICE_HOURS",
+    default=12,
+    min_value=0,
+    max_value=168,
+)
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_DIR = os.getenv("LOG_DIR") or None

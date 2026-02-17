@@ -1,14 +1,64 @@
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
+from dataclasses import dataclass
+from enum import Enum
+
+from sqlalchemy import and_, select
+
+import config
 
 import requests
 
-from database import AppointmentCalendarLink, CalendarSyncState, async_session_factory
+from database import Appointment, AppointmentCalendarLink, BookingState, CalendarSyncState, async_session_factory
 
 logger = logging.getLogger(__name__)
 GOOGLE_CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3"
+
+
+class ReconcileOutcome(str, Enum):
+    UPDATED = "updated"
+    NOOP = "noop"
+    REJECTED = "rejected"
+
+
+@dataclass(slots=True)
+class ReconcileResult:
+    result: ReconcileOutcome
+    reason: str | None = None
+    appointment_id: uuid.UUID | None = None
+
+
+async def emit_domain_event(*, event_type: str, payload: dict[str, Any]) -> None:
+    logger.info("event=domain_event_emit_stub event_type=%s payload=%s", event_type, payload)
+
+
+def _parse_event_datetime(value: dict[str, Any] | None) -> datetime | None:
+    if not isinstance(value, dict):
+        return None
+
+    date_time_raw = value.get("dateTime")
+    if not date_time_raw:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(str(date_time_raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        tz_name = value.get("timeZone")
+        if not tz_name:
+            return None
+        from zoneinfo import ZoneInfo
+
+        try:
+            parsed = parsed.replace(tzinfo=ZoneInfo(str(tz_name)))
+        except Exception:
+            return None
+
+    return parsed.astimezone(timezone.utc)
 
 
 class GoogleCalendarSyncTokenInvalidError(Exception):
@@ -76,15 +126,65 @@ async def _list_events_page(
     return payload
 
 
-async def reconcile_event_to_appointment(event: dict[str, Any], specialist_id: uuid.UUID, calendar_id: str) -> None:
+async def reconcile_event_to_appointment(
+    event: dict[str, Any],
+    specialist_id: uuid.UUID,
+    calendar_id: str,
+) -> ReconcileResult:
     appointment_id = _extract_appointment_id(event)
-    logger.info(
-        "event=google_calendar_reverse_sync_would_reconcile specialist_id=%s calendar_id=%s google_event_id=%s appointment_id=%s",
-        specialist_id,
-        calendar_id,
-        event.get("id"),
-        appointment_id,
-    )
+    if appointment_id is None:
+        return ReconcileResult(result=ReconcileOutcome.REJECTED, reason="missing_appointment_id")
+
+    async with async_session_factory() as session:
+        appointment = await session.get(Appointment, appointment_id)
+        if appointment is None:
+            return ReconcileResult(result=ReconcileOutcome.REJECTED, reason="appointment_not_found", appointment_id=appointment_id)
+        if appointment.specialist_id != specialist_id:
+            return ReconcileResult(result=ReconcileOutcome.REJECTED, reason="specialist_mismatch", appointment_id=appointment_id)
+
+        start_at_utc = _parse_event_datetime(event.get("start"))
+        end_at_utc = _parse_event_datetime(event.get("end"))
+        if start_at_utc is None or end_at_utc is None or end_at_utc <= start_at_utc:
+            return ReconcileResult(result=ReconcileOutcome.REJECTED, reason="invalid_event_time", appointment_id=appointment_id)
+
+        if appointment.start_at_utc == start_at_utc and appointment.end_at_utc == end_at_utc:
+            return ReconcileResult(result=ReconcileOutcome.NOOP, appointment_id=appointment_id)
+
+        min_notice_hours = config.APPOINTMENT_RESCHEDULE_MIN_NOTICE_HOURS
+        now_utc = datetime.now(timezone.utc)
+        if appointment.start_at_utc - now_utc < timedelta(hours=min_notice_hours):
+            return ReconcileResult(result=ReconcileOutcome.REJECTED, reason="min_notice_violation", appointment_id=appointment_id)
+
+        conflict_stmt = select(Appointment.appointment_id).where(
+            and_(
+                Appointment.specialist_id == specialist_id,
+                Appointment.appointment_id != appointment_id,
+                Appointment.booking_state == BookingState.confirmed,
+                Appointment.start_at_utc < end_at_utc,
+                Appointment.end_at_utc > start_at_utc,
+            )
+        ).limit(1)
+        conflict_exists = (await session.execute(conflict_stmt)).scalar_one_or_none() is not None
+        if conflict_exists:
+            return ReconcileResult(result=ReconcileOutcome.REJECTED, reason="time_conflict", appointment_id=appointment_id)
+
+        appointment.start_at_utc = start_at_utc
+        appointment.end_at_utc = end_at_utc
+        if hasattr(BookingState, "rescheduled"):
+            appointment.booking_state = BookingState.rescheduled
+
+        await emit_domain_event(
+            event_type="appointment_rescheduled",
+            payload={
+                "appointment_id": str(appointment_id),
+                "specialist_id": str(specialist_id),
+                "calendar_id": calendar_id,
+                "start_at_utc": start_at_utc.isoformat(),
+                "end_at_utc": end_at_utc.isoformat(),
+            },
+        )
+        await session.commit()
+        return ReconcileResult(result=ReconcileOutcome.UPDATED, appointment_id=appointment_id)
 
 
 async def run_calendar_reverse_sync(specialist_id: uuid.UUID, calendar_id: str) -> None:
