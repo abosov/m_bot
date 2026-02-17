@@ -7,7 +7,7 @@ from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import func, select
 
@@ -16,6 +16,7 @@ from database import (
     AppointmentCalendarLink,
     BookingState,
     Client,
+    ClientTimezoneSource,
     SpecialistCalendarSettings,
     SpecialistProfile,
     WeeklyAvailability,
@@ -932,6 +933,49 @@ async def client_change_timezone_button(
         "Выберите из списка или отправьте вручную (пример: Europe/Berlin).",
         reply_markup=builder.as_markup(),
     )
+
+
+@router.callback_query(F.data.startswith("client_tz:set:"))
+async def client_tz_set_callback(callback: CallbackQuery, state: FSMContext, actor: str, specialist_id) -> None:
+    if actor != "client":
+        await callback.answer()
+        return
+
+    if callback.from_user is None:
+        await callback.answer()
+        return
+
+    tz_name = (callback.data or "").removeprefix("client_tz:set:")
+    if _validate_tz_name(tz_name) is None:
+        await callback.answer("Неизвестный часовой пояс. Пример: Europe/Berlin", show_alert=True)
+        return
+
+    async with async_session_factory() as session:
+        client = (
+            await session.execute(
+                select(Client)
+                .where(Client.specialist_id == specialist_id)
+                .where(Client.tg_user_id == callback.from_user.id)
+            )
+        ).scalar_one_or_none()
+        if client is not None:
+            client.client_timezone = tz_name
+            client.timezone_source = ClientTimezoneSource.client_selected
+            await session.commit()
+
+    await state.clear()
+    if callback.message is not None:
+        await callback.message.answer(f"Готово. Теперь время будет показано в {tz_name}.")
+        await callback.message.answer("Меню:", reply_markup=_client_menu_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "client_tz:cancel")
+async def client_tz_cancel_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    if callback.message is not None:
+        await callback.message.answer("Отменено.", reply_markup=_client_menu_keyboard())
+    await callback.answer()
 
 
 @router.message(F.text)
