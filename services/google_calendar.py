@@ -11,7 +11,7 @@ import requests
 from sqlalchemy import select
 
 import config
-from database import GoogleOAuth, async_session_factory
+from database import CalendarSyncState, GoogleOAuth, async_session_factory
 from services.crypto import decrypt_token
 from services.alerting import notify_exception
 from services.log_context import log_event
@@ -373,6 +373,89 @@ async def create_and_cleanup_test_event(specialist_id: uuid.UUID, calendar_id: s
     except Exception as exc:
         await _notify_google_calendar_exception("services.google_calendar.create_and_cleanup_test_event", exc, specialist_id)
         raise
+
+
+def _google_calendar_webhook_address() -> str:
+    base_url = (
+        getattr(config, "WEBHOOK_BASE_URL", None)
+        or getattr(config, "BASE_URL", None)
+        or getattr(config, "BACKEND_BASE_URL", None)
+        or ""
+    ).rstrip("/")
+    if not base_url:
+        raise GoogleCalendarError("Public webhook base URL is not configured")
+    return f"{base_url}/integrations/google-calendar/webhook"
+
+
+def _parse_google_channel_expiration(expiration_raw: Any) -> datetime | None:
+    if expiration_raw in (None, ""):
+        return None
+    try:
+        expiration_ms = int(str(expiration_raw))
+    except (TypeError, ValueError):
+        return None
+    return datetime.fromtimestamp(expiration_ms / 1000, tz=timezone.utc)
+
+
+async def ensure_calendar_watch(specialist_id: uuid.UUID, calendar_id: str) -> None:
+    async with async_session_factory() as session:
+        sync_state = await session.get(
+            CalendarSyncState,
+            {"specialist_id": specialist_id, "calendar_id": calendar_id},
+        )
+        now = datetime.now(timezone.utc)
+        if (
+            sync_state is not None
+            and sync_state.channel_id
+            and sync_state.resource_id
+            and sync_state.channel_expiration is not None
+            and sync_state.channel_expiration > now
+        ):
+            return
+
+        if sync_state is None:
+            sync_state = CalendarSyncState(specialist_id=specialist_id, calendar_id=calendar_id)
+            session.add(sync_state)
+
+        try:
+            headers = await _build_headers(specialist_id)
+            channel_id = str(uuid.uuid4())
+            response = await _calendar_request_with_retry(
+                requests.post,
+                f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}/events/watch",
+                method_name="POST",
+                headers=headers,
+                json={
+                    "id": channel_id,
+                    "type": "web_hook",
+                    "address": _google_calendar_webhook_address(),
+                },
+            )
+            if response.status_code not in (200, 201):
+                _raise_calendar_error(response)
+
+            payload = response.json()
+            sync_state.channel_id = channel_id
+            sync_state.resource_id = payload.get("resourceId")
+            sync_state.channel_expiration = _parse_google_channel_expiration(payload.get("expiration"))
+            sync_state.sync_token = None
+            sync_state.last_success_at = None
+            sync_state.last_error_at = None
+            sync_state.error_count = 0
+            await session.commit()
+        except Exception:
+            logger.error(
+                "google calendar watch setup failed specialist_id=%s calendar_id=%s",
+                specialist_id,
+                calendar_id,
+                exc_info=True,
+            )
+            sync_state.last_error_at = datetime.now(timezone.utc)
+            sync_state.error_count = (sync_state.error_count or 0) + 1
+            sync_state.channel_id = None
+            sync_state.resource_id = None
+            sync_state.channel_expiration = None
+            await session.commit()
 
 
 def _merge_private_extended_properties(

@@ -88,6 +88,68 @@ async def test_create_bot_calendar_uses_to_thread(monkeypatch):
     assert called["requests_post"] is True
 
 
+
+
+class _DummySessionCtx:
+    def __init__(self, session):
+        self._session = session
+
+    async def __aenter__(self):
+        return self._session
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+@pytest.mark.asyncio
+async def test_ensure_calendar_watch_creates_state_with_channel_payload(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class Session:
+        def __init__(self):
+            self.sync_state = None
+            self.committed = 0
+
+        async def get(self, model, key):
+            return self.sync_state
+
+        def add(self, obj):
+            self.sync_state = obj
+
+        async def commit(self):
+            self.committed += 1
+
+    class _Response:
+        status_code = 200
+
+        def json(self):
+            return {"resourceId": "resource-1", "expiration": "4102444800000"}
+
+    session = Session()
+
+    async def fake_headers(_specialist_id):
+        return {"Authorization": "Bearer token", "Content-Type": "application/json"}
+
+    async def fake_request(_request_callable, _url, *, method_name, timeout=10, **kwargs):
+        assert method_name == "POST"
+        assert kwargs["json"]["type"] == "web_hook"
+        assert kwargs["json"]["address"].endswith("/integrations/google-calendar/webhook")
+        return _Response()
+
+    monkeypatch.setattr(google_calendar, "async_session_factory", lambda: _DummySessionCtx(session))
+    monkeypatch.setattr(google_calendar, "_build_headers", fake_headers)
+    monkeypatch.setattr(google_calendar, "_calendar_request_with_retry", fake_request)
+
+    await google_calendar.ensure_calendar_watch(specialist_id, "cal-1")
+
+    assert session.sync_state is not None
+    assert session.sync_state.channel_id
+    assert session.sync_state.resource_id == "resource-1"
+    assert session.sync_state.channel_expiration is not None
+    assert session.sync_state.error_count == 0
+    assert session.committed == 1
+
+
 @pytest.mark.asyncio
 async def test_calendar_request_retries_transient_then_succeeds(monkeypatch):
     calls = {"count": 0}

@@ -142,6 +142,11 @@ Flow `state`: generate/store(TTL) → validate в callback → consume (one-time
 - при неизвестном `channel_id` пишет warning и возвращает `200 OK`;
 - при отсутствии обязательных заголовков пишет warning и возвращает `200 OK`.
 
+Инициализация watch:
+- reverse-sync требует активного Google `events.watch` канала и строки в `calendar_sync_state`;
+- канал создаётся автоматически при успешной привязке календаря специалиста в master-onboarding (после выбора существующего календаря и после создания нового);
+- webhook адрес для Google watch: `POST /integrations/google-calendar/webhook`.
+
 **Пример:**
 ```bash
 [VPS] curl -i -X POST "https://api.zumbot.ru/integrations/google-calendar/webhook" \

@@ -582,8 +582,14 @@ async def test_calendar_pick_success_sets_selected_and_smoke_ok(tmp_path, monkey
     async def _welcome_stub(_sid, _tg_user_id):
         return "my_personal_bot"
 
+    watch_calls = []
+
+    async def _watch_stub(specialist_id_arg, calendar_id_arg):
+        watch_calls.append((specialist_id_arg, calendar_id_arg))
+
     monkeypatch.setattr(onboarding, "_upsert_calendar_settings", _upsert_stub)
     monkeypatch.setattr(onboarding, "create_and_cleanup_test_event", _smoke_stub)
+    monkeypatch.setattr(onboarding, "ensure_calendar_watch", _watch_stub)
     monkeypatch.setattr(onboarding, "finalize_specialist_if_ready", _finalize_stub)
     monkeypatch.setattr(onboarding, "_notify_personal_bot_welcome", _welcome_stub)
 
@@ -627,6 +633,7 @@ async def test_calendar_pick_success_sets_selected_and_smoke_ok(tmp_path, monkey
     assert upsert_calls[0]["source"] == database.SpecialistCalendarSource.selected
     assert upsert_calls[1]["source"] == database.SpecialistCalendarSource.selected
     assert upsert_calls[1]["smoke_status"] == "ok"
+    assert watch_calls == [(specialist_id, "cal-1")]
 
 
 @pytest.mark.asyncio

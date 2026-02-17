@@ -53,6 +53,7 @@ from services.google_calendar import (
     GoogleCalendarInsufficientPermissionsError,
     create_and_cleanup_test_event,
     create_bot_calendar,
+    ensure_calendar_watch,
     list_calendars,
     resolve_tz_for_calendar_creation,
 )
@@ -1245,6 +1246,7 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
                 source=SpecialistCalendarSource.selected,
                 smoke_status="ok",
             )
+            await ensure_calendar_watch(specialist.specialist_id, calendar_id)
             smoke_ok = True
         except Exception as smoke_exc:
             await _upsert_calendar_settings(
@@ -1556,6 +1558,7 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
                 source=SpecialistCalendarSource.created,
                 smoke_status="ok",
             )
+            await ensure_calendar_watch(specialist.specialist_id, calendar_id)
         except Exception as smoke_exc:
             await _upsert_calendar_settings(
                 specialist.specialist_id,
