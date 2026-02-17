@@ -978,6 +978,36 @@ async def client_tz_cancel_callback(callback: CallbackQuery, state: FSMContext) 
     await callback.answer()
 
 
+@router.message(ClientTimezoneState.waiting_for_timezone, F.text)
+async def client_tz_text_input(message: Message, actor: str, specialist_id, state: FSMContext) -> None:
+    if actor != "client" or message.from_user is None:
+        return
+    if (message.text or "").startswith("/"):
+        return
+
+    tz_name = _normalize_tz_input(message.text)
+    if _validate_tz_name(tz_name) is None:
+        await message.answer("Не удалось распознать часовой пояс. Пример: Europe/Berlin")
+        return
+
+    async with async_session_factory() as session:
+        client = (
+            await session.execute(
+                select(Client)
+                .where(Client.specialist_id == specialist_id)
+                .where(Client.tg_user_id == message.from_user.id)
+            )
+        ).scalar_one_or_none()
+        if client is not None:
+            client.client_timezone = tz_name
+            client.timezone_source = ClientTimezoneSource.client_selected
+            await session.commit()
+
+    await state.clear()
+    await message.answer(f"Готово. Теперь время будет показано в {tz_name}.")
+    await message.answer("Меню:", reply_markup=_client_menu_keyboard())
+
+
 @router.message(F.text)
 async def client_capture_display_name(message: Message, actor: str, specialist_id) -> None:
     if actor != "client" or message.from_user is None:
