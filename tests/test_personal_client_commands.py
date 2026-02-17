@@ -87,6 +87,10 @@ async def test_client_menu_buttons_return_stubs(monkeypatch):
         "_first_available_day",
         lambda **_kwargs: date(2026, 2, 20),
     )
+    async def _cancel_window(**_kwargs):
+        return 12
+
+    monkeypatch.setattr(client_commands, "_resolve_cancel_window_hours", _cancel_window)
     monkeypatch.setattr(
         client_commands,
         "async_session_factory",
@@ -137,14 +141,14 @@ async def test_client_menu_buttons_return_stubs(monkeypatch):
     assert "скоро будет доступна" in tz_msg.answers[0][0]
 
 
-def test_first_available_day_cutoff_rules():
+def test_first_available_day_respects_min_hours_window():
     tz = ZoneInfo("Europe/Moscow")
 
-    before_cutoff = datetime(2026, 2, 15, 17, 0, tzinfo=timezone.utc)
-    assert client_commands._first_available_day(now_utc=before_cutoff, specialist_tz=tz) == date(2026, 2, 16)
+    now_utc = datetime(2026, 2, 15, 19, 30, tzinfo=timezone.utc)
+    assert client_commands._first_available_day(now_utc=now_utc, specialist_tz=tz, min_hours=12) == date(2026, 2, 16)
 
-    after_cutoff = datetime(2026, 2, 15, 19, 0, tzinfo=timezone.utc)
-    assert client_commands._first_available_day(now_utc=after_cutoff, specialist_tz=tz) == date(2026, 2, 17)
+    late_utc = datetime(2026, 2, 15, 23, 30, tzinfo=timezone.utc)
+    assert client_commands._first_available_day(now_utc=late_utc, specialist_tz=tz, min_hours=12) == date(2026, 2, 16)
 
 
 @pytest.mark.asyncio

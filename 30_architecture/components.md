@@ -209,7 +209,7 @@ Heartbeat throttling (контракт):
 Ответственность:
 - генерация candidate slots на основе weekly availability
 - применение ограничений:
-  - правило записи: только на следующий календарный день и только до 21:00 предыдущего дня (TZ specialist); если сейчас в TZ specialist > 21:00 — следующий день недоступен, выдача стартует с послезавтра
+  - правило записи: только если до начала слота осталось не менее cancel_window_hours (по умолчанию 12 часов) (TZ specialist); слоты ближе окна cancel_window_hours скрываются
   - период недели в TZ клиента (границы периода)
   - длительность сессии (дефолт 60)
   - минимальный буфер между сессиями (дефолт 10; буфер — только правило расчёта, не отдельное событие Google Calendar)
@@ -227,7 +227,7 @@ Pipeline AvailabilityService:
 5. Generate slot starts.
 6. Apply buffer.
 7. Apply max_sessions_per_day.
-8. Apply next-day + cutoff 21:00 (TZ specialist).
+8. Apply минимум cancel_window_hours до начала слота (TZ specialist).
 
 Источник дефолтов:
 - После финализации US-01 (smoke-test = ok, перед/при переводе specialist в active) сервис `apply_specialist_defaults_if_missing()`

@@ -37,6 +37,7 @@ async def test_get_candidate_slots_for_date_applies_pipeline_and_groups_parts_of
         max_sessions_per_day=4,
         slot_step_min=30,
         intervals=[(time(9, 0), time(11, 0)), (time(11, 0), time(13, 0))],
+        cancel_window_hours=12,
     )
     busy = [(datetime(2026, 2, 12, 10, 0), datetime(2026, 2, 12, 11, 0))]
     service = AvailabilityService(
@@ -67,6 +68,7 @@ async def test_get_candidate_slots_for_date_returns_all_candidates_without_top4_
         max_sessions_per_day=20,
         slot_step_min=30,
         intervals=[(time(9, 0), time(15, 0))],
+        cancel_window_hours=12,
     )
     service = AvailabilityService(
         repository=FakeRepository(context),
@@ -95,6 +97,7 @@ async def test_get_candidate_slots_for_date_returns_empty_when_daily_limit_reach
         max_sessions_per_day=1,
         slot_step_min=30,
         intervals=[(time(9, 0), time(12, 0))],
+        cancel_window_hours=12,
     )
     service = AvailabilityService(
         repository=FakeRepository(context),
@@ -112,7 +115,7 @@ async def test_get_candidate_slots_for_date_returns_empty_when_daily_limit_reach
 
 
 @pytest.mark.asyncio
-async def test_get_candidate_slots_for_date_does_not_apply_cutoff_policy() -> None:
+async def test_get_candidate_slots_for_date_applies_min_hours_window() -> None:
     context = SpecialistAvailabilityContext(
         specialist_tz="UTC",
         session_duration_min=60,
@@ -120,6 +123,7 @@ async def test_get_candidate_slots_for_date_does_not_apply_cutoff_policy() -> No
         max_sessions_per_day=4,
         slot_step_min=30,
         intervals=[(time(9, 0), time(12, 0))],
+        cancel_window_hours=12,
     )
     service = AvailabilityService(
         repository=FakeRepository(context),
@@ -134,8 +138,6 @@ async def test_get_candidate_slots_for_date_does_not_apply_cutoff_policy() -> No
     )
 
     assert slots["morning"] == [
-        datetime(2026, 2, 12, 9, 0),
-        datetime(2026, 2, 12, 9, 30),
         datetime(2026, 2, 12, 10, 0),
         datetime(2026, 2, 12, 10, 30),
         datetime(2026, 2, 12, 11, 0),
@@ -151,6 +153,7 @@ async def test_get_candidate_slots_for_date_range_uses_selected_bounds() -> None
         max_sessions_per_day=4,
         slot_step_min=30,
         intervals=[(time(9, 0), time(18, 0))],
+        cancel_window_hours=12,
     )
     busy = [(datetime(2026, 2, 12, 13, 0), datetime(2026, 2, 12, 14, 0))]
     service = AvailabilityService(
@@ -179,6 +182,7 @@ async def test_get_candidate_slots_for_date_range_applies_packing_and_limits_to_
         max_sessions_per_day=8,
         slot_step_min=30,
         intervals=[(time(9, 0), time(18, 0))],
+        cancel_window_hours=12,
     )
     busy = [(datetime(2026, 2, 12, 13, 0), datetime(2026, 2, 12, 14, 0))]
     service = AvailabilityService(

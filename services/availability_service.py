@@ -22,6 +22,7 @@ class SpecialistAvailabilityContext:
     max_sessions_per_day: int
     slot_step_min: int
     intervals: list[tuple[time, time]]
+    cancel_window_hours: int
 
 
 class AvailabilityRepository:
@@ -66,6 +67,7 @@ class AvailabilityRepository:
             max_sessions_per_day=profile.max_sessions_per_day,
             slot_step_min=profile.slot_step_min,
             intervals=intervals,
+            cancel_window_hours=(profile.cancel_window_hours or 12),
         )
 
 
@@ -139,10 +141,12 @@ class AvailabilityService:
         if len(busy_intervals) >= context.max_sessions_per_day:
             return {"morning": [], "day": [], "evening": []}
 
+        min_start_utc = self._now_utc_provider() + timedelta(hours=context.cancel_window_hours)
         filtered = [
             start
             for start in candidate_starts
-            if not self._overlaps_busy(start, context.session_duration_min, busy_intervals)
+            if start.replace(tzinfo=ZoneInfo(context.specialist_tz)).astimezone(timezone.utc) >= min_start_utc
+            and not self._overlaps_busy(start, context.session_duration_min, busy_intervals)
             and self._respects_buffer(start, context.session_duration_min, context.session_buffer_min, busy_intervals)
         ]
 
@@ -187,10 +191,12 @@ class AvailabilityService:
         if len(busy_intervals) >= context.max_sessions_per_day:
             return []
 
+        min_start_utc = self._now_utc_provider() + timedelta(hours=context.cancel_window_hours)
         filtered = [
             start
             for start in candidate_starts
-            if not self._overlaps_busy(start, context.session_duration_min, busy_intervals)
+            if start.replace(tzinfo=ZoneInfo(context.specialist_tz)).astimezone(timezone.utc) >= min_start_utc
+            and not self._overlaps_busy(start, context.session_duration_min, busy_intervals)
             and self._respects_buffer(start, context.session_duration_min, context.session_buffer_min, busy_intervals)
         ]
 

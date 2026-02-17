@@ -1,7 +1,7 @@
 # AvailabilityService (MVP): архитектура генерации слотов
 
 ## Цель
-AvailabilityService отвечает за вычисление доступных стартов сессий для specialist на **следующий календарный день** с учётом:
+AvailabilityService отвечает за вычисление доступных стартов сессий для specialist в доступном будущем периоде с учётом:
 - weekly availability,
 - правил бронирования MVP,
 - занятости из Google Calendar,
@@ -20,8 +20,8 @@ AvailabilityService отвечает за вычисление доступны�
    - в domain validation,
    - в генерации кандидатов стартов.
 6. `session_buffer_min` не материализуется как отдельное Google-событие, но участвует в проверке доступности.
-7. Бронирование разрешено только на следующий календарный день и только до 21:00 предыдущего дня в TZ specialist.
-8. Если local now specialist > 21:00, следующий день считается недоступным.
+7. Бронирование разрешено только если до начала слота осталось не менее cancel_window_hours (по умолчанию 12 часов) в TZ specialist.
+8. Слоты с началом раньше now_utc + cancel_window_hours считаются недоступными.
 
 ---
 
@@ -29,9 +29,9 @@ AvailabilityService отвечает за вычисление доступны�
 
 ### 1) AvailabilityPolicy
 Слой бизнес-правил, не зависящий от интеграций:
-- проверка окна бронирования (next-day + cutoff 21:00),
+- проверка окна бронирования (минимум cancel_window_hours до начала слота),
 - валидация параметров (`slot_step_min ∈ {60,30,15,10}` и т.д.),
-- проверка того, что искомая дата действительно next-day в TZ specialist.
+- проверка окна cancel_window_hours до начала каждого слота.
 
 ### 2) AvailabilityRepository
 Читает настройки specialist из БД (UTC + TZ метаданные):
@@ -105,7 +105,7 @@ AvailabilityService отвечает за вычисление доступны�
 
 ### Шаг 2. Проверка booking window policy
 - Проверить, что `target_date == local_date(now_local) + 1 day`.
-- Проверить `now_local.time <= 21:00`.
+- Проверить, что до начала слота >= cancel_window_hours.
 - Если любое условие нарушено, вернуть `availability_status = CLOSED_*` и пустые слоты.
 
 ### Шаг 3. Построение raw availability (для UI)

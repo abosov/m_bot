@@ -453,8 +453,7 @@ async def send_owner_panel(
         f"• Шаг начала слотов: {(profile.slot_step_min or _DEFAULT_SLOT_STEP_MIN)} мин\n"
         f"• Окно отмены: {(profile.cancel_window_hours or _DEFAULT_CANCEL_WINDOW_HOURS)} ч\n"
         f"• Максимум сессий в день: {(profile.max_sessions_per_day or _DEFAULT_MAX_SESSIONS_PER_DAY)}\n\n"
-        f"{_calendar_info_text(calendar_settings)}\n\n"
-        "Правило записи: запись и изменение доступны только на следующий день и только до 21:00 предыдущего дня по времени специалиста."
+        f"{_calendar_info_text(calendar_settings)}"
     )
     await message.answer(text, reply_markup=_owner_panel_keyboard())
 

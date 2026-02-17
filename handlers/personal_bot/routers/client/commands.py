@@ -21,7 +21,7 @@ from database import (
     async_session_factory,
 )
 from services.availability_service import AvailabilityService
-from services.booking_policy import validate_next_day_cutoff
+from services.booking_policy import validate_min_hours_before_start
 from services.google_calendar import create_appointment_event
 
 router = Router(name="personal_bot_client_commands")
@@ -70,18 +70,23 @@ async def personal_help_client(message: Message, actor: str) -> None:
     await message.answer("Используйте /start для открытия клиентского меню.")
 
 
-async def _validate_stub_booking_policy(*, specialist_id, target_start_utc: datetime) -> None:
-    specialist_tz = "UTC"
+async def _resolve_cancel_window_hours(*, specialist_id) -> int:
     async with async_session_factory() as session:
+        if not hasattr(session, "get"):
+            return 12
         profile = await session.get(SpecialistProfile, specialist_id)
-        if profile and profile.specialist_timezone:
-            specialist_tz = profile.specialist_timezone
+    cancel_window_hours = getattr(profile, "cancel_window_hours", None)
+    if cancel_window_hours is None:
+        return 12
+    return cancel_window_hours
 
-    validate_next_day_cutoff(
-        specialist_tz=specialist_tz,
+
+async def _validate_min_hours_policy(*, specialist_id, target_start_utc: datetime) -> None:
+    min_hours = await _resolve_cancel_window_hours(specialist_id=specialist_id)
+    validate_min_hours_before_start(
         now_utc=datetime.now(timezone.utc),
         target_start_utc=target_start_utc,
-        cutoff_hour_local=21,
+        min_hours=min_hours,
     )
 
 
@@ -166,10 +171,9 @@ def _format_gmt_offset_label(tz: ZoneInfo, *, on_date: date | None = None) -> st
     return f"UTC{sign}{hours:02d}:{minutes:02d}"
 
 
-def _first_available_day(*, now_utc: datetime, specialist_tz: ZoneInfo) -> date:
-    local_now = now_utc.astimezone(specialist_tz)
-    start_offset_days = 1 if local_now.time() <= time(21, 0) else 2
-    return local_now.date() + timedelta(days=start_offset_days)
+def _first_available_day(*, now_utc: datetime, specialist_tz: ZoneInfo, min_hours: int) -> date:
+    first_allowed = now_utc + timedelta(hours=min_hours)
+    return first_allowed.astimezone(specialist_tz).date()
 
 
 def _booking_day_keyboard(days: list[date], *, enabled_by_iso: dict[str, bool]):
@@ -355,7 +359,8 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
         return
 
     specialist_tz = await _get_specialist_tz(specialist_id)
-    first_day = _first_available_day(now_utc=datetime.now(timezone.utc), specialist_tz=specialist_tz)
+    min_hours = await _resolve_cancel_window_hours(specialist_id=specialist_id)
+    first_day = _first_available_day(now_utc=datetime.now(timezone.utc), specialist_tz=specialist_tz, min_hours=min_hours)
     available_days = [first_day + timedelta(days=idx) for idx in range(7)]
     enabled_by_iso: dict[str, bool] = {}
     booking_day_meta: dict[str, dict[str, bool]] = {}
@@ -588,6 +593,12 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
         slot_start_utc = slot_start_local.astimezone(timezone.utc)
         slot_end_utc = slot_start_utc + timedelta(minutes=session_duration_min)
 
+        try:
+            await _validate_min_hours_policy(specialist_id=specialist_id, target_start_utc=slot_start_utc)
+        except ValueError as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+
         appointment = Appointment(
             specialist_id=specialist_id,
             client_id=client.client_id,
@@ -703,6 +714,17 @@ async def client_my_appointments_retry_last(callback, specialist_id) -> None:
             profile.specialist_timezone if profile is not None and profile.specialist_timezone else "UTC"
         )
 
+        try:
+            await _validate_min_hours_policy(
+                specialist_id=specialist_id,
+                target_start_utc=appointment.start_at_utc,
+            )
+        except ValueError as exc:
+            if callback.message is not None:
+                await callback.message.answer(str(exc))
+            await callback.answer()
+            return
+
         appointment.booking_state = BookingState.pending
         appointment.failure_message = None
         await session.commit()
@@ -799,12 +821,12 @@ async def personal_book_stub(message: Message, command: CommandObject, specialis
         target_start_utc = target_start_utc.replace(tzinfo=timezone.utc)
 
     try:
-        await _validate_stub_booking_policy(specialist_id=specialist_id, target_start_utc=target_start_utc)
+        await _validate_min_hours_policy(specialist_id=specialist_id, target_start_utc=target_start_utc)
     except ValueError as exc:
         await message.answer(str(exc))
         return
 
-    await message.answer("✅ Заглушка: booking допустим по правилу next-day + cutoff 21:00.")
+    await message.answer("✅ Заглушка: booking допустим по правилу окна до начала слота.")
 
 
 @router.message(Command("reschedule_stub"))
@@ -824,9 +846,9 @@ async def personal_reschedule_stub(message: Message, command: CommandObject, spe
         target_start_utc = target_start_utc.replace(tzinfo=timezone.utc)
 
     try:
-        await _validate_stub_booking_policy(specialist_id=specialist_id, target_start_utc=target_start_utc)
+        await _validate_min_hours_policy(specialist_id=specialist_id, target_start_utc=target_start_utc)
     except ValueError as exc:
         await message.answer(str(exc))
         return
 
-    await message.answer("✅ Заглушка: перенос допустим по правилу next-day + cutoff 21:00.")
+    await message.answer("✅ Заглушка: перенос допустим по правилу окна до начала слота.")
