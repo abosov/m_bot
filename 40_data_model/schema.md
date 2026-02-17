@@ -4,13 +4,14 @@
 - ORM-модели: `database.py`.
 - SQL-миграции: `scripts/migrations/*.sql`.
 
-> В `public` ожидаются таблицы: `applied_migrations`, `appointment`, `appointment_calendar_link`, `bot_health_checks`, `client`, `google_oauth`, `message_logs`, `oauth_state`, `service_heartbeats`, `specialist`, `specialist_auth_telegram`, `specialist_calendar`, `specialist_calendar_settings`, `specialist_profile`, `telegram_bot`, `weekly_availability`.
+> В `public` ожидаются таблицы: `applied_migrations`, `appointment`, `appointment_calendar_link`, `bot_health_checks`, `calendar_sync_state`, `client`, `google_oauth`, `message_logs`, `oauth_state`, `service_heartbeats`, `specialist`, `specialist_auth_telegram`, `specialist_calendar`, `specialist_calendar_settings`, `specialist_profile`, `telegram_bot`, `weekly_availability`.
 
 ## Relationships (FK)
 - `appointment.specialist_id -> specialist.specialist_id`
 - `appointment.client_id -> client.client_id`
 - `appointment_calendar_link.appointment_id -> appointment.appointment_id`
 - `bot_health_checks.specialist_id -> specialist.specialist_id`
+- `calendar_sync_state.specialist_id -> specialist.specialist_id`
 - `client.specialist_id -> specialist.specialist_id`
 - `google_oauth.specialist_id -> specialist.specialist_id`
 - `message_logs.specialist_id -> specialist.specialist_id` (nullable)
@@ -71,11 +72,19 @@
 - UQ: `calendar_id`.
 - IDX: `calendar_id`.
 
-### 8) specialist_calendar (legacy)
+### 8) calendar_sync_state
+Назначение: хранение состояния reverse-sync для календаря специалиста (Google `syncToken` + watch channel metadata).
+- Поля: `specialist_id uuid not null`, `calendar_id text not null`, `sync_token text null`, `channel_id text null`, `resource_id text null`, `channel_expiration timestamptz null`, `last_success_at timestamptz null`, `last_error_at timestamptz null`, `error_count int not null default 0`, `created_at timestamptz default now()`, `updated_at timestamptz default now()`.
+- PK: `(specialist_id, calendar_id)`.
+- FK: `specialist_id -> specialist.specialist_id`.
+- UQ: — (кроме PK).
+- IDX: implicit по PK.
+
+### 9) specialist_calendar (legacy)
 - Поля/ограничения зависят от более ранней схемы, таблица может присутствовать на проде.
 - Используется только для совместимости/диагностики; актуальная рабочая таблица — `specialist_calendar_settings`.
 
-### 9) weekly_availability
+### 10) weekly_availability
 - Поля: `weekly_availability_id uuid not null`, `specialist_id uuid not null`, `weekday int not null`, `is_working bool not null default false`, `interval_1_start time null`, `interval_1_end time null`, `interval_2_start time null`, `interval_2_end time null`, `interval_3_start time null`, `interval_3_end time null`, `updated_at timestamptz default now()`.
 - PK: `weekly_availability_id`.
 - FK: `specialist_id -> specialist.specialist_id`.
@@ -83,21 +92,21 @@
 - IDX: `specialist_id`.
 - CHECK: парность и порядок интервалов (`start < end` при заполнении).
 
-### 10) client
+### 11) client
 - Поля: `client_id uuid not null`, `specialist_id uuid not null`, `tg_user_id bigint not null`, `tg_username varchar null`, `display_name varchar null`, `client_code varchar not null`, `client_timezone varchar not null`, `timezone_source enum not null`, `created_at timestamptz default now()`, `updated_at timestamptz default now()`.
 - PK: `client_id`.
 - FK: `specialist_id -> specialist.specialist_id`.
 - UQ: `uq_client_specialist_tg_user_id (specialist_id, tg_user_id)`.
 - IDX: `specialist_id`, `tg_user_id`.
 
-### 11) appointment
+### 12) appointment
 - Поля: `appointment_id uuid not null`, `specialist_id uuid not null`, `client_id uuid not null`, `start_at_utc timestamptz not null`, `end_at_utc timestamptz not null`, `booking_state enum not null`, `idempotency_key varchar not null`, `gcal_event_id varchar null`, `specialist_private_note text null`, `failure_message text null`, `created_at timestamptz default now()`, `updated_at timestamptz default now()`.
 - PK: `appointment_id`.
 - FK: `specialist_id -> specialist.specialist_id`, `client_id -> client.client_id`.
 - UQ: `idempotency_key`.
 - IDX: `booking_state`, `ix_appointment_specialist_id_start_at_utc (specialist_id, start_at_utc)`, `ix_appointment_specialist_id_booking_state_start_at_utc (specialist_id, booking_state, start_at_utc)`, `ix_appointment_client_id_start_at_utc (client_id, start_at_utc)`.
 
-### 12) appointment_calendar_link
+### 13) appointment_calendar_link
 Назначение: постоянная связка `appointment_id ↔ google_event_id` (в рамках `calendar_id`) для reverse sync из Google Calendar в локальную запись.
 - Поля: `appointment_id uuid not null`, `specialist_id uuid not null`, `calendar_id text not null`, `google_event_id text not null`, `ical_uid text null`, `event_etag text null`, `event_updated timestamptz null`, `last_synced_at timestamptz null`, `created_at timestamptz default now()`, `updated_at timestamptz default now()`.
 - PK: `appointment_id`.
@@ -105,28 +114,28 @@
 - UQ: `uq_appointment_calendar_link_event_calendar (google_event_id, calendar_id)`, `uq_appointment_calendar_link_appointment_id (appointment_id)`.
 - IDX: `specialist_id`, `google_event_id`, `ical_uid`.
 
-### 13) oauth_state
+### 14) oauth_state
 - Поля: `oauth_state_id uuid not null`, `state varchar not null`, `type enum not null`, `specialist_id uuid not null`, `expires_at timestamptz not null`, `created_at timestamptz default now()`.
 - PK: `oauth_state_id`.
 - FK: `specialist_id -> specialist.specialist_id`.
 - UQ: `state`.
 - IDX: `expires_at`.
 
-### 14) message_logs
+### 15) message_logs
 - Поля: `id uuid not null`, `created_at timestamptz default now()`, `specialist_id uuid null`, `bot_id bigint not null`, `bot_username varchar null`, `specialist_name varchar null`, `tg_user_id bigint not null`, `user_handle varchar null`, `direction enum not null`, `message_type varchar not null`, `content text null`, `fsm_state varchar null`, `handler_name varchar null`, `is_error bool default false`, `error_details text null`, `processing_time float null`.
 - PK: `id`.
 - FK: `specialist_id -> specialist.specialist_id`.
 - UQ: —.
 - IDX: `bot_id`.
 
-### 15) bot_health_checks
+### 16) bot_health_checks
 - Поля: `id uuid not null`, `specialist_id uuid not null`, `bot_user_id bigint not null`, `checked_at timestamptz default now()`, `status enum not null`, `latency_ms int not null`, `error_details text null`.
 - PK: `id`.
 - FK: `specialist_id -> specialist.specialist_id`.
 - UQ: —.
 - IDX: `specialist_id`, `bot_user_id`.
 
-### 16) service_heartbeats
+### 17) service_heartbeats
 - Поля: `id uuid not null`, `service_name text not null`, `ts timestamptz default now()`, `db_ok bool not null`, `loop_ok bool not null`, `latency_ms int not null`, `details text null`.
 - PK: `id`.
 - FK/UQ: —.
@@ -141,6 +150,7 @@ erDiagram
     specialist ||--o{ telegram_bot : owns
     specialist ||--|| google_oauth : oauth
     specialist ||--|| specialist_calendar_settings : calendar
+    specialist ||--o{ calendar_sync_state : sync
     specialist ||--o{ weekly_availability : schedule
     specialist ||--o{ client : serves
     client ||--o{ appointment : books

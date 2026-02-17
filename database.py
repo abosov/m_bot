@@ -97,6 +97,7 @@ class Specialist(Base):
     profile: Mapped["SpecialistProfile"] = relationship(back_populates="specialist", uselist=False)
     google_oauth: Mapped["GoogleOAuth"] = relationship(back_populates="specialist", uselist=False)
     calendar_settings: Mapped["SpecialistCalendarSettings"] = relationship(back_populates="specialist", uselist=False)
+    calendar_sync_states: Mapped[List["CalendarSyncState"]] = relationship(back_populates="specialist")
     weekly_availability: Mapped[List["WeeklyAvailability"]] = relationship(back_populates="specialist")
     clients: Mapped[List["Client"]] = relationship(back_populates="specialist")
     appointments: Mapped[List["Appointment"]] = relationship(back_populates="specialist")
@@ -216,6 +217,25 @@ class SpecialistCalendarSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     specialist: Mapped["Specialist"] = relationship(back_populates="calendar_settings")
+
+
+class CalendarSyncState(Base):
+    __tablename__ = "calendar_sync_state"
+
+    specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), primary_key=True)
+    calendar_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    sync_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    channel_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    resource_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    channel_expiration: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    specialist: Mapped["Specialist"] = relationship(back_populates="calendar_sync_states")
 
 
 class WeeklyAvailability(Base):
