@@ -95,13 +95,20 @@ async def _ensure_client_exists(*, specialist_id, tg_user_id: int, tg_username: 
                 await session.commit()
             return existing
 
+        specialist_timezone = (
+            await session.execute(
+                select(SpecialistProfile.specialist_timezone)
+                .where(SpecialistProfile.specialist_id == specialist_id)
+            )
+        ).scalar_one_or_none() or "UTC"
+
         client = Client(
             specialist_id=specialist_id,
             tg_user_id=tg_user_id,
             tg_username=tg_username,
             display_name=None,
             client_code=f"tg-{tg_user_id}",
-            client_timezone="UTC",
+            client_timezone=specialist_timezone,
             timezone_source=ClientTimezoneSource.default_from_specialist,
         )
         session.add(client)
