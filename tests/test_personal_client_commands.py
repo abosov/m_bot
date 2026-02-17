@@ -415,6 +415,52 @@ async def test_client_pick_interval_shows_slots_as_buttons(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_client_pick_interval_converts_slots_to_client_tz(monkeypatch):
+    state = DummyState()
+    state.data = {
+        "booking_date": "2026-02-24",
+        "booking_interval_options": ["day"],
+        "booking_interval_bounds": {"day": {"start": "13:00", "end": "14:00"}},
+    }
+    message = DummyMessage("")
+
+    callback = types.SimpleNamespace(
+        data="client_book_interval:2026-02-24:day",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    class _Availability:
+        async def get_candidate_slots_for_date_range(self, **kwargs):
+            return [datetime(2026, 2, 24, 13, 0), datetime(2026, 2, 24, 13, 15)]
+
+    async def _tz(_specialist_id):
+        return ZoneInfo("Europe/Moscow")
+
+    monkeypatch.setattr(client_commands, "availability_service", _Availability())
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(
+        client_commands,
+        "async_session_factory",
+        _mock_client_tz_session_factory(timezone_name="UTC"),
+    )
+
+    await client_commands.client_pick_interval(callback, state=state, specialist_id="sp-id")
+
+    markup = message.answers[0][1].get("reply_markup")
+    assert markup is not None
+    buttons = [button for row in markup.inline_keyboard for button in row]
+    assert [button.text for button in buttons] == ["10:00", "10:15"]
+    assert all("+00:00" in button.callback_data for button in buttons)
+
+
+@pytest.mark.asyncio
 async def test_client_book_button_shows_gmt_in_header(monkeypatch):
     book_msg = DummyMessage("Записаться", from_user=types.SimpleNamespace(id=42))
     state = DummyState()
@@ -871,7 +917,7 @@ async def test_client_pick_slot_creates_confirmed_appointment_and_returns_menu(m
     class _Result:
         @staticmethod
         def scalar_one_or_none():
-            return types.SimpleNamespace(client_id="cl-1")
+            return types.SimpleNamespace(client_id="cl-1", client_timezone="UTC")
 
     class _Session:
         def __init__(self):
@@ -949,6 +995,7 @@ async def test_client_pick_slot_logs_google_error_and_keeps_confirmed(monkeypatc
                 tg_username="anna",
                 tg_user_id=42,
                 client_code="CL-42",
+                client_timezone="UTC",
             )
 
     class _Session:
@@ -1043,6 +1090,7 @@ async def test_client_pick_slot_passes_client_tg_user_id_and_client_code_to_goog
                 tg_username="anna",
                 tg_user_id=42,
                 client_code="CL-42",
+                client_timezone="UTC",
             )
 
     class _Session:

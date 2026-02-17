@@ -287,7 +287,7 @@ async def _get_weekly_availability_row(*, specialist_id, weekday: int) -> Weekly
         ).scalar_one_or_none()
 
 
-async def _has_any_slots_in_day(*, specialist_id, day_local: date) -> bool:
+async def _has_any_slots_in_day(*, specialist_id, day_local: date, client_tz: ZoneInfo) -> bool:
     weekly_row = await _get_weekly_availability_row(specialist_id=specialist_id, weekday=day_local.weekday())
     if weekly_row is None or not weekly_row.is_working:
         return False
@@ -301,7 +301,7 @@ async def _has_any_slots_in_day(*, specialist_id, day_local: date) -> bool:
         slots = await availability_service.get_candidate_slots_for_date_range(
             specialist_id=specialist_id,
             target_date_local_client=day_local,
-            client_tz=getattr(specialist_tz, "key", "UTC"),
+            client_tz=getattr(client_tz, "key", "UTC"),
             interval_start=interval_start,
             interval_end=interval_end,
         )
@@ -401,6 +401,11 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
     min_hours = await _resolve_cancel_window_hours(specialist_id=specialist_id)
     first_day = _first_available_day(now_utc=datetime.now(timezone.utc), specialist_tz=specialist_tz, min_hours=min_hours)
     available_days = [first_day + timedelta(days=idx) for idx in range(7)]
+    client_tz = (
+        await _get_client_tz(specialist_id=specialist_id, tg_user_id=message.from_user.id)
+        if message.from_user is not None
+        else ZoneInfo("UTC")
+    )
     enabled_by_iso: dict[str, bool] = {}
     booking_day_meta: dict[str, dict[str, bool]] = {}
     for booking_day in available_days:
@@ -412,7 +417,7 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
             else False
         )
         has_slots_in_day = (
-            await _has_any_slots_in_day(specialist_id=specialist_id, day_local=booking_day)
+            await _has_any_slots_in_day(specialist_id=specialist_id, day_local=booking_day, client_tz=client_tz)
             if is_working_day and not is_day_limit_reached
             else False
         )
@@ -425,11 +430,6 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
             "has_any_slots": has_slots_in_day,
             "enabled": is_enabled,
         }
-    client_tz = (
-        await _get_client_tz(specialist_id=specialist_id, tg_user_id=message.from_user.id)
-        if message.from_user is not None
-        else ZoneInfo("UTC")
-    )
     gmt_label = _format_gmt_offset_label(client_tz)
 
     await state.set_state(ClientBookingState.waiting_for_day)
@@ -490,7 +490,7 @@ async def client_pick_day(callback, state: FSMContext, specialist_id) -> None:
             slots = await availability_service.get_candidate_slots_for_date_range(
                 specialist_id=specialist_id,
                 target_date_local_client=selected_day,
-                client_tz=getattr(specialist_tz, "key", "UTC"),
+                client_tz=getattr(client_tz, "key", "UTC"),
                 interval_start=interval_start,
                 interval_end=interval_end,
             )
@@ -579,20 +579,24 @@ async def client_pick_interval(callback, state: FSMContext, specialist_id) -> No
     slots = await availability_service.get_candidate_slots_for_date_range(
         specialist_id=specialist_id,
         target_date_local_client=selected_day,
-        client_tz=getattr(specialist_tz, "key", "UTC"),
+        client_tz=getattr(client_tz, "key", "UTC"),
         interval_start=interval_start,
         interval_end=interval_end,
     )
+    client_slots: list[datetime] = []
+    for slot in slots:
+        slot_sp = slot.replace(tzinfo=specialist_tz) if slot.tzinfo is None else slot.astimezone(specialist_tz)
+        client_slots.append(slot_sp.astimezone(client_tz))
 
     header = (
         f"Выберите слот ({gmt_label}):"
-        if slots
+        if client_slots
         else f"Нет доступных слотов в выбранном диапазоне ({gmt_label})."
     )
 
     await callback.message.answer(
         header,
-        reply_markup=_booking_slots_keyboard(slots) if slots else None,
+        reply_markup=_booking_slots_keyboard(client_slots) if client_slots else None,
     )
     await callback.answer()
 
@@ -611,8 +615,9 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
         return
 
     specialist_tz = await _get_specialist_tz(specialist_id)
+    client_tz = await _get_client_tz(specialist_id=specialist_id, tg_user_id=callback.from_user.id)
     if slot_start_local.tzinfo is None:
-        slot_start_local = slot_start_local.replace(tzinfo=specialist_tz)
+        slot_start_local = slot_start_local.replace(tzinfo=client_tz)
 
     async with async_session_factory() as session:
         client = (
