@@ -97,7 +97,7 @@ async def _send_specialist_message(
 
 async def _handle_appointment_rescheduled(session: AsyncSession, event: OutboxEvent) -> None:
     payload = event.payload_json or {}
-    appointment_id = _parse_uuid(payload, "appointment_id")
+    _parse_uuid(payload, "appointment_id")
     specialist_id = _parse_uuid(payload, "specialist_id")
     client_id = _parse_uuid(payload, "client_id")
     old_start_at_utc = _parse_dt(payload, "old_start_at_utc")
@@ -112,7 +112,7 @@ async def _handle_appointment_rescheduled(session: AsyncSession, event: OutboxEv
     client_old = _format_dt_for_client(old_start_at_utc, client.client_timezone)
     client_new = _format_dt_for_client(new_start_at_utc, client.client_timezone)
     client_text = (
-        f"Специалист изменил время записи #{appointment_id}.\n"
+        "Специалист изменил время записи.\n"
         f"Было: {client_old}\n"
         f"Стало: {client_new}"
     )
@@ -127,7 +127,7 @@ async def _handle_appointment_rescheduled(session: AsyncSession, event: OutboxEv
     owner_tg_user_id = specialist_profile.owner_tg_user_id if specialist_profile else None
     if owner_tg_user_id is not None:
         specialist_text = (
-            f"Перенос записи #{appointment_id} выполнен.\n"
+            "Перенос записи выполнен.\n"
             f"Клиент: {client.display_name or client.client_code or client.client_id}\n"
             f"Новое время: {format_session_datetime(new_start_at_utc, ZoneInfo('UTC'))}"
         )
