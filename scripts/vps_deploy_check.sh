@@ -208,7 +208,41 @@ post_deploy_smoke_checks() {
   run_step "Smoke: service journal scan" check_recent_service_errors
 
   [[ -n "${MASTER_BOT_TOKEN:-}" ]] || die "MASTER_BOT_TOKEN is required for telegram smoke-check"
-  run_step "Smoke: master bot getMe" check_telegram_getme "master bot" "${MASTER_BOT_TOKEN}"
+  run_step "Smoke: master bot getMe" env MASTER_BOT_TOKEN="${MASTER_BOT_TOKEN}" python3 - <<'PY'
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+master_bot_token = os.environ.get("MASTER_BOT_TOKEN", "")
+if not master_bot_token:
+    print("MASTER_BOT_TOKEN is required")
+    sys.exit(1)
+
+url = f"https://api.telegram.org/bot{master_bot_token}/getMe"
+request = urllib.request.Request(url, method="GET")
+
+try:
+    with urllib.request.urlopen(request, timeout=8) as resp:
+        response = json.load(resp)
+except (urllib.error.URLError, TimeoutError) as exc:
+    print(f"master bot getMe request failed: {exc}")
+    sys.exit(1)
+except json.JSONDecodeError as exc:
+    print(f"invalid json: {exc}")
+    sys.exit(1)
+
+if response.get("ok") is not True:
+    print(response)
+    sys.exit(1)
+
+username = (response.get("result") or {}).get("username")
+if username:
+    print(f"[OK] master bot getMe (@{username})")
+else:
+    print("[OK] master bot getMe (no username)")
+PY
 
   if [[ -n "${TEST_PERSONAL_BOT_TOKEN:-}" ]]; then
     run_step "Smoke: test personal bot getMe" check_telegram_getme "test personal bot" "${TEST_PERSONAL_BOT_TOKEN}"
