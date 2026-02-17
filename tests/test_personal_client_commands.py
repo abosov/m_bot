@@ -106,7 +106,7 @@ async def test_client_menu_buttons_return_stubs(monkeypatch):
     monkeypatch.setattr(client_commands, "_has_any_slots_in_day", _has_slots_true)
 
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
-    assert book_msg.answers[0][0] == "Выберите день (GMT+0):"
+    assert book_msg.answers[0][0] == "Выберите день (UTC+0):"
     assert book_msg.answers[0][1].get("reply_markup") is not None
     assert state.state == client_commands.ClientBookingState.waiting_for_day
     assert state.data["booking_available_days"] == [
@@ -212,7 +212,7 @@ async def test_client_pick_day_shows_available_intervals(monkeypatch):
     assert state.data["booking_date"] == "2026-02-21"
     assert state.data["booking_interval_options"] == ["morning", "evening"]
     assert state.data["booking_interval_bounds"] == {"morning": {"start": "09:00", "end": "12:00"}, "evening": {"start": "18:00", "end": "21:00"}}
-    assert message.answers[0][0] == "Выберите диапазон (GMT+0):"
+    assert message.answers[0][0] == "Выберите диапазон (UTC+0):"
     markup = message.answers[0][1].get("reply_markup")
     assert markup is not None
     buttons = [button for row in markup.inline_keyboard for button in row]
@@ -402,7 +402,7 @@ async def test_client_pick_interval_shows_slots_as_buttons(monkeypatch):
 
     await client_commands.client_pick_interval(callback, state=state, specialist_id="sp-id")
 
-    assert message.answers[0][0] == "Выберите слот (GMT+0):"
+    assert message.answers[0][0] == "Выберите слот (UTC+0):"
     markup = message.answers[0][1].get("reply_markup")
     assert markup is not None
     assert len(markup.inline_keyboard) == 1
@@ -441,7 +441,7 @@ async def test_client_book_button_shows_gmt_in_header(monkeypatch):
 
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
 
-    assert book_msg.answers[0][0] == "Выберите день (GMT+3):"
+    assert book_msg.answers[0][0] == "Выберите день (UTC+3):"
 
 
 @pytest.mark.asyncio
@@ -802,7 +802,7 @@ async def test_client_pick_day_shows_gmt_in_header(monkeypatch):
 
     await client_commands.client_pick_day(callback, state=state, specialist_id="sp-id")
 
-    assert message.answers[0][0] == "Выберите диапазон (GMT+3):"
+    assert message.answers[0][0] == "Выберите диапазон (UTC+3):"
 
 
 @pytest.mark.asyncio
@@ -844,7 +844,7 @@ async def test_client_pick_interval_shows_gmt_in_header(monkeypatch):
 
     await client_commands.client_pick_interval(callback, state=state, specialist_id="sp-id")
 
-    assert message.answers[0][0] == "Выберите слот (GMT+3):"
+    assert message.answers[0][0] == "Выберите слот (UTC+3):"
 
 
 @pytest.mark.asyncio

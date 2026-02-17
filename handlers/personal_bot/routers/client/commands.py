@@ -162,8 +162,8 @@ def _format_gmt_offset_label(tz: ZoneInfo, *, on_date: date | None = None) -> st
     minutes = remainder // 60
 
     if minutes == 0:
-        return f"GMT{sign}{hours}"
-    return f"GMT{sign}{hours:02d}:{minutes:02d}"
+        return f"UTC{sign}{hours}"
+    return f"UTC{sign}{hours:02d}:{minutes:02d}"
 
 
 def _first_available_day(*, now_utc: datetime, specialist_tz: ZoneInfo) -> date:

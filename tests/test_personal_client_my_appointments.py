@@ -115,7 +115,7 @@ async def test_my_appointments_shows_confirmed_and_failed_with_retry_button(monk
 
     assert len(message.answers) == 1
     text, kwargs = message.answers[0]
-    assert "Ваши записи (GMT" in text
+    assert "Ваши записи (UTC" in text
     assert "2099-01-10 09:30" in text
     assert "2099-01-11 15:45" in text
     assert "не подтверждена" in text
