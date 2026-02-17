@@ -136,9 +136,55 @@ async def test_client_menu_buttons_return_stubs(monkeypatch):
     await client_commands.client_my_appointments_button(appts_msg_legacy, actor="client", specialist_id="sp-id")
     assert "скоро будет доступен" in appts_msg_legacy.answers[0][0]
 
-    tz_msg = DummyMessage("Сменить часовой пояс (пока stub)")
-    await client_commands.client_change_timezone_button(tz_msg, actor="client")
-    assert "скоро будет доступна" in tz_msg.answers[0][0]
+    tz_msg = DummyMessage("Сменить часовой пояс", from_user=types.SimpleNamespace(id=42))
+    await client_commands.client_change_timezone_button(tz_msg, actor="client", specialist_id="sp-id", state=state)
+    assert "Текущий часовой пояс: UTC" in tz_msg.answers[0][0]
+
+
+@pytest.mark.asyncio
+async def test_client_timezone_manual_change_updates_client_and_clears_state(monkeypatch):
+    state = DummyState()
+    client = types.SimpleNamespace(client_timezone="UTC")
+    committed = {"value": False}
+
+    class _Session:
+        async def execute(self, _stmt):
+            return _Result(client)
+
+        async def commit(self):
+            committed["value"] = True
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+
+    menu_message = DummyMessage("Сменить часовой пояс", from_user=types.SimpleNamespace(id=42))
+    await client_commands.client_change_timezone_button(
+        menu_message,
+        actor="client",
+        specialist_id="sp-id",
+        state=state,
+    )
+
+    assert state.state == client_commands.ClientTimezoneState.waiting_for_timezone
+    assert "Текущий часовой пояс: UTC" in menu_message.answers[0][0]
+
+    input_message = DummyMessage("Europe/Berlin", from_user=types.SimpleNamespace(id=42))
+    await client_commands.client_tz_text_input(
+        input_message,
+        actor="client",
+        specialist_id="sp-id",
+        state=state,
+    )
+
+    assert client.client_timezone == "Europe/Berlin"
+    assert committed["value"] is True
+    assert state.state is None
 
 
 def test_first_available_day_respects_min_hours_window():
