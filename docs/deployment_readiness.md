@@ -342,3 +342,14 @@ ALERTS_DEDUP_WINDOW_SECONDS=300
 ```bash
 sudo systemctl restart zumbot-backend.service
 ```
+
+## Маркировка событий Zumbot в Google Calendar
+
+При создании и обновлении событий записи Zumbot добавляет в payload Google Calendar:
+
+- `extendedProperties.private.zumbot_appointment_id` — UUID локальной записи (`appointment_id`),
+- `extendedProperties.private.zumbot_specialist_id` — UUID специалиста (`specialist_id`).
+
+Это используется reverse sync-процессом для надёжного распознавания "наших" событий.
+Если у события уже есть `extendedProperties`, существующие ключи сохраняются и дополняются, без перезаписи.
+

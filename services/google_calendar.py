@@ -375,8 +375,29 @@ async def create_and_cleanup_test_event(specialist_id: uuid.UUID, calendar_id: s
         raise
 
 
+def _merge_private_extended_properties(
+    payload: dict[str, Any],
+    *,
+    appointment_id: uuid.UUID,
+    specialist_id: uuid.UUID,
+) -> None:
+    extended_properties = payload.get("extendedProperties")
+    if not isinstance(extended_properties, dict):
+        extended_properties = {}
+        payload["extendedProperties"] = extended_properties
+
+    private_properties = extended_properties.get("private")
+    if not isinstance(private_properties, dict):
+        private_properties = {}
+        extended_properties["private"] = private_properties
+
+    private_properties["zumbot_appointment_id"] = str(appointment_id)
+    private_properties["zumbot_specialist_id"] = str(specialist_id)
+
+
 async def create_appointment_event(
     *,
+    appointment_id: uuid.UUID,
     specialist_id: uuid.UUID,
     calendar_id: str,
     start_at_utc: datetime,
@@ -419,12 +440,17 @@ async def create_appointment_event(
             description_lines.append(f"Link: tg://user?id={client_tg_user_id}")
         description = "\n".join(description_lines)
 
-        payload = {
+        payload: dict[str, Any] = {
             "summary": summary,
             "description": description,
             "start": {"dateTime": start_at_utc.isoformat(), "timeZone": specialist_tz},
             "end": {"dateTime": end_at_utc.isoformat(), "timeZone": specialist_tz},
         }
+        _merge_private_extended_properties(
+            payload,
+            appointment_id=appointment_id,
+            specialist_id=specialist_id,
+        )
 
         response = await _calendar_request_with_retry(
             requests.post,
@@ -462,6 +488,7 @@ async def create_appointment_event(
 
 async def update_appointment_event(
     *,
+    appointment_id: uuid.UUID,
     specialist_id: uuid.UUID,
     calendar_id: str,
     google_event_id: str,
@@ -505,12 +532,17 @@ async def update_appointment_event(
             description_lines.append(f"Link: tg://user?id={client_tg_user_id}")
         description = "\n".join(description_lines)
 
-        payload = {
+        payload: dict[str, Any] = {
             "summary": summary,
             "description": description,
             "start": {"dateTime": start_at_utc.isoformat(), "timeZone": specialist_tz},
             "end": {"dateTime": end_at_utc.isoformat(), "timeZone": specialist_tz},
         }
+        _merge_private_extended_properties(
+            payload,
+            appointment_id=appointment_id,
+            specialist_id=specialist_id,
+        )
 
         response = await _calendar_request_with_retry(
             requests.put,

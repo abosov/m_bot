@@ -258,6 +258,7 @@ async def test_create_appointment_event_formats_summary_and_description(
     monkeypatch.setattr(google_calendar, "_calendar_request_with_retry", fake_calendar_request)
 
     event = await google_calendar.create_appointment_event(
+        appointment_id=uuid.uuid4(),
         specialist_id=specialist_id,
         calendar_id="primary",
         start_at_utc=datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc),
@@ -299,6 +300,7 @@ async def _create_appointment_event_and_capture_payload(
     monkeypatch.setattr(google_calendar, "_calendar_request_with_retry", fake_calendar_request)
 
     await google_calendar.create_appointment_event(
+        appointment_id=uuid.uuid4(),
         specialist_id=specialist_id,
         calendar_id="primary",
         start_at_utc=datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc),
@@ -340,3 +342,55 @@ async def test_create_appointment_event_payload_when_username_absent(monkeypatch
     assert "(#A1)" in payload["summary"] or "(tg_id=42)" in payload["summary"]
     assert "tg_user_id=42" in payload["description"]
     assert "tg://user?id=42" in payload["description"]
+
+
+@pytest.mark.asyncio
+async def test_create_appointment_event_includes_private_extended_properties(monkeypatch):
+    specialist_id = uuid.uuid4()
+    appointment_id = uuid.uuid4()
+    captured_payload = {}
+
+    async def fake_headers(_specialist_id):
+        return {"Authorization": "Bearer token", "Content-Type": "application/json"}
+
+    async def fake_calendar_request(_request_callable, _url, **kwargs):
+        captured_payload.update(kwargs.get("json") or {})
+        return _CreateEventResponse()
+
+    monkeypatch.setattr(google_calendar, "_build_headers", fake_headers)
+    monkeypatch.setattr(google_calendar, "_calendar_request_with_retry", fake_calendar_request)
+
+    await google_calendar.create_appointment_event(
+        appointment_id=appointment_id,
+        specialist_id=specialist_id,
+        calendar_id="primary",
+        start_at_utc=datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc),
+        end_at_utc=datetime(2026, 1, 1, 11, 0, tzinfo=timezone.utc),
+        specialist_tz="UTC",
+        client_display_name="Клиент",
+    )
+
+    assert captured_payload["extendedProperties"]["private"]["zumbot_appointment_id"] == str(appointment_id)
+    assert captured_payload["extendedProperties"]["private"]["zumbot_specialist_id"] == str(specialist_id)
+
+
+def test_merge_private_extended_properties_preserves_existing_keys():
+    specialist_id = uuid.uuid4()
+    appointment_id = uuid.uuid4()
+    payload = {
+        "extendedProperties": {
+            "private": {"existing_key": "existing_value"},
+            "shared": {"k": "v"},
+        }
+    }
+
+    google_calendar._merge_private_extended_properties(
+        payload,
+        appointment_id=appointment_id,
+        specialist_id=specialist_id,
+    )
+
+    assert payload["extendedProperties"]["private"]["existing_key"] == "existing_value"
+    assert payload["extendedProperties"]["private"]["zumbot_appointment_id"] == str(appointment_id)
+    assert payload["extendedProperties"]["private"]["zumbot_specialist_id"] == str(specialist_id)
+    assert payload["extendedProperties"]["shared"] == {"k": "v"}

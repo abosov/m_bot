@@ -661,6 +661,7 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
             try:
                 if appointment.gcal_event_id:
                     event = await update_appointment_event(
+                        appointment_id=appointment.appointment_id,
                         specialist_id=specialist_id,
                         calendar_id=calendar_id,
                         google_event_id=appointment.gcal_event_id,
@@ -674,6 +675,7 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
                     )
                 else:
                     event = await create_appointment_event(
+                        appointment_id=appointment.appointment_id,
                         specialist_id=specialist_id,
                         calendar_id=calendar_id,
                         start_at_utc=slot_start_utc,
@@ -804,6 +806,7 @@ async def client_my_appointments_retry_last(callback, specialist_id) -> None:
         try:
             if appointment.gcal_event_id:
                 event = await update_appointment_event(
+                    appointment_id=appointment.appointment_id,
                     specialist_id=specialist_id,
                     calendar_id=calendar_id,
                     google_event_id=appointment.gcal_event_id,
@@ -817,6 +820,7 @@ async def client_my_appointments_retry_last(callback, specialist_id) -> None:
                 )
             else:
                 event = await create_appointment_event(
+                    appointment_id=appointment.appointment_id,
                     specialist_id=specialist_id,
                     calendar_id=calendar_id,
                     start_at_utc=appointment.start_at_utc,
