@@ -3,12 +3,14 @@ import asyncio
 import logging
 import time
 import uuid
+from pathlib import Path
 import requests
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, Response
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy import select, update
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
@@ -45,6 +47,11 @@ import config
 from admin_api import router as admin_router
 
 logger = logging.getLogger(__name__)
+
+BASE_DIR = Path(__file__).resolve().parent
+WEB_DIR = BASE_DIR / "web"
+ASSETS_DIR = WEB_DIR / "assets"
+INDEX_FILE = WEB_DIR / "index.html"
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -100,6 +107,19 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(RequestIdMiddleware)
+
+if ASSETS_DIR.exists() and INDEX_FILE.exists():
+    app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+
+    @app.get("/")
+    async def site_index() -> FileResponse:
+        return FileResponse(INDEX_FILE)
+else:
+    logger.warning(
+        "Static site disabled: expected index=%s assets_dir=%s",
+        INDEX_FILE,
+        ASSETS_DIR,
+    )
 
 READYZ_DB_TIMEOUT_SEC = 2.0
 READYZ_LOOP_TIMEOUT_SEC = 12.0
@@ -185,6 +205,11 @@ async def readyz():
 
 if config.ENABLE_READYZ:
     app.add_api_route("/readyz", readyz, methods=["GET"])
+
+
+@app.get("/site-health")
+async def site_health() -> PlainTextResponse:
+    return PlainTextResponse("ok")
 
 
 async def _write_service_heartbeat(
