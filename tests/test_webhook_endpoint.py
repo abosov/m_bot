@@ -167,3 +167,89 @@ def test_request_id_header_and_log_present(monkeypatch, caplog):
     assert response.status_code == 200
     assert response.headers["X-Request-ID"] == "req-123"
     assert any("request_id=req-123" in record.getMessage() for record in caplog.records)
+
+
+def test_google_calendar_webhook_enqueues_reverse_sync(monkeypatch):
+    captured = {}
+
+    class Session:
+        async def execute(self, stmt):
+            class SyncResult:
+                def first(self_nonlocal):
+                    return (uuid.UUID("00000000-0000-0000-0000-000000000123"), "primary")
+
+            return SyncResult()
+
+    async def fake_reverse_sync(specialist_id, calendar_id):
+        captured["specialist_id"] = specialist_id
+        captured["calendar_id"] = calendar_id
+
+    monkeypatch.setattr(web_server, "async_session_factory", lambda: DummySessionCtx(Session()))
+    monkeypatch.setattr(web_server, "run_calendar_reverse_sync", fake_reverse_sync)
+
+    client = TestClient(web_server.app)
+    response = client.post(
+        "/integrations/google-calendar/webhook",
+        headers={
+            "X-Goog-Channel-Id": "channel-1",
+            "X-Goog-Resource-Id": "resource-1",
+            "X-Goog-Resource-State": "exists",
+            "X-Goog-Message-Number": "2",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "specialist_id": uuid.UUID("00000000-0000-0000-0000-000000000123"),
+        "calendar_id": "primary",
+    }
+
+
+def test_google_calendar_webhook_returns_200_without_required_headers(monkeypatch, caplog):
+    called = {"value": False}
+
+    async def fake_reverse_sync(specialist_id, calendar_id):
+        called["value"] = True
+
+    monkeypatch.setattr(web_server, "run_calendar_reverse_sync", fake_reverse_sync)
+
+    client = TestClient(web_server.app)
+    with caplog.at_level(logging.WARNING):
+        response = client.post("/integrations/google-calendar/webhook")
+
+    assert response.status_code == 200
+    assert called["value"] is False
+    assert any("google_calendar_webhook_missing_headers" in record.getMessage() for record in caplog.records)
+
+
+def test_google_calendar_webhook_returns_200_for_unknown_channel(monkeypatch, caplog):
+    called = {"value": False}
+
+    class Session:
+        async def execute(self, stmt):
+            class SyncResult:
+                def first(self_nonlocal):
+                    return None
+
+            return SyncResult()
+
+    async def fake_reverse_sync(specialist_id, calendar_id):
+        called["value"] = True
+
+    monkeypatch.setattr(web_server, "async_session_factory", lambda: DummySessionCtx(Session()))
+    monkeypatch.setattr(web_server, "run_calendar_reverse_sync", fake_reverse_sync)
+
+    client = TestClient(web_server.app)
+    with caplog.at_level(logging.WARNING):
+        response = client.post(
+            "/integrations/google-calendar/webhook",
+            headers={
+                "X-Goog-Channel-Id": "missing-channel",
+                "X-Goog-Resource-Id": "resource-1",
+                "X-Goog-Resource-State": "exists",
+            },
+        )
+
+    assert response.status_code == 200
+    assert called["value"] is False
+    assert any("google_calendar_webhook_unknown_channel" in record.getMessage() for record in caplog.records)

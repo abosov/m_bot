@@ -7,7 +7,7 @@ from pathlib import Path
 import requests
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from fastapi import FastAPI, Request, Response
+from fastapi import BackgroundTasks, FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
@@ -25,6 +25,7 @@ from database import (
     OAuthStateType,
     SpecialistAuthTelegram,
     SpecialistProfile,
+    CalendarSyncState,
     ServiceHeartbeat,
     TelegramBot,
     TelegramBotStatus,
@@ -33,6 +34,7 @@ from services.google_oauth import exchange_code_for_token_async
 from services.google_calendar import (
     GoogleCalendarInsufficientPermissionsError,
     list_calendars,
+    run_calendar_reverse_sync,
     scopes_as_string,
 )
 from services.crypto import encrypt_token
@@ -246,6 +248,60 @@ async def readyz():
 
 if config.ENABLE_READYZ:
     app.add_api_route("/readyz", readyz, methods=["GET"])
+
+
+@app.post("/integrations/google-calendar/webhook")
+async def google_calendar_webhook(request: Request, background_tasks: BackgroundTasks):
+    headers = request.headers
+    channel_id = headers.get("X-Goog-Channel-Id")
+    resource_id = headers.get("X-Goog-Resource-Id")
+    resource_state = headers.get("X-Goog-Resource-State")
+    message_number = headers.get("X-Goog-Message-Number")
+
+    if not channel_id or not resource_id or not resource_state:
+        logger.warning(
+            "event=google_calendar_webhook_missing_headers request_id=%s channel_id=%s resource_id=%s resource_state=%s message_number=%s",
+            _request_id_from_request(request),
+            channel_id,
+            resource_id,
+            resource_state,
+            message_number,
+        )
+        return Response(status_code=200)
+
+    async with async_session_factory() as session:
+        sync_state = (
+            await session.execute(
+                select(
+                    CalendarSyncState.specialist_id,
+                    CalendarSyncState.calendar_id,
+                ).where(CalendarSyncState.channel_id == channel_id)
+            )
+        ).first()
+
+    if sync_state is None:
+        logger.warning(
+            "event=google_calendar_webhook_unknown_channel request_id=%s channel_id=%s resource_id=%s resource_state=%s message_number=%s",
+            _request_id_from_request(request),
+            channel_id,
+            resource_id,
+            resource_state,
+            message_number,
+        )
+        return Response(status_code=200)
+
+    specialist_id, calendar_id = sync_state
+    background_tasks.add_task(run_calendar_reverse_sync, specialist_id, calendar_id)
+    logger.info(
+        "event=google_calendar_webhook_enqueued request_id=%s channel_id=%s specialist_id=%s calendar_id=%s resource_state=%s message_number=%s",
+        _request_id_from_request(request),
+        channel_id,
+        specialist_id,
+        calendar_id,
+        resource_state,
+        message_number,
+    )
+    return Response(status_code=200)
 
 
 @app.get("/site-health")

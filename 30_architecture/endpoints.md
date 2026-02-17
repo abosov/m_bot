@@ -128,6 +128,29 @@ Flow `state`: generate/store(TTL) → validate в callback → consume (one-time
 [VPS] curl -i "https://api.zumbot.ru/google/oauth/callback?code=sample_code&state=00000000-0000-0000-0000-000000000000"
 ```
 
+## 5) Google Calendar watch webhook
+
+### POST `/integrations/google-calendar/webhook`
+**Назначение:** прием push-уведомлений Google Calendar (`watch`) и постановка фоновой задачи reverse-sync без выполнения sync в HTTP-запросе.
+**Коды ответа:**
+- `200 OK` — всегда (включая неизвестный `channel_id` или неполный набор Google заголовков).
+
+Поведение:
+- читает заголовки Google (`X-Goog-Channel-Id`, `X-Goog-Resource-Id`, `X-Goog-Resource-State`, `X-Goog-Message-Number`);
+- ищет `specialist_id` + `calendar_id` по `calendar_sync_state.channel_id`;
+- добавляет фоновую задачу `run_calendar_reverse_sync(specialist_id, calendar_id)` через in-process `BackgroundTasks`;
+- при неизвестном `channel_id` пишет warning и возвращает `200 OK`;
+- при отсутствии обязательных заголовков пишет warning и возвращает `200 OK`.
+
+**Пример:**
+```bash
+[VPS] curl -i -X POST "https://api.zumbot.ru/integrations/google-calendar/webhook" \
+  -H "X-Goog-Channel-Id: sample-channel" \
+  -H "X-Goog-Resource-Id: sample-resource" \
+  -H "X-Goog-Resource-State: exists" \
+  -H "X-Goog-Message-Number: 1"
+```
+
 ## Корневой путь backend
 
 ### GET `/`
