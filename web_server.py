@@ -111,13 +111,50 @@ app.add_middleware(RequestIdMiddleware)
 if ASSETS_DIR.exists() and INDEX_FILE.exists():
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 
+    SITE_PAGES = {
+        "/": "index.html",
+        "/features": "features.html",
+        "/pricing": "pricing.html",
+        "/specialists": "specialists.html",
+        "/contacts": "contacts.html",
+        "/privacy": "privacy.html",
+        "/terms": "terms.html",
+    }
+
+    def _site_file(page: str) -> Path:
+        return WEB_DIR / SITE_PAGES[page]
+
     @app.get("/")
     async def site_index() -> FileResponse:
-        return FileResponse(INDEX_FILE)
+        return FileResponse(_site_file("/"))
 
     @app.head("/")
     async def site_index_head() -> Response:
         return Response(status_code=200)
+
+    @app.get("/features")
+    async def site_features() -> FileResponse:
+        return FileResponse(_site_file("/features"))
+
+    @app.get("/pricing")
+    async def site_pricing() -> FileResponse:
+        return FileResponse(_site_file("/pricing"))
+
+    @app.get("/specialists")
+    async def site_specialists() -> FileResponse:
+        return FileResponse(_site_file("/specialists"))
+
+    @app.get("/contacts")
+    async def site_contacts() -> FileResponse:
+        return FileResponse(_site_file("/contacts"))
+
+    @app.get("/privacy")
+    async def site_privacy() -> FileResponse:
+        return FileResponse(_site_file("/privacy"))
+
+    @app.get("/terms")
+    async def site_terms() -> FileResponse:
+        return FileResponse(_site_file("/terms"))
 else:
     logger.warning(
         "Static site disabled: expected index=%s assets_dir=%s",
