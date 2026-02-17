@@ -135,7 +135,7 @@ async def test_client_menu_buttons_return_stubs(monkeypatch):
     monkeypatch.setattr(client_commands, "_has_any_slots_in_day", _has_slots_true)
 
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
-    assert book_msg.answers[0][0] == "Выберите день (UTC+0):"
+    assert book_msg.answers[0][0] == "Выберите день:"
     assert book_msg.answers[0][1].get("reply_markup") is not None
     assert state.state == client_commands.ClientBookingState.waiting_for_day
     assert state.data["booking_available_days"] == [
@@ -532,7 +532,7 @@ async def test_client_pick_interval_converts_slots_to_client_tz(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_client_book_button_shows_gmt_in_header(monkeypatch):
+async def test_client_book_button_shows_static_day_header(monkeypatch):
     book_msg = DummyMessage("Записаться", from_user=types.SimpleNamespace(id=42))
     state = DummyState()
 
@@ -562,7 +562,7 @@ async def test_client_book_button_shows_gmt_in_header(monkeypatch):
 
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
 
-    assert book_msg.answers[0][0] == "Выберите день (UTC+3):"
+    assert book_msg.answers[0][0] == "Выберите день:"
 
 
 @pytest.mark.asyncio
