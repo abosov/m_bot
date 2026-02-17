@@ -7,7 +7,14 @@ from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    Message,
+    ReplyKeyboardMarkup,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import func, select
 
@@ -39,6 +46,43 @@ class ClientBookingState(StatesGroup):
 
 class ClientTimezoneState(StatesGroup):
     waiting_for_timezone = State()
+
+
+CLIENT_TZ_PAGES: dict[int, list[tuple[str, str]]] = {
+    1: [
+        ("UTC−1 — Понта-Делгада", "Atlantic/Azores"),
+        ("UTC-0 — Лондон", "Europe/London"),
+        ("UTC+1 — Берлин", "Europe/Berlin"),
+        ("UTC+2 — Афины", "Europe/Athens"),
+        ("UTC+3 — Москва", "Europe/Moscow"),
+        ("UTC+4 — Дубай", "Asia/Dubai"),
+        ("UTC+5 — Ташкент", "Asia/Tashkent"),
+        ("UTC+6 — Алматы", "Asia/Almaty"),
+    ],
+    2: [
+        ("UTC+7 — Бангкок", "Asia/Bangkok"),
+        ("UTC+8 — Пекин", "Asia/Shanghai"),
+        ("UTC+9 — Токио", "Asia/Tokyo"),
+        ("UTC+10 — Сидней", "Australia/Sydney"),
+        ("UTC+11 — Нумеа", "Pacific/Noumea"),
+        ("UTC+12 — Окленд", "Pacific/Auckland"),
+        ("UTC+13 — Апиа", "Pacific/Apia"),
+        ("UTC+14 — Киритимати", "Pacific/Kiritimati"),
+    ],
+    3: [
+        ("UTC−12 — Бейкер-Айленд", "Etc/GMT+12"),
+        ("UTC−11 — Паго-Паго", "Pacific/Pago_Pago"),
+        ("UTC−10 — Гонолулу", "Pacific/Honolulu"),
+        ("UTC−9 — Анкоридж", "America/Anchorage"),
+        ("UTC−8 — Лос-Анджелес", "America/Los_Angeles"),
+        ("UTC−7 — Денвер", "America/Denver"),
+        ("UTC−6 — Чикаго", "America/Chicago"),
+        ("UTC−5 — Нью-Йорк", "America/New_York"),
+        ("UTC−4 — Каракас", "America/Caracas"),
+        ("UTC−3 — Буэнос-Айрес", "America/Argentina/Buenos_Aires"),
+        ("UTC−2 — Южная Георгия", "Atlantic/South_Georgia"),
+    ],
+}
 
 
 _INTERVAL_META = (
@@ -264,6 +308,25 @@ def _format_interval_title_for_client_tz(
     end_dt_cl = end_dt_sp.astimezone(client_tz)
 
     return f"{base_title} ({start_dt_cl:%H:%M}–{end_dt_cl:%H:%M})"
+
+
+def _client_tz_max_page() -> int:
+    return max(CLIENT_TZ_PAGES.keys())
+
+
+def _client_tz_keyboard(page: int) -> InlineKeyboardMarkup:
+    max_page = _client_tz_max_page()
+    page = max(1, min(page, max_page))
+
+    builder = InlineKeyboardBuilder()
+    for button_text, iana_tz in CLIENT_TZ_PAGES[page]:
+        builder.button(text=button_text, callback_data=f"client_tz:set:{iana_tz}")
+    builder.adjust(2)
+
+    if page < max_page:
+        builder.row(InlineKeyboardButton(text="еще", callback_data=f"client_tz:page:{page + 1}"))
+    builder.row(InlineKeyboardButton(text="Отмена", callback_data="client_tz:cancel"))
+    return builder.as_markup()
 
 
 def _build_interval_options(row: WeeklyAvailability | None) -> list[tuple[str, str, time, time]]:
@@ -920,19 +983,46 @@ async def client_change_timezone_button(
 
     await state.set_state(ClientTimezoneState.waiting_for_timezone)
 
-    builder = InlineKeyboardBuilder()
-    builder.button(text="Europe/Moscow", callback_data="client_tz:set:Europe/Moscow")
-    builder.button(text="Europe/Berlin", callback_data="client_tz:set:Europe/Berlin")
-    builder.button(text="Europe/London", callback_data="client_tz:set:Europe/London")
-    builder.button(text="UTC", callback_data="client_tz:set:UTC")
-    builder.button(text="Отмена", callback_data="client_tz:cancel")
-    builder.adjust(2, 2, 1)
+    max_page = _client_tz_max_page()
+    page = 1
 
     await message.answer(
         f"Текущий часовой пояс: {current_tz}\n"
-        "Выберите из списка или отправьте вручную (пример: Europe/Berlin).",
-        reply_markup=builder.as_markup(),
+        "Выберите из списка или отправьте вручную (пример: Europe/Berlin).\n"
+        f"Страница: {page}/{max_page}",
+        reply_markup=_client_tz_keyboard(page),
     )
+
+
+@router.callback_query(F.data.startswith("client_tz:page:"))
+async def client_tz_page_callback(callback: CallbackQuery, state: FSMContext, actor: str) -> None:
+    if actor != "client":
+        await callback.answer()
+        return
+
+    raw_page = (callback.data or "").removeprefix("client_tz:page:")
+    try:
+        page = int(raw_page)
+    except ValueError:
+        page = 1
+
+    max_page = _client_tz_max_page()
+    page = max(1, min(page, max_page))
+
+    await state.set_state(ClientTimezoneState.waiting_for_timezone)
+
+    text = (
+        "Выберите из списка или отправьте вручную (пример: Europe/Berlin).\n"
+        f"Страница: {page}/{max_page}"
+    )
+
+    if callback.message is not None:
+        try:
+            await callback.message.edit_text(text, reply_markup=_client_tz_keyboard(page))
+        except Exception:
+            await callback.message.answer(text, reply_markup=_client_tz_keyboard(page))
+
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("client_tz:set:"))
