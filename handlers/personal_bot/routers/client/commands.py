@@ -112,7 +112,7 @@ def _client_menu_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="Записаться")],
             [KeyboardButton(text="Мои записи")],
-            [KeyboardButton(text="Сменить часовой пояс (пока stub)")],
+            [KeyboardButton(text="Сменить часовой пояс")],
         ],
         resize_keyboard=True,
     )
@@ -896,11 +896,42 @@ async def client_my_appointments_to_menu(callback) -> None:
     await callback.message.answer("Возвращаю в меню.", reply_markup=_client_menu_keyboard())
 
 
-@router.message(F.text == "Сменить часовой пояс (пока stub)")
-async def client_change_timezone_button(message: Message, actor: str) -> None:
-    if actor != "client":
+@router.message(F.text == "Сменить часовой пояс")
+async def client_change_timezone_button(
+    message: Message,
+    actor: str,
+    specialist_id,
+    state: FSMContext,
+) -> None:
+    if actor != "client" or message.from_user is None:
         return
-    await message.answer("Смена часового пояса скоро будет доступна.")
+
+    async with async_session_factory() as session:
+        client = (
+            await session.execute(
+                select(Client)
+                .where(Client.specialist_id == specialist_id)
+                .where(Client.tg_user_id == message.from_user.id)
+            )
+        ).scalar_one_or_none()
+
+    current_tz = client.client_timezone if client and client.client_timezone else "UTC"
+
+    await state.set_state(ClientTimezoneState.waiting_for_timezone)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Europe/Moscow", callback_data="client_tz:set:Europe/Moscow")
+    builder.button(text="Europe/Berlin", callback_data="client_tz:set:Europe/Berlin")
+    builder.button(text="Europe/London", callback_data="client_tz:set:Europe/London")
+    builder.button(text="UTC", callback_data="client_tz:set:UTC")
+    builder.button(text="Отмена", callback_data="client_tz:cancel")
+    builder.adjust(2, 2, 1)
+
+    await message.answer(
+        f"Текущий часовой пояс: {current_tz}\n"
+        "Выберите из списка или отправьте вручную (пример: Europe/Berlin).",
+        reply_markup=builder.as_markup(),
+    )
 
 
 @router.message(F.text)
