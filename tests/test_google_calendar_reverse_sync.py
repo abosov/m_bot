@@ -224,6 +224,12 @@ async def test_reconcile_event_reschedules_when_notice_is_enough(monkeypatch):
     assert appointment.end_at_utc == datetime.fromisoformat(event['end']['dateTime']).astimezone(timezone.utc)
     assert session.committed is True
     assert emitted and emitted[0][0] == 'appointment_rescheduled'
+    payload = emitted[0][1]
+    assert payload['appointment_id'] == str(appointment_id)
+    assert payload['specialist_id'] == str(specialist_id)
+    assert payload['client_id'] == str(client_id)
+    assert 'old_start_at_utc' in payload
+    assert 'new_start_at_utc' in payload
 
 
 @pytest.mark.asyncio
@@ -395,6 +401,10 @@ async def test_reconcile_event_cancels_appointment_when_google_event_cancelled(m
     assert appointment.booking_state == BookingState.canceled_by_specialist
     assert session.committed is True
     assert emitted and emitted[0][0] == 'appointment_cancelled_by_specialist_calendar'
+    payload = emitted[0][1]
+    assert payload['appointment_id'] == str(appointment_id)
+    assert payload['specialist_id'] == str(specialist_id)
+    assert payload['client_id'] == str(client_id)
 
 
 @pytest.mark.asyncio

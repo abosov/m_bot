@@ -429,6 +429,22 @@ class OutboxEvent(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 
+class NotificationLog(Base):
+    __tablename__ = "notification_log"
+    __table_args__ = (
+        UniqueConstraint("outbox_event_id", "target", name="uq_notification_log_outbox_event_target"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    outbox_event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("outbox_events.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    target: Mapped[str] = mapped_column(Text, nullable=False)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 # --- Dependency Helper ---
 
 async def get_db_session() -> AsyncSession:

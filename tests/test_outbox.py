@@ -1,9 +1,12 @@
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
+from database import Client, OutboxEvent, SpecialistProfile
 from services import outbox
+from services import outbox_notifications
 
 
 class DummySessionCtx:
@@ -80,3 +83,114 @@ async def test_process_outbox_events_marks_processed_at(monkeypatch):
     assert outbox_event.processed_at.tzinfo == timezone.utc
     assert outbox_event.error is None
     assert session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_process_outbox_events_invokes_registered_handler(monkeypatch):
+    event = OutboxEvent(id=uuid.uuid4(), event_type="x.test", payload_json={})
+    calls = []
+
+    class Session:
+        async def execute(self, _query):
+            return DummyResult([event])
+
+        async def commit(self):
+            return None
+
+    async def handler(session, outbox_event):
+        calls.append((session, outbox_event.id))
+
+    session = Session()
+    monkeypatch.setattr(outbox, "async_session_factory", lambda: DummySessionCtx(session))
+    monkeypatch.setitem(outbox.OUTBOX_EVENT_HANDLERS, "x.test", handler)
+
+    await outbox.process_outbox_events()
+
+    assert calls == [(session, event.id)]
+
+
+@pytest.mark.asyncio
+async def test_rescheduled_handler_sends_client_and_specialist(monkeypatch):
+    specialist_id = uuid.uuid4()
+    client_id = uuid.uuid4()
+    appointment_id = uuid.uuid4()
+
+    event = OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="appointment_rescheduled",
+        payload_json={
+            "appointment_id": str(appointment_id),
+            "specialist_id": str(specialist_id),
+            "client_id": str(client_id),
+            "old_start_at_utc": "2026-01-02T10:00:00+00:00",
+            "new_start_at_utc": "2026-01-02T11:00:00+00:00",
+        },
+    )
+
+    client = Client(
+        client_id=client_id,
+        specialist_id=specialist_id,
+        tg_user_id=111,
+        client_code="C-1",
+        client_timezone="UTC",
+        timezone_source="default_from_specialist",
+    )
+    specialist = SpecialistProfile(
+        specialist_id=specialist_id,
+        public_name="sp",
+        owner_tg_user_id=222,
+        specialist_timezone="UTC",
+        session_duration_min=60,
+        session_buffer_min=0,
+        max_sessions_per_day=4,
+        slot_step_min=30,
+        cancel_window_hours=12,
+    )
+
+    class Session:
+        async def get(self, model, key):
+            if model is Client and key == client_id:
+                return client
+            if model is SpecialistProfile and key == specialist_id:
+                return specialist
+            return None
+
+    sent = []
+
+    async def fake_send_client_message(_session, **kwargs):
+        sent.append(("client", kwargs["client"].tg_user_id, kwargs["text"]))
+
+    async def fake_send_specialist_message(_session, **kwargs):
+        sent.append(("specialist", kwargs["specialist_tg_user_id"], kwargs["text"]))
+
+    async def fake_load_personal_bot(*_args, **_kwargs):
+        return SimpleNamespace()
+
+    monkeypatch.setattr(outbox_notifications, "_load_personal_bot", fake_load_personal_bot)
+    monkeypatch.setattr(outbox_notifications, "_send_client_message", fake_send_client_message)
+    monkeypatch.setattr(outbox_notifications, "_send_specialist_message", fake_send_specialist_message)
+
+    await outbox_notifications._handle_appointment_rescheduled(Session(), event)
+
+    assert len(sent) == 2
+    assert sent[0][0] == "client"
+    assert sent[1][0] == "specialist"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_handler_requires_client_id():
+    event = OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="appointment_cancelled_by_specialist_calendar",
+        payload_json={
+            "appointment_id": str(uuid.uuid4()),
+            "specialist_id": str(uuid.uuid4()),
+        },
+    )
+
+    class Session:
+        async def get(self, _model, _key):
+            return None
+
+    with pytest.raises(ValueError, match="client_id"):
+        await outbox_notifications._handle_appointment_cancelled_by_specialist_calendar(Session(), event)

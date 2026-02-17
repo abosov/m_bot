@@ -156,6 +156,7 @@ async def reconcile_event_to_appointment(
                 payload={
                     "appointment_id": str(appointment_id),
                     "specialist_id": str(specialist_id),
+                    "client_id": str(appointment.client_id),
                     "calendar_id": calendar_id,
                     "google_event_id": str(event.get("id") or ""),
                 },
@@ -189,6 +190,7 @@ async def reconcile_event_to_appointment(
         if conflict_exists:
             return ReconcileResult(result=ReconcileOutcome.REJECTED, reason="time_conflict", appointment_id=appointment_id)
 
+        old_start_at_utc = appointment.start_at_utc
         appointment.start_at_utc = start_at_utc
         appointment.end_at_utc = end_at_utc
         if hasattr(BookingState, "rescheduled"):
@@ -199,7 +201,10 @@ async def reconcile_event_to_appointment(
             payload={
                 "appointment_id": str(appointment_id),
                 "specialist_id": str(specialist_id),
+                "client_id": str(appointment.client_id),
                 "calendar_id": calendar_id,
+                "old_start_at_utc": old_start_at_utc.isoformat(),
+                "new_start_at_utc": start_at_utc.isoformat(),
                 "start_at_utc": start_at_utc.isoformat(),
                 "end_at_utc": end_at_utc.isoformat(),
             },

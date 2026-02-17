@@ -6,13 +6,14 @@ from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import OutboxEvent, async_session_factory
 from services.log_context import log_event
 
 logger = logging.getLogger(__name__)
 
-OutboxHandler = Callable[[OutboxEvent], Awaitable[None]]
+OutboxHandler = Callable[[AsyncSession, OutboxEvent], Awaitable[None]]
 OUTBOX_EVENT_HANDLERS: dict[str, OutboxHandler] = {}
 OUTBOX_POLL_INTERVAL_SEC = 5.0
 
@@ -23,7 +24,7 @@ async def emit_domain_event(session, event_type: str, payload: dict) -> OutboxEv
     return event
 
 
-async def _dispatch_outbox_event(event: OutboxEvent) -> None:
+async def _dispatch_outbox_event(session: AsyncSession, event: OutboxEvent) -> None:
     handler = OUTBOX_EVENT_HANDLERS.get(event.event_type)
     if handler is None:
         log_event(
@@ -35,7 +36,7 @@ async def _dispatch_outbox_event(event: OutboxEvent) -> None:
         )
         return
 
-    await handler(event)
+    await handler(session, event)
 
 
 async def process_outbox_events(limit: int = 50) -> int:
@@ -50,7 +51,7 @@ async def process_outbox_events(limit: int = 50) -> int:
 
         for outbox_event in events:
             try:
-                await _dispatch_outbox_event(outbox_event)
+                await _dispatch_outbox_event(session, outbox_event)
                 outbox_event.processed_at = datetime.now(timezone.utc)
                 outbox_event.error = None
             except Exception as exc:
@@ -86,3 +87,8 @@ async def outbox_worker_task() -> None:
     except asyncio.CancelledError:
         logger.info("outbox_worker_task stopped")
         raise
+
+
+from services.outbox_notifications import register_outbox_handlers
+
+register_outbox_handlers(OUTBOX_EVENT_HANDLERS)
