@@ -36,6 +36,10 @@ class ClientBookingState(StatesGroup):
     waiting_for_interval = State()
 
 
+class ClientTimezoneState(StatesGroup):
+    waiting_for_timezone = State()
+
+
 _INTERVAL_META = (
     ("morning", "Утро", "interval_1_start", "interval_1_end"),
     ("day", "День", "interval_2_start", "interval_2_end"),
@@ -53,6 +57,17 @@ RU_WEEKDAY_SHORT = {
 }
 
 availability_service = AvailabilityService()
+
+
+def _normalize_tz_input(raw: str) -> str:
+    return " ".join(raw.strip().replace("\\", "/").split())
+
+
+def _validate_tz_name(tz_name: str) -> ZoneInfo | None:
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return None
 
 
 def _parse_google_event_updated(raw_updated: str | None):
