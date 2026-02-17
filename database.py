@@ -285,22 +285,55 @@ class Appointment(Base):
     appointment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=False)
     client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("client.client_id"), nullable=False)
-    
+
     start_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    
+
     booking_state: Mapped[BookingState] = mapped_column(SAEnum(BookingState), nullable=False, index=True)
     idempotency_key: Mapped[str] = mapped_column(String, nullable=False, unique=True)
-    
+
     gcal_event_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     specialist_private_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     failure_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     specialist: Mapped["Specialist"] = relationship(back_populates="appointments")
     client: Mapped["Client"] = relationship(back_populates="appointments")
+    calendar_link: Mapped[Optional["AppointmentCalendarLink"]] = relationship(
+        back_populates="appointment",
+        uselist=False,
+    )
+
+
+class AppointmentCalendarLink(Base):
+    __tablename__ = "appointment_calendar_link"
+    __table_args__ = (
+        UniqueConstraint("google_event_id", "calendar_id", name="uq_appointment_calendar_link_event_calendar"),
+        UniqueConstraint("appointment_id", name="uq_appointment_calendar_link_appointment_id"),
+    )
+
+    appointment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("appointment.appointment_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    specialist_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    calendar_id: Mapped[str] = mapped_column(Text, nullable=False)
+    google_event_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    ical_uid: Mapped[Optional[str]] = mapped_column(Text, nullable=True, index=True)
+    event_etag: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    event_updated: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    appointment: Mapped["Appointment"] = relationship(back_populates="calendar_link")
 
 
 class OAuthState(Base):

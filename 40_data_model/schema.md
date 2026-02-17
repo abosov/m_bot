@@ -4,11 +4,12 @@
 - ORM-модели: `database.py`.
 - SQL-миграции: `scripts/migrations/*.sql`.
 
-> В `public` ожидаются таблицы: `applied_migrations`, `appointment`, `bot_health_checks`, `client`, `google_oauth`, `message_logs`, `oauth_state`, `service_heartbeats`, `specialist`, `specialist_auth_telegram`, `specialist_calendar`, `specialist_calendar_settings`, `specialist_profile`, `telegram_bot`, `weekly_availability`.
+> В `public` ожидаются таблицы: `applied_migrations`, `appointment`, `appointment_calendar_link`, `bot_health_checks`, `client`, `google_oauth`, `message_logs`, `oauth_state`, `service_heartbeats`, `specialist`, `specialist_auth_telegram`, `specialist_calendar`, `specialist_calendar_settings`, `specialist_profile`, `telegram_bot`, `weekly_availability`.
 
 ## Relationships (FK)
 - `appointment.specialist_id -> specialist.specialist_id`
 - `appointment.client_id -> client.client_id`
+- `appointment_calendar_link.appointment_id -> appointment.appointment_id`
 - `bot_health_checks.specialist_id -> specialist.specialist_id`
 - `client.specialist_id -> specialist.specialist_id`
 - `google_oauth.specialist_id -> specialist.specialist_id`
@@ -96,28 +97,36 @@
 - UQ: `idempotency_key`.
 - IDX: `booking_state`, `ix_appointment_specialist_id_start_at_utc (specialist_id, start_at_utc)`, `ix_appointment_specialist_id_booking_state_start_at_utc (specialist_id, booking_state, start_at_utc)`, `ix_appointment_client_id_start_at_utc (client_id, start_at_utc)`.
 
-### 12) oauth_state
+### 12) appointment_calendar_link
+Назначение: постоянная связка `appointment_id ↔ google_event_id` (в рамках `calendar_id`) для reverse sync из Google Calendar в локальную запись.
+- Поля: `appointment_id uuid not null`, `specialist_id uuid not null`, `calendar_id text not null`, `google_event_id text not null`, `ical_uid text null`, `event_etag text null`, `event_updated timestamptz null`, `last_synced_at timestamptz null`, `created_at timestamptz default now()`, `updated_at timestamptz default now()`.
+- PK: `appointment_id`.
+- FK: `appointment_id -> appointment.appointment_id` (`ON DELETE CASCADE`).
+- UQ: `uq_appointment_calendar_link_event_calendar (google_event_id, calendar_id)`, `uq_appointment_calendar_link_appointment_id (appointment_id)`.
+- IDX: `specialist_id`, `google_event_id`, `ical_uid`.
+
+### 13) oauth_state
 - Поля: `oauth_state_id uuid not null`, `state varchar not null`, `type enum not null`, `specialist_id uuid not null`, `expires_at timestamptz not null`, `created_at timestamptz default now()`.
 - PK: `oauth_state_id`.
 - FK: `specialist_id -> specialist.specialist_id`.
 - UQ: `state`.
 - IDX: `expires_at`.
 
-### 13) message_logs
+### 14) message_logs
 - Поля: `id uuid not null`, `created_at timestamptz default now()`, `specialist_id uuid null`, `bot_id bigint not null`, `bot_username varchar null`, `specialist_name varchar null`, `tg_user_id bigint not null`, `user_handle varchar null`, `direction enum not null`, `message_type varchar not null`, `content text null`, `fsm_state varchar null`, `handler_name varchar null`, `is_error bool default false`, `error_details text null`, `processing_time float null`.
 - PK: `id`.
 - FK: `specialist_id -> specialist.specialist_id`.
 - UQ: —.
 - IDX: `bot_id`.
 
-### 14) bot_health_checks
+### 15) bot_health_checks
 - Поля: `id uuid not null`, `specialist_id uuid not null`, `bot_user_id bigint not null`, `checked_at timestamptz default now()`, `status enum not null`, `latency_ms int not null`, `error_details text null`.
 - PK: `id`.
 - FK: `specialist_id -> specialist.specialist_id`.
 - UQ: —.
 - IDX: `specialist_id`, `bot_user_id`.
 
-### 15) service_heartbeats
+### 16) service_heartbeats
 - Поля: `id uuid not null`, `service_name text not null`, `ts timestamptz default now()`, `db_ok bool not null`, `loop_ok bool not null`, `latency_ms int not null`, `details text null`.
 - PK: `id`.
 - FK/UQ: —.
@@ -136,6 +145,7 @@ erDiagram
     specialist ||--o{ client : serves
     client ||--o{ appointment : books
     specialist ||--o{ appointment : receives
+    appointment ||--|| appointment_calendar_link : links
     specialist ||--o{ oauth_state : owns
     specialist ||--o{ message_logs : logs
     specialist ||--o{ bot_health_checks : checks
