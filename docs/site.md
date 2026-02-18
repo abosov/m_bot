@@ -18,6 +18,8 @@
 - `GET /terms` отдаёт `web/terms.html` (публичные Terms of Service на английском).
 - `GET /privacy-ru` отдаёт `web/privacy-ru.html` (публичная политика конфиденциальности на русском).
 - `GET /terms-ru` отдаёт `web/terms-ru.html` (публичные условия использования на русском).
+- `GET /revoke-access` отдаёт `web/revoke-access.html` (страница отзыва согласия на обработку персональных данных на английском).
+- `GET /revoke-access-ru` отдаёт `web/revoke-access-ru.html` (страница отзыва согласия на обработку персональных данных на русском).
 - `/assets/*` раздаётся из `web/assets` через `StaticFiles`.
 - `GET /site-health` возвращает `ok`.
 
@@ -63,3 +65,5 @@ uvicorn web_server:app --host 127.0.0.1 --port 8000
 - `https://zumbot.ru/terms` — публичная страница `Terms of Service — Zumbot`.
 - `https://zumbot.ru/privacy-ru` — публичная русская версия политики конфиденциальности.
 - `https://zumbot.ru/terms-ru` — публичная русская версия условий использования.
+- `https://zumbot.ru/revoke-access` — публичная страница отзыва согласия на обработку персональных данных на английском.
+- `https://zumbot.ru/revoke-access-ru` — публичная страница отзыва согласия на обработку персональных данных на русском.
