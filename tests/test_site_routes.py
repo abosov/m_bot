@@ -78,3 +78,11 @@ def test_site_assets_are_served():
     assert "hero" in css.text
     assert js.status_code == 200
     assert "Zumbot landing page loaded" in js.text
+
+
+def test_revoke_access_page_contains_google_permissions_link():
+    response = client.get("/revoke-access")
+
+    assert response.status_code == 200
+    assert "myaccount.google.com/permissions" in response.text
+    assert "Revoke Google Access" in response.text
