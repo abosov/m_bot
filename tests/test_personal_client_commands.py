@@ -1,5 +1,6 @@
 import types
 from datetime import date, datetime, time, timezone
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -54,6 +55,12 @@ class _Result:
         return self._value
 
     def scalar_one(self):
+        return self._value
+
+    def scalars(self):
+        return self
+
+    def all(self):
         return self._value
 
 
@@ -435,6 +442,116 @@ async def test_client_pick_day_without_intervals_shows_empty_message(monkeypatch
     await client_commands.client_pick_day(callback, state=state, specialist_id="sp-id")
 
     assert message.answers[0][0] == "На выбранный день нет доступных диапазонов."
+    assert len(callback.answers) == 1
+
+
+@pytest.mark.asyncio
+async def test_render_client_appointments_adds_open_button_for_confirmed(monkeypatch):
+    message = DummyMessage("", from_user=types.SimpleNamespace(id=42))
+    appointment_id = uuid4()
+    client = types.SimpleNamespace(client_id="c1", client_timezone="UTC")
+    appointments = [
+        types.SimpleNamespace(
+            appointment_id=appointment_id,
+            start_at_utc=datetime(2026, 2, 18, 10, 45, tzinfo=timezone.utc),
+            booking_state=client_commands.BookingState.confirmed,
+        )
+    ]
+
+    class _Session:
+        def __init__(self):
+            self._execute_calls = 0
+
+        async def execute(self, _stmt):
+            self._execute_calls += 1
+            if self._execute_calls == 1:
+                return _Result(client)
+            return _Result(appointments)
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+
+    await client_commands._render_client_appointments(message, specialist_id="sp-id", tg_user_id=42)
+
+    text, kwargs = message.answers[0]
+    assert "Ваши записи (UTC+0):" in text
+    assert "2026-02-18 Ср [10:45] — подтверждена" in text
+    markup = kwargs.get("reply_markup")
+    buttons = [button for row in markup.inline_keyboard for button in row]
+    assert [button.text for button in buttons] == ["Открыть 2026-02-18 Ср [10:45]", "Обновить"]
+    assert buttons[0].callback_data == f"client_appt:view:{appointment_id}"
+
+
+@pytest.mark.asyncio
+async def test_client_appointment_view_shows_details_and_actions(monkeypatch):
+    message = DummyMessage("")
+    appointment_id = uuid4()
+    client = types.SimpleNamespace(client_id="c1")
+    appointment = types.SimpleNamespace(
+        appointment_id=appointment_id,
+        specialist_id="sp-id",
+        client_id="c1",
+        start_at_utc=datetime(2026, 2, 18, 10, 45, tzinfo=timezone.utc),
+    )
+    callback = types.SimpleNamespace(
+        data=f"client_appt:view:{appointment_id}",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    class _Session:
+        def __init__(self):
+            self._execute_calls = 0
+
+        async def execute(self, _stmt):
+            self._execute_calls += 1
+            if self._execute_calls == 1:
+                return _Result(client)
+            return _Result(appointment)
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+
+    async def _get_client_tz(**_kwargs):
+        return ZoneInfo("Europe/Berlin")
+
+    async def _get_specialist_tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    monkeypatch.setattr(client_commands, "_get_client_tz", _get_client_tz)
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _get_specialist_tz)
+
+    await client_commands.client_appointment_view(callback, specialist_id="sp-id")
+
+    text, kwargs = message.answers[0]
+    assert text == (
+        "Запись: 2026-02-18 Ср [11:45]\n"
+        "По времени специалиста: 2026-02-18 Ср [10:45]"
+    )
+    markup = kwargs.get("reply_markup")
+    buttons = [button for row in markup.inline_keyboard for button in row]
+    assert [button.text for button in buttons] == ["Отменить запись", "Перенести (скоро)", "Назад к списку"]
+    assert buttons[0].callback_data == f"client_appt:cancel:{appointment_id}"
+    assert buttons[1].callback_data == f"client_appt:reschedule:{appointment_id}"
+    assert buttons[2].callback_data == "client_appt:list"
     assert len(callback.answers) == 1
 
 

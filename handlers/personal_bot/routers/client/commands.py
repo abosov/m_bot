@@ -408,8 +408,13 @@ def _format_slot_lines(slots: list[datetime]) -> str:
     return "Выберите слот:"
 
 
-def _client_appointments_keyboard(*, has_failed: bool):
+def _client_appointments_keyboard(*, has_failed: bool, confirmed_appointments: list[tuple[UUID, str]]):
     builder = InlineKeyboardBuilder()
+    for appointment_id, formatted_start in confirmed_appointments:
+        builder.button(
+            text=f"Открыть {formatted_start}",
+            callback_data=f"client_appt:view:{appointment_id}",
+        )
     if has_failed:
         builder.button(
             text="Повторить последнюю не подтвержденную",
@@ -461,14 +466,23 @@ async def _render_client_appointments(message: Message, specialist_id: UUID, tg_
             BookingState.failed: "не подтверждена",
         }
         has_failed = any(appointment.booking_state == BookingState.failed for appointment in appointments)
+        confirmed_appointments: list[tuple[UUID, str]] = []
         gmt_label = _format_gmt_offset_label(client_tz)
         lines = [f"Ваши записи ({gmt_label}):"]
         for appointment in appointments:
+            formatted_start = format_session_datetime(appointment.start_at_utc, client_tz)
             status = state_map.get(appointment.booking_state, str(appointment.booking_state))
-            lines.append(f"{format_session_datetime(appointment.start_at_utc, client_tz)} — {status}")
+            lines.append(f"{formatted_start} — {status}")
+            if appointment.booking_state == BookingState.confirmed:
+                confirmed_appointments.append((appointment.appointment_id, formatted_start))
         text = "\n".join(lines)
+    if not appointments:
+        confirmed_appointments = []
 
-    await message.answer(text, reply_markup=_client_appointments_keyboard(has_failed=has_failed))
+    await message.answer(
+        text,
+        reply_markup=_client_appointments_keyboard(has_failed=has_failed, confirmed_appointments=confirmed_appointments),
+    )
 
 
 @router.message(F.text == "Записаться")
@@ -950,6 +964,77 @@ async def client_my_appointments_retry_last(callback, specialist_id) -> None:
     if callback.message is not None:
         await _render_client_appointments(callback.message, specialist_id, callback.from_user.id)
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("client_appt:view:"))
+async def client_appointment_view(callback, specialist_id) -> None:
+    if callback.from_user is None:
+        await callback.answer("Профиль клиента не найден. Нажмите /start.", show_alert=True)
+        return
+    if callback.message is None:
+        await callback.answer()
+        return
+
+    appointment_id_raw = callback.data.removeprefix("client_appt:view:")
+    try:
+        appointment_id = UUID(appointment_id_raw)
+    except ValueError:
+        await callback.answer("Запись не найдена", show_alert=True)
+        return
+
+    async with async_session_factory() as session:
+        client = (
+            await session.execute(
+                select(Client)
+                .where(Client.specialist_id == specialist_id)
+                .where(Client.tg_user_id == callback.from_user.id)
+            )
+        ).scalar_one_or_none()
+        if client is None:
+            await callback.answer("Профиль клиента не найден. Нажмите /start.", show_alert=True)
+            return
+
+        appointment = (
+            await session.execute(
+                select(Appointment)
+                .where(Appointment.appointment_id == appointment_id)
+                .where(Appointment.client_id == client.client_id)
+                .where(Appointment.specialist_id == specialist_id)
+            )
+        ).scalar_one_or_none()
+
+    if appointment is None:
+        await callback.answer("Запись не найдена", show_alert=True)
+        return
+
+    client_tz = await _get_client_tz(specialist_id=specialist_id, tg_user_id=callback.from_user.id)
+    specialist_tz = await _get_specialist_tz(specialist_id)
+
+    details_lines = [f"Запись: {format_session_datetime(appointment.start_at_utc, client_tz)}"]
+    if getattr(client_tz, "key", "UTC") != getattr(specialist_tz, "key", "UTC"):
+        details_lines.append(f"По времени специалиста: {format_session_datetime(appointment.start_at_utc, specialist_tz)}")
+
+    details_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Отменить запись", callback_data=f"client_appt:cancel:{appointment.appointment_id}")],
+            [
+                InlineKeyboardButton(
+                    text="Перенести (скоро)",
+                    callback_data=f"client_appt:reschedule:{appointment.appointment_id}",
+                )
+            ],
+            [InlineKeyboardButton(text="Назад к списку", callback_data="client_appt:list")],
+        ]
+    )
+
+    await callback.message.answer("\n".join(details_lines), reply_markup=details_keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("client_appt:cancel:"))
+@router.callback_query(F.data.startswith("client_appt:reschedule:"))
+async def client_appointment_action_stub(callback) -> None:
+    await callback.answer("Функция скоро появится.", show_alert=True)
 
 
 @router.callback_query(F.data == "client_appt:menu")
