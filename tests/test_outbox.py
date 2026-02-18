@@ -279,12 +279,13 @@ async def test_cancelled_by_client_handler_sends_specialist_without_appointment_
 async def test_booked_handler_sends_specialist_with_username_link(monkeypatch):
     specialist_id = uuid.uuid4()
     client_id = uuid.uuid4()
+    appointment_id = uuid.uuid4()
 
     event = OutboxEvent(
         id=uuid.uuid4(),
         event_type="appointment_booked",
         payload_json={
-            "appointment_id": str(uuid.uuid4()),
+            "appointment_id": str(appointment_id),
             "specialist_id": str(specialist_id),
             "client_id": str(client_id),
             "start_at_utc": "2026-01-02T11:00:00+00:00",
@@ -295,8 +296,8 @@ async def test_booked_handler_sends_specialist_with_username_link(monkeypatch):
         client_id=client_id,
         specialist_id=specialist_id,
         tg_user_id=111,
-        tg_username="anna",
-        display_name="Анна",
+        tg_username="smoke_client",
+        display_name="Smoke Client",
         client_code="C-1",
         client_timezone="UTC",
         timezone_source="default_from_specialist",
@@ -334,22 +335,26 @@ async def test_booked_handler_sends_specialist_with_username_link(monkeypatch):
 
     await outbox_notifications._handle_appointment_booked(Session(), event)
 
+    assert len(sent) == 1
     assert sent[0][0] == 222
     assert "Новая запись: 2026-01-02 Пт [14:00]" in sent[0][1]
-    assert "Клиент: Анна @anna https://t.me/anna" in sent[0][1]
+    assert "@smoke_client" in sent[0][1]
+    assert "https://t.me/smoke_client" in sent[0][1]
     assert "appointment_id" not in sent[0][1]
+    assert str(appointment_id) not in sent[0][1]
 
 
 @pytest.mark.asyncio
 async def test_booked_handler_sends_specialist_with_deeplink_when_no_username(monkeypatch):
     specialist_id = uuid.uuid4()
     client_id = uuid.uuid4()
+    appointment_id = uuid.uuid4()
 
     event = OutboxEvent(
         id=uuid.uuid4(),
         event_type="appointment_booked",
         payload_json={
-            "appointment_id": str(uuid.uuid4()),
+            "appointment_id": str(appointment_id),
             "specialist_id": str(specialist_id),
             "client_id": str(client_id),
             "start_at_utc": "2026-01-02T11:00:00+00:00",
@@ -360,7 +365,8 @@ async def test_booked_handler_sends_specialist_with_deeplink_when_no_username(mo
         client_id=client_id,
         specialist_id=specialist_id,
         tg_user_id=123456789,
-        display_name="Анна",
+        tg_username=None,
+        display_name="Smoke Client",
         client_code="C-1",
         client_timezone="UTC",
         timezone_source="default_from_specialist",
@@ -398,6 +404,10 @@ async def test_booked_handler_sends_specialist_with_deeplink_when_no_username(mo
 
     await outbox_notifications._handle_appointment_booked(Session(), event)
 
+    assert len(sent) == 1
     assert sent[0][0] == 222
     assert "Новая запись: 2026-01-02 Пт [11:00]" in sent[0][1]
-    assert "Клиент: Анна (tg://user?id=123456789) id: 123456789" in sent[0][1]
+    assert "Smoke Client" in sent[0][1]
+    assert "tg://user?id=123456789" in sent[0][1]
+    assert "appointment_id" not in sent[0][1]
+    assert str(appointment_id) not in sent[0][1]
