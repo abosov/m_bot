@@ -151,3 +151,30 @@ def test_auth_telegram_consume_rejects_empty_token():
 
     assert response.status_code == 400
     assert response.json() == {"ok": False, "error": "token_required"}
+
+
+def test_connect_page_contains_google_form_and_legal_links():
+    response = client.get("/connect")
+
+    assert response.status_code == 200
+    assert 'form action="/google/oauth/start"' in response.text
+    assert 'href="/privacy"' in response.text
+    assert 'href="/terms"' in response.text
+
+
+def test_connect_status_requires_valid_cookie(monkeypatch):
+    monkeypatch.setattr(web_server.web_session, "verify_session_cookie", lambda _: None)
+
+    invalid_response = client.get("/connect/status")
+    assert invalid_response.status_code == 200
+    assert invalid_response.json() == {"ok": False}
+
+    monkeypatch.setattr(
+        web_server.web_session,
+        "verify_session_cookie",
+        lambda _: ("44444444-4444-4444-8444-444444444444", 777),
+    )
+
+    valid_response = client.get("/connect/status")
+    assert valid_response.status_code == 200
+    assert valid_response.json() == {"ok": True}

@@ -364,6 +364,117 @@ async def consume_telegram_connect_token(payload: TelegramConsumeRequest) -> JSO
     return response
 
 
+@app.get("/connect")
+async def connect_page() -> HTMLResponse:
+    html = """<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Подключение Google Календаря</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; background: #f5f7fb; color: #1f2937; }
+    main { max-width: 640px; margin: 32px auto; background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 8px 28px rgba(15,23,42,.08); }
+    h1 { margin-top: 0; font-size: 28px; }
+    p { line-height: 1.5; }
+    button { border: 0; border-radius: 10px; background: #2563eb; color: #fff; font-size: 16px; font-weight: 600; padding: 12px 20px; cursor: pointer; }
+    button:disabled { background: #94a3b8; cursor: not-allowed; }
+    .hint { color: #475569; font-size: 14px; }
+    .warn { margin: 16px 0; border-radius: 8px; padding: 12px; background: #fff7ed; border: 1px solid #fdba74; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Подключение Google Календаря</h1>
+    <p>Авторизация Google откроется в обычной странице браузера (не во встроенном скрытом iframe).</p>
+    <div id="webview-warning" class="warn" hidden>Откройте в браузере (Safari/Chrome), иначе Google может блокировать вход.</div>
+    <p class="hint">Продолжая, вы соглашаетесь с <a href="/privacy">Политикой конфиденциальности</a> и <a href="/terms">Условиями использования</a>.</p>
+    <form action="/google/oauth/start" method="post">
+      <button id="google-connect-btn" type="submit" disabled>Подключить Google</button>
+    </form>
+  </main>
+  <script>
+    (function () {
+      const button = document.getElementById('google-connect-btn');
+      const warning = document.getElementById('webview-warning');
+      const ua = navigator.userAgent || '';
+      if (ua.includes('Telegram') || ua.includes('WebView')) {
+        warning.hidden = false;
+      }
+
+      const hash = window.location.hash || '';
+      const params = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash);
+      const token = params.get('token') || params.get('t');
+
+      function enableButton() {
+        button.disabled = false;
+      }
+
+      function clearHash() {
+        if (window.location.hash) {
+          history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+      }
+
+      async function checkStatus() {
+        try {
+          const res = await fetch('/connect/status', { credentials: 'same-origin' });
+          if (!res.ok) return false;
+          const data = await res.json();
+          return !!data.ok;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      async function consumeConnectToken(rawToken) {
+        try {
+          const res = await fetch('/auth/telegram/consume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ token: rawToken }),
+          });
+          if (!res.ok) return false;
+          const data = await res.json();
+          return !!data.ok;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      async function init() {
+        if (token) {
+          const consumed = await consumeConnectToken(token);
+          if (consumed) {
+            clearHash();
+            enableButton();
+            return;
+          }
+        }
+
+        const sessionOk = await checkStatus();
+        if (sessionOk) {
+          enableButton();
+        }
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html)
+
+
+@app.get("/connect/status")
+async def connect_status(request: Request) -> JSONResponse:
+    cookie_value = request.cookies.get(config.WEB_CONNECT_COOKIE_NAME, "")
+    session = web_session.verify_session_cookie(cookie_value)
+    return JSONResponse(content={"ok": session is not None})
+
+
 async def _write_service_heartbeat(
     db_ok: bool,
     loop_ok: bool,
