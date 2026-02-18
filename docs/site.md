@@ -14,6 +14,8 @@
 В `web_server.py`:
 
 - `GET /` отдаёт `web/index.html`.
+- `GET /privacy` отдаёт `web/privacy.html` (публичная политика конфиденциальности).
+- `GET /terms` отдаёт `web/terms.html` (публичное пользовательское соглашение).
 - `/assets/*` раздаётся из `web/assets` через `StaticFiles`.
 - `GET /site-health` возвращает `ok`.
 
@@ -39,6 +41,8 @@ uvicorn web_server:app --host 127.0.0.1 --port 8000
 - `http://localhost:8000/` — открывается лендинг `Zumbot`.
 - `http://localhost:8000/assets/styles.css` — отдается CSS.
 - `http://localhost:8000/assets/app.js` — отдается JS.
+- `http://localhost:8000/privacy` — публичная страница «Политика конфиденциальности Zumbot».
+- `http://localhost:8000/terms` — публичная страница «Условия использования Zumbot».
 - `http://localhost:8000/site-health` — ответ `ok`.
 
 ## Деплой
@@ -47,3 +51,9 @@ uvicorn web_server:app --host 127.0.0.1 --port 8000
 так как это статика в репозитории. Достаточно обычного ручного деплоя через:
 
 - `scripts/vps_deploy.sh`.
+
+
+## Публичные URL в продакшене
+
+- `https://zumbot.ru/privacy` — публичная страница «Политика конфиденциальности Zumbot».
+- `https://zumbot.ru/terms` — публичная страница «Условия использования Zumbot».

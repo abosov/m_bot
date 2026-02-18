@@ -19,14 +19,35 @@ def test_site_pages_are_available():
         "/pricing": "Тарифы",
         "/specialists": "Для специалистов",
         "/contacts": "Контакты",
-        "/privacy": "Политика конфиденциальности",
-        "/terms": "Пользовательское соглашение",
+        "/privacy": "Политика конфиденциальности Zumbot",
+        "/terms": "Условия использования Zumbot",
     }
 
     for path, title in expected.items():
         response = client.get(path)
         assert response.status_code == 200
         assert title in response.text
+
+
+def test_privacy_page_contains_google_calendar_policy_points():
+    response = client.get("/privacy")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "charset=utf-8" in response.headers["content-type"].lower()
+    assert "Политика конфиденциальности Zumbot" in response.text
+    assert "myaccount.google.com/permissions" in response.text
+    assert "abosov@gmail.com" in response.text
+
+
+def test_terms_page_contains_required_clauses():
+    response = client.get("/terms")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "charset=utf-8" in response.headers["content-type"].lower()
+    assert "Условия использования Zumbot" in response.text
+    assert "abosov@gmail.com" in response.text
 
 
 def test_site_health_returns_ok():
