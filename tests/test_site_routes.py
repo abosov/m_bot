@@ -10,7 +10,7 @@ def test_site_index_returns_landing():
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Zumbot — умный бот для записи клиентов" in response.text
+    assert "Zumbot — Calendar Booking Automation" in response.text
 
 
 def test_site_pages_are_available():
@@ -19,8 +19,10 @@ def test_site_pages_are_available():
         "/pricing": "Тарифы",
         "/specialists": "Для специалистов",
         "/contacts": "Контакты",
-        "/privacy": "Политика конфиденциальности Zumbot",
-        "/terms": "Условия использования Zumbot",
+        "/privacy": "Privacy Policy — Zumbot",
+        "/terms": "Terms of Service — Zumbot",
+        "/privacy-ru": "Политика конфиденциальности Zumbot",
+        "/terms-ru": "Условия использования Zumbot",
     }
 
     for path, title in expected.items():
@@ -35,7 +37,8 @@ def test_privacy_page_contains_google_calendar_policy_points():
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     assert "charset=utf-8" in response.headers["content-type"].lower()
-    assert "Политика конфиденциальности Zumbot" in response.text
+    assert "Google API Services User Data Policy" in response.text
+    assert "Alexander Bosov" in response.text
     assert "myaccount.google.com/permissions" in response.text
     assert "abosov@gmail.com" in response.text
 
@@ -46,8 +49,18 @@ def test_terms_page_contains_required_clauses():
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     assert "charset=utf-8" in response.headers["content-type"].lower()
-    assert "Условия использования Zumbot" in response.text
+    assert "Limitation of Liability" in response.text
     assert "abosov@gmail.com" in response.text
+
+
+def test_russian_legal_pages_are_available():
+    privacy_response = client.get("/privacy-ru")
+    terms_response = client.get("/terms-ru")
+
+    assert privacy_response.status_code == 200
+    assert terms_response.status_code == 200
+    assert "Политика конфиденциальности Zumbot" in privacy_response.text
+    assert "Условия использования Zumbot" in terms_response.text
 
 
 def test_site_health_returns_ok():
