@@ -1616,3 +1616,262 @@ async def test_noop_callback_answers():
     await client_commands.noop_callback(callback)
 
     assert len(callback.answers) == 1
+
+
+@pytest.mark.asyncio
+async def test_client_cancel_shows_confirmation_screen(monkeypatch):
+    message = DummyMessage("")
+    appointment_id = uuid4()
+    client = types.SimpleNamespace(client_id="c1")
+    appointment = types.SimpleNamespace(
+        appointment_id=appointment_id,
+        specialist_id="sp-id",
+        client_id="c1",
+        start_at_utc=datetime(2026, 2, 18, 10, 45, tzinfo=timezone.utc),
+        booking_state=client_commands.BookingState.confirmed,
+    )
+    callback = types.SimpleNamespace(
+        data=f"client_appt:cancel:{appointment_id}",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    class _Session:
+        def __init__(self):
+            self._execute_calls = 0
+
+        async def execute(self, _stmt):
+            self._execute_calls += 1
+            if self._execute_calls == 1:
+                return _Result(client)
+            return _Result(appointment)
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+
+    async def _get_client_tz(**_kwargs):
+        return ZoneInfo("Europe/Berlin")
+
+    monkeypatch.setattr(client_commands, "_get_client_tz", _get_client_tz)
+
+    await client_commands.client_appointment_cancel_confirm_prompt(callback, specialist_id="sp-id")
+
+    text, kwargs = message.answers[0]
+    assert text == "Подтвердите отмену записи на 2026-02-18 Ср [11:45]."
+    markup = kwargs.get("reply_markup")
+    buttons = [button for row in markup.inline_keyboard for button in row]
+    assert [button.text for button in buttons] == ["Да, отменить", "Назад"]
+    assert buttons[0].callback_data == f"client_appt:cancel_confirm:{appointment_id}"
+    assert buttons[1].callback_data == f"client_appt:view:{appointment_id}"
+
+
+@pytest.mark.asyncio
+async def test_client_cancel_confirm_allowed_updates_state_and_deletes_google_event(monkeypatch):
+    message = DummyMessage("")
+    appointment = types.SimpleNamespace(
+        appointment_id=uuid4(),
+        specialist_id="sp-id",
+        client_id="c1",
+        start_at_utc=datetime(2099, 2, 18, 10, 45, tzinfo=timezone.utc),
+        booking_state=client_commands.BookingState.confirmed,
+        gcal_event_id="evt-1",
+    )
+    callback = types.SimpleNamespace(
+        data=f"client_appt:cancel_confirm:{appointment.appointment_id}",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    committed = {"value": False}
+    delete_calls = []
+    render_calls = []
+
+    class _Session:
+        def __init__(self):
+            self._execute_calls = 0
+
+        async def execute(self, _stmt):
+            self._execute_calls += 1
+            if self._execute_calls == 1:
+                return _Result(types.SimpleNamespace(client_id="c1"))
+            return _Result(appointment)
+
+        async def get(self, model, _pk):
+            if model is client_commands.SpecialistCalendarSettings:
+                return types.SimpleNamespace(calendar_id="cal-1")
+            return None
+
+        async def commit(self):
+            committed["value"] = True
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _delete_event(**kwargs):
+        delete_calls.append(kwargs)
+
+    async def _render(message_obj, specialist_id, tg_user_id):
+        render_calls.append((message_obj, specialist_id, tg_user_id))
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+    monkeypatch.setattr(client_commands, "delete_appointment_event", _delete_event)
+    monkeypatch.setattr(client_commands, "_render_client_appointments", _render)
+
+    await client_commands.client_appointment_cancel_confirm(callback, specialist_id="sp-id")
+
+    assert appointment.booking_state == client_commands.BookingState.canceled_by_client
+    assert committed["value"] is True
+    assert len(delete_calls) == 1
+    assert delete_calls[0]["calendar_id"] == "cal-1"
+    assert delete_calls[0]["google_event_id"] == "evt-1"
+    assert message.answers[0][0] == "Запись отменена."
+    assert len(render_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_client_cancel_confirm_rejects_when_notice_too_short(monkeypatch):
+    message = DummyMessage("")
+    appointment = types.SimpleNamespace(
+        appointment_id=uuid4(),
+        specialist_id="sp-id",
+        client_id="c1",
+        start_at_utc=datetime(2099, 2, 18, 10, 45, tzinfo=timezone.utc),
+        booking_state=client_commands.BookingState.confirmed,
+        gcal_event_id="evt-1",
+    )
+    callback = types.SimpleNamespace(
+        data=f"client_appt:cancel_confirm:{appointment.appointment_id}",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    committed = {"value": False}
+    delete_calls = []
+
+    class _Session:
+        def __init__(self):
+            self._execute_calls = 0
+
+        async def execute(self, _stmt):
+            self._execute_calls += 1
+            if self._execute_calls == 1:
+                return _Result(types.SimpleNamespace(client_id="c1"))
+            return _Result(appointment)
+
+        async def get(self, model, _pk):
+            if model is client_commands.SpecialistCalendarSettings:
+                return types.SimpleNamespace(calendar_id="cal-1")
+            return None
+
+        async def commit(self):
+            committed["value"] = True
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _delete_event(**kwargs):
+        delete_calls.append(kwargs)
+
+    async def _validate_fail(**_kwargs):
+        raise ValueError("too short")
+
+    async def _resolve_hours(**_kwargs):
+        return 12
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+    monkeypatch.setattr(client_commands, "delete_appointment_event", _delete_event)
+    monkeypatch.setattr(client_commands, "_validate_min_hours_policy", _validate_fail)
+    monkeypatch.setattr(client_commands, "_resolve_cancel_window_hours", _resolve_hours)
+
+    await client_commands.client_appointment_cancel_confirm(callback, specialist_id="sp-id")
+
+    assert appointment.booking_state == client_commands.BookingState.confirmed
+    assert committed["value"] is False
+    assert delete_calls == []
+    assert message.answers[0][0] == "Отмена через бота недоступна менее чем за 12 часов до начала. Напишите специалисту."
+
+
+@pytest.mark.asyncio
+async def test_client_cancel_confirm_idempotent_when_already_cancelled(monkeypatch):
+    message = DummyMessage("")
+    appointment = types.SimpleNamespace(
+        appointment_id=uuid4(),
+        specialist_id="sp-id",
+        client_id="c1",
+        start_at_utc=datetime(2099, 2, 18, 10, 45, tzinfo=timezone.utc),
+        booking_state=client_commands.BookingState.canceled_by_client,
+        gcal_event_id="evt-1",
+    )
+    callback = types.SimpleNamespace(
+        data=f"client_appt:cancel_confirm:{appointment.appointment_id}",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    render_calls = []
+
+    class _Session:
+        def __init__(self):
+            self._execute_calls = 0
+
+        async def execute(self, _stmt):
+            self._execute_calls += 1
+            if self._execute_calls == 1:
+                return _Result(types.SimpleNamespace(client_id="c1"))
+            return _Result(appointment)
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _render(message_obj, specialist_id, tg_user_id):
+        render_calls.append((message_obj, specialist_id, tg_user_id))
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+    monkeypatch.setattr(client_commands, "_render_client_appointments", _render)
+
+    await client_commands.client_appointment_cancel_confirm(callback, specialist_id="sp-id")
+
+    assert message.answers[0][0] == "Запись уже отменена."
+    assert len(render_calls) == 1

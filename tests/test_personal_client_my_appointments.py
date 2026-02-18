@@ -98,6 +98,7 @@ async def test_my_appointments_shows_confirmed_and_failed_with_retry_button(monk
     client = types.SimpleNamespace(client_id="cl-1", client_timezone="UTC")
     appointments = [
         types.SimpleNamespace(
+            appointment_id="appt-1",
             start_at_utc=datetime(2099, 1, 10, 9, 30, tzinfo=timezone.utc),
             booking_state=BookingState.confirmed,
         ),

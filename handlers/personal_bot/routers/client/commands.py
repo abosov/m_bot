@@ -32,6 +32,7 @@ from database import (
 from services.availability_service import AvailabilityService
 from services.booking_policy import validate_min_hours_before_start
 from services.google_calendar import create_appointment_event
+from services.google_calendar import delete_appointment_event
 from services.google_calendar import update_appointment_event
 from services.session_datetime import format_session_datetime
 
@@ -1032,6 +1033,165 @@ async def client_appointment_view(callback, specialist_id) -> None:
 
 
 @router.callback_query(F.data.startswith("client_appt:cancel:"))
+async def client_appointment_cancel_confirm_prompt(callback, specialist_id) -> None:
+    if callback.from_user is None:
+        await callback.answer("Профиль клиента не найден. Нажмите /start.", show_alert=True)
+        return
+    if callback.message is None:
+        await callback.answer()
+        return
+
+    appointment_id_raw = callback.data.removeprefix("client_appt:cancel:")
+    try:
+        appointment_id = UUID(appointment_id_raw)
+    except ValueError:
+        await callback.answer("Запись не найдена", show_alert=True)
+        return
+
+    async with async_session_factory() as session:
+        client = (
+            await session.execute(
+                select(Client)
+                .where(Client.specialist_id == specialist_id)
+                .where(Client.tg_user_id == callback.from_user.id)
+            )
+        ).scalar_one_or_none()
+        if client is None:
+            await callback.answer("Профиль клиента не найден. Нажмите /start.", show_alert=True)
+            return
+
+        appointment = (
+            await session.execute(
+                select(Appointment)
+                .where(Appointment.appointment_id == appointment_id)
+                .where(Appointment.client_id == client.client_id)
+                .where(Appointment.specialist_id == specialist_id)
+            )
+        ).scalar_one_or_none()
+
+    if appointment is None:
+        await callback.answer("Запись не найдена", show_alert=True)
+        return
+    if appointment.booking_state != BookingState.confirmed:
+        await callback.answer("Отмена доступна только для подтверждённой записи.", show_alert=True)
+        return
+
+    client_tz = await _get_client_tz(specialist_id=specialist_id, tg_user_id=callback.from_user.id)
+    formatted_datetime = format_session_datetime(appointment.start_at_utc, client_tz)
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Да, отменить",
+                    callback_data=f"client_appt:cancel_confirm:{appointment.appointment_id}",
+                )
+            ],
+            [InlineKeyboardButton(text="Назад", callback_data=f"client_appt:view:{appointment.appointment_id}")],
+        ]
+    )
+    await callback.message.answer(f"Подтвердите отмену записи на {formatted_datetime}.", reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("client_appt:cancel_confirm:"))
+async def client_appointment_cancel_confirm(callback, specialist_id) -> None:
+    if callback.from_user is None:
+        await callback.answer("Профиль клиента не найден. Нажмите /start.", show_alert=True)
+        return
+
+    appointment_id_raw = callback.data.removeprefix("client_appt:cancel_confirm:")
+    try:
+        appointment_id = UUID(appointment_id_raw)
+    except ValueError:
+        await callback.answer("Запись не найдена", show_alert=True)
+        return
+
+    async with async_session_factory() as session:
+        client = (
+            await session.execute(
+                select(Client)
+                .where(Client.specialist_id == specialist_id)
+                .where(Client.tg_user_id == callback.from_user.id)
+            )
+        ).scalar_one_or_none()
+        if client is None:
+            await callback.answer("Профиль клиента не найден. Нажмите /start.", show_alert=True)
+            return
+
+        appointment = (
+            await session.execute(
+                select(Appointment)
+                .where(Appointment.appointment_id == appointment_id)
+                .where(Appointment.client_id == client.client_id)
+                .where(Appointment.specialist_id == specialist_id)
+            )
+        ).scalar_one_or_none()
+        if appointment is None:
+            await callback.answer("Запись не найдена", show_alert=True)
+            return
+
+        if appointment.booking_state == BookingState.canceled_by_client:
+            if callback.message is not None:
+                await callback.message.answer("Запись уже отменена.")
+                await _render_client_appointments(callback.message, specialist_id, callback.from_user.id)
+            await callback.answer()
+            return
+
+        if appointment.booking_state != BookingState.confirmed:
+            await callback.answer("Отмена доступна только для подтверждённой записи.", show_alert=True)
+            return
+
+        min_hours = await _resolve_cancel_window_hours(specialist_id=specialist_id)
+        try:
+            await _validate_min_hours_policy(
+                specialist_id=specialist_id,
+                target_start_utc=appointment.start_at_utc,
+            )
+        except ValueError:
+            if callback.message is not None:
+                await callback.message.answer(
+                    f"Отмена через бота недоступна менее чем за {min_hours} часов до начала. Напишите специалисту."
+                )
+            await callback.answer()
+            return
+
+        appointment.booking_state = BookingState.canceled_by_client
+
+        settings = await session.get(SpecialistCalendarSettings, specialist_id)
+        calendar_id = settings.calendar_id if settings is not None else None
+        if calendar_id and appointment.gcal_event_id:
+            try:
+                await delete_appointment_event(
+                    specialist_id=specialist_id,
+                    calendar_id=calendar_id,
+                    google_event_id=appointment.gcal_event_id,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to delete Google Calendar event for cancelled appointment",
+                    extra={
+                        "specialist_id": str(specialist_id),
+                        "appointment_id": str(appointment.appointment_id),
+                        "calendar_id": calendar_id,
+                        "google_event_id": appointment.gcal_event_id,
+                    },
+                )
+                if hasattr(session, "rollback"):
+                    await session.rollback()
+                if callback.message is not None:
+                    await callback.message.answer("Не удалось отменить запись. Попробуйте позже.")
+                await callback.answer()
+                return
+
+        await session.commit()
+
+    if callback.message is not None:
+        await callback.message.answer("Запись отменена.")
+        await _render_client_appointments(callback.message, specialist_id, callback.from_user.id)
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("client_appt:reschedule:"))
 async def client_appointment_action_stub(callback) -> None:
     await callback.answer("Функция скоро появится.", show_alert=True)

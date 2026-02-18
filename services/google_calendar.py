@@ -661,6 +661,44 @@ async def update_appointment_event(
         raise
 
 
+
+
+async def delete_appointment_event(
+    *,
+    specialist_id: uuid.UUID,
+    calendar_id: str,
+    google_event_id: str,
+) -> None:
+    started = time.monotonic()
+    try:
+        headers = await _build_headers(specialist_id)
+        response = await _calendar_request_with_retry(
+            requests.delete,
+            f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}/events/{google_event_id}",
+            method_name="DELETE",
+            headers=headers,
+        )
+        if response.status_code not in (200, 204):
+            _raise_calendar_error(response)
+
+        log_event(
+            logger,
+            logging.INFO,
+            event="google_api_call",
+            alias="delete_appointment_event",
+            duration_ms=int((time.monotonic() - started) * 1000),
+            outcome="ok",
+            http_status=response.status_code,
+            events_count=1,
+            specialist_id=specialist_id,
+        )
+    except Exception as exc:
+        logger.exception(
+            "google calendar call failed",
+            extra={"event": "google_api_call", "alias": "delete_appointment_event", "exception_class": exc.__class__.__name__},
+        )
+        await _notify_google_calendar_exception("services.google_calendar.delete_appointment_event", exc, specialist_id)
+        raise
 async def get_busy_intervals_for_day(
     *,
     specialist_id: uuid.UUID,
