@@ -223,6 +223,8 @@
 5. если разрешено:
    - `booking_state = canceled_by_client`
    - удаляет событие в Google Calendar (если есть `calendar_id` и `gcal_event_id`)
+   - публикует outbox-событие `appointment_cancelled_by_client`
+   - отправляет специалисту уведомление: `Клиент отменил запись.\nВремя: YYYY-MM-DD Ддд [HH:MM]` (в TZ специалиста)
    - показывает `Запись отменена.`
    - возвращает на экран `Мои записи`
 

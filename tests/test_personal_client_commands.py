@@ -1702,6 +1702,7 @@ async def test_client_cancel_confirm_allowed_updates_state_and_deletes_google_ev
 
     committed = {"value": False}
     delete_calls = []
+    outbox_events = []
     render_calls = []
 
     class _Session:
@@ -1735,8 +1736,12 @@ async def test_client_cancel_confirm_allowed_updates_state_and_deletes_google_ev
     async def _render(message_obj, specialist_id, tg_user_id):
         render_calls.append((message_obj, specialist_id, tg_user_id))
 
+    async def _emit_outbox(_session, event_type, payload):
+        outbox_events.append((event_type, payload))
+
     monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
     monkeypatch.setattr(client_commands, "delete_appointment_event", _delete_event)
+    monkeypatch.setattr(client_commands, "emit_outbox_domain_event", _emit_outbox)
     monkeypatch.setattr(client_commands, "_render_client_appointments", _render)
 
     await client_commands.client_appointment_cancel_confirm(callback, specialist_id="sp-id")
@@ -1746,6 +1751,17 @@ async def test_client_cancel_confirm_allowed_updates_state_and_deletes_google_ev
     assert len(delete_calls) == 1
     assert delete_calls[0]["calendar_id"] == "cal-1"
     assert delete_calls[0]["google_event_id"] == "evt-1"
+    assert outbox_events == [
+        (
+            "appointment_cancelled_by_client",
+            {
+                "appointment_id": str(appointment.appointment_id),
+                "specialist_id": "sp-id",
+                "client_id": "c1",
+                "start_at_utc": appointment.start_at_utc.isoformat(),
+            },
+        )
+    ]
     assert message.answers[0][0] == "Запись отменена."
     assert len(render_calls) == 1
 

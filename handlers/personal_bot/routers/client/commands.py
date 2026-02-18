@@ -34,6 +34,7 @@ from services.booking_policy import validate_min_hours_before_start
 from services.google_calendar import create_appointment_event
 from services.google_calendar import delete_appointment_event
 from services.google_calendar import update_appointment_event
+from services.outbox import emit_domain_event as emit_outbox_domain_event
 from services.session_datetime import format_session_datetime
 
 router = Router(name="personal_bot_client_commands")
@@ -1183,6 +1184,14 @@ async def client_appointment_cancel_confirm(callback, specialist_id) -> None:
                     await callback.message.answer("Не удалось отменить запись. Попробуйте позже.")
                 await callback.answer()
                 return
+
+        payload = {
+            "appointment_id": str(appointment.appointment_id),
+            "specialist_id": str(specialist_id),
+            "client_id": str(client.client_id),
+            "start_at_utc": appointment.start_at_utc.isoformat(),
+        }
+        await emit_outbox_domain_event(session, "appointment_cancelled_by_client", payload)
 
         await session.commit()
 

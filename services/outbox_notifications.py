@@ -140,6 +140,35 @@ async def _handle_appointment_rescheduled(session: AsyncSession, event: OutboxEv
         )
 
 
+async def _handle_appointment_cancelled_by_client(session: AsyncSession, event: OutboxEvent) -> None:
+    payload = event.payload_json or {}
+    _parse_uuid(payload, "appointment_id")
+    specialist_id = _parse_uuid(payload, "specialist_id")
+    client_id = _parse_uuid(payload, "client_id")
+    start_at_utc = _parse_dt(payload, "start_at_utc")
+
+    client = await session.get(Client, client_id)
+    specialist_profile = await session.get(SpecialistProfile, specialist_id)
+    personal_bot_row = await _load_personal_bot(session, specialist_id)
+    if client is None or personal_bot_row is None:
+        raise ValueError("missing recipient for cancellation notification")
+
+    owner_tg_user_id = specialist_profile.owner_tg_user_id if specialist_profile else None
+    if owner_tg_user_id is None:
+        return
+
+    specialist_tz_name = specialist_profile.specialist_timezone if specialist_profile else None
+    specialist_start = _format_dt_for_client(start_at_utc, specialist_tz_name)
+    specialist_text = "Клиент отменил запись.\n" f"Время: {specialist_start}"
+    await _send_specialist_message(
+        session,
+        outbox_event=event,
+        bot=personal_bot_row,
+        specialist_tg_user_id=owner_tg_user_id,
+        text=specialist_text,
+    )
+
+
 async def _handle_appointment_cancelled_by_specialist_calendar(session: AsyncSession, event: OutboxEvent) -> None:
     payload = event.payload_json or {}
     appointment_id = _parse_uuid(payload, "appointment_id")
@@ -181,4 +210,5 @@ from typing import Callable, Awaitable
 
 def register_outbox_handlers(handlers: dict[str, Callable[[AsyncSession, OutboxEvent], Awaitable[None]]]) -> None:
     handlers["appointment_rescheduled"] = _handle_appointment_rescheduled
+    handlers["appointment_cancelled_by_client"] = _handle_appointment_cancelled_by_client
     handlers["appointment_cancelled_by_specialist_calendar"] = _handle_appointment_cancelled_by_specialist_calendar
