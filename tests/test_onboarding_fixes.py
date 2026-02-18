@@ -101,10 +101,10 @@ async def test_google_oauth_callback_without_refresh_uses_existing_token(tmp_pat
     monkeypatch.setattr(web_server, "list_calendars", _fake_list_calendars)
 
     client = TestClient(web_server.app)
-    response = client.get(f"/google/oauth/callback?code=abc&state={state_value}")
+    response = client.get(f"/google/oauth/callback?code=abc&state={state_value}", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "Успешно" in response.text
+    assert response.status_code == 302
+    assert response.headers["location"] == "http://localhost/success"
 
     async with database.async_session_factory() as session:
         oauth = await session.get(database.GoogleOAuth, specialist_id)
@@ -331,10 +331,10 @@ async def test_google_oauth_callback_valid_state_consumes_and_upserts_token(tmp_
     monkeypatch.setattr(web_server, "bot", _BotStub())
 
     client = TestClient(web_server.app)
-    response = client.get(f"/google/oauth/callback?code=fake&state={state_value}")
+    response = client.get(f"/google/oauth/callback?code=fake&state={state_value}", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "Успешно" in response.text
+    assert response.status_code == 302
+    assert response.headers["location"] == "http://localhost/success"
     assert len(sent) == 1
     assert sent[0]["chat_id"] == 777
     keyboard = sent[0]["reply_markup"]
@@ -426,11 +426,11 @@ async def test_google_oauth_callback_reused_state_rejected_on_second_call(tmp_pa
     monkeypatch.setattr(web_server, "list_calendars", _fake_list_calendars)
 
     client = TestClient(web_server.app)
-    first = client.get(f"/google/oauth/callback?code=fake&state={state_value}")
+    first = client.get(f"/google/oauth/callback?code=fake&state={state_value}", follow_redirects=False)
     second = client.get(f"/google/oauth/callback?code=fake&state={state_value}")
 
-    assert first.status_code == 200
-    assert "Успешно" in first.text
+    assert first.status_code == 302
+    assert first.headers["location"] == "http://localhost/success"
     assert second.status_code == 200
     assert "state не найден или уже использован" in second.text
 

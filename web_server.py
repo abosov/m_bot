@@ -675,7 +675,7 @@ async def telegram_personal_webhook(bot_id: int, secret: str, request: Request):
     )
     return Response(status_code=status_code)
 
-@app.get("/google/oauth/callback", response_class=HTMLResponse)
+@app.get("/google/oauth/callback")
 async def google_oauth_callback(request: Request):
     request_id = _request_id_from_request(request)
     code = request.query_params.get("code")
@@ -928,17 +928,7 @@ async def google_oauth_callback(request: Request):
             specialist_id,
         )
 
-        return """
-        <html>
-            <head><title>Success</title></head>
-            <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-                <h1 style="color: green;">Успешно!</h1>
-                <p>Google Календарь подключен.</p>
-                <p>Вы можете закрыть это окно и вернуться в Telegram.</p>
-                <script>setTimeout(function(){window.close()}, 3000);</script>
-            </body>
-        </html>
-        """
+        return RedirectResponse(url=f"{config.PUBLIC_SITE_URL}/success", status_code=302)
 
     except Exception as exc:
         logger.exception(
