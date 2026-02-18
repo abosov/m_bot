@@ -36,6 +36,14 @@ class DummyResult:
         return DummyScalarRows(self._rows)
 
 
+def test_register_outbox_handlers_includes_appointment_booked():
+    handlers = {}
+
+    outbox_notifications.register_outbox_handlers(handlers)
+
+    assert handlers["appointment_booked"] is outbox_notifications._handle_appointment_booked
+
+
 @pytest.mark.asyncio
 async def test_emit_domain_event_writes_row():
     added = []
