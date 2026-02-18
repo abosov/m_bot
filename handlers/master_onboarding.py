@@ -35,7 +35,6 @@ from database import (
     TelegramBot,
     TelegramBotStatus,
     GoogleOAuthStatus,
-    OAuthStateType,
     SpecialistCalendarSettings,
     SpecialistCalendarSource,
     MessageLog, 
@@ -47,7 +46,7 @@ from services.crypto import encrypt_token, decrypt_token
 # Используем локальный импорт внутри функций, если возникнут циклические зависимости,
 # но здесь импортируем функцию логирования сообщений.
 from logging_middleware import log_outbound_message
-from services.google_oauth import create_oauth_state, get_auth_url
+from services import web_connect
 from services.google_calendar import (
     GoogleCalendarError,
     GoogleCalendarInsufficientPermissionsError,
@@ -59,7 +58,7 @@ from services.google_calendar import (
 )
 from services.onboarding import finalize_specialist_if_ready
 from services.specialist_defaults import apply_specialist_defaults_if_missing
-from config import BACKEND_BASE_URL
+from config import BACKEND_BASE_URL, PUBLIC_SITE_URL
 from services.specialist_onboarding import get_specialist_by_tg_user_id, set_master_onboarding_completed
 from services.alerting import notify_exception
 from services.log_context import log_event
@@ -97,6 +96,10 @@ def _safe_username(username: str | None) -> str:
 def _build_personal_deep_link(bot_username: str | None) -> str:
     safe_username = _safe_username(bot_username)
     return f"https://t.me/{safe_username}?start=owner_panel" if safe_username else ""
+
+
+def _build_connect_page_url(raw_token: str) -> str:
+    return f"{PUBLIC_SITE_URL}/connect#token={raw_token}"
 
 
 def _full_onboarding_guard_keyboard(deep_link: str) -> types.InlineKeyboardMarkup:
@@ -693,17 +696,21 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 new_state = "waiting_for_bot_token"
 
             elif not has_oauth:
-                oauth_state = await create_oauth_state(
+                raw_token = await web_connect.create_connect_token(
                     session,
                     specialist.specialist_id,
-                    OAuthStateType.google_connect,
+                    tg_user_id,
+                    ttl_minutes=15,
                 )
                 await session.commit()
-                auth_url = get_auth_url(oauth_state)
-                next_step_msg = "\n👇 <b>Действие:</b> Подключите Google аккаунт через кнопку ниже."
+                connect_url = _build_connect_page_url(raw_token)
+                next_step_msg = (
+                    "\n👇 <b>Действие:</b> Подключите Google аккаунт через кнопку ниже.\n"
+                    "Откроется страница сайта. Подключение Google пройдет в браузере."
+                )
                 keyboard = types.InlineKeyboardMarkup(
                     inline_keyboard=[[
-                        types.InlineKeyboardButton(text="🔗 Подключить Google Календарь", url=auth_url)
+                        types.InlineKeyboardButton(text="Подключить Google Календарь", url=connect_url)
                     ]]
                 )
                 await state.clear()
@@ -1037,24 +1044,26 @@ async def process_bot_token(message: types.Message, state: FSMContext):
         )
         
         async with async_session_factory() as session:
-            oauth_state = await create_oauth_state(
+            raw_token = await web_connect.create_connect_token(
                 session,
                 specialist_id,
-                OAuthStateType.google_connect,
+                tg_user_id,
+                ttl_minutes=15,
             )
             await session.commit()
-        auth_url = get_auth_url(oauth_state)
+        connect_url = _build_connect_page_url(raw_token)
 
         status_line = "🟢 Статус специалиста: active." if is_active_now else "⏳ Статус специалиста: onboarding."
         text_out = (
             f"✅ Бот **@{bot_info.username}** успешно подключен!\n"
             f"{status_line}\n\n"
-            f"📅 **Шаг 3 из 4:** Подключите Google аккаунт, затем выберите рабочий календарь бота."
+            "📅 **Шаг 3 из 4:** Подключите Google аккаунт, затем выберите рабочий календарь бота.\n\n"
+            "Откроется страница сайта. Подключение Google пройдет в браузере."
         )
         
         keyboard = types.InlineKeyboardMarkup(
             inline_keyboard=[[
-                types.InlineKeyboardButton(text="🔗 Подключить Google Календарь", url=auth_url)
+                types.InlineKeyboardButton(text="Подключить Google Календарь", url=connect_url)
             ]]
         )
 

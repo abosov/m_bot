@@ -1021,3 +1021,97 @@ async def test_calendar_create_uses_answer_plain_for_final_deep_link_message_to_
     assert final_kwargs.get("parse_mode") is None
     assert final_kwargs.get("disable_web_page_preview") is True
     assert callback.answered == 1
+
+@pytest.mark.asyncio
+async def test_process_bot_token_sends_connect_page_button_with_fragment_token(tmp_path, monkeypatch):
+    _, database = _load_web_app(tmp_path, monkeypatch)
+
+    import handlers.master_onboarding as onboarding
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.onboarding))
+        session.add(
+            database.SpecialistAuthTelegram(
+                specialist_id=specialist_id,
+                tg_user_id=777,
+                tg_username="spec",
+                tg_first_name="Spec",
+                tg_last_name=None,
+            )
+        )
+        session.add(
+            database.SpecialistProfile(
+                specialist_id=specialist_id,
+                public_name="Spec",
+                owner_tg_user_id=777,
+                owner_tg_username="spec",
+                specialist_timezone="Europe/Moscow",
+            )
+        )
+        await session.commit()
+
+    monkeypatch.setattr(onboarding, "async_session_factory", database.async_session_factory)
+
+    async def _set_webhook_ok(*args, **kwargs):
+        return None
+
+    async def _noop_async(*args, **kwargs):
+        return None
+
+    async def _fake_create_connect_token(_db, _specialist_id, _tg_user_id, ttl_minutes=15):
+        assert _specialist_id == specialist_id
+        assert _tg_user_id == 777
+        assert ttl_minutes == 15
+        return "raw-test-token"
+
+    monkeypatch.setattr(onboarding, "_set_webhook_with_retry", _set_webhook_ok)
+    monkeypatch.setattr(onboarding, "set_master_onboarding_completed", _noop_async)
+    monkeypatch.setattr(onboarding, "finalize_specialist_if_ready", _noop_async)
+    monkeypatch.setattr(onboarding, "log_outbound_message", _noop_async)
+    monkeypatch.setattr(onboarding.web_connect, "create_connect_token", _fake_create_connect_token)
+
+    class _BotStub:
+        def __init__(self, token, *args, **kwargs):
+            self.token = token
+            self.session = SimpleNamespace(close=self._close)
+
+        async def get_me(self, request_timeout=None):
+            return SimpleNamespace(id=100500, username="my_spec_bot", first_name="Spec Bot")
+
+        async def _close(self):
+            return None
+
+    monkeypatch.setattr(onboarding, "Bot", _BotStub)
+
+    class _State:
+        async def get_state(self):
+            return onboarding.OnboardingStates.waiting_for_bot_token.state
+
+        async def clear(self):
+            return None
+
+        async def set_state(self, _state):
+            return None
+
+    class _Message:
+        def __init__(self):
+            self.text = "123456:validtoken"
+            self.from_user = SimpleNamespace(id=777, username="spec", first_name="Spec", last_name=None)
+            self.bot = object()
+            self.sent = []
+
+        async def answer(self, text, reply_markup=None, **kwargs):
+            self.sent.append((text, reply_markup, kwargs))
+
+    message = _Message()
+    await onboarding.process_bot_token(message, _State())
+
+    assert message.sent
+    _, keyboard, _ = message.sent[-1]
+    assert keyboard is not None
+    assert keyboard.inline_keyboard[0][0].text == "Подключить Google Календарь"
+    assert keyboard.inline_keyboard[0][0].url.startswith(f"{onboarding.PUBLIC_SITE_URL}/connect#token=")
