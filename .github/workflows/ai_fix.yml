@@ -1,19 +1,28 @@
 name: AI Auto-Fix
+run-name: ${{ github.event.head_commit.message }}
+
 on: [push]
+
 jobs:
   check-and-fix:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v4
-        with: {python-version: '3.11'}
+        with:
+          python-version: '3.11'
+
       - name: Install deps
         run: pip install -r requirements.txt
+
       - name: Run Tests
         id: tests
         run: pytest > test_log.txt 2>&1
         continue-on-error: true
+
       - name: Ask Gemini to Fix
         if: steps.tests.outcome == 'failure'
         env:
