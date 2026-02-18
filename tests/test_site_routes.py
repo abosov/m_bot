@@ -80,6 +80,14 @@ def test_site_assets_are_served():
     assert "Zumbot landing page loaded" in js.text
 
 
+def test_success_page_contains_expected_text():
+    response = client.get("/success")
+
+    assert response.status_code == 200
+    assert "Готово" in response.text
+    assert "Google Календарь подключён. Вернитесь в Telegram, чтобы продолжить настройку." in response.text
+
+
 def test_revoke_access_page_contains_google_permissions_link():
     response = client.get("/revoke-access")
 
