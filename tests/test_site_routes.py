@@ -86,3 +86,11 @@ def test_revoke_access_page_contains_google_permissions_link():
     assert response.status_code == 200
     assert "myaccount.google.com/permissions" in response.text
     assert "Revoke Google Access" in response.text
+
+
+def test_revoke_access_ru_page_contains_google_permissions_link():
+    response = client.get("/revoke-access-ru")
+
+    assert response.status_code == 200
+    assert "myaccount.google.com/permissions" in response.text
+    assert "Отзыв доступа Google" in response.text
