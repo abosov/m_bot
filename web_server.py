@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from fastapi import BackgroundTasks, FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from aiogram import Bot
@@ -31,7 +31,7 @@ from database import (
     TelegramBot,
     TelegramBotStatus,
 )
-from services.google_oauth import exchange_code_for_token_async
+from services.google_oauth import create_oauth_state, exchange_code_for_token_async, get_auth_url
 from services.google_calendar import (
     GoogleCalendarInsufficientPermissionsError,
     list_calendars,
@@ -473,6 +473,26 @@ async def connect_status(request: Request) -> JSONResponse:
     cookie_value = request.cookies.get(config.WEB_CONNECT_COOKIE_NAME, "")
     session = web_session.verify_session_cookie(cookie_value)
     return JSONResponse(content={"ok": session is not None})
+
+
+@app.post("/google/oauth/start")
+async def google_oauth_start(request: Request) -> Response:
+    cookie_value = request.cookies.get(config.WEB_CONNECT_COOKIE_NAME, "")
+    verified_session = web_session.verify_session_cookie(cookie_value)
+    if verified_session is None:
+        return HTMLResponse(
+            content="Сессия не найдена. Вернитесь в Telegram и откройте ссылку заново.",
+            status_code=200,
+        )
+
+    specialist_id, _tg_user_id = verified_session
+    async with async_session_factory() as session:
+        oauth_state = await create_oauth_state(session, specialist_id, OAuthStateType.google_connect)
+        await session.commit()
+
+    response = RedirectResponse(url=get_auth_url(oauth_state), status_code=302)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 async def _write_service_heartbeat(

@@ -178,3 +178,52 @@ def test_connect_status_requires_valid_cookie(monkeypatch):
     valid_response = client.get("/connect/status")
     assert valid_response.status_code == 200
     assert valid_response.json() == {"ok": True}
+
+
+def test_google_oauth_start_without_cookie_does_not_redirect(monkeypatch):
+    monkeypatch.setattr(web_server.web_session, "verify_session_cookie", lambda _: None)
+
+    response = client.post("/google/oauth/start", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Сессия не найдена" in response.text
+    assert "location" not in response.headers
+
+
+def test_google_oauth_start_with_cookie_redirects_to_auth_url(monkeypatch):
+    specialist_id = "44444444-4444-4444-8444-444444444444"
+    patched_auth_url = "https://example.test/google-auth"
+
+    class _DummyOauthSession:
+        async def commit(self) -> None:
+            return None
+
+        async def rollback(self) -> None:
+            return None
+
+    class _DummyOauthSessionContext:
+        async def __aenter__(self):
+            return _DummyOauthSession()
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    async def _create_oauth_state(_session, incoming_specialist_id, state_type):
+        assert str(incoming_specialist_id) == specialist_id
+        assert state_type == web_server.OAuthStateType.google_connect
+        return "oauth-state-123"
+
+    monkeypatch.setattr(
+        web_server.web_session,
+        "verify_session_cookie",
+        lambda _: (specialist_id, 777),
+    )
+    monkeypatch.setattr(web_server, "async_session_factory", lambda: _DummyOauthSessionContext())
+    monkeypatch.setattr(web_server, "create_oauth_state", _create_oauth_state)
+    monkeypatch.setattr(web_server, "get_auth_url", lambda state: patched_auth_url if state == "oauth-state-123" else "")
+
+    response = client.post("/google/oauth/start", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers.get("location") == patched_auth_url
+    assert response.headers.get("cache-control") == "no-store"
