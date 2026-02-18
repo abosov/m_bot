@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from database import OutboxEvent
 from handlers.personal_bot.routers.client import commands as client_commands
 from handlers.personal_bot.routers.client.commands import CLIENT_TZ_PAGES, _client_tz_keyboard
 
@@ -1329,6 +1330,17 @@ async def test_client_pick_slot_passes_client_tg_user_id_and_client_code_to_goog
     assert captured_kwargs["client_tg_user_id"] == 42
     assert captured_kwargs["client_code"] == "CL-42"
     assert any(isinstance(obj, client_commands.AppointmentCalendarLink) for obj in session.added)
+    outbox_events = [obj for obj in session.added if isinstance(obj, OutboxEvent)]
+    assert len(outbox_events) == 1
+    event = outbox_events[0]
+    assert event.event_type == "appointment_booked"
+    assert event.payload_json == {
+        "appointment_id": str(session.added[0].appointment_id),
+        "specialist_id": "sp-id",
+        "client_id": "cl-1",
+        "start_at_utc": "2026-02-21T12:00:00+00:00",
+        "end_at_utc": "2026-02-21T12:45:00+00:00",
+    }
 
 
 @pytest.mark.asyncio
