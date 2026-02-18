@@ -95,6 +95,56 @@ async def _send_specialist_message(
     await _mark_sent(session, outbox_event.id, target)
 
 
+def _format_client_contact(client: Client) -> str:
+    parts: list[str] = []
+    if client.display_name:
+        parts.append(client.display_name)
+    if client.tg_username:
+        username = client.tg_username.lstrip("@")
+        parts.append(f"@{username}")
+        parts.append(f"https://t.me/{username}")
+        return " ".join(parts)
+
+    if client.tg_user_id is not None:
+        parts.append(f"(tg://user?id={client.tg_user_id})")
+        parts.append(f"id: {client.tg_user_id}")
+        return " ".join(parts)
+
+    if client.client_code:
+        parts.append(client.client_code)
+    if not parts:
+        parts.append(str(client.client_id))
+    return " ".join(parts)
+
+
+async def _handle_appointment_booked(session: AsyncSession, event: OutboxEvent) -> None:
+    payload = event.payload_json or {}
+    _parse_uuid(payload, "appointment_id")
+    specialist_id = _parse_uuid(payload, "specialist_id")
+    client_id = _parse_uuid(payload, "client_id")
+    start_at_utc = _parse_dt(payload, "start_at_utc")
+
+    client = await session.get(Client, client_id)
+    specialist_profile = await session.get(SpecialistProfile, specialist_id)
+    personal_bot_row = await _load_personal_bot(session, specialist_id)
+    if client is None or specialist_profile is None or personal_bot_row is None:
+        raise ValueError("missing recipient for booked notification")
+
+    if specialist_profile.owner_tg_user_id is None:
+        return
+
+    specialist_start = _format_dt_for_client(start_at_utc, specialist_profile.specialist_timezone)
+    client_contact = _format_client_contact(client)
+    specialist_text = f"Новая запись: {specialist_start}\n\nКлиент: {client_contact}"
+    await _send_specialist_message(
+        session,
+        outbox_event=event,
+        bot=personal_bot_row,
+        specialist_tg_user_id=specialist_profile.owner_tg_user_id,
+        text=specialist_text,
+    )
+
+
 async def _handle_appointment_rescheduled(session: AsyncSession, event: OutboxEvent) -> None:
     payload = event.payload_json or {}
     _parse_uuid(payload, "appointment_id")
@@ -209,6 +259,7 @@ from typing import Callable, Awaitable
 
 
 def register_outbox_handlers(handlers: dict[str, Callable[[AsyncSession, OutboxEvent], Awaitable[None]]]) -> None:
+    handlers["appointment_booked"] = _handle_appointment_booked
     handlers["appointment_rescheduled"] = _handle_appointment_rescheduled
     handlers["appointment_cancelled_by_client"] = _handle_appointment_cancelled_by_client
     handlers["appointment_cancelled_by_specialist_calendar"] = _handle_appointment_cancelled_by_specialist_calendar
