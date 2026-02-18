@@ -16,6 +16,33 @@
 - Production redirect URI: `https://api.zumbot.ru/google/oauth/callback`.
 - Callback сохраняет OAuth-статус и токены в БД (refresh token хранится зашифрованно).
 
+## 2.1 Актуальная схема старта OAuth (Telegram → Web)
+
+OAuth инициируется через обычную web-страницу, а не внутри скрытых iframe/WebApp.
+
+Явный пользовательский flow:
+1. Пользователь нажимает кнопку в Telegram (master bot).
+2. Бот отправляет ссылку, открывающую `https://zumbot.ru/connect`.
+3. Пользователь проходит Google OAuth на обычной web-странице.
+4. После успеха выполняется redirect на `https://zumbot.ru/success`.
+5. Пользователь возвращается в Telegram.
+
+Почему так:
+- избегаем скрытых iframe;
+- избегаем WebApp OAuth-потока;
+- делаем consent и контекст авторизации прозрачными для пользователя.
+
+Транспорт токена в web-connect:
+- one-time токен передаётся через URL fragment (`#...`), а не query string;
+- фронтенд обменивает токен через `POST /auth/telegram/consume`;
+- backend выставляет HttpOnly + Secure cookie сессии;
+- сырой токен не должен попадать в логи;
+- one-time токен имеет TTL и после consume считается недействительным.
+
+Настройки Google OAuth consent screen / client:
+- Authorized domain: `zumbot.ru`;
+- Redirect URI: `https://api.zumbot.ru/google/oauth/callback` (или ваш backend-домен с тем же callback path).
+
 ## 3. Сценарий `refresh_token missing`
 
 Поведение реализовано следующим образом:

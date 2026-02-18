@@ -15,6 +15,8 @@
 - Сайт (frontend): `https://zumbot.ru`.
 - Backend API: `https://api.zumbot.ru`.
 - Google OAuth redirect URI: `https://api.zumbot.ru/google/oauth/callback`.
+- OAuth consent screen authorized domain: `zumbot.ru`.
+
 
 Эти значения задаются в `/etc/zumbot/backend.env`.
 
@@ -153,9 +155,14 @@
 3. Проверить в БД активную запись `telegram_bot` с `webhook_url` формата `/tg/webhook/{bot_id}/{secret}`.
 
 ### 4) Google OAuth → callback
-1. Пройти OAuth-авторизацию из master bot.
-2. Убедиться, что callback `GET /google/oauth/callback` завершился без ошибки.
-3. Проверить, что `google_oauth.status=connected` и сохранены scope/refresh token (в зашифрованном виде).
+1. В Telegram нажать кнопку подключения Google.
+2. Убедиться, что bot отправляет ссылку на `https://zumbot.ru/connect`.
+3. Пройти Google OAuth на обычной web-странице (не hidden iframe/WebApp).
+4. Убедиться, что после успеха выполняется переход на `https://zumbot.ru/success`.
+5. Убедиться, что callback `GET /google/oauth/callback` завершился без ошибки.
+6. Проверить, что `google_oauth.status=connected` и сохранены scope/refresh token (в зашифрованном виде).
+7. Проверить web-connect обмен: токен приходит во fragment и consume выполняется через `POST /auth/telegram/consume`.
+8. Проверить безопасность: one-time токен с TTL, выставлен HttpOnly+Secure cookie, raw токен не логируется.
 
 ### 5) Создание календаря → smoke-test event
 1. В master bot выбрать создание календаря.

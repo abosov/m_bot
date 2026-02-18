@@ -252,7 +252,18 @@ Nginx security snippet: `docs/snippets/nginx_security.conf`.
    - создать OAuth client.
 2) Указать redirect URI:
    - `https://api.zumbot.ru/google/oauth/callback`
-3) Задать переменные окружения в prod:
+3) Для Telegram → Google OAuth использовать явный web-flow:
+   1. Пользователь нажимает кнопку в Telegram.
+   2. Бот присылает ссылку на `https://zumbot.ru/connect`.
+   3. OAuth проходит на обычной странице браузера (без hidden iframe/WebApp OAuth).
+   4. После успеха — redirect на `https://zumbot.ru/success`.
+   5. Пользователь возвращается в Telegram.
+4) В OAuth consent screen указать:
+   - Authorized domain: `zumbot.ru`
+   - Redirect URI: `https://api.zumbot.ru/google/oauth/callback` (или ваш backend-домен)
+5) Токен web-connect передаётся через URL fragment и обменивается на сессию через `POST /auth/telegram/consume`.
+   Требования безопасности: one-time TTL токена, HttpOnly+Secure cookie, отсутствие raw токена в логах.
+6) Задать переменные окружения в prod:
    - `GOOGLE_CLIENT_ID`
    - `GOOGLE_CLIENT_SECRET`
    - `GOOGLE_REDIRECT_URI=https://api.zumbot.ru/google/oauth/callback`
