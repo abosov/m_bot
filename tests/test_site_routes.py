@@ -94,3 +94,60 @@ def test_revoke_access_ru_page_contains_google_permissions_link():
     assert response.status_code == 200
     assert "myaccount.google.com/permissions" in response.text
     assert "Отзыв доступа Google" in response.text
+
+
+class _DummySession:
+    async def commit(self) -> None:
+        return None
+
+    async def rollback(self) -> None:
+        return None
+
+
+class _DummySessionContext:
+    async def __aenter__(self) -> _DummySession:
+        return _DummySession()
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
+def test_auth_telegram_consume_sets_cookie_and_can_only_be_used_once(monkeypatch):
+    token = "raw-connect-token"
+    specialist_id = "44444444-4444-4444-8444-444444444444"
+    tg_user_id = 777
+    consumed = {"done": False}
+
+    async def _consume_connect_token(_session, raw_token: str):
+        assert raw_token == token
+        if consumed["done"]:
+            return None
+        consumed["done"] = True
+        return specialist_id, tg_user_id
+
+    monkeypatch.setattr(web_server, "async_session_factory", lambda: _DummySessionContext())
+    monkeypatch.setattr(web_server.web_connect, "consume_connect_token", _consume_connect_token)
+
+    first = client.post("/auth/telegram/consume", json={"token": token})
+
+    assert first.status_code == 200
+    assert first.json() == {"ok": True}
+    assert first.cookies.get(web_server.config.WEB_CONNECT_COOKIE_NAME)
+    set_cookie = first.headers.get("set-cookie", "")
+    assert f"{web_server.config.WEB_CONNECT_COOKIE_NAME}=" in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "Secure" in set_cookie
+    assert "SameSite=Lax" in set_cookie
+    assert "Path=/" in set_cookie
+
+    second = client.post("/auth/telegram/consume", json={"token": token})
+
+    assert second.status_code == 400
+    assert second.json() == {"ok": False, "error": "expired_or_used"}
+
+
+def test_auth_telegram_consume_rejects_empty_token():
+    response = client.post("/auth/telegram/consume", json={"token": "   "})
+
+    assert response.status_code == 400
+    assert response.json() == {"ok": False, "error": "token_required"}

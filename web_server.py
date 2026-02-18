@@ -11,6 +11,7 @@ from fastapi import BackgroundTasks, FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
+from pydantic import BaseModel
 from sqlalchemy import select, update
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
@@ -45,6 +46,7 @@ from services.telegram.personal_dispatcher import process_update
 from services.build_info import get_build_info
 from services.request_context import get_request_id, reset_request_id, set_request_id
 from services.alerting import close_alerting, notify_exception
+from services import web_connect, web_session
 import config
 from admin_api import router as admin_router
 
@@ -322,6 +324,44 @@ async def google_calendar_webhook(request: Request, background_tasks: Background
 @app.get("/site-health")
 async def site_health() -> PlainTextResponse:
     return PlainTextResponse("ok")
+
+
+class TelegramConsumeRequest(BaseModel):
+    token: str
+
+
+@app.post("/auth/telegram/consume")
+async def consume_telegram_connect_token(payload: TelegramConsumeRequest) -> JSONResponse:
+    token = payload.token.strip()
+    if not token:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "token_required"},
+        )
+
+    async with async_session_factory() as session:
+        consumed = await web_connect.consume_connect_token(session, token)
+        if consumed is None:
+            await session.rollback()
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "error": "expired_or_used"},
+            )
+
+        specialist_id, tg_user_id = consumed
+        await session.commit()
+
+    session_cookie = web_session.sign_session_cookie(specialist_id, tg_user_id)
+    response = JSONResponse(content={"ok": True})
+    response.set_cookie(
+        key=config.WEB_CONNECT_COOKIE_NAME,
+        value=session_cookie,
+        httponly=True,
+        secure=True,
+        samesite="Lax",
+        path="/",
+    )
+    return response
 
 
 async def _write_service_heartbeat(
