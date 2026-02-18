@@ -154,6 +154,17 @@
 1. сохраняется `gcal_event_id`
 2. `booking_state = confirmed`
 3. клиенту отправляется подтверждение записи
+4. в outbox кладётся событие `appointment_booked` для уведомления специалиста в личном боте:
+   - `event_type`: `appointment_booked`
+   - минимальный `payload`:
+     - `appointment_id`
+     - `specialist_id`
+     - `client_id`
+     - `start_at_utc`
+     - `duration_minutes`
+     - `client_username` (nullable)
+   - текст уведомления специалисту: время записи + идентификация клиента
+     (`@username`/ссылка `https://t.me/{username}`; fallback: `tg://user?id={client_tg_user_id}`)
 
 ### Неудача / неоднозначный ответ Google
 1. backend проверяет, не было ли событие создано в Google Calendar
