@@ -144,6 +144,15 @@ PUBLIC_SITE_URL = _require_in_prod(
     "PUBLIC_SITE_URL",
     _env_or_default("PUBLIC_SITE_URL", "https://zumbot.ru"),
 )
+WEB_CONNECT_PEPPER = _require_in_prod("WEB_CONNECT_PEPPER", os.getenv("WEB_CONNECT_PEPPER"))
+WEB_CONNECT_COOKIE_NAME = _require_in_prod(
+    "WEB_CONNECT_COOKIE_NAME",
+    _env_or_default(
+        "WEB_CONNECT_COOKIE_NAME",
+        "zumbot_web_session",
+        allow_empty_in_prod=False,
+    ),
+)
 SUPPORT_TG_URL = _require_in_prod(
     "SUPPORT_TG_URL",
     _env_or_default(
@@ -242,7 +251,9 @@ def validate_config() -> None:
         "GOOGLE_CLIENT_SECRET": GOOGLE_CLIENT_SECRET,
         "GOOGLE_REDIRECT_URI": GOOGLE_REDIRECT_URI,
         "BASE_URL": BASE_URL,
+        "PUBLIC_SITE_URL": PUBLIC_SITE_URL,
         "DB_URL": DATABASE_URL,
+        "WEB_CONNECT_PEPPER": WEB_CONNECT_PEPPER,
     }
 
     errors: list[str] = []

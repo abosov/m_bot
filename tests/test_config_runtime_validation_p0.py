@@ -27,6 +27,8 @@ def _base_prod_env() -> dict[str, str]:
         "GOOGLE_REDIRECT_URI": "https://example.test/callback",
         "BASE_URL": "https://example.test",
         "DB_URL": "sqlite+aiosqlite:///./mvp.db",
+        "PUBLIC_SITE_URL": "https://example.test",
+        "WEB_CONNECT_PEPPER": "pepper",
     }
 
 

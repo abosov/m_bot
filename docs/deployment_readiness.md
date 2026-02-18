@@ -59,6 +59,8 @@
 | `ENCRYPTION_KEY` (`SECRET_KEY`) | Ключ шифрования токенов | `base64-or-hex-key` | required (prod) | `config.py`, `services/crypto.py` |
 | `BASE_URL` (`BACKEND_BASE_URL`) | Публичный URL backend для webhook/OAuth ссылок | `https://api.example.com` | required (prod) | `config.py`, Telegram/Google сервисы |
 | `PUBLIC_SITE_URL` | Публичный URL сайта/лендинга | `https://example.com` | required (prod) | `config.py` |
+| `WEB_CONNECT_PEPPER` | Секрет для хеширования web connect токенов (не логировать) | `strong-random-pepper` | required (prod) | `config.py` |
+| `WEB_CONNECT_COOKIE_NAME` | Имя cookie для web connect сессии | `zumbot_web_session` | optional (default `zumbot_web_session`) | `config.py` |
 | `SUPPORT_TG_URL` | Ссылка на поддержку в Telegram (для сообщений/кнопок `Support`) | `https://t.me/zumbot_support` | optional | `config.py`, `handlers/personal_bot/routers/common/start.py` |
 | `WEB_HOST` | Host для uvicorn | `127.0.0.1` | optional | `config.py`, `main.py` |
 | `WEB_PORT` | Port для uvicorn | `8000` | optional | `config.py`, `main.py` |

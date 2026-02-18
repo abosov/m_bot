@@ -14,6 +14,8 @@ def _clear_core_env(monkeypatch):
         "GOOGLE_REDIRECT_URI",
         "BASE_URL",
         "DB_URL",
+        "PUBLIC_SITE_URL",
+        "WEB_CONNECT_PEPPER",
     ]:
         monkeypatch.delenv(key, raising=False)
 
@@ -60,6 +62,8 @@ def test_validate_config_fails_in_prod_process_with_invalid_db_url():
         "GOOGLE_REDIRECT_URI": "https://example.test/callback",
         "BASE_URL": "https://example.test",
         "DB_URL": "not-a-url",
+        "PUBLIC_SITE_URL": "https://example.test",
+        "WEB_CONNECT_PEPPER": "pepper",
     }
 
     result = subprocess.run(
@@ -90,6 +94,8 @@ def test_validate_config_fails_in_prod_process_with_invalid_numeric_envs():
         "GOOGLE_REDIRECT_URI": "https://example.test/callback",
         "BASE_URL": "https://example.test",
         "DB_URL": "sqlite+aiosqlite:///./mvp.db",
+        "PUBLIC_SITE_URL": "https://example.test",
+        "WEB_CONNECT_PEPPER": "pepper",
         "WEB_PORT": "70000",
         "MAX_WEBHOOK_BODY_BYTES": "0",
         "ALERTS_THROTTLE_SECONDS": "-1",
