@@ -135,6 +135,10 @@ async def seed_data(database):
                     calendar_time_zone="UTC",
                     source=database.SpecialistCalendarSource.selected,
                 ),
+                database.CalendarSyncState(
+                    specialist_id=specialist_target,
+                    calendar_id="smoke-calendar-sync",
+                ),
                 database.GoogleOAuth(
                     specialist_id=specialist_target,
                     refresh_token_encrypted="enc",
@@ -266,6 +270,7 @@ async def test_cleanup_apply_deletes_only_target_scope(tmp_path, monkeypatch):
     assert report["deleted_counts"]["specialist"] == 1
     assert report["deleted_counts"]["client"] == 2
     assert report["deleted_counts"]["appointment"] == 2
+    assert report["deleted_counts"]["calendar_sync_state"] == 1
 
     async with database.async_session_factory() as session:
         target_exists = await session.scalar(
@@ -283,10 +288,22 @@ async def test_cleanup_apply_deletes_only_target_scope(tmp_path, monkeypatch):
                 database.Client.specialist_id == seeded["specialist_other"]
             )
         )
+        target_calendar_sync_rows = await session.scalar(
+            select(func.count()).select_from(database.CalendarSyncState).where(
+                database.CalendarSyncState.specialist_id == seeded["specialist_target"]
+            )
+        )
+        other_calendar_sync_rows = await session.scalar(
+            select(func.count()).select_from(database.CalendarSyncState).where(
+                database.CalendarSyncState.specialist_id == seeded["specialist_other"]
+            )
+        )
 
     assert target_exists is None
     assert other_exists == seeded["specialist_other"]
     assert other_clients == 1
+    assert target_calendar_sync_rows == 0
+    assert other_calendar_sync_rows == 0
 
 
 @pytest.mark.asyncio

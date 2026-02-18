@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from database import (
     Appointment,
     BotHealthCheck,
+    CalendarSyncState,
     Client,
     GoogleOAuth,
     MessageLog,
@@ -235,6 +236,10 @@ async def execute_test_data_reset(
         "weekly_availability": 0,
         "specialist_calendar_settings": 0,
         "specialist_calendar": 0,
+        "calendar_sync_state": 0,
+        "appointment_calendar_link": 0,
+        "web_auth_session": 0,
+        "web_connect_token": 0,
         "google_oauth": 0,
         "oauth_state": 0,
         "telegram_bot": 0,
@@ -363,6 +368,10 @@ async def execute_test_data_reset(
             counts["specialist"] += await _count_rows(session, Specialist, Specialist.specialist_id == sid)
 
         has_specialist_calendar = await _table_exists(session, "specialist_calendar")
+        has_appointment_calendar_link = await _table_exists(session, "appointment_calendar_link")
+        has_web_auth_session = await _table_exists(session, "web_auth_session")
+        has_web_connect_token = await _table_exists(session, "web_connect_token")
+
         if has_specialist_calendar and all_target_specialist_ids:
             for sid in all_target_specialist_ids:
                 value = await session.scalar(
@@ -370,6 +379,39 @@ async def execute_test_data_reset(
                     {"sid": str(sid)},
                 )
                 counts["specialist_calendar"] += int(value or 0)
+
+        if has_appointment_calendar_link and all_target_specialist_ids:
+            for sid in all_target_specialist_ids:
+                value = await session.scalar(
+                    text("SELECT COUNT(*) FROM appointment_calendar_link WHERE specialist_id = :sid"),
+                    {"sid": str(sid)},
+                )
+                counts["appointment_calendar_link"] += int(value or 0)
+
+        if has_web_auth_session and all_target_specialist_ids:
+            for sid in all_target_specialist_ids:
+                value = await session.scalar(
+                    text("SELECT COUNT(*) FROM web_auth_session WHERE specialist_id = :sid"),
+                    {"sid": str(sid)},
+                )
+                counts["web_auth_session"] += int(value or 0)
+
+        if has_web_connect_token and all_target_specialist_ids:
+            for sid in all_target_specialist_ids:
+                value = await session.scalar(
+                    text("SELECT COUNT(*) FROM web_connect_token WHERE specialist_id = :sid"),
+                    {"sid": str(sid)},
+                )
+                counts["web_connect_token"] += int(value or 0)
+
+        for target in targets:
+            if not target.delete_specialist_scope:
+                continue
+            counts["calendar_sync_state"] += await _count_rows(
+                session,
+                CalendarSyncState,
+                CalendarSyncState.specialist_id == target.specialist_id,
+            )
 
         target_report = [
             {
@@ -402,6 +444,9 @@ async def execute_test_data_reset(
                     ("oauth_state", OAuthState),
                     ("telegram_bot", TelegramBot),
                     ("bot_health_checks", BotHealthCheck),
+                    ("specialist_profile", SpecialistProfile),
+                    ("specialist_auth_telegram", SpecialistAuthTelegram),
+                    ("calendar_sync_state", CalendarSyncState),
                 ):
                     deleted_counts[key] = int(
                         (
@@ -418,6 +463,42 @@ async def execute_test_data_reset(
                             (
                                 await session.execute(
                                     text("DELETE FROM specialist_calendar WHERE specialist_id = :sid"),
+                                    {"sid": str(sid)},
+                                )
+                            ).rowcount
+                            or 0
+                        )
+
+                if has_web_auth_session:
+                    for sid in all_target_specialist_ids:
+                        deleted_counts["web_auth_session"] += int(
+                            (
+                                await session.execute(
+                                    text("DELETE FROM web_auth_session WHERE specialist_id = :sid"),
+                                    {"sid": str(sid)},
+                                )
+                            ).rowcount
+                            or 0
+                        )
+
+                if has_web_connect_token:
+                    for sid in all_target_specialist_ids:
+                        deleted_counts["web_connect_token"] += int(
+                            (
+                                await session.execute(
+                                    text("DELETE FROM web_connect_token WHERE specialist_id = :sid"),
+                                    {"sid": str(sid)},
+                                )
+                            ).rowcount
+                            or 0
+                        )
+
+                if has_appointment_calendar_link:
+                    for sid in all_target_specialist_ids:
+                        deleted_counts["appointment_calendar_link"] += int(
+                            (
+                                await session.execute(
+                                    text("DELETE FROM appointment_calendar_link WHERE specialist_id = :sid"),
                                     {"sid": str(sid)},
                                 )
                             ).rowcount
@@ -448,19 +529,14 @@ async def execute_test_data_reset(
                 )
 
             if all_target_specialist_ids:
-                for key, model in (
-                    ("specialist_profile", SpecialistProfile),
-                    ("specialist_auth_telegram", SpecialistAuthTelegram),
-                    ("specialist", Specialist),
-                ):
-                    deleted_counts[key] = int(
-                        (
-                            await session.execute(
-                                delete(model).where(model.specialist_id.in_(all_target_specialist_ids))
-                            )
-                        ).rowcount
-                        or 0
-                    )
+                deleted_counts["specialist"] = int(
+                    (
+                        await session.execute(
+                            delete(Specialist).where(Specialist.specialist_id.in_(all_target_specialist_ids))
+                        )
+                    ).rowcount
+                    or 0
+                )
 
             await session.commit()
     return {
