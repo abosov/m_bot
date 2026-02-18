@@ -121,6 +121,7 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
         "/contacts": "contacts.html",
         "/privacy": "privacy.html",
         "/terms": "terms.html",
+        "/revoke-access": "revoke-access.html",
         "/privacy-ru": "privacy-ru.html",
         "/terms-ru": "terms-ru.html",
     }
@@ -159,6 +160,10 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
     @app.get("/terms")
     async def site_terms() -> FileResponse:
         return FileResponse(_site_file("/terms"))
+
+    @app.get("/revoke-access")
+    async def site_revoke_access() -> FileResponse:
+        return FileResponse(_site_file("/revoke-access"))
 
     @app.get("/privacy-ru")
     async def site_privacy_ru() -> FileResponse:
