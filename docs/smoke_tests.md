@@ -73,8 +73,8 @@ curl -i -sS "$BASE_URL/readyz"
 3. Указать публичное имя.
 4. Создать personal bot и дождаться настройки webhook.
 5. Подключить Google OAuth.
-6. Выбрать или создать календарь.
-7. Запустить smoke-тест календаря.
+6. Выбрать существующий календарь из Google Calendar (через refresh/список).
+7. Запустить smoke-тест календаря (`events.insert` + `events.delete`).
 8. Получить deep-link `?start=owner_panel` в personal bot.
 
 Ожидание: после успешного smoke-теста `specialist.status=active`, выдан deep-link в personal bot, в БД `onboarding_master_completed_at` заполнен, `onboarding_personal_completed_at` ещё `NULL`.
@@ -85,7 +85,7 @@ curl -i -sS "$BASE_URL/readyz"
 
 Когда она вызывается в потоке онбординга (master bot):
 - после шага подключения personal bot token/webhook;
-- после успешного выбора/создания календаря и smoke-test;
+- после успешного выбора календаря и smoke-test;
 - при явной проверке smoke-test;
 - при показе статуса в master onboarding (если чек-лист уже собран).
 

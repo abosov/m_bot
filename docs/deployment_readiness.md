@@ -164,16 +164,14 @@
 7. Проверить web-connect обмен: токен приходит во fragment и consume выполняется через `POST /auth/telegram/consume`.
 8. Проверить безопасность: one-time токен с TTL, выставлен HttpOnly+Secure cookie, raw токен не логируется.
 
-### 5) Создание календаря → smoke-test event
-1. В master bot выбрать создание календаря.
-2. Убедиться, что календарь создан/выбран и сохранён в `specialist_calendar_settings`.
-3. Проверить результат smoke-test (`last_smoke_test_status=ok`).
+### 5) Выбор рабочего календаря → smoke-test event
+1. В master bot выбрать существующий календарь из списка Google Calendar.
+2. Убедиться, что выбранный календарь сохранён в `specialist_calendar_settings`.
+3. Проверить результат smoke-test (`events.insert` + `events.delete`, `last_smoke_test_status=ok`).
 
-### Определение таймзоны при создании календаря
-- При создании Google-календаря для специалиста сначала используется `specialist_timezone`, если в профиле задана валидная IANA TZ и она не равна `UTC`.
-- Если `specialist_timezone` пустая или `UTC`, TZ запрашивается из primary календаря Google (`calendarList/primary`).
+### Определение таймзоны выбранного календаря
+- Для выбранного календаря `timeZone` из Google Calendar API сохраняется в `specialist_calendar_settings.calendar_tz`.
 - Если Google API не вернул TZ, используется fallback `UTC`.
-- После создания календаря его `timeZone` сохраняется в `specialist_calendar_settings.calendar_tz`.
 - В `apply_specialist_defaults_if_missing` поле `specialist_timezone` может обновляться из `preferred_timezone`/`calendar_tz` только если текущая TZ пустая или `UTC`.
 - Если текущая `specialist_timezone` уже не `UTC`, она не перезаписывается.
 
@@ -183,7 +181,7 @@
 3. Убедиться, что bot отвечает и показывает актуальный статус интеграций.
 
 ### Активация specialist: `finalize_specialist_if_ready`
-- Функция `finalize_specialist_if_ready(specialist_id)` вызывается в шагах master onboarding после ключевых действий (подключение personal bot, успешный выбор/создание календаря со smoke-test) и при проверке общего чек-листа статуса.
+- Функция `finalize_specialist_if_ready(specialist_id)` вызывается в шагах master onboarding после ключевых действий (подключение personal bot, успешный выбор календаря со smoke-test) и при проверке общего чек-листа статуса.
 - Внутри функции `specialist.status` переводится `onboarding -> active` только если выполнен минимум `is_specialist_ready`: есть `SpecialistProfile` с непустым `public_name`, есть активный personal bot, и в `SpecialistCalendarSettings` заполнен `calendar_id` с `last_smoke_test_status=ok`.
 - Перед переводом в `active` вызывается `apply_specialist_defaults_if_missing(...)` с `preferred_timezone=SpecialistCalendarSettings.calendar_time_zone` (если TZ задана), чтобы дозаполнить дефолтные значения (длительность/буфер/таймзона) только для пропущенных полей.
 - Дополнительно применён safety net для legacy-профилей: если в `SpecialistProfile` пустой `public_name`, ставится `"Специалист"`; если `owner_tg_user_id <= 0` и найдена `SpecialistAuthTelegram`, в `owner_tg_user_id` записывается `tg_user_id`.

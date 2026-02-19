@@ -5,8 +5,8 @@
 Для onboarding требуется OAuth 2.0 с offline-доступом и календарными scope.
 
 Минимальные scope текущего MVP:
-- `https://www.googleapis.com/auth/calendar`
-- `https://www.googleapis.com/auth/calendar.events`
+- `https://www.googleapis.com/auth/calendar.readonly` — нужен для получения списка календарей пользователя и выбора рабочего календаря (`calendarList.list`).
+- `https://www.googleapis.com/auth/calendar.events` — нужен для smoke-test в выбранном календаре (`events.insert` + `events.delete`) и дальнейшего управления событиями.
 
 Если пользователь уже выдавал доступ с меньшими правами, требуется re-consent (повторное подключение).
 
@@ -71,7 +71,7 @@ OAuth инициируется через обычную web-страницу, �
 
 Что делать:
 - повторно инициировать OAuth через master bot;
-- убедиться, что пользователь выдал полный набор scope.
+- убедиться, что пользователь выдал права: просмотр календарей и управление событиями.
 
 ### `refresh_token missing`
 Симптомы:

@@ -27,7 +27,7 @@ GOOGLE_CLIENT_CONFIG = {
 }
 
 SCOPES = [
-    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/calendar.readonly',
     'https://www.googleapis.com/auth/calendar.events',
 ]
 REDIRECT_URI = config.GOOGLE_REDIRECT_URI
@@ -75,7 +75,7 @@ def get_auth_url(state: str) -> str:
     )
     
     # access_type='offline' обязателен для получения refresh_token
-    # prompt='consent' заставляет Google всегда спрашивать разрешение (чтобы гарантированно дали refresh_token)
+    # prompt/include_granted_scopes нужны для апгрейда scope при переподключении
     authorization_url, _ = flow.authorization_url(
         access_type='offline',
         include_granted_scopes='true',

@@ -456,3 +456,16 @@ def test_merge_private_extended_properties_preserves_existing_keys():
     assert payload["extendedProperties"]["private"]["zumbot_appointment_id"] == str(appointment_id)
     assert payload["extendedProperties"]["private"]["zumbot_specialist_id"] == str(specialist_id)
     assert payload["extendedProperties"]["shared"] == {"k": "v"}
+
+
+def test_required_scopes_match_minimum_calendar_access():
+    scopes = google_calendar.required_scopes()
+    assert "https://www.googleapis.com/auth/calendar.readonly" in scopes
+    assert "https://www.googleapis.com/auth/calendar.events" in scopes
+    assert "https://www.googleapis.com/auth/calendar" not in scopes
+
+
+def test_scopes_as_string_contains_required_scopes():
+    scopes_str = google_calendar.scopes_as_string()
+    assert "https://www.googleapis.com/auth/calendar.readonly" in scopes_str
+    assert "https://www.googleapis.com/auth/calendar.events" in scopes_str

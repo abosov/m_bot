@@ -1126,8 +1126,8 @@ async def calendar_select(callback: types.CallbackQuery, state: FSMContext):
         )
     except GoogleCalendarInsufficientPermissionsError:
         await callback.message.answer(
-            "⚠️ Google подключен, но доступов недостаточно для просмотра календарей. "
-            "Переподключите аккаунт через /start и выдайте все запрошенные права."
+            "⚠️ Google подключен, но доступов недостаточно для просмотра календарей и управления событиями. "
+            "Переподключите через /start и подтвердите права: просмотр календарей и управление событиями."
         )
         await callback.answer()
     except GoogleCalendarError as exc:
@@ -1161,8 +1161,8 @@ async def calendar_refresh(callback: types.CallbackQuery, state: FSMContext):
         await _start_calendar_select(callback, state)
     except GoogleCalendarInsufficientPermissionsError:
         await callback.message.answer(
-            "⚠️ Google подключен, но доступов недостаточно для просмотра календарей. "
-            "Переподключите аккаунт через /start и выдайте все запрошенные права."
+            "⚠️ Google подключен, но доступов недостаточно для просмотра календарей и управления событиями. "
+            "Переподключите через /start и подтвердите права: просмотр календарей и управление событиями."
         )
         await callback.answer()
     except GoogleCalendarError as exc:
@@ -1687,9 +1687,8 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
     except GoogleCalendarInsufficientPermissionsError:
         await callback.message.answer(
             "⚠️ Недостаточно прав Google для выполнения операции. "
-            "Zumbot в текущем режиме работает только с событиями (без автосоздания календарей). "
-            "Если вы хотите использовать отдельный календарь — создайте его вручную в Google Calendar и затем выберите в списке. "
-            "Если проблема повторяется — переподключите Google в /start и выдайте все запрошенные права."
+            "Нужны права: просмотр календарей и управление событиями. "
+            "Переподключите через /start и подтвердите эти права."
         )
         await callback.answer()
     except GoogleCalendarError as exc:
