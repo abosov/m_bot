@@ -218,9 +218,13 @@ def _normalize_calendar_items(items: list[dict]) -> list[dict]:
 
 def _calendar_select_keyboard(items: list[dict], page: int, per_page: int) -> types.InlineKeyboardMarkup:
     total = len(items)
+    refresh_row = [types.InlineKeyboardButton(text="🔄 Обновить список календарей", callback_data="calendar:refresh")]
     if total == 0:
         return types.InlineKeyboardMarkup(
-            inline_keyboard=[[types.InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")]]
+            inline_keyboard=[
+                refresh_row,
+                [types.InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")],
+            ]
         )
 
     pages = max(1, (total + per_page - 1) // per_page)
@@ -228,7 +232,7 @@ def _calendar_select_keyboard(items: list[dict], page: int, per_page: int) -> ty
     start = page * per_page
     end = min(start + per_page, total)
 
-    rows: list[list[types.InlineKeyboardButton]] = []
+    rows: list[list[types.InlineKeyboardButton]] = [refresh_row]
     for idx in range(start, end):
         rows.append(
             [
@@ -254,11 +258,36 @@ def _calendar_select_keyboard(items: list[dict], page: int, per_page: int) -> ty
 def _calendar_select_text(total: int, page: int, per_page: int, has_readonly: bool) -> str:
     pages = max(1, (total + per_page - 1) // per_page)
     readonly_note = "\n⚠️ В списке есть календари только для чтения — запись в них недоступна." if has_readonly else ""
+    warning = (
+        "Zumbot подключается к уже существующему календарю Google.\n"
+        "Если вам нужен отдельный календарь для работы с ботом — создайте его вручную в Google Calendar, "
+        "затем нажмите «Обновить список календарей»."
+    )
+    if total == 0:
+        return (
+            f"{warning}\n\n"
+            "📂 Пока не удалось получить доступные календари.\n"
+            "Создайте или откройте доступ к нужному календарю в Google Calendar и нажмите "
+            "«Обновить список календарей»."
+        )
     return (
+        f"{warning}\n\n"
         "📂 Выберите рабочий Google Календарь.\n"
         f"Найдено календарей: {total}. Страница {page + 1}/{pages}.\n"
         "После выбора будет запущен smoke-test (создание и удаление тестового события)."
         f"{readonly_note}"
+    )
+
+
+async def _render_calendar_selection(callback: types.CallbackQuery, state: FSMContext, items_norm: list[dict], page: int = 0) -> None:
+    per_page = 6
+    await state.update_data(cal_items=items_norm, cal_page=page, cal_per_page=per_page)
+    await state.set_state(OnboardingStates.waiting_for_calendar_action)
+
+    has_readonly = any(item.get("accessRole") == "reader" for item in items_norm)
+    await callback.message.answer(
+        _calendar_select_text(len(items_norm), page, per_page, has_readonly),
+        reply_markup=_calendar_select_keyboard(items_norm, page, per_page),
     )
 
 
@@ -278,21 +307,7 @@ async def _start_calendar_select(callback: types.CallbackQuery, state: FSMContex
 
     items = await list_calendars(auth.specialist_id)
     items_norm = _normalize_calendar_items(items)
-    if not items_norm:
-        await callback.message.answer(
-            "⚠️ Календарей не найдено / нет доступа. Переподключите Google аккаунт через /start."
-        )
-        await callback.answer()
-        return
-
-    await state.update_data(cal_items=items_norm, cal_page=0, cal_per_page=6)
-    await state.set_state(OnboardingStates.waiting_for_calendar_action)
-
-    has_readonly = any(item.get("accessRole") == "reader" for item in items_norm)
-    await callback.message.answer(
-        _calendar_select_text(len(items_norm), 0, 6, has_readonly),
-        reply_markup=_calendar_select_keyboard(items_norm, 0, 6),
-    )
+    await _render_calendar_selection(callback, state, items_norm, page=0)
     await callback.answer()
 
 
@@ -1131,6 +1146,41 @@ async def calendar_select(callback: types.CallbackQuery, state: FSMContext):
         text_out = "⚠️ Не удалось получить список календарей. Попробуйте позже."
         await notify_exception(
             where="handlers.master_onboarding.calendar_select",
+            exc=exc,
+            context={"tg_user_id": callback.from_user.id},
+            event=callback,
+            user_visible_text=text_out,
+        )
+        await callback.message.answer(text_out)
+        await callback.answer()
+
+
+@router.callback_query(F.data == "calendar:refresh")
+async def calendar_refresh(callback: types.CallbackQuery, state: FSMContext):
+    try:
+        await _start_calendar_select(callback, state)
+    except GoogleCalendarInsufficientPermissionsError:
+        await callback.message.answer(
+            "⚠️ Google подключен, но доступов недостаточно для просмотра календарей. "
+            "Переподключите аккаунт через /start и выдайте все запрошенные права."
+        )
+        await callback.answer()
+    except GoogleCalendarError as exc:
+        text_out = f"⚠️ Ошибка Google Calendar: {exc}"
+        await notify_exception(
+            where="handlers.master_onboarding.calendar_refresh.google",
+            exc=exc,
+            context={"tg_user_id": callback.from_user.id},
+            event=callback,
+            user_visible_text=text_out,
+        )
+        await callback.message.answer(text_out)
+        await callback.answer()
+    except Exception as exc:
+        logger.exception("calendar_refresh failed")
+        text_out = "⚠️ Не удалось обновить список календарей. Попробуйте позже."
+        await notify_exception(
+            where="handlers.master_onboarding.calendar_refresh",
             exc=exc,
             context={"tg_user_id": callback.from_user.id},
             event=callback,
