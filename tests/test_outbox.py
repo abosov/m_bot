@@ -28,6 +28,19 @@ class DummyScalarRows:
         return self._rows
 
 
+
+
+class DummyTransactionCtx:
+    def __init__(self, session):
+        self.session = session
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self.session.committed = True
+        return False
+
 class DummyResult:
     def __init__(self, rows):
         self._rows = rows
@@ -77,8 +90,8 @@ async def test_process_outbox_events_marks_processed_at(monkeypatch):
         async def execute(self, _query):
             return DummyResult([outbox_event])
 
-        async def commit(self):
-            self.committed = True
+        def begin(self):
+            return DummyTransactionCtx(self)
 
     async def handler(_session, _outbox_event):
         return None
@@ -113,8 +126,8 @@ async def test_process_outbox_events_marks_missing_handler_as_processed(monkeypa
         async def execute(self, _query):
             return DummyResult([outbox_event])
 
-        async def commit(self):
-            self.committed = True
+        def begin(self):
+            return DummyTransactionCtx(self)
 
     session = Session()
     monkeypatch.setattr(outbox, "async_session_factory", lambda: DummySessionCtx(session))
@@ -133,11 +146,13 @@ async def test_process_outbox_events_invokes_registered_handler(monkeypatch):
     calls = []
 
     class Session:
+        committed = False
+
         async def execute(self, _query):
             return DummyResult([event])
 
-        async def commit(self):
-            return None
+        def begin(self):
+            return DummyTransactionCtx(self)
 
     async def handler(session, outbox_event):
         calls.append((session, outbox_event.id))
@@ -156,11 +171,13 @@ async def test_process_outbox_events_formats_error_safely(monkeypatch):
     outbox_event = OutboxEvent(id=uuid.uuid4(), event_type="x.fail", payload_json={}, attempts=0)
 
     class Session:
+        committed = False
+
         async def execute(self, _query):
             return DummyResult([outbox_event])
 
-        async def commit(self):
-            return None
+        def begin(self):
+            return DummyTransactionCtx(self)
 
     message = "access_token=abc\n" + ("x" * 400)
 
@@ -179,6 +196,31 @@ async def test_process_outbox_events_formats_error_safely(monkeypatch):
     assert "access_token=abc" not in outbox_event.error
     assert "\n" not in outbox_event.error
     assert len(outbox_event.error) <= len("RuntimeError: ") + 300
+
+
+@pytest.mark.asyncio
+async def test_process_outbox_events_uses_skip_locked_query(monkeypatch):
+    captured = {}
+
+    class Session:
+        committed = False
+
+        async def execute(self, query):
+            captured["query"] = query
+            return DummyResult([])
+
+        def begin(self):
+            return DummyTransactionCtx(self)
+
+    session = Session()
+    monkeypatch.setattr(outbox, "async_session_factory", lambda: DummySessionCtx(session))
+
+    processed_count = await outbox.process_outbox_events(limit=3)
+
+    assert processed_count == 0
+    assert captured["query"]._for_update_arg is not None
+    assert captured["query"]._for_update_arg.skip_locked is True
+    assert session.committed is True
 
 
 @pytest.mark.asyncio

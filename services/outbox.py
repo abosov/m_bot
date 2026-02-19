@@ -54,33 +54,34 @@ async def _dispatch_outbox_event(session: AsyncSession, event: OutboxEvent) -> b
 
 async def process_outbox_events(limit: int = 50) -> int:
     async with async_session_factory() as session:
-        result = await session.execute(
-            select(OutboxEvent)
-            .where(OutboxEvent.processed_at.is_(None))
-            .order_by(OutboxEvent.created_at.asc())
-            .limit(limit)
-        )
-        events = result.scalars().all()
+        async with session.begin():
+            result = await session.execute(
+                select(OutboxEvent)
+                .where(OutboxEvent.processed_at.is_(None))
+                .order_by(OutboxEvent.created_at.asc())
+                .limit(limit)
+                .with_for_update(skip_locked=True)
+            )
+            events = result.scalars().all()
 
-        for outbox_event in events:
-            try:
-                was_dispatched = await _dispatch_outbox_event(session, outbox_event)
-                outbox_event.processed_at = datetime.now(timezone.utc)
-                outbox_event.error = None if was_dispatched else "handler_missing"
-            except Exception as exc:
-                outbox_event.attempts += 1
-                outbox_event.error = _format_outbox_error(exc)
-                log_event(
-                    logger,
-                    logging.ERROR,
-                    event="outbox_event_process_failed",
-                    outbox_event_id=outbox_event.id,
-                    event_type=outbox_event.event_type,
-                    exception_class=exc.__class__.__name__,
-                )
+            for outbox_event in events:
+                try:
+                    was_dispatched = await _dispatch_outbox_event(session, outbox_event)
+                    outbox_event.processed_at = datetime.now(timezone.utc)
+                    outbox_event.error = None if was_dispatched else "handler_missing"
+                except Exception as exc:
+                    outbox_event.attempts += 1
+                    outbox_event.error = _format_outbox_error(exc)
+                    log_event(
+                        logger,
+                        logging.ERROR,
+                        event="outbox_event_process_failed",
+                        outbox_event_id=outbox_event.id,
+                        event_type=outbox_event.event_type,
+                        exception_class=exc.__class__.__name__,
+                    )
 
-        await session.commit()
-        return len(events)
+            return len(events)
 
 
 async def outbox_worker_task() -> None:
