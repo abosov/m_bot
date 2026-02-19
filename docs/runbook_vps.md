@@ -218,6 +218,7 @@ curl -fsS --max-time 8 "https://api.telegram.org/bot${MASTER_BOT_TOKEN}/getMe"
 ## Где смотреть логи
 
 - Лог запуска: `/tmp/zumbot_deploy_*.log`
+
 - В конце каждого запуска скрипт печатает:
   - `LOG_PATH=/tmp/...`
   - `EXIT_CODE=0|1`
@@ -226,6 +227,18 @@ curl -fsS --max-time 8 "https://api.telegram.org/bot${MASTER_BOT_TOKEN}/getMe"
 
 ```bash
 sudo journalctl -u zumbot-backend.service -n 300 --no-pager
+```
+
+## Outbox Operations
+
+- `handler_missing` — событие не обработано, потому что для его типа не найден зарегистрированный обработчик.
+- `dead_letter` — событие переведено в «мёртвую очередь» после исчерпания попыток обработки.
+- Чтобы найти зависшие события, смотрите записи outbox без `processed_at`.
+
+```sql
+SELECT id, event_type, attempts, error
+FROM outbox_events
+WHERE processed_at IS NULL;
 ```
 
 ## Troubleshooting
