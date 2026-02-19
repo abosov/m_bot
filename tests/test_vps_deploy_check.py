@@ -38,3 +38,13 @@ def test_deploy_installs_zumbot_test_reset_symlink() -> None:
 
     assert "Install test reset command" in content
     assert "ln -sfn \"${REPO_DIR}/scripts/test_data_reset_run.py\" /usr/local/bin/zumbot-test-reset" in content
+
+
+def test_deploy_contains_webhook_log_masking_smoke_check() -> None:
+    content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert "check_webhook_secret_not_logged" in content
+    assert "Smoke: webhook log masking" in content
+    assert "TEST_PERSONAL_WEBHOOK_SECRET is required for webhook log masking smoke-check" in content
+    assert "webhook masking marker not found in nginx access log" in content
+    assert "raw webhook path detected in nginx access log" in content

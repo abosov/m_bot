@@ -170,6 +170,29 @@ check_recent_service_errors() {
   fi
 }
 
+
+check_webhook_secret_not_logged() {
+  local log_file="/var/log/nginx/api_webhook_access.log"
+  local bot_id="${TEST_PERSONAL_BOT_ID:-}"
+  local webhook_secret="${TEST_PERSONAL_WEBHOOK_SECRET:-}"
+  local raw_pattern
+
+  [[ -n "${bot_id}" ]] || die "TEST_PERSONAL_BOT_ID is required for webhook log masking smoke-check"
+  [[ -n "${webhook_secret}" ]] || die "TEST_PERSONAL_WEBHOOK_SECRET is required for webhook log masking smoke-check"
+  [[ -f "${log_file}" ]] || die "nginx access log not found (${log_file})"
+
+  if ! grep -Eq '/tg/webhook/[0-9]+/\*\*\*' "${log_file}"; then
+    die "webhook masking marker not found in nginx access log (${log_file})"
+  fi
+
+  raw_pattern="/tg/webhook/${bot_id}/${webhook_secret}"
+  if grep -F -- "${raw_pattern}" "${log_file}" >/dev/null; then
+    die "raw webhook path detected in nginx access log (${log_file})"
+  fi
+
+  pass "webhook secret is masked in nginx access log"
+}
+
 check_telegram_getme() {
   local bot_name="$1"
   local token="$2"
@@ -206,6 +229,7 @@ post_deploy_smoke_checks() {
   run_step "Smoke: /healthz" check_http_endpoint "${APP_BASE_URL}/healthz" "/healthz"
   run_step "Smoke: /readyz" check_http_endpoint "${APP_BASE_URL}/readyz" "/readyz"
   run_step "Smoke: service journal scan" check_recent_service_errors
+  run_step "Smoke: webhook log masking" check_webhook_secret_not_logged
 
   [[ -n "${MASTER_BOT_TOKEN:-}" ]] || die "MASTER_BOT_TOKEN is required for telegram smoke-check"
   run_step "Smoke: master bot getMe" env MASTER_BOT_TOKEN="${MASTER_BOT_TOKEN}" python3 - <<'PY'

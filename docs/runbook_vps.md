@@ -172,11 +172,13 @@ bantime = 1h
 
 ## Smoke-check после деплоя
 
+P0/MUST: для production запрещён релиз, если `webhook_secret` может попасть в nginx access log.
 После `bash scripts/vps_deploy_check.sh --mode deploy` обязательно проверьте, что в логе есть успешные шаги:
 
 - `Smoke: /healthz` → HTTP 200;
 - `Smoke: /readyz` → HTTP 200;
 - `Smoke: service journal scan` → за последние 5 минут нет `priority=err` и `Traceback`;
+- `Smoke: webhook log masking` → в nginx access log есть только маскированный путь `/tg/webhook/<bot_id>/***`, а сырой `/tg/webhook/<bot_id>/<secret>` отсутствует;
 - `Smoke: master bot getMe` → `ok=true`;
 - опционально `Smoke: test personal bot getMe` (если задан `TEST_PERSONAL_BOT_TOKEN`).
 
@@ -193,7 +195,15 @@ curl -fsS --max-time 5 http://127.0.0.1:8000/readyz
 # 3) последние ошибки сервиса
 sudo journalctl -u zumbot-backend.service --since "5 minutes ago" --no-pager
 
-# 4) master-bot getMe (токен из /etc/zumbot/backend.env)
+# 4) webhook log masking (обязательный P0-check, секрет не печатаем)
+source /etc/zumbot/backend.env
+sudo grep -E '/tg/webhook/[0-9]+/\*\*\*' /var/log/nginx/api_webhook_access.log
+if sudo grep -F -- "/tg/webhook/${TEST_PERSONAL_BOT_ID}/${TEST_PERSONAL_WEBHOOK_SECRET}" /var/log/nginx/api_webhook_access.log >/dev/null; then
+  echo "[FAIL] raw webhook path detected in nginx access log"
+  exit 1
+fi
+
+# 5) master-bot getMe (токен из /etc/zumbot/backend.env)
 source /etc/zumbot/backend.env
 curl -fsS --max-time 8 "https://api.telegram.org/bot${MASTER_BOT_TOKEN}/getMe"
 ```
@@ -202,7 +212,8 @@ curl -fsS --max-time 8 "https://api.telegram.org/bot${MASTER_BOT_TOKEN}/getMe"
 - `RESULT=OK` в конце лога `/tmp/zumbot_deploy_*.log`;
 - `/healthz` и `/readyz` отвечают 200;
 - в `journalctl` нет свежих ERROR/Traceback;
-- Telegram `getMe` возвращает JSON с `"ok": true`.
+- Telegram `getMe` возвращает JSON с `"ok": true`;
+- webhook path в nginx логируется только в маскированном виде (`***`), без `webhook_secret`.
 
 ## Где смотреть логи
 
