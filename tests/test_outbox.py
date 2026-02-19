@@ -199,6 +199,42 @@ async def test_process_outbox_events_formats_error_safely(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_process_outbox_events_dead_letters_when_attempt_limit_reached(monkeypatch):
+    outbox_event = OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="x.fail",
+        payload_json={},
+        attempts=outbox.MAX_OUTBOX_ATTEMPTS,
+        error="RuntimeError: boom",
+    )
+    handler_called = False
+
+    class Session:
+        committed = False
+
+        async def execute(self, _query):
+            return DummyResult([outbox_event])
+
+        def begin(self):
+            return DummyTransactionCtx(self)
+
+    async def handler(_session, _event):
+        nonlocal handler_called
+        handler_called = True
+
+    session = Session()
+    monkeypatch.setattr(outbox, "async_session_factory", lambda: DummySessionCtx(session))
+    monkeypatch.setitem(outbox.OUTBOX_EVENT_HANDLERS, "x.fail", handler)
+
+    await outbox.process_outbox_events()
+
+    assert handler_called is False
+    assert outbox_event.processed_at is not None
+    assert outbox_event.error == "dead_letter:RuntimeError"
+    assert outbox_event.attempts == outbox.MAX_OUTBOX_ATTEMPTS
+
+
+@pytest.mark.asyncio
 async def test_process_outbox_events_uses_skip_locked_query(monkeypatch):
     captured = {}
 

@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 OutboxHandler = Callable[[AsyncSession, OutboxEvent], Awaitable[None]]
 OUTBOX_EVENT_HANDLERS: dict[str, OutboxHandler] = {}
 OUTBOX_POLL_INTERVAL_SEC = 5.0
+MAX_OUTBOX_ATTEMPTS = 5
 _SENSITIVE_ERROR_TOKEN_PATTERN = re.compile(
     r"(?i)(access_token|refresh_token|webhook_secret)(\s*[=:]\s*)([^\s,;]+)"
 )
@@ -28,6 +29,12 @@ def _format_outbox_error(exc: Exception) -> str:
     message = _SENSITIVE_ERROR_TOKEN_PATTERN.sub(r"\1\2[REDACTED]", message)
     message = " ".join(message.split())[:300]
     return f"{exception_class}: {message}" if message else exception_class
+
+
+def _extract_exception_class(error: str | None) -> str:
+    if not error:
+        return "UnknownError"
+    return error.split(":", 1)[0].strip() or "UnknownError"
 
 
 async def emit_domain_event(session, event_type: str, payload: dict) -> OutboxEvent:
@@ -65,21 +72,50 @@ async def process_outbox_events(limit: int = 50) -> int:
             events = result.scalars().all()
 
             for outbox_event in events:
+                attempts = outbox_event.attempts or 0
+                if attempts >= MAX_OUTBOX_ATTEMPTS:
+                    exception_class = _extract_exception_class(outbox_event.error)
+                    outbox_event.processed_at = datetime.now(timezone.utc)
+                    outbox_event.error = f"dead_letter:{exception_class}"
+                    log_event(
+                        logger,
+                        logging.WARNING,
+                        event="outbox_event_dead_lettered",
+                        outbox_event_id=outbox_event.id,
+                        event_type=outbox_event.event_type,
+                        attempts=attempts,
+                        exception_class=exception_class,
+                    )
+                    continue
+
                 try:
                     was_dispatched = await _dispatch_outbox_event(session, outbox_event)
                     outbox_event.processed_at = datetime.now(timezone.utc)
                     outbox_event.error = None if was_dispatched else "handler_missing"
                 except Exception as exc:
-                    outbox_event.attempts += 1
-                    outbox_event.error = _format_outbox_error(exc)
-                    log_event(
-                        logger,
-                        logging.ERROR,
-                        event="outbox_event_process_failed",
-                        outbox_event_id=outbox_event.id,
-                        event_type=outbox_event.event_type,
-                        exception_class=exc.__class__.__name__,
-                    )
+                    outbox_event.attempts = attempts + 1
+                    if outbox_event.attempts >= MAX_OUTBOX_ATTEMPTS:
+                        outbox_event.processed_at = datetime.now(timezone.utc)
+                        outbox_event.error = f"dead_letter:{exc.__class__.__name__}"
+                        log_event(
+                            logger,
+                            logging.WARNING,
+                            event="outbox_event_dead_lettered",
+                            outbox_event_id=outbox_event.id,
+                            event_type=outbox_event.event_type,
+                            attempts=outbox_event.attempts,
+                            exception_class=exc.__class__.__name__,
+                        )
+                    else:
+                        outbox_event.error = _format_outbox_error(exc)
+                        log_event(
+                            logger,
+                            logging.ERROR,
+                            event="outbox_event_process_failed",
+                            outbox_event_id=outbox_event.id,
+                            event_type=outbox_event.event_type,
+                            exception_class=exc.__class__.__name__,
+                        )
 
             return len(events)
 
