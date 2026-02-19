@@ -1686,8 +1686,10 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
 
     except GoogleCalendarInsufficientPermissionsError:
         await callback.message.answer(
-            "⚠️ Google подключен, но доступов недостаточно для создания календаря/событий. "
-            "Переподключите аккаунт через кнопку ‘Подключить Google Календарь’ в /start и выдайте все запрошенные права."
+            "⚠️ Недостаточно прав Google для выполнения операции. "
+            "Zumbot в текущем режиме работает только с событиями (без автосоздания календарей). "
+            "Если вы хотите использовать отдельный календарь — создайте его вручную в Google Calendar и затем выберите в списке. "
+            "Если проблема повторяется — переподключите Google в /start и выдайте все запрошенные права."
         )
         await callback.answer()
     except GoogleCalendarError as exc:
