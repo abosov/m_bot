@@ -80,8 +80,12 @@ async def test_process_outbox_events_marks_processed_at(monkeypatch):
         async def commit(self):
             self.committed = True
 
+    async def handler(_session, _outbox_event):
+        return None
+
     session = Session()
     monkeypatch.setattr(outbox, "async_session_factory", lambda: DummySessionCtx(session))
+    monkeypatch.setitem(outbox.OUTBOX_EVENT_HANDLERS, "test.event", handler)
 
     processed_count = await outbox.process_outbox_events(limit=50)
 
@@ -92,6 +96,36 @@ async def test_process_outbox_events_marks_processed_at(monkeypatch):
     assert outbox_event.error is None
     assert session.committed is True
 
+
+
+
+@pytest.mark.asyncio
+async def test_process_outbox_events_marks_missing_handler_as_processed(monkeypatch):
+    outbox_event = outbox.OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="unknown.event",
+        payload_json={},
+    )
+
+    class Session:
+        committed = False
+
+        async def execute(self, _query):
+            return DummyResult([outbox_event])
+
+        async def commit(self):
+            self.committed = True
+
+    session = Session()
+    monkeypatch.setattr(outbox, "async_session_factory", lambda: DummySessionCtx(session))
+
+    processed_count = await outbox.process_outbox_events(limit=50)
+
+    assert processed_count == 1
+    assert outbox_event.processed_at is not None
+    assert outbox_event.error == "handler_missing"
+    assert outbox_event.attempts is None
+    assert session.committed is True
 
 @pytest.mark.asyncio
 async def test_process_outbox_events_invokes_registered_handler(monkeypatch):

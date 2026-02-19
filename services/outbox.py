@@ -24,7 +24,7 @@ async def emit_domain_event(session, event_type: str, payload: dict) -> OutboxEv
     return event
 
 
-async def _dispatch_outbox_event(session: AsyncSession, event: OutboxEvent) -> None:
+async def _dispatch_outbox_event(session: AsyncSession, event: OutboxEvent) -> bool:
     handler = OUTBOX_EVENT_HANDLERS.get(event.event_type)
     if handler is None:
         log_event(
@@ -34,9 +34,10 @@ async def _dispatch_outbox_event(session: AsyncSession, event: OutboxEvent) -> N
             outbox_event_id=event.id,
             event_type=event.event_type,
         )
-        return
+        return False
 
     await handler(session, event)
+    return True
 
 
 async def process_outbox_events(limit: int = 50) -> int:
@@ -51,9 +52,9 @@ async def process_outbox_events(limit: int = 50) -> int:
 
         for outbox_event in events:
             try:
-                await _dispatch_outbox_event(session, outbox_event)
+                was_dispatched = await _dispatch_outbox_event(session, outbox_event)
                 outbox_event.processed_at = datetime.now(timezone.utc)
-                outbox_event.error = None
+                outbox_event.error = None if was_dispatched else "handler_missing"
             except Exception as exc:
                 outbox_event.attempts += 1
                 outbox_event.error = str(exc)
