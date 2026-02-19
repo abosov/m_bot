@@ -128,6 +128,7 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
         "/revoke-access": "revoke-access.html",
         "/privacy-ru": "privacy-ru.html",
         "/terms-ru": "terms-ru.html",
+        "/revoke-access-ru": "revoke-access-ru.html",
     }
 
     def _site_file(page: str) -> Path:
@@ -176,6 +177,10 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
     @app.get("/terms-ru")
     async def site_terms_ru() -> FileResponse:
         return FileResponse(_site_file("/terms-ru"))
+
+    @app.get("/revoke-access-ru")
+    async def site_revoke_access_ru() -> FileResponse:
+        return FileResponse(_site_file("/revoke-access-ru"))
 else:
     logger.warning(
         "Static site disabled: expected index=%s assets_dir=%s",

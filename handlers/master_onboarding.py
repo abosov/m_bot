@@ -140,7 +140,7 @@ async def _answer_plain(
     except TelegramBadRequest as exc:
         if "can't parse entities" not in str(exc):
             raise
-        logger.warning("Telegram plain-text fallback in master_onboarding.calendar_pick; retry without preview flags")
+        logger.warning("Telegram plain-text fallback in master_onboarding; retry without preview flags")
         return await message.answer(text, parse_mode=None)
 
 
@@ -1305,7 +1305,6 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
                 source=SpecialistCalendarSource.selected,
                 smoke_status="ok",
             )
-            await ensure_calendar_watch(specialist.specialist_id, calendar_id)
             smoke_ok = True
         except Exception as smoke_exc:
             await _upsert_calendar_settings(
@@ -1321,6 +1320,20 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
                 "❌ Календарь выбран, но smoke-test не пройден. "
                 "Проверьте права доступа к календарю и нажмите ‘Проверить доступ (smoke-test)’."
             )
+
+        if smoke_ok:
+            try:
+                await ensure_calendar_watch(specialist.specialist_id, calendar_id)
+            except Exception:
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    event="calendar_watch_setup_failed",
+                    alias="master_onboarding_calendar_pick_ensure_watch",
+                    specialist_id=str(specialist.specialist_id),
+                    tg_user_id=tg_user_id,
+                    calendar_id=calendar_id,
+                )
 
         if smoke_ok:
             await finalize_specialist_if_ready(specialist.specialist_id)
@@ -1617,7 +1630,6 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
                 source=SpecialistCalendarSource.created,
                 smoke_status="ok",
             )
-            await ensure_calendar_watch(specialist.specialist_id, calendar_id)
         except Exception as smoke_exc:
             await _upsert_calendar_settings(
                 specialist.specialist_id,
@@ -1634,6 +1646,19 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
             )
             await callback.answer()
             return
+
+        try:
+            await ensure_calendar_watch(specialist.specialist_id, calendar_id)
+        except Exception:
+            log_event(
+                logger,
+                logging.WARNING,
+                event="calendar_watch_setup_failed",
+                alias="master_onboarding_calendar_create_ensure_watch",
+                specialist_id=str(specialist.specialist_id),
+                tg_user_id=tg_user_id,
+                calendar_id=calendar_id,
+            )
 
         await finalize_specialist_if_ready(specialist.specialist_id)
         await state.clear()
