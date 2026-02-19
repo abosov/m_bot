@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from pathlib import Path
 import requests
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import BackgroundTasks, FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -190,6 +190,7 @@ LAST_HEARTBEAT_WRITE_TS = 0.0
 HEARTBEAT_WRITE_LOCK = asyncio.Lock()
 
 MAX_WEBHOOK_BODY_BYTES = config.MAX_WEBHOOK_BODY_BYTES
+GOOGLE_CALENDAR_REVERSE_SYNC_THROTTLE_SECONDS = 15
 
 # Инициализируем бота для отправки уведомлений (используем тот же токен)
 bot = None
@@ -293,22 +294,48 @@ async def google_calendar_webhook(request: Request, background_tasks: Background
                 select(
                     CalendarSyncState.specialist_id,
                     CalendarSyncState.calendar_id,
+                    CalendarSyncState.last_enqueued_at,
                 ).where(CalendarSyncState.channel_id == channel_id)
             )
         ).first()
 
-    if sync_state is None:
-        logger.warning(
-            "event=google_calendar_webhook_unknown_channel request_id=%s channel_id=%s resource_id=%s resource_state=%s message_number=%s",
-            _request_id_from_request(request),
-            channel_id,
-            resource_id,
-            resource_state,
-            message_number,
-        )
-        return Response(status_code=200)
+        if sync_state is None:
+            logger.warning(
+                "event=google_calendar_webhook_unknown_channel request_id=%s channel_id=%s resource_id=%s resource_state=%s message_number=%s",
+                _request_id_from_request(request),
+                channel_id,
+                resource_id,
+                resource_state,
+                message_number,
+            )
+            return Response(status_code=200)
 
-    specialist_id, calendar_id = sync_state
+        specialist_id, calendar_id, last_enqueued_at = sync_state
+        now = datetime.now(timezone.utc)
+        throttle_window_start = now - timedelta(seconds=GOOGLE_CALENDAR_REVERSE_SYNC_THROTTLE_SECONDS)
+        if last_enqueued_at is not None and last_enqueued_at >= throttle_window_start:
+            logger.info(
+                "event=reverse_sync_skipped_throttle request_id=%s channel_id=%s specialist_id=%s calendar_id=%s resource_state=%s message_number=%s last_enqueued_at=%s",
+                _request_id_from_request(request),
+                channel_id,
+                specialist_id,
+                calendar_id,
+                resource_state,
+                message_number,
+                last_enqueued_at.isoformat(),
+            )
+            return Response(status_code=200)
+
+        await session.execute(
+            update(CalendarSyncState)
+            .where(
+                CalendarSyncState.specialist_id == specialist_id,
+                CalendarSyncState.calendar_id == calendar_id,
+            )
+            .values(last_enqueued_at=now)
+        )
+        await session.commit()
+
     background_tasks.add_task(run_calendar_reverse_sync, specialist_id, calendar_id)
     logger.info(
         "event=google_calendar_webhook_enqueued request_id=%s channel_id=%s specialist_id=%s calendar_id=%s resource_state=%s message_number=%s",

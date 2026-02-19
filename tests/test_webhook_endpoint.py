@@ -7,6 +7,7 @@ os.environ.setdefault("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmN
 import types
 import logging
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -176,9 +177,12 @@ def test_google_calendar_webhook_enqueues_reverse_sync(monkeypatch):
         async def execute(self, stmt):
             class SyncResult:
                 def first(self_nonlocal):
-                    return (uuid.UUID("00000000-0000-0000-0000-000000000123"), "primary")
+                    return (uuid.UUID("00000000-0000-0000-0000-000000000123"), "primary", None)
 
             return SyncResult()
+
+        async def commit(self):
+            return None
 
     async def fake_reverse_sync(specialist_id, calendar_id):
         captured["specialist_id"] = specialist_id
@@ -203,6 +207,52 @@ def test_google_calendar_webhook_enqueues_reverse_sync(monkeypatch):
         "specialist_id": uuid.UUID("00000000-0000-0000-0000-000000000123"),
         "calendar_id": "primary",
     }
+
+
+
+
+def test_google_calendar_webhook_skips_reverse_sync_within_throttle_window(monkeypatch, caplog):
+    called = {"value": False}
+
+    class Session:
+        def __init__(self):
+            self.committed = False
+
+        async def execute(self, stmt):
+            class SyncResult:
+                def first(self_nonlocal):
+                    return (
+                        uuid.UUID("00000000-0000-0000-0000-000000000123"),
+                        "primary",
+                        datetime.now(timezone.utc) - timedelta(seconds=5),
+                    )
+
+            return SyncResult()
+
+        async def commit(self):
+            self.committed = True
+
+    async def fake_reverse_sync(specialist_id, calendar_id):
+        called["value"] = True
+
+    monkeypatch.setattr(web_server, "async_session_factory", lambda: DummySessionCtx(Session()))
+    monkeypatch.setattr(web_server, "run_calendar_reverse_sync", fake_reverse_sync)
+
+    client = TestClient(web_server.app)
+    with caplog.at_level(logging.INFO):
+        response = client.post(
+            "/integrations/google-calendar/webhook",
+            headers={
+                "X-Goog-Channel-Id": "channel-1",
+                "X-Goog-Resource-Id": "resource-1",
+                "X-Goog-Resource-State": "exists",
+                "X-Goog-Message-Number": "3",
+            },
+        )
+
+    assert response.status_code == 200
+    assert called["value"] is False
+    assert any("reverse_sync_skipped_throttle" in record.getMessage() for record in caplog.records)
 
 
 def test_google_calendar_webhook_returns_200_without_required_headers(monkeypatch, caplog):
