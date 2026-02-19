@@ -61,6 +61,32 @@ def scopes_as_string() -> str:
     return " ".join(required_scopes())
 
 
+async def list_user_calendars(credentials) -> list[dict]:
+    try:
+        from googleapiclient.discovery import build
+
+        def _fetch_calendar_items() -> list[dict[str, Any]]:
+            service = build("calendar", "v3", credentials=credentials, cache_discovery=False)
+            response = service.calendarList().list().execute()
+            return response.get("items", [])
+
+        items = await asyncio.to_thread(_fetch_calendar_items)
+
+        return [
+            {
+                "id": item.get("id"),
+                "summary": item.get("summary"),
+                "primary": bool(item.get("primary", False)),
+                "accessRole": item.get("accessRole"),
+            }
+            for item in items
+            if item.get("accessRole") in {"owner", "writer"}
+        ]
+    except Exception:
+        logger.exception("failed to list user calendars via CalendarList API")
+        return []
+
+
 async def _get_refresh_token(specialist_id: uuid.UUID) -> str:
     async with async_session_factory() as session:
         stmt = select(GoogleOAuth).where(GoogleOAuth.specialist_id == specialist_id)
