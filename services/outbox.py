@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
@@ -16,6 +17,17 @@ logger = logging.getLogger(__name__)
 OutboxHandler = Callable[[AsyncSession, OutboxEvent], Awaitable[None]]
 OUTBOX_EVENT_HANDLERS: dict[str, OutboxHandler] = {}
 OUTBOX_POLL_INTERVAL_SEC = 5.0
+_SENSITIVE_ERROR_TOKEN_PATTERN = re.compile(
+    r"(?i)(access_token|refresh_token|webhook_secret)(\s*[=:]\s*)([^\s,;]+)"
+)
+
+
+def _format_outbox_error(exc: Exception) -> str:
+    exception_class = exc.__class__.__name__
+    message = str(exc).replace("\r", " ").replace("\n", " ")
+    message = _SENSITIVE_ERROR_TOKEN_PATTERN.sub(r"\1\2[REDACTED]", message)
+    message = " ".join(message.split())[:300]
+    return f"{exception_class}: {message}" if message else exception_class
 
 
 async def emit_domain_event(session, event_type: str, payload: dict) -> OutboxEvent:
@@ -57,7 +69,7 @@ async def process_outbox_events(limit: int = 50) -> int:
                 outbox_event.error = None if was_dispatched else "handler_missing"
             except Exception as exc:
                 outbox_event.attempts += 1
-                outbox_event.error = str(exc)
+                outbox_event.error = _format_outbox_error(exc)
                 log_event(
                     logger,
                     logging.ERROR,

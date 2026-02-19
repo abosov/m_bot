@@ -152,6 +152,36 @@ async def test_process_outbox_events_invokes_registered_handler(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_process_outbox_events_formats_error_safely(monkeypatch):
+    outbox_event = OutboxEvent(id=uuid.uuid4(), event_type="x.fail", payload_json={}, attempts=0)
+
+    class Session:
+        async def execute(self, _query):
+            return DummyResult([outbox_event])
+
+        async def commit(self):
+            return None
+
+    message = "access_token=abc\n" + ("x" * 400)
+
+    async def handler(_session, _event):
+        raise RuntimeError(message)
+
+    session = Session()
+    monkeypatch.setattr(outbox, "async_session_factory", lambda: DummySessionCtx(session))
+    monkeypatch.setitem(outbox.OUTBOX_EVENT_HANDLERS, "x.fail", handler)
+
+    await outbox.process_outbox_events()
+
+    assert outbox_event.error is not None
+    assert outbox_event.error.startswith("RuntimeError: ")
+    assert "access_token=[REDACTED]" in outbox_event.error
+    assert "access_token=abc" not in outbox_event.error
+    assert "\n" not in outbox_event.error
+    assert len(outbox_event.error) <= len("RuntimeError: ") + 300
+
+
+@pytest.mark.asyncio
 async def test_rescheduled_handler_sends_client_and_specialist(monkeypatch):
     specialist_id = uuid.uuid4()
     client_id = uuid.uuid4()
