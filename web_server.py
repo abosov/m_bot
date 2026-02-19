@@ -971,11 +971,11 @@ async def google_oauth_callback(request: Request):
 
             if auth_data and bot is not None:
                 if permissions_ok:
-                    text_out = "✅ **Google подключен!**\n\nШаг 4 из 4: выберите действие с календарем в master bot (создать отдельный или выбрать существующий)."
+                    text_out = "✅ **Google подключен!**\n\nШаг 4 из 4: выберите рабочий календарь в master bot."
                     reply_markup = build_calendar_action_keyboard()
                 else:
                     text_out = (
-                        "Google подключен, но доступов недостаточно для просмотра календарей и выбора рабочего календаря. "
+                        "⚠️ Google подключен, но доступов недостаточно для просмотра календарей и выбора рабочего календаря.\n"
                         "Переподключите через /start и подтвердите права: просмотр календарей и управление событиями."
                     )
                     reply_markup = None
