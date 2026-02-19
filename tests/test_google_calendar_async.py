@@ -9,6 +9,7 @@ os.environ.setdefault("MASTER_BOT_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcd
 os.environ.setdefault("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
 from services import google_calendar
+from services import google_oauth
 
 
 class _CreateEventResponse:
@@ -469,3 +470,8 @@ def test_scopes_as_string_contains_required_scopes():
     scopes_str = google_calendar.scopes_as_string()
     assert "https://www.googleapis.com/auth/calendar.readonly" in scopes_str
     assert "https://www.googleapis.com/auth/calendar.events" in scopes_str
+
+
+def test_google_oauth_scopes_match_calendar_required_scopes():
+    assert google_oauth.SCOPES == google_calendar.required_scopes()
+    assert "https://www.googleapis.com/auth/calendar" not in google_oauth.SCOPES

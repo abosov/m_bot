@@ -36,6 +36,7 @@ from services.google_oauth import create_oauth_state, exchange_code_for_token_as
 from services.google_calendar import (
     GoogleCalendarInsufficientPermissionsError,
     list_calendars,
+    required_scopes,
     scopes_as_string,
 )
 from services.google_calendar_reverse_sync import run_calendar_reverse_sync
@@ -824,7 +825,7 @@ async def google_oauth_callback(request: Request):
             await session.commit()
 
         try:
-            refresh_token, _access_token, _ = await exchange_code_for_token_async(code)
+            refresh_token, _access_token, credentials = await exchange_code_for_token_async(code)
             logger.info(
                 "event=google_oauth_callback request_id=%s stage=%s outcome=%s specialist_id=%s",
                 request_id,
@@ -963,6 +964,20 @@ async def google_oauth_callback(request: Request):
             await session.commit()
 
             permissions_ok = True
+            granted_scopes = set()
+            raw_scopes = getattr(credentials, "scopes", None)
+            if isinstance(raw_scopes, (list, tuple, set)):
+                granted_scopes = set(raw_scopes)
+
+            missing_scopes = set(required_scopes()) - granted_scopes if granted_scopes else set()
+            if missing_scopes:
+                permissions_ok = False
+                logger.warning(
+                    "Google connected but OAuth scope set is incomplete specialist_id=%s missing_scopes=%s",
+                    specialist_id,
+                    sorted(missing_scopes),
+                )
+
             try:
                 await list_calendars(specialist_id)
             except GoogleCalendarInsufficientPermissionsError:
