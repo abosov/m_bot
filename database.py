@@ -63,6 +63,8 @@ class ClientTimezoneSource(str, enum.Enum):
 class BookingState(str, enum.Enum):
     pending = "pending"
     confirmed = "confirmed"
+    awaiting_specialist_confirmation = "awaiting_specialist_confirmation"
+    rejected_by_specialist = "rejected_by_specialist"
     failed = "failed"
     canceled_by_client = "canceled_by_client"
     canceled_by_specialist = "canceled_by_specialist"
@@ -315,6 +317,9 @@ class Appointment(Base):
 
     gcal_event_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     specialist_private_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     failure_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

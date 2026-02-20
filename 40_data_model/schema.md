@@ -100,7 +100,7 @@
 - IDX: `specialist_id`, `tg_user_id`.
 
 ### 12) appointment
-- Поля: `appointment_id uuid not null`, `specialist_id uuid not null`, `client_id uuid not null`, `start_at_utc timestamptz not null`, `end_at_utc timestamptz not null`, `booking_state enum not null`, `idempotency_key varchar not null`, `gcal_event_id varchar null`, `specialist_private_note text null`, `failure_message text null`, `created_at timestamptz default now()`, `updated_at timestamptz default now()`.
+- Поля: `appointment_id uuid not null`, `specialist_id uuid not null`, `client_id uuid not null`, `start_at_utc timestamptz not null`, `end_at_utc timestamptz not null`, `booking_state enum not null`, `idempotency_key varchar not null`, `gcal_event_id varchar null`, `specialist_private_note text null`, `rejection_reason text null`, `confirmed_at timestamptz null`, `rejected_at timestamptz null`, `failure_message text null`, `created_at timestamptz default now()`, `updated_at timestamptz default now()`.
 - PK: `appointment_id`.
 - FK: `specialist_id -> specialist.specialist_id`, `client_id -> client.client_id`.
 - UQ: `idempotency_key`.

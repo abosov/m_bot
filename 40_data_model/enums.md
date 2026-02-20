@@ -51,6 +51,8 @@
 
 - `pending` — выбран слот, идёт попытка создать событие в Google
 - `confirmed` — событие создано в Google
+- `awaiting_specialist_confirmation` — ожидает подтверждения специалистом
+- `rejected_by_specialist` — отклонено специалистом
 - `failed` — создать событие не удалось
 - `canceled_by_client` — отменено клиентом
 - `canceled_by_specialist` — отменено специалистом
