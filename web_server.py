@@ -444,7 +444,7 @@ async def connect_page() -> HTMLResponse:
     <h1>Подключение Google Календаря</h1>
     <p>Авторизация Google откроется в обычной странице браузера (не во встроенном скрытом iframe).</p>
     <div id="webview-warning" class="warn" hidden>Откройте в браузере (Safari/Chrome), иначе Google может блокировать вход.</div>
-    <p class="hint">Продолжая, вы соглашаетесь с <a href="/privacy">Политикой конфиденциальности</a> и <a href="/terms">Условиями использования</a>.</p>
+    <p class="hint">Продолжая, вы соглашаетесь с <a href="https://zumbot.ru/privacy-ru">Политикой конфиденциальности</a> и <a href="https://zumbot.ru/terms-ru">Условиями использования</a>.</p>
     <form action="/google/oauth/start" method="post">
       <button id="google-connect-btn" type="submit" disabled>Подключить Google</button>
     </form>
