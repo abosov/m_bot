@@ -829,8 +829,10 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
                     )
                 await session.commit()
 
+    confirmation_text = f"Запись создана\n\n{format_session_datetime(slot_start_utc, client_tz)}"
+
     await state.clear()
-    await callback.message.answer("Запись создана", reply_markup=_client_menu_keyboard())
+    await callback.message.answer(confirmation_text, reply_markup=_client_menu_keyboard())
     await callback.answer()
 
 
