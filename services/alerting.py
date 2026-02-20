@@ -12,6 +12,7 @@ from aiogram import Bot
 from aiogram.types import CallbackQuery, Message, TelegramObject, Update, User
 
 import config
+from services.telegram.markdown_utils import escape_markdown_v2
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +127,7 @@ def _resolve_user_handle(user: User | None) -> str | None:
     if not user:
         return None
     if user.username:
-        return f"@{user.username}"
+        return f"@{escape_markdown_v2(user.username)}"
     return f"tg://user?id={user.id}"
 
 

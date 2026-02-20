@@ -11,6 +11,7 @@ from database import (
     TelegramBotStatus,
     async_session_factory,
 )
+from services.telegram.markdown_utils import escape_markdown_v2
 
 router = Router(name="personal_bot_specialist_commands")
 
@@ -75,7 +76,7 @@ async def personal_status(message: Message, specialist_id) -> None:
     calendar_summary = specialist.calendar_settings.calendar_summary if specialist.calendar_settings else None
     smoke_status = specialist.calendar_settings.last_smoke_test_status if specialist.calendar_settings else None
 
-    bot_username = f"@{active_bot.bot_username}" if active_bot else "—"
+    bot_username = f"@{escape_markdown_v2(active_bot.bot_username)}" if active_bot else "—"
     onboarding_master = specialist.onboarding_master_completed_at.isoformat() if specialist.onboarding_master_completed_at else "—"
     onboarding_personal = specialist.onboarding_personal_completed_at.isoformat() if specialist.onboarding_personal_completed_at else "—"
 

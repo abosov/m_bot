@@ -62,6 +62,7 @@ from config import BACKEND_BASE_URL, PUBLIC_SITE_URL
 from services.specialist_onboarding import get_specialist_by_tg_user_id, set_master_onboarding_completed
 from services.alerting import notify_exception
 from services.log_context import log_event
+from services.telegram.markdown_utils import escape_markdown_v2
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -523,7 +524,7 @@ async def cmd_status(message: types.Message):
         )
 
         if status == "OK" and bot_info:
-            text_out = f"✅ Бот доступен: @{bot_info.username} (id={bot_info.id})"
+            text_out = f"✅ Бот доступен: @{escape_markdown_v2(bot_info.username)} (id={bot_info.id})"
         elif status == "UNAUTHORIZED":
             text_out = "❌ Токен бота недействителен или бот удалён. Обновите токен через /start"
         else:
@@ -1070,7 +1071,7 @@ async def process_bot_token(message: types.Message, state: FSMContext):
 
         status_line = "🟢 Статус специалиста: active." if is_active_now else "⏳ Статус специалиста: onboarding."
         text_out = (
-            f"✅ Бот **@{bot_info.username}** успешно подключен!\n"
+            f"✅ Бот **@{escape_markdown_v2(bot_info.username)}** успешно подключен!\n"
             f"{status_line}\n\n"
             "📅 **Шаг 3 из 4:** Подключите Google аккаунт, затем выберите рабочий календарь бота.\n\n"
             "Откроется страница сайта. Подключение Google пройдет в браузере."

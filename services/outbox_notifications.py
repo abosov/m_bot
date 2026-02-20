@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Client, NotificationLog, OutboxEvent, SpecialistProfile, TelegramBot, TelegramBotStatus
 from services.telegram.bot_factory import get_personal_bot
+from services.telegram.markdown_utils import escape_markdown_v2
 
 
 def _parse_uuid(payload: dict, key: str) -> uuid.UUID:
@@ -101,7 +102,7 @@ def _format_client_contact(client: Client) -> str:
         parts.append(client.display_name)
     if client.tg_username:
         username = client.tg_username.lstrip("@")
-        parts.append(f"@{username}")
+        parts.append(f"@{escape_markdown_v2(username)}")
         parts.append(f"https://t.me/{username}")
         return " ".join(parts)
 
