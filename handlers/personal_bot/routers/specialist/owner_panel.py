@@ -363,7 +363,7 @@ def _calendar_info_text(calendar_settings: SpecialistCalendarSettings | None) ->
         "🗓 Календарь:\n"
         f"Название: {calendar_settings.calendar_summary or '—'}\n"
         f"TZ: {calendar_settings.calendar_time_zone or '—'}\n"
-        f"Smoke-test: {calendar_settings.last_smoke_test_status or '—'}"
+        f"Интеграция: {calendar_settings.last_smoke_test_status or '—'}"
     )
 
 
@@ -899,7 +899,7 @@ async def owner_calendar_create(
             smoke_status="ok",
             smoke_error=None,
         )
-        await callback.message.answer("✅ Новый календарь создан, smoke-test успешно выполнен.")
+        await callback.message.answer("✅ Новый календарь создан, интеграция успешно выполнена.")
     except Exception as exc:
         await _upsert_calendar_settings(
             specialist_id=specialist.specialist_id,
@@ -910,7 +910,7 @@ async def owner_calendar_create(
             smoke_status="failed",
             smoke_error=str(exc)[:255],
         )
-        await callback.message.answer("⚠️ Календарь создан, но smoke-test не пройден.")
+        await callback.message.answer("⚠️ Календарь создан, но интеграция не завершена.")
 
     await send_owner_panel(
         callback.message,
@@ -991,7 +991,7 @@ async def owner_calendar_pick(
             smoke_status="ok",
             smoke_error=None,
         )
-        await callback.message.answer("✅ Календарь выбран, smoke-test успешно выполнен.")
+        await callback.message.answer("✅ Календарь выбран, интеграция успешно выполнена.")
     except Exception as exc:
         await _upsert_calendar_settings(
             specialist_id=specialist_id,
@@ -1002,7 +1002,7 @@ async def owner_calendar_pick(
             smoke_status="failed",
             smoke_error=str(exc)[:255],
         )
-        await callback.message.answer("⚠️ Календарь сохранён, но smoke-test не пройден.")
+        await callback.message.answer("⚠️ Календарь сохранён, но интеграция не завершена.")
 
     _CALENDAR_SELECTION_CACHE.pop(callback.from_user.id, None)
     await send_owner_panel(
@@ -1041,7 +1041,7 @@ async def owner_calendar_smoke(
             smoke_status="ok",
             smoke_error=None,
         )
-        await callback.message.answer("✅ Smoke-test успешно выполнен.")
+        await callback.message.answer("✅ Интеграция успешно выполнена.")
     except Exception as exc:
         await _upsert_calendar_settings(
             specialist_id=specialist_id,
@@ -1052,7 +1052,7 @@ async def owner_calendar_smoke(
             smoke_status="failed",
             smoke_error=str(exc)[:255],
         )
-        await callback.message.answer("❌ Smoke-test не пройден.")
+        await callback.message.answer("❌ Интеграция не завершена.")
 
     await send_owner_panel(
         callback.message,

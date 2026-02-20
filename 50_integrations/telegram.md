@@ -41,7 +41,7 @@
 4. Проверить backend logs: должна появиться запись вида `Webhook update accepted ...`.
 5. Проверить ответ personal bot пользователю.
 
-Дополнительный ручной HTTP smoke-test:
+Дополнительная ручная HTTP-проверка интеграции:
 ```bash
 curl -i -X POST "${BACKEND_BASE_URL}/tg/webhook/{bot_id}/{secret}" \
   -H "Content-Type: application/json" \

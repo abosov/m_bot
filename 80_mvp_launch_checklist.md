@@ -114,7 +114,7 @@
 - [ ] Можно создать новый календарь
 - [ ] Timezone календаря считывается и сохраняется
 - [ ] В master bot weekly availability не настраивается (граница US-01/US-02 подтверждена)
-- [ ] specialist.status становится `active` только после: webhook personal bot + OAuth + календарь + smoke-test
+- [ ] specialist.status становится `active` только после: webhook personal bot + OAuth + календарь + Интеграция
 - [ ] После активации выдан deep-link `?start=owner_panel`
 
 ---
@@ -190,7 +190,7 @@
 
 ---
 
-## 12. Smoke test (обязательно)
+## 12. Интеграция (обязательно)
 
 Минимальный end-to-end сценарий:
 1. Specialist проходит онбординг

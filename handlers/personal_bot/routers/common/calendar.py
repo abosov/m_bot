@@ -66,7 +66,7 @@ def _calendar_select_text(*, total: int, page: int, page_size: int) -> str:
     return (
         "📂 Выберите рабочий Google Календарь.\n"
         f"Найдено календарей: {total}. Страница {page + 1}/{total_pages}.\n"
-        "После выбора будет запущен smoke-test (создание и удаление тестового события)."
+        "После выбора будет запущена проверка интеграции (создание и удаление тестового события)."
     )
 
 
@@ -385,7 +385,7 @@ async def personal_calendar_smoke(callback: types.CallbackQuery, state: FSMConte
             calendar_tz=tz,
             smoke_status="ok",
         )
-        await callback.message.answer("✅ Smoke-test выполнен успешно.")
+        await callback.message.answer("✅ Интеграция выполнена успешно.")
     except Exception as exc:
         await _upsert_calendar_settings(
             specialist_id=specialist_id,
@@ -400,6 +400,6 @@ async def personal_calendar_smoke(callback: types.CallbackQuery, state: FSMConte
             context={"tg_user_id": callback.from_user.id},
             event=callback,
         )
-        await callback.message.answer("⚠️ Smoke-test не пройден.")
+        await callback.message.answer("⚠️ Интеграция не завершена.")
 
     await callback.answer()

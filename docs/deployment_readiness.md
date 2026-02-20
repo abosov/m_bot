@@ -164,10 +164,10 @@
 7. Проверить web-connect обмен: токен приходит во fragment и consume выполняется через `POST /auth/telegram/consume`.
 8. Проверить безопасность: one-time токен с TTL, выставлен HttpOnly+Secure cookie, raw токен не логируется.
 
-### 5) Выбор рабочего календаря → smoke-test event
+### 5) Выбор рабочего календаря → событие проверки интеграции
 1. В master bot выбрать существующий календарь из списка Google Calendar.
 2. Убедиться, что выбранный календарь сохранён в `specialist_calendar_settings`.
-3. Проверить результат smoke-test (`events.insert` + `events.delete`, `last_smoke_test_status=ok`).
+3. Проверить результат интеграции (`events.insert` + `events.delete`, `last_smoke_test_status=ok`).
 
 ### Определение таймзоны выбранного календаря
 - Для выбранного календаря `timeZone` из Google Calendar API сохраняется в `specialist_calendar_settings.calendar_tz`.
@@ -181,7 +181,7 @@
 3. Убедиться, что bot отвечает и показывает актуальный статус интеграций.
 
 ### Активация specialist: `finalize_specialist_if_ready`
-- Функция `finalize_specialist_if_ready(specialist_id)` вызывается в шагах master onboarding после ключевых действий (подключение personal bot, успешный выбор календаря со smoke-test) и при проверке общего чек-листа статуса.
+- Функция `finalize_specialist_if_ready(specialist_id)` вызывается в шагах master onboarding после ключевых действий (подключение personal bot, успешный выбор календаря с интеграцией) и при проверке общего чек-листа статуса.
 - Внутри функции `specialist.status` переводится `onboarding -> active` только если выполнен минимум `is_specialist_ready`: есть `SpecialistProfile` с непустым `public_name`, есть активный personal bot, и в `SpecialistCalendarSettings` заполнен `calendar_id` с `last_smoke_test_status=ok`.
 - Перед переводом в `active` вызывается `apply_specialist_defaults_if_missing(...)` с `preferred_timezone=SpecialistCalendarSettings.calendar_time_zone` (если TZ задана), чтобы дозаполнить дефолтные значения (длительность/буфер/таймзона) только для пропущенных полей.
 - Дополнительно применён safety net для legacy-профилей: если в `SpecialistProfile` пустой `public_name`, ставится `"Специалист"`; если `owner_tg_user_id <= 0` и найдена `SpecialistAuthTelegram`, в `owner_tg_user_id` записывается `tg_user_id`.
@@ -239,13 +239,13 @@
 ### 2. `insufficientPermissions` в Google OAuth или Calendar API
 **Симптомы:** OAuth завершён, но операции с календарём не работают.  
 **Что проверить:**
-- OAuth scopes включают ровно `https://www.googleapis.com/auth/calendar.readonly` (для `calendarList.list`) и `https://www.googleapis.com/auth/calendar.events` (для `events.insert/events.delete` smoke-test);
+- OAuth scopes включают ровно `https://www.googleapis.com/auth/calendar.readonly` (для `calendarList.list`) и `https://www.googleapis.com/auth/calendar.events` (для `events.insert/events.delete` интеграции);
 - consent screen и публикация OAuth app корректны;
 - пользователь подтвердил актуальный набор разрешений.
 
 **Где смотреть логи:**
 - backend logs по сообщениям `insufficient permissions`;
-- таблицы статусов OAuth и smoke-test.
+- таблицы статусов OAuth и интеграции.
 
 **Что сделать:**
 - инициировать переподключение Google (re-consent);

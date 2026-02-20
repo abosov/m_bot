@@ -163,7 +163,7 @@ async def _render_onboarding_screen(message: Message, specialist_id) -> None:
         current_calendar_lines = [
             f"Текущий календарь: {calendar_settings.calendar_summary or 'подключён'}",
             f"Часовой пояс: {calendar_settings.calendar_time_zone or 'UTC'}",
-            f"Smoke-test: {smoke_status}",
+            f"Интеграция: {smoke_status}",
         ]
 
     text = (

@@ -27,7 +27,7 @@
    - `specialist.status`;
    - статус personal bot;
    - статус Google OAuth;
-   - данные calendar/smoke-test.
+   - данные calendar/интеграции.
 4. Команда `/help` с разделением по ролям.
 
 ## Первые настройки после онбординга

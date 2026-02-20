@@ -274,7 +274,7 @@ def _calendar_select_text(total: int, page: int, per_page: int, has_readonly: bo
         f"{warning}\n\n"
         "📂 Выберите рабочий Google Календарь.\n"
         f"Найдено календарей: {total}. Страница {page + 1}/{pages}.\n"
-        "После выбора будет запущен smoke-test (создание и удаление тестового события)."
+        "После выбора будет запущена проверка интеграции (создание и удаление тестового события)."
         f"{readonly_note}"
     )
 
@@ -665,7 +665,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
             if has_calendar:
                 status_text += f"✅ <b>Календарь бота:</b> {escape(specialist.calendar_settings.calendar_summary or 'подключён')}\n"
-                status_text += "✅ <b>Smoke-test:</b> Успешно\n" if smoke_ok else "❌ <b>Smoke-test:</b> Не пройден\n"
+                status_text += "✅ <b>Интеграция:</b> Успешно\n" if smoke_ok else "❌ <b>Интеграция:</b> Не завершена\n"
             else:
                 status_text += "❌ <b>Календарь бота:</b> Не выбран\n"
 
@@ -736,7 +736,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 next_step_msg = "\n✅ Календарь уже подключён. Можно перепроверить доступ."
                 keyboard = types.InlineKeyboardMarkup(
                     inline_keyboard=[
-                        [types.InlineKeyboardButton(text="🔁 Проверить доступ (smoke-test)", callback_data="calendar:smoke")],
+                        [types.InlineKeyboardButton(text="🔁 Проверить интеграцию", callback_data="calendar:smoke")],
                         [types.InlineKeyboardButton(text="♻️ Сменить календарь", callback_data="calendar:switch_stub")],
                     ]
                 )
@@ -1317,8 +1317,8 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
                 smoke_error=str(smoke_exc)[:255],
             )
             await callback.message.answer(
-                "❌ Календарь выбран, но smoke-test не пройден. "
-                "Проверьте права доступа к календарю и нажмите ‘Проверить доступ (smoke-test)’."
+                "❌ Календарь выбран, но интеграция не завершена. "
+                "Проверьте права доступа к календарю и нажмите «Проверить интеграцию»."
             )
 
         if smoke_ok:
@@ -1640,7 +1640,7 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
                 smoke_error=str(smoke_exc)[:255],
             )
             await callback.message.answer(
-                "❌ Календарь создан, но smoke-test не пройден: не удалось создать/удалить тестовое событие. "
+                "❌ Календарь создан, но интеграция не завершена: не удалось создать/удалить тестовое событие. "
                 "Проверьте права Google и переподключите аккаунт."
             )
             await callback.answer()
@@ -1782,7 +1782,7 @@ async def calendar_retest(callback: types.CallbackQuery):
         await create_and_cleanup_test_event(auth.specialist_id, calendar_id, tz)
         await _upsert_calendar_settings(auth.specialist_id, calendar_id, summary, tz, source, smoke_status="ok")
         await finalize_specialist_if_ready(auth.specialist_id)
-        await callback.message.answer("✅ Smoke-test успешно выполнен.")
+        await callback.message.answer("✅ Интеграция успешно выполнена.")
         await callback.answer()
     except Exception as exc:
         async with async_session_factory() as session:
@@ -1796,7 +1796,7 @@ async def calendar_retest(callback: types.CallbackQuery):
                     settings.last_smoke_test_error = str(exc)[:255]
                     await session.commit()
 
-        await callback.message.answer("❌ Smoke-test не пройден. Проверьте права Google и переподключите аккаунт.")
+        await callback.message.answer("❌ Интеграция не завершена. Проверьте права Google и переподключите аккаунт.")
         await callback.answer()
 
 

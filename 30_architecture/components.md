@@ -115,7 +115,7 @@ Heartbeat throttling (контракт):
   - принятие bot_token
   - запуск Google OAuth
   - выбор/создание календаря
-  - минимальная проверка календаря (smoke-test) и перевод в personal bot
+  - минимальная проверка календаря (интеграция) и перевод в personal bot
 - работать только в контексте master_bot
 - расписание (weekly availability), длительность, буфер, `slot_step_min` и `max_sessions_per_day` настраиваются только в personal bot (US-02)
 
@@ -230,7 +230,7 @@ Pipeline AvailabilityService:
 8. Apply минимум cancel_window_hours до начала слота (TZ specialist).
 
 Источник дефолтов:
-- После финализации US-01 (smoke-test = ok, перед/при переводе specialist в active) сервис `apply_specialist_defaults_if_missing()`
+- После финализации US-01 (Интеграция = ok, перед/при переводе specialist в active) сервис `apply_specialist_defaults_if_missing()`
   идемпотентно создаёт недостающие настройки specialist_profile и weekly_availability.
 - Timezone берётся из выбранного Google Calendar, fallback `UTC`.
 - Если weekly_availability уже существует, сервис её не перезаписывает.

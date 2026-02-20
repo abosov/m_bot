@@ -86,7 +86,7 @@ async def personal_status(message: Message, specialist_id) -> None:
         f"• Personal bot: {bot_username}\n"
         f"• Google OAuth: {'connected' if oauth_connected else 'not_connected'}\n"
         f"• Календарь summary: {calendar_summary or '—'}\n"
-        f"• Last smoke-test: {smoke_status or '—'}\n"
+        f"• Интеграция: {smoke_status or '—'}\n"
         f"• Onboarding (master): {onboarding_master}\n"
         f"• Onboarding (personal): {onboarding_personal}"
     )
