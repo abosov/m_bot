@@ -210,6 +210,31 @@ input, textarea {
   font-size: 0.95rem;
 }
 .site-footer a { color: var(--muted); text-decoration: none; margin-right: 14px; }
+
+.footer-inner {
+  flex-wrap: wrap;
+}
+
+.site-footer nav {
+  display: flex;
+  flex: 1 1 260px;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.site-footer nav a {
+  margin-right: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.site-footer .logo-footer,
+.site-footer p {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .logo-footer img {
   height: 28px;
 }
