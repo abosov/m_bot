@@ -1380,7 +1380,7 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
                 text_out = (
                     "✅ Календарь подключён. Master-онбординг завершён.\n"
                     "Чтобы завершить онбординг полностью, перейдите в персональный бот и подтвердите/настройте параметры:\n"
-                    f"@{personal_username}\n{deep_link}"
+                    f"@{personal_username}"
                 )
                 await _answer_plain(callback.message, text_out)
 
@@ -1704,7 +1704,7 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
                 callback.message,
                 "✅ Календарь подключён. Master-онбординг завершён.\n"
                 "Чтобы завершить онбординг полностью, перейдите в персональный бот и подтвердите/настройте параметры:\n"
-                f"@{personal_username}\n{deep_link}"
+                f"@{personal_username}"
             )
         await callback.answer()
 

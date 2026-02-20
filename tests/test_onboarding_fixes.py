@@ -1028,7 +1028,7 @@ async def test_calendar_create_uses_answer_plain_for_final_deep_link_message_to_
     final_text, final_kwargs = final_sent[0]
 
     assert "@zumbot_personal_bot" in final_text
-    assert "https://t.me/zumbot_personal_bot?start=owner_panel" in final_text
+    assert "https://t.me/zumbot_personal_bot?start=owner_panel" not in final_text
     assert final_kwargs.get("parse_mode") is None
     assert final_kwargs.get("disable_web_page_preview") is True
     assert callback.answered == 1
