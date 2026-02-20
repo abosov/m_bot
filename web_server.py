@@ -162,25 +162,49 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
     async def site_privacy() -> FileResponse:
         return FileResponse(_site_file("/privacy"))
 
+    @app.head("/privacy")
+    async def site_privacy_head() -> Response:
+        return Response(status_code=200)
+
     @app.get("/terms")
     async def site_terms() -> FileResponse:
         return FileResponse(_site_file("/terms"))
+
+    @app.head("/terms")
+    async def site_terms_head() -> Response:
+        return Response(status_code=200)
 
     @app.get("/revoke-access")
     async def site_revoke_access() -> FileResponse:
         return FileResponse(_site_file("/revoke-access"))
 
+    @app.head("/revoke-access")
+    async def site_revoke_access_head() -> Response:
+        return Response(status_code=200)
+
     @app.get("/privacy-ru")
     async def site_privacy_ru() -> FileResponse:
         return FileResponse(_site_file("/privacy-ru"))
+
+    @app.head("/privacy-ru")
+    async def site_privacy_ru_head() -> Response:
+        return Response(status_code=200)
 
     @app.get("/terms-ru")
     async def site_terms_ru() -> FileResponse:
         return FileResponse(_site_file("/terms-ru"))
 
+    @app.head("/terms-ru")
+    async def site_terms_ru_head() -> Response:
+        return Response(status_code=200)
+
     @app.get("/revoke-access-ru")
     async def site_revoke_access_ru() -> FileResponse:
         return FileResponse(_site_file("/revoke-access-ru"))
+
+    @app.head("/revoke-access-ru")
+    async def site_revoke_access_ru_head() -> Response:
+        return Response(status_code=200)
 else:
     logger.warning(
         "Static site disabled: expected index=%s assets_dir=%s",
