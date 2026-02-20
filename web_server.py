@@ -3,7 +3,6 @@ import asyncio
 import logging
 import time
 import uuid
-from urllib.parse import urlparse
 from pathlib import Path
 import requests
 from contextlib import asynccontextmanager
@@ -525,30 +524,10 @@ async def connect_page() -> HTMLResponse:
     return HTMLResponse(content=html)
 
 
-def _telegram_username_from_url(value: str) -> str | None:
-    parsed = urlparse(value)
-    if parsed.scheme != "https" or parsed.netloc.lower() != "t.me":
-        return None
-
-    username = parsed.path.strip("/")
-    if not username:
-        return None
-
-    return username
-
-
 @app.get("/success")
 async def success_page() -> HTMLResponse:
     text = "Google Календарь подключён. Вернитесь в Telegram, чтобы продолжить настройку."
-    support_url = config.SUPPORT_TG_URL.strip()
-    bot_username = _telegram_username_from_url(support_url)
-
-    deep_link_html = ""
-    if bot_username:
-        deep_link_html = (
-            f'<p><a href="tg://resolve?domain={bot_username}">Открыть Telegram</a></p>'
-            f'<p><a href="https://t.me/{bot_username}">https://t.me/{bot_username}</a></p>'
-        )
+    telegram_url = "https://t.me/zumhelper_bot"
 
     html = f"""<!doctype html>
 <html lang="ru">
@@ -561,7 +540,7 @@ async def success_page() -> HTMLResponse:
   <main>
     <h1>Готово</h1>
     <p>{text}</p>
-    {deep_link_html}
+    <p><a href="{telegram_url}">Открыть Telegram</a></p>
   </main>
 </body>
 </html>

@@ -86,6 +86,10 @@ def test_success_page_contains_expected_text():
     assert response.status_code == 200
     assert "Готово" in response.text
     assert "Google Календарь подключён. Вернитесь в Telegram, чтобы продолжить настройку." in response.text
+    assert response.text.count("Открыть Telegram") == 1
+    assert 'href="https://t.me/zumhelper_bot"' in response.text
+    assert "tg://resolve?domain=zumbot_support" not in response.text
+    assert "https://t.me/zumbot_support" not in response.text
 
 
 def test_revoke_access_page_contains_google_permissions_link():
