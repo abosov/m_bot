@@ -248,10 +248,8 @@ async def test_calendar_request_raises_after_retry_exhausted(monkeypatch):
             42,
             None,
             "Сессия с Анна (@anna)",
-            "Создано автоматически после подтверждения записи в боте\n"
             "Клиент: Анна\n"
-            "Telegram: @anna\n"
-            "Link: https://t.me/anna",
+            "Link: tg://user?id=42",
         ),
         (
             None,
@@ -259,8 +257,8 @@ async def test_calendar_request_raises_after_retry_exhausted(monkeypatch):
             None,
             None,
             "Сессия с Клиент",
-            "Создано автоматически после подтверждения записи в боте\n"
-            "Клиент: Клиент",
+            "Клиент: Клиент\n"
+            "Link: tg://user?id=",
         ),
         (
             "Анна",
@@ -268,10 +266,8 @@ async def test_calendar_request_raises_after_retry_exhausted(monkeypatch):
             42,
             None,
             "Сессия с Анна (@anna)",
-            "Создано автоматически после подтверждения записи в боте\n"
             "Клиент: Анна\n"
-            "Telegram: @anna\n"
-            "Link: https://t.me/anna",
+            "Link: tg://user?id=42",
         ),
         (
             "",
@@ -279,10 +275,7 @@ async def test_calendar_request_raises_after_retry_exhausted(monkeypatch):
             42,
             "A-123",
             "Сессия с Клиент (#A-123)",
-            "Создано автоматически после подтверждения записи в боте\n"
             "Клиент: Клиент\n"
-            "Client code: A-123\n"
-            "Telegram: tg_user_id=42\n"
             "Link: tg://user?id=42",
         ),
         (
@@ -291,9 +284,7 @@ async def test_calendar_request_raises_after_retry_exhausted(monkeypatch):
             42,
             None,
             "Сессия с Иван (tg_id=42)",
-            "Создано автоматически после подтверждения записи в боте\n"
             "Клиент: Иван\n"
-            "Telegram: tg_user_id=42\n"
             "Link: tg://user?id=42",
         ),
     ],
@@ -389,7 +380,7 @@ async def test_create_appointment_event_payload_when_username_present(monkeypatc
     )
 
     assert "(@anna)" in payload["summary"]
-    assert "https://t.me/anna" in payload["description"]
+    assert payload["description"] == "Клиент: Клиент А\nLink: tg://user?id=42"
 
 
 @pytest.mark.asyncio
@@ -403,8 +394,7 @@ async def test_create_appointment_event_payload_when_username_absent(monkeypatch
     )
 
     assert "(#A1)" in payload["summary"] or "(tg_id=42)" in payload["summary"]
-    assert "tg_user_id=42" in payload["description"]
-    assert "tg://user?id=42" in payload["description"]
+    assert payload["description"] == "Клиент: Клиент А\nLink: tg://user?id=42"
 
 
 @pytest.mark.asyncio

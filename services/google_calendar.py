@@ -536,18 +536,8 @@ async def create_appointment_event(
         else:
             summary = fallback_summary
 
-        description_lines = ["Создано автоматически после подтверждения записи в боте"]
-        if base_name:
-            description_lines.append(f"Клиент: {base_name}")
-        if client_code:
-            description_lines.append(f"Client code: {client_code}")
-        if normalized_username:
-            description_lines.append(f"Telegram: {display_username}")
-            description_lines.append(f"Link: https://t.me/{normalized_username}")
-        elif client_tg_user_id:
-            description_lines.append(f"Telegram: tg_user_id={client_tg_user_id}")
-            description_lines.append(f"Link: tg://user?id={client_tg_user_id}")
-        description = "\n".join(description_lines)
+        link_tg_user_id = client_tg_user_id if client_tg_user_id is not None else ""
+        description = f"Клиент: {base_name}\nLink: tg://user?id={link_tg_user_id}"
 
         payload: dict[str, Any] = {
             "summary": summary,
@@ -628,18 +618,8 @@ async def update_appointment_event(
         else:
             summary = fallback_summary
 
-        description_lines = ["Создано автоматически после подтверждения записи в боте"]
-        if base_name:
-            description_lines.append(f"Клиент: {base_name}")
-        if client_code:
-            description_lines.append(f"Client code: {client_code}")
-        if normalized_username:
-            description_lines.append(f"Telegram: {display_username}")
-            description_lines.append(f"Link: https://t.me/{normalized_username}")
-        elif client_tg_user_id:
-            description_lines.append(f"Telegram: tg_user_id={client_tg_user_id}")
-            description_lines.append(f"Link: tg://user?id={client_tg_user_id}")
-        description = "\n".join(description_lines)
+        link_tg_user_id = client_tg_user_id if client_tg_user_id is not None else ""
+        description = f"Клиент: {base_name}\nLink: tg://user?id={link_tg_user_id}"
 
         payload: dict[str, Any] = {
             "summary": summary,
