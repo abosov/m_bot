@@ -534,7 +534,7 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
         booking_interval_meta={},
     )
     await message.answer(
-        "Выберите день:",
+        "Выберите день для сессии:",
         reply_markup=_booking_day_keyboard(available_days, enabled_by_iso=enabled_by_iso),
     )
 

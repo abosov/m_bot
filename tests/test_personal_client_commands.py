@@ -143,7 +143,7 @@ async def test_client_menu_buttons_return_stubs(monkeypatch):
     monkeypatch.setattr(client_commands, "_has_any_slots_in_day", _has_slots_true)
 
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
-    assert book_msg.answers[0][0] == "Выберите день:"
+    assert book_msg.answers[0][0] == "Выберите день для сессии:"
     assert book_msg.answers[0][1].get("reply_markup") is not None
     assert state.state == client_commands.ClientBookingState.waiting_for_day
     assert state.data["booking_available_days"] == [
@@ -680,7 +680,7 @@ async def test_client_book_button_shows_static_day_header(monkeypatch):
 
     await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
 
-    assert book_msg.answers[0][0] == "Выберите день:"
+    assert book_msg.answers[0][0] == "Выберите день для сессии:"
 
 
 @pytest.mark.asyncio
