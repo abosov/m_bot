@@ -73,7 +73,7 @@ curl -i -sS "$BASE_URL/readyz"
 3. Указать публичное имя.
 4. Создать personal bot и дождаться настройки webhook.
 5. Подключить Google OAuth.
-6. Выбрать существующий календарь из Google Calendar (через refresh/список).
+6. Выбрать календарь из Google Calendar (через refresh/список).
 7. Запустить smoke-тест календаря (`events.insert` + `events.delete`).
 8. Получить deep-link `?start=owner_panel` в personal bot.
 

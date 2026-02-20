@@ -339,8 +339,10 @@ async def test_google_oauth_callback_valid_state_consumes_and_upserts_token(tmp_
     assert sent[0]["chat_id"] == 777
     keyboard = sent[0]["reply_markup"]
     callbacks = [btn.callback_data for row in keyboard.inline_keyboard for btn in row]
-    assert "calendar:create" in callbacks
+    texts = [btn.text for row in keyboard.inline_keyboard for btn in row]
+    assert "calendar:create" not in callbacks
     assert "calendar:select" in callbacks
+    assert "📂 Выбрать календарь" in texts
 
     async with database.async_session_factory() as session:
         oauth = await session.get(database.GoogleOAuth, specialist_id)

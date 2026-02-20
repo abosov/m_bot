@@ -184,8 +184,7 @@ async def _check_full_onboarding_or_prompt(message: types.Message, specialist: S
 def _calendar_action_keyboard() -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="🆕 Создать отдельный календарь (рекомендовано)", callback_data="calendar:create")],
-            [types.InlineKeyboardButton(text="📂 Выбрать существующий календарь", callback_data="calendar:select")],
+            [types.InlineKeyboardButton(text="📂 Выбрать календарь", callback_data="calendar:select")],
         ]
     )
 
@@ -1427,8 +1426,7 @@ async def calendar_select_cancel(callback: types.CallbackQuery, state: FSMContex
 async def calendar_switch_stub(callback: types.CallbackQuery, state: FSMContext):
     keyboard = types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="🆕 Создать новый", callback_data="calendar:create")],
-            [types.InlineKeyboardButton(text="📂 Выбрать существующий", callback_data="calendar:select")],
+            [types.InlineKeyboardButton(text="📂 Выбрать календарь", callback_data="calendar:select")],
             [types.InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")],
         ]
     )

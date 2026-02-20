@@ -480,7 +480,7 @@ async def test_booked_handler_sends_specialist_with_username_link(monkeypatch):
     assert len(sent) == 1
     assert sent[0][0] == 222
     assert "Новая запись: 2026-01-02 Пт [14:00]" in sent[0][1]
-    assert "@smoke_client" in sent[0][1]
+    assert "@smoke\\_client" in sent[0][1]
     assert "https://t.me/smoke_client" in sent[0][1]
     assert "appointment_id" not in sent[0][1]
     assert str(appointment_id) not in sent[0][1]

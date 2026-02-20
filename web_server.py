@@ -79,8 +79,7 @@ def _request_id_from_request(request: Request) -> str:
 def build_calendar_action_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🆕 Создать новый", callback_data="calendar:create")],
-            [InlineKeyboardButton(text="📂 Выбрать существующий", callback_data="calendar:select")],
+            [InlineKeyboardButton(text="📂 Выбрать календарь", callback_data="calendar:select")],
             [InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")],
         ]
     )
