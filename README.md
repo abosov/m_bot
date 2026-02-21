@@ -357,6 +357,12 @@ bash scripts/run_migrations.sh
 
 Скрипт запускается из любого `cwd`, подхватывает `DB_URL` из `/etc/zumbot/backend.env` (если не задан в окружении) и вызывает основной механизм миграций проекта.
 
+### Migration notes: specialist confirmation backfill/compat
+
+- Ручной backfill для старых `appointment.booking_state='confirmed'` **не требуется**.
+- Исторические `confirmed` трактуются как уже подтверждённые специалистом и остаются валидными.
+- Записи, созданные до ввода `awaiting_specialist_confirmation`, продолжают отображаться и работать без дополнительных действий с данными.
+
 ## Безопасный сброс smoke-данных
 
 Для очистки тестовых Telegram-аккаунтов используйте команду-обёртку `zumbot-test-reset` (symlink на `scripts/test_data_reset_run.py`).
