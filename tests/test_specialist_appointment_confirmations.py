@@ -264,3 +264,91 @@ async def test_specialist_reject_with_reason_completes_and_clears_state(monkeypa
     assert message.answers[0][0] == "Отклонено"
     assert state.state is None
     assert state.data == {}
+
+
+@pytest.mark.asyncio
+async def test_specialist_reject_without_reason_shows_calendar_delete_error(monkeypatch):
+    specialist_id = uuid4()
+    appointment_id = uuid4()
+    callback_answers = []
+    message = DummyMessage()
+    state = DummyState()
+
+    callback = SimpleNamespace(
+        data=f"sp_appt_reject_mode:no_reason:{appointment_id}",
+        message=message,
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback_answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    async def fake_resolve(_appointment_id, _specialist_id):
+        return _appointment(
+            appointment_id=appointment_id,
+            specialist_id=specialist_id,
+            booking_state=BookingState.awaiting_specialist_confirmation,
+        )
+
+    class DummySessionCtx:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def fake_reject(_session, **kwargs):
+        raise appointment_confirmations.SpecialistAppointmentRejectCalendarDeleteError("boom")
+
+    monkeypatch.setattr(appointment_confirmations, "_resolve_pending_appointment", fake_resolve)
+    monkeypatch.setattr(appointment_confirmations, "async_session_factory", lambda: DummySessionCtx())
+    monkeypatch.setattr(appointment_confirmations, "reject_appointment_by_specialist", fake_reject)
+
+    await appointment_confirmations.specialist_appointment_reject_mode(callback, specialist_id=specialist_id, state=state)
+
+    assert callback_answers[0][0] == ("Не удалось отменить событие в календаре",)
+
+
+@pytest.mark.asyncio
+async def test_specialist_reject_with_reason_shows_calendar_delete_error(monkeypatch):
+    specialist_id = uuid4()
+    appointment_id = uuid4()
+    message = SimpleNamespace(text="Нужно перенести", answers=[])
+    state = DummyState()
+    state.state = appointment_confirmations.SpecialistAppointmentRejectStates.waiting_rejection_reason
+    state.data["appointment_id"] = str(appointment_id)
+
+    async def answer(text, **kwargs):
+        message.answers.append((text, kwargs))
+
+    message.answer = answer
+
+    async def fake_resolve(_appointment_id, _specialist_id):
+        return _appointment(
+            appointment_id=appointment_id,
+            specialist_id=specialist_id,
+            booking_state=BookingState.awaiting_specialist_confirmation,
+        )
+
+    class DummySessionCtx:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def fake_reject(_session, **kwargs):
+        raise appointment_confirmations.SpecialistAppointmentRejectCalendarDeleteError("boom")
+
+    monkeypatch.setattr(appointment_confirmations, "_resolve_pending_appointment", fake_resolve)
+    monkeypatch.setattr(appointment_confirmations, "async_session_factory", lambda: DummySessionCtx())
+    monkeypatch.setattr(appointment_confirmations, "reject_appointment_by_specialist", fake_reject)
+
+    await appointment_confirmations.specialist_appointment_reject_reason_input(
+        message,
+        specialist_id=specialist_id,
+        state=state,
+    )
+
+    assert message.answers[0][0] == "Не удалось отменить событие в календаре"

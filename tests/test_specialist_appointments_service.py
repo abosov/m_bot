@@ -153,25 +153,38 @@ async def test_reject_appointment_by_specialist_marks_updated(monkeypatch):
         end_at_utc=datetime.now(timezone.utc),
         booking_state=BookingState.awaiting_specialist_confirmation,
         idempotency_key="idk",
+        gcal_event_id="ev-1",
     )
 
-    class Session:
-        committed = False
-
-        async def get(self, model, key):
-            assert model.__name__ == "Appointment"
-            assert key == appointment.appointment_id
+    class _Result:
+        def scalar_one_or_none(self):
             return appointment
 
-        async def commit(self):
-            self.committed = True
+    class Session:
+        def begin(self):
+            return _Begin()
+
+        async def execute(self, _query):
+            return _Result()
+
+        async def get(self, model, key):
+            if model.__name__ == "AppointmentCalendarLink":
+                return None
+            if model.__name__ == "SpecialistCalendarSettings":
+                return type("Settings", (), {"calendar_id": "cal-1"})()
+            raise AssertionError(model)
 
     emitted = []
+    deleted = []
 
     async def fake_emit(session, event_type, payload):
         emitted.append((session, event_type, payload))
 
+    async def fake_delete(**kwargs):
+        deleted.append(kwargs)
+
     monkeypatch.setattr(specialist_appointments, "emit_domain_event", fake_emit)
+    monkeypatch.setattr(specialist_appointments, "delete_appointment_event", fake_delete)
 
     session = Session()
     result = await specialist_appointments.reject_appointment_by_specialist(
@@ -184,8 +197,109 @@ async def test_reject_appointment_by_specialist_marks_updated(monkeypatch):
     assert result.status == "updated"
     assert appointment.booking_state == BookingState.rejected_by_specialist
     assert appointment.rejection_reason == "Не смогу"
-    assert session.committed is True
+    assert deleted[0]["calendar_id"] == "cal-1"
     assert emitted[0][1] == "appointment_rejected_by_specialist"
+    assert emitted[0][2]["rejection_reason"] == "Не смогу"
+
+
+@pytest.mark.asyncio
+async def test_reject_appointment_by_specialist_raises_when_google_delete_failed(monkeypatch):
+    appointment = Appointment(
+        appointment_id=uuid4(),
+        specialist_id=uuid4(),
+        client_id=uuid4(),
+        start_at_utc=datetime.now(timezone.utc),
+        end_at_utc=datetime.now(timezone.utc),
+        booking_state=BookingState.awaiting_specialist_confirmation,
+        idempotency_key="idk",
+        gcal_event_id="ev-1",
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return appointment
+
+    class Session:
+        def begin(self):
+            return _Begin()
+
+        async def execute(self, _query):
+            return _Result()
+
+        async def get(self, model, key):
+            if model.__name__ == "AppointmentCalendarLink":
+                return None
+            if model.__name__ == "SpecialistCalendarSettings":
+                return type("Settings", (), {"calendar_id": "cal-1"})()
+            raise AssertionError(model)
+
+    async def fake_delete(**_kwargs):
+        raise specialist_appointments.GoogleCalendarError("Google Calendar API failed with status 500")
+
+    monkeypatch.setattr(specialist_appointments, "delete_appointment_event", fake_delete)
+
+    with pytest.raises(specialist_appointments.SpecialistAppointmentRejectCalendarDeleteError):
+        await specialist_appointments.reject_appointment_by_specialist(
+            Session(),
+            appointment_id=appointment.appointment_id,
+            specialist_id=appointment.specialist_id,
+            rejection_reason=None,
+        )
+
+    assert appointment.booking_state == BookingState.rejected_by_specialist
+
+
+@pytest.mark.asyncio
+async def test_reject_appointment_by_specialist_treats_google_404_as_success(monkeypatch):
+    appointment = Appointment(
+        appointment_id=uuid4(),
+        specialist_id=uuid4(),
+        client_id=uuid4(),
+        start_at_utc=datetime.now(timezone.utc),
+        end_at_utc=datetime.now(timezone.utc),
+        booking_state=BookingState.awaiting_specialist_confirmation,
+        idempotency_key="idk",
+        gcal_event_id="ev-1",
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return appointment
+
+    class Session:
+        def begin(self):
+            return _Begin()
+
+        async def execute(self, _query):
+            return _Result()
+
+        async def get(self, model, key):
+            if model.__name__ == "AppointmentCalendarLink":
+                return None
+            if model.__name__ == "SpecialistCalendarSettings":
+                return type("Settings", (), {"calendar_id": "cal-1"})()
+            raise AssertionError(model)
+
+    emitted = []
+
+    async def fake_emit(session, event_type, payload):
+        emitted.append((session, event_type, payload))
+
+    async def fake_delete(**_kwargs):
+        raise specialist_appointments.GoogleCalendarError("Google Calendar API failed with status 404")
+
+    monkeypatch.setattr(specialist_appointments, "emit_domain_event", fake_emit)
+    monkeypatch.setattr(specialist_appointments, "delete_appointment_event", fake_delete)
+
+    result = await specialist_appointments.reject_appointment_by_specialist(
+        Session(),
+        appointment_id=appointment.appointment_id,
+        specialist_id=appointment.specialist_id,
+        rejection_reason=None,
+    )
+
+    assert result.status == "updated"
+    assert emitted[0][2].get("rejection_reason") is None
 
 
 @pytest.mark.asyncio
@@ -200,9 +314,16 @@ async def test_reject_appointment_by_specialist_is_idempotent():
         idempotency_key="idk",
     )
 
-    class Session:
-        async def get(self, _model, _key):
+    class _Result:
+        def scalar_one_or_none(self):
             return appointment
+
+    class Session:
+        def begin(self):
+            return _Begin()
+
+        async def execute(self, _query):
+            return _Result()
 
     result = await specialist_appointments.reject_appointment_by_specialist(
         Session(),
