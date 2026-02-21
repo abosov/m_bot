@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -16,9 +18,22 @@ from services.specialist_appointments import (
 )
 
 router = Router(name="personal_bot_specialist_appointment_confirmations")
+logger = logging.getLogger(__name__)
 
 _STALE_TEXT = "Эта заявка уже обработана или устарела."
 _REJECTION_REASON_LIMIT = 1000
+
+
+async def _safe_clear_inline_keyboard(message: Message) -> None:
+    try:
+        await message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest as exc:
+        # Сообщение могло быть уже отредактировано/удалено другим обработчиком.
+        logger.info("Unable to clear inline keyboard: %s", exc)
+
+
+def _format_appointment_slot(appointment: Appointment) -> str:
+    return appointment.start_at_utc.strftime("%d.%m %H:%M")
 
 
 class SpecialistAppointmentRejectStates(StatesGroup):
@@ -64,7 +79,7 @@ async def _resolve_pending_appointment(appointment_id: UUID, specialist_id) -> A
         )
         appointment = result.scalar_one_or_none()
 
-    if appointment is None or appointment.booking_state in (BookingState.confirmed, BookingState.rejected_by_specialist):
+    if appointment is None or appointment.booking_state != BookingState.awaiting_specialist_confirmation:
         return None
     return appointment
 
@@ -100,7 +115,7 @@ async def specialist_appointment_decision(callback: CallbackQuery, specialist_id
             )
 
         if result.status in {"ok", "updated"}:
-            await callback.message.edit_reply_markup(reply_markup=None)
+            await _safe_clear_inline_keyboard(callback.message)
             await callback.answer("✅ Запись подтверждена")
             return
 
@@ -112,6 +127,7 @@ async def specialist_appointment_decision(callback: CallbackQuery, specialist_id
         await callback.answer(_STALE_TEXT, show_alert=True)
         return
 
+    await _safe_clear_inline_keyboard(callback.message)
     await callback.message.answer(
         "Добавить пояснение клиенту?",
         reply_markup=_reject_with_or_without_reason_keyboard(appointment_id),
@@ -162,16 +178,17 @@ async def specialist_appointment_reject_mode(callback: CallbackQuery, specialist
         await state.clear()
 
         if result.status == "updated":
-            await callback.message.edit_reply_markup(reply_markup=None)
-            await callback.message.answer("Отклонено")
-            await callback.answer()
+            await _safe_clear_inline_keyboard(callback.message)
+            await callback.message.answer(f"Запись отклонена: {_format_appointment_slot(appointment)}")
+            await callback.answer("Отклонено")
             return
 
         await callback.answer(_STALE_TEXT, show_alert=True)
         return
 
     await state.set_state(SpecialistAppointmentRejectStates.waiting_rejection_reason)
-    await state.update_data(appointment_id=str(appointment_id))
+    await state.update_data(appointment_id=str(appointment_id), request_message_id=callback.message.message_id)
+    await _safe_clear_inline_keyboard(callback.message)
     await callback.message.answer("Введите пояснение одним сообщением.")
     await callback.answer()
 
@@ -224,7 +241,7 @@ async def specialist_appointment_reject_reason_input(message: Message, specialis
 
     await state.clear()
     if result.status == "updated":
-        await message.answer("Отклонено")
+        await message.answer("Запись отклонена, пояснение отправлено клиенту")
         return
 
     await message.answer("Эта заявка уже обработана или устарела.")
