@@ -1157,7 +1157,7 @@ async def test_client_pick_slot_creates_pending_appointment_and_returns_menu(mon
     assert appointment.start_at_utc == datetime(2026, 2, 21, 12, 0, tzinfo=timezone.utc)
     assert appointment.end_at_utc == datetime(2026, 2, 21, 12, 45, tzinfo=timezone.utc)
     assert appointment.gcal_event_id is None
-    assert message.answers[0][0] == "Запись создана\n\n2026-02-21 Сб [12:00]"
+    assert message.answers[0][0] == "Заявка отправлена специалисту, ожидает подтверждения\n\n2026-02-21 Сб [12:00]"
     assert message.answers[0][1].get("reply_markup") is not None
     assert len(callback.answers) == 1
 

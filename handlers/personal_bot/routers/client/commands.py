@@ -460,7 +460,16 @@ async def _render_client_appointments(message: Message, specialist_id: UUID, tg_
                 select(Appointment)
                 .where(Appointment.client_id == client.client_id)
                 .where(Appointment.start_at_utc >= now_utc)
-                .where(Appointment.booking_state.in_((BookingState.confirmed, BookingState.failed)))
+                .where(
+                    Appointment.booking_state.in_(
+                        (
+                            BookingState.confirmed,
+                            BookingState.failed,
+                            BookingState.awaiting_specialist_confirmation,
+                            BookingState.rejected_by_specialist,
+                        )
+                    )
+                )
                 .order_by(Appointment.start_at_utc.asc())
                 .limit(10)
             )
@@ -477,8 +486,10 @@ async def _render_client_appointments(message: Message, specialist_id: UUID, tg_
         has_failed = False
     else:
         state_map = {
-            BookingState.confirmed: "подтверждена",
-            BookingState.failed: "не подтверждена",
+            BookingState.confirmed: "Подтверждена",
+            BookingState.failed: "Не подтверждена",
+            BookingState.awaiting_specialist_confirmation: "Ожидает подтверждения",
+            BookingState.rejected_by_specialist: "Отклонено",
         }
         has_failed = any(appointment.booking_state == BookingState.failed for appointment in appointments)
         confirmed_appointments: list[tuple[UUID, str]] = []
@@ -487,6 +498,8 @@ async def _render_client_appointments(message: Message, specialist_id: UUID, tg_
         for appointment in appointments:
             formatted_start = format_session_datetime(appointment.start_at_utc, client_tz)
             status = state_map.get(appointment.booking_state, str(appointment.booking_state))
+            if appointment.booking_state == BookingState.rejected_by_specialist and appointment.rejection_reason:
+                status = f"{status}: {appointment.rejection_reason}"
             lines.append(f"{formatted_start} — {status}")
             if appointment.booking_state == BookingState.confirmed:
                 confirmed_appointments.append((appointment.appointment_id, formatted_start))
@@ -848,7 +861,10 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
                     )
                 await session.commit()
 
-    confirmation_text = f"Запись создана\n\n{format_session_datetime(slot_start_utc, client_tz)}"
+    confirmation_text = (
+        "Заявка отправлена специалисту, ожидает подтверждения\n\n"
+        f"{format_session_datetime(slot_start_utc, client_tz)}"
+    )
 
     await state.clear()
     await callback.message.answer(confirmation_text, reply_markup=_client_menu_keyboard())
@@ -995,7 +1011,7 @@ async def client_my_appointments_retry_last(callback, specialist_id) -> None:
                 )
             await session.commit()
             if callback.message is not None:
-                await callback.message.answer("Запись подтверждена.")
+                await callback.message.answer("Заявка отправлена специалисту, ожидает подтверждения.")
 
     if callback.message is not None:
         await _render_client_appointments(callback.message, specialist_id, callback.from_user.id)

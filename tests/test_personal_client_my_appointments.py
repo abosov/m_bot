@@ -94,7 +94,7 @@ async def test_my_appointments_shows_empty_text_and_refresh_button(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_my_appointments_shows_confirmed_and_failed_with_retry_button(monkeypatch):
+async def test_my_appointments_shows_client_statuses_with_retry_button(monkeypatch):
     client = types.SimpleNamespace(client_id="cl-1", client_timezone="UTC")
     appointments = [
         types.SimpleNamespace(
@@ -105,6 +105,15 @@ async def test_my_appointments_shows_confirmed_and_failed_with_retry_button(monk
         types.SimpleNamespace(
             start_at_utc=datetime(2099, 1, 11, 15, 45, tzinfo=timezone.utc),
             booking_state=BookingState.failed,
+        ),
+        types.SimpleNamespace(
+            start_at_utc=datetime(2099, 1, 12, 10, 0, tzinfo=timezone.utc),
+            booking_state=BookingState.awaiting_specialist_confirmation,
+        ),
+        types.SimpleNamespace(
+            start_at_utc=datetime(2099, 1, 13, 8, 15, tzinfo=timezone.utc),
+            booking_state=BookingState.rejected_by_specialist,
+            rejection_reason="Конфликт расписания",
         ),
     ]
     session = _SessionStub(client=client, appointments=appointments)
@@ -119,7 +128,9 @@ async def test_my_appointments_shows_confirmed_and_failed_with_retry_button(monk
     assert "Ваши записи (UTC" in text
     assert "2099-01-10 Сб [09:30]" in text
     assert "2099-01-11 Вс [15:45]" in text
-    assert "не подтверждена" in text
+    assert "Не подтверждена" in text
+    assert "Ожидает подтверждения" in text
+    assert "Отклонено: Конфликт расписания" in text
 
     markup = kwargs["reply_markup"]
     buttons = _extract_inline_buttons(markup)
