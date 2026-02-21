@@ -121,8 +121,8 @@ async def test_specialist_reject_callback_opens_reason_mode_screen(monkeypatch):
     assert message.answers[0][0] == "Добавить пояснение клиенту?"
     keyboard = message.answers[0][1]["reply_markup"]
     buttons = [button for row in keyboard.inline_keyboard for button in row]
-    assert buttons[0].callback_data == f"sp_appt_reject_mode:with_reason:{appointment_id}"
-    assert buttons[1].callback_data == f"sp_appt_reject_mode:no_reason:{appointment_id}"
+    assert buttons[0].callback_data == f"sp_appt_rej_mode:wr:{appointment_id}"
+    assert buttons[1].callback_data == f"sp_appt_rej_mode:nr:{appointment_id}"
     assert callback_answers[0][0] == ()
 
 
@@ -130,6 +130,74 @@ async def test_specialist_reject_callback_opens_reason_mode_screen(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_specialist_reject_with_reason_mode_sets_fsm_state(monkeypatch):
+    specialist_id = uuid4()
+    appointment_id = uuid4()
+    callback_answers = []
+    message = DummyMessage()
+    state = DummyState()
+
+    callback = SimpleNamespace(
+        data=f"sp_appt_rej_mode:wr:{appointment_id}",
+        message=message,
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback_answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    async def fake_resolve(_appointment_id, _specialist_id):
+        return _appointment(
+            appointment_id=appointment_id,
+            specialist_id=specialist_id,
+            booking_state=BookingState.awaiting_specialist_confirmation,
+        )
+
+    monkeypatch.setattr(appointment_confirmations, "_resolve_pending_appointment", fake_resolve)
+
+    await appointment_confirmations.specialist_appointment_reject_mode(
+        callback,
+        specialist_id=specialist_id,
+        state=state,
+    )
+
+    assert state.state == appointment_confirmations.SpecialistAppointmentRejectStates.waiting_rejection_reason
+    assert state.data["appointment_id"] == str(appointment_id)
+    assert state.data["request_message_id"] == message.message_id
+    assert message.edits == [{"reply_markup": None}]
+    assert message.answers[0][0] == "Введите пояснение одним сообщением."
+    assert callback_answers[0][0] == ()
+
+
+@pytest.mark.asyncio
+async def test_specialist_reject_mode_handles_invalid_callback_data(monkeypatch):
+    specialist_id = uuid4()
+    callback_answers = []
+    message = DummyMessage()
+    state = DummyState()
+
+    callback = SimpleNamespace(
+        data="sp_appt_rej_mode:wr:not-a-uuid",
+        message=message,
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback_answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    await appointment_confirmations.specialist_appointment_reject_mode(
+        callback,
+        specialist_id=specialist_id,
+        state=state,
+    )
+
+    assert callback_answers[0][0] == ()
+    assert message.answers[0][0] == "Не удалось обработать действие, попробуйте ещё раз"
+
+
+@pytest.mark.asyncio
+async def test_specialist_reject_mode_supports_legacy_callback_prefix(monkeypatch):
     specialist_id = uuid4()
     appointment_id = uuid4()
     callback_answers = []
@@ -161,12 +229,8 @@ async def test_specialist_reject_with_reason_mode_sets_fsm_state(monkeypatch):
         state=state,
     )
 
-    assert state.state == appointment_confirmations.SpecialistAppointmentRejectStates.waiting_rejection_reason
-    assert state.data["appointment_id"] == str(appointment_id)
-    assert state.data["request_message_id"] == message.message_id
-    assert message.edits == [{"reply_markup": None}]
-    assert message.answers[0][0] == "Введите пояснение одним сообщением."
     assert callback_answers[0][0] == ()
+    assert state.state == appointment_confirmations.SpecialistAppointmentRejectStates.waiting_rejection_reason
 
 @pytest.mark.asyncio
 async def test_specialist_reject_without_reason_completes(monkeypatch):
@@ -177,7 +241,7 @@ async def test_specialist_reject_without_reason_completes(monkeypatch):
     state = DummyState()
 
     callback = SimpleNamespace(
-        data=f"sp_appt_reject_mode:no_reason:{appointment_id}",
+        data=f"sp_appt_rej_mode:nr:{appointment_id}",
         message=message,
     )
 
@@ -213,7 +277,7 @@ async def test_specialist_reject_without_reason_completes(monkeypatch):
     assert message.edits == [{"reply_markup": None}]
     assert "Запись отклонена:" in message.answers[0][0]
     assert state.state is None
-    assert callback_answers[0][0] == ("Отклонено",)
+    assert callback_answers[0][0] == ()
 
 
 @pytest.mark.asyncio
@@ -237,7 +301,7 @@ async def test_specialist_reject_reason_validation_empty_text(monkeypatch):
 
     assert "Пояснение не должно быть пустым" in message.answers[0][0]
     keyboard = message.answers[0][1]["reply_markup"]
-    assert keyboard.inline_keyboard[0][0].callback_data == f"sp_appt_reject_mode:no_reason:{appointment_id}"
+    assert keyboard.inline_keyboard[0][0].callback_data == f"sp_appt_rej_mode:nr:{appointment_id}"
 
 
 @pytest.mark.asyncio
@@ -319,7 +383,7 @@ async def test_specialist_reject_without_reason_updates_even_when_calendar_delet
     state = DummyState()
 
     callback = SimpleNamespace(
-        data=f"sp_appt_reject_mode:no_reason:{appointment_id}",
+        data=f"sp_appt_rej_mode:nr:{appointment_id}",
         message=message,
     )
 
@@ -351,7 +415,7 @@ async def test_specialist_reject_without_reason_updates_even_when_calendar_delet
 
     await appointment_confirmations.specialist_appointment_reject_mode(callback, specialist_id=specialist_id, state=state)
 
-    assert callback_answers[0][0] == ("Отклонено",)
+    assert callback_answers[0][0] == ()
 
 
 @pytest.mark.asyncio

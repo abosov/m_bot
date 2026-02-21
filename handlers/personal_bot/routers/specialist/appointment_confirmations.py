@@ -17,7 +17,11 @@ router = Router(name="personal_bot_specialist_appointment_confirmations")
 logger = logging.getLogger(__name__)
 
 _STALE_TEXT = "Эта заявка уже обработана или устарела."
+_REJECT_MODE_PARSE_ERROR_TEXT = "Не удалось обработать действие, попробуйте ещё раз"
 _REJECTION_REASON_LIMIT = 1000
+_REJECT_MODE_CALLBACK_PREFIX = "sp_appt_rej_mode"
+_REJECT_MODE_WITH_REASON_TOKEN = "wr"
+_REJECT_MODE_NO_REASON_TOKEN = "nr"
 
 
 async def _safe_clear_inline_keyboard(message: Message) -> None:
@@ -42,11 +46,11 @@ def _reject_with_or_without_reason_keyboard(appointment_id: UUID) -> InlineKeybo
             [
                 InlineKeyboardButton(
                     text="Оставить пояснение",
-                    callback_data=f"sp_appt_reject_mode:with_reason:{appointment_id}",
+                    callback_data=f"{_REJECT_MODE_CALLBACK_PREFIX}:{_REJECT_MODE_WITH_REASON_TOKEN}:{appointment_id}",
                 ),
                 InlineKeyboardButton(
                     text="Без пояснений",
-                    callback_data=f"sp_appt_reject_mode:no_reason:{appointment_id}",
+                    callback_data=f"{_REJECT_MODE_CALLBACK_PREFIX}:{_REJECT_MODE_NO_REASON_TOKEN}:{appointment_id}",
                 ),
             ]
         ]
@@ -59,11 +63,38 @@ def _reject_no_reason_inline_keyboard(appointment_id: UUID) -> InlineKeyboardMar
             [
                 InlineKeyboardButton(
                     text="Без пояснений",
-                    callback_data=f"sp_appt_reject_mode:no_reason:{appointment_id}",
+                    callback_data=f"{_REJECT_MODE_CALLBACK_PREFIX}:{_REJECT_MODE_NO_REASON_TOKEN}:{appointment_id}",
                 )
             ]
         ]
     )
+
+
+def _parse_reject_mode_callback_data(callback_data: str | None) -> tuple[str, UUID]:
+    parts = (callback_data or "").split(":")
+    if len(parts) != 3:
+        raise ValueError("invalid callback_data parts count")
+
+    prefix, mode_token, appointment_raw = parts
+    if prefix not in {_REJECT_MODE_CALLBACK_PREFIX, "sp_appt_reject_mode"}:
+        raise ValueError("invalid callback_data prefix")
+
+    mode_map = {
+        _REJECT_MODE_WITH_REASON_TOKEN: "with_reason",
+        _REJECT_MODE_NO_REASON_TOKEN: "no_reason",
+        "with_reason": "with_reason",
+        "no_reason": "no_reason",
+    }
+    mode = mode_map.get(mode_token)
+    if mode is None:
+        raise ValueError("invalid reject mode token")
+
+    try:
+        appointment_id = UUID(appointment_raw)
+    except ValueError as exc:
+        raise ValueError("invalid appointment_id") from exc
+
+    return mode, appointment_id
 
 
 async def _resolve_pending_appointment(appointment_id: UUID, specialist_id) -> Appointment | None:
@@ -131,26 +162,21 @@ async def specialist_appointment_decision(callback: CallbackQuery, specialist_id
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("sp_appt_reject_mode:"))
+@router.callback_query(
+    F.data.startswith(f"{_REJECT_MODE_CALLBACK_PREFIX}:")
+    | F.data.startswith("sp_appt_reject_mode:")
+)
 async def specialist_appointment_reject_mode(callback: CallbackQuery, specialist_id, state: FSMContext) -> None:
+    await callback.answer()
+
     if callback.message is None:
-        await callback.answer()
-        return
-
-    parts = (callback.data or "").split(":")
-    if len(parts) != 3:
-        await callback.answer("Некорректные данные кнопки.", show_alert=True)
-        return
-
-    _, mode, appointment_raw = parts
-    if mode not in {"with_reason", "no_reason"}:
-        await callback.answer("Некорректное действие.", show_alert=True)
         return
 
     try:
-        appointment_id = UUID(appointment_raw)
+        mode, appointment_id = _parse_reject_mode_callback_data(callback.data)
     except ValueError:
-        await callback.answer("Заявка не найдена.", show_alert=True)
+        logger.exception("Invalid reject mode callback_data: %s", callback.data)
+        await callback.message.answer(_REJECT_MODE_PARSE_ERROR_TEXT)
         return
 
     appointment = await _resolve_pending_appointment(appointment_id, specialist_id)
@@ -172,17 +198,15 @@ async def specialist_appointment_reject_mode(callback: CallbackQuery, specialist
         if result.status == "updated":
             await _safe_clear_inline_keyboard(callback.message)
             await callback.message.answer(f"Запись отклонена: {_format_appointment_slot(appointment)}")
-            await callback.answer("Отклонено")
             return
 
-        await callback.answer(_STALE_TEXT, show_alert=True)
+        await callback.message.answer(_STALE_TEXT)
         return
 
     await state.set_state(SpecialistAppointmentRejectStates.waiting_rejection_reason)
     await state.update_data(appointment_id=str(appointment_id), request_message_id=callback.message.message_id)
     await _safe_clear_inline_keyboard(callback.message)
     await callback.message.answer("Введите пояснение одним сообщением.")
-    await callback.answer()
 
 
 @router.message(SpecialistAppointmentRejectStates.waiting_rejection_reason)
