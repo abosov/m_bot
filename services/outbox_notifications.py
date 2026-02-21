@@ -132,7 +132,11 @@ async def _handle_appointment_booked(session: AsyncSession, event: OutboxEvent) 
 
     specialist_start = _format_dt_for_client(start_at_utc, specialist_profile.specialist_timezone)
     client_contact = _format_client_contact(client)
-    specialist_text = f"Новая запись: {specialist_start}\n\nКлиент: {client_contact}"
+    specialist_text = (
+        "Новая запись.\n"
+        f"Время: {specialist_start}\n"
+        f"Клиент: {client_contact}"
+    )
     await _send_specialist_message(
         session,
         outbox_event=event,
@@ -162,7 +166,11 @@ async def _handle_appointment_needs_confirmation(session: AsyncSession, event: O
 
     specialist_start = _format_dt_for_client(start_at_utc, specialist_profile.specialist_timezone)
     client_contact = _format_client_contact(client)
-    specialist_text = f"Новая заявка на сессию: {specialist_start}\n\nКлиент: {client_contact}"
+    specialist_text = (
+        "Новая заявка на сессию.\n"
+        f"Время: {specialist_start}\n"
+        f"Клиент: {client_contact}"
+    )
     await _send_specialist_message(
         session,
         outbox_event=event,
@@ -262,8 +270,8 @@ async def _handle_appointment_rescheduled(session: AsyncSession, event: OutboxEv
         specialist_new = _format_dt_for_client(new_start_at_utc, specialist_tz_name)
         specialist_text = (
             "Перенос записи выполнен.\n"
-            f"Клиент: {_format_client_contact(client)}\n"
-            f"Новое время: {specialist_new}"
+            f"Время: {specialist_new}\n"
+            f"Клиент: {_format_client_contact(client)}"
         )
         await _send_specialist_message(
             session,
@@ -293,7 +301,11 @@ async def _handle_appointment_cancelled_by_client(session: AsyncSession, event: 
 
     specialist_tz_name = specialist_profile.specialist_timezone if specialist_profile else None
     specialist_start = _format_dt_for_client(start_at_utc, specialist_tz_name)
-    specialist_text = "Клиент отменил запись.\n" f"Время: {specialist_start}"
+    specialist_text = (
+        "Клиент отменил запись.\n"
+        f"Время: {specialist_start}\n"
+        f"Клиент: {_format_client_contact(client)}"
+    )
     await _send_specialist_message(
         session,
         outbox_event=event,

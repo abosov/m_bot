@@ -331,8 +331,9 @@ async def test_rescheduled_handler_sends_client_and_specialist(monkeypatch):
     assert "Стало: 2026-01-02 Пт [11:00]" in sent[0][2]
     assert "записи #" not in sent[0][2]
     assert sent[1][0] == "specialist"
-    assert "Новое время: 2026-01-02 Пт [11:00]" in sent[1][2]
+    assert "Время: 2026-01-02 Пт [11:00]" in sent[1][2]
     assert "Перенос записи выполнен." in sent[1][2]
+    assert "Клиент: Клиент" in sent[1][2]
     assert "записи #" not in sent[1][2]
 
 
@@ -421,6 +422,7 @@ async def test_cancelled_by_specialist_calendar_handler_sends_datetime_for_both_
     assert sent[1][0] == "specialist"
     assert "Отмена записи синхронизирована." in sent[1][2]
     assert "Время: 2026-01-02 Пт [11:00]" in sent[1][2]
+    assert "Клиент: Клиент" in sent[1][2]
 
 
 @pytest.mark.asyncio
@@ -485,6 +487,7 @@ async def test_cancelled_by_client_handler_sends_specialist_without_appointment_
     assert sent[0][0] == 222
     assert "Клиент отменил запись." in sent[0][1]
     assert "Время: 2026-01-02 Пт [14:00]" in sent[0][1]
+    assert "Клиент: Клиент" in sent[0][1]
     assert "записи #" not in sent[0][1]
     assert str(appointment_id) not in sent[0][1]
 
@@ -552,8 +555,9 @@ async def test_booked_handler_sends_specialist_with_username_link(monkeypatch):
 
     assert len(sent) == 1
     assert sent[0][0] == 222
-    assert "Новая запись: 2026-01-02 Пт [14:00]" in sent[0][1]
-    assert "Smoke Client (@smoke_client)" in sent[0][1]
+    assert "Новая запись." in sent[0][1]
+    assert "Время: 2026-01-02 Пт [14:00]" in sent[0][1]
+    assert "Клиент: Smoke Client (@smoke_client)" in sent[0][1]
     assert "https://t.me/smoke_client" not in sent[0][1]
     assert "appointment_id" not in sent[0][1]
     assert str(appointment_id) not in sent[0][1]
@@ -622,8 +626,9 @@ async def test_needs_confirmation_handler_sends_specialist_card_with_buttons(mon
 
     assert len(sent) == 1
     assert sent[0]["specialist_tg_user_id"] == 222
-    assert "Новая заявка на сессию: 2026-01-02 Пт [14:00]" in sent[0]["text"]
-    assert "Smoke Client (@smoke_client)" in sent[0]["text"]
+    assert "Новая заявка на сессию." in sent[0]["text"]
+    assert "Время: 2026-01-02 Пт [14:00]" in sent[0]["text"]
+    assert "Клиент: Smoke Client (@smoke_client)" in sent[0]["text"]
     buttons = [button for row in sent[0]["reply_markup"].inline_keyboard for button in row]
     assert [button.text for button in buttons] == ["Подтвердить", "Отклонить"]
     assert buttons[0].callback_data == f"sp_appt_decision:confirm:{appointment_id}"
@@ -693,8 +698,9 @@ async def test_booked_handler_sends_specialist_without_deeplink_when_no_username
 
     assert len(sent) == 1
     assert sent[0][0] == 222
-    assert "Новая запись: 2026-01-02 Пт [11:00]" in sent[0][1]
-    assert "Smoke Client" in sent[0][1]
+    assert "Новая запись." in sent[0][1]
+    assert "Время: 2026-01-02 Пт [11:00]" in sent[0][1]
+    assert "Клиент: Smoke Client" in sent[0][1]
     assert "tg://user?id=123456789" not in sent[0][1]
     assert "id: 123456789" not in sent[0][1]
     assert "appointment_id" not in sent[0][1]
