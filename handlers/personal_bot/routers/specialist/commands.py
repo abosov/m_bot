@@ -130,7 +130,6 @@ async def personal_help(message: Message) -> None:
 
 
 @router.message(Command("appointments"))
-@router.message(F.text == "Мои записи")
 async def specialist_my_appointments(message: Message, specialist_id, actor: str) -> None:
     if actor != "specialist":
         return

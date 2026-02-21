@@ -5,6 +5,8 @@ from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import CommandStart
 from aiogram.types import Message, Update
 
+from handlers.personal_bot import router as personal_router
+from handlers.personal_bot.routers.client import commands as client_commands
 from handlers.personal_bot.role_guard import SpecialistRoleGuardMiddleware
 from services.telegram import personal_dispatcher
 
@@ -333,3 +335,57 @@ async def test_personal_global_error_middleware_replies_in_private_chat(monkeypa
     await middleware(broken_handler, update, {"telegram_bot": tg_bot})
 
     assert any("Возникла ошибка при обработке команды" in text for text in replies)
+
+
+@pytest.mark.asyncio
+async def test_client_can_view_own_appointments_after_confirmation_feature(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class Session:
+        async def execute(self, stmt):
+            model_name = stmt.column_descriptions[0]["entity"].__name__
+            if model_name == "SpecialistProfile":
+                profile = type("Profile", (), {"owner_tg_user_id": 777, "public_name": "Dr. House"})()
+                return Result(profile)
+            auth = type("Auth", (), {"tg_user_id": 777})()
+            return Result(auth)
+
+    monkeypatch.setattr(personal_dispatcher, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    sent_messages = []
+
+    async def fake_answer(self, text, *args, **kwargs):
+        sent_messages.append(text)
+        return None
+
+    async def fake_render(message, specialist_id, tg_user_id):
+        await message.answer("Ваши записи (UTC):\n2099-02-01 Пн [09:00] — Подтверждена")
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+    monkeypatch.setattr(client_commands, "_render_client_appointments", fake_render)
+
+    dp = Dispatcher()
+    dp.update.middleware(personal_dispatcher.PersonalContextMiddleware())
+    dp.include_router(personal_router)
+
+    update = Update.model_validate(
+        {
+            "update_id": 8,
+            "message": {
+                "message_id": 20,
+                "date": 1,
+                "chat": {"id": 888, "type": "private"},
+                "from": {"id": 888, "is_bot": False, "first_name": "Client"},
+                "text": "Мои записи",
+            },
+        }
+    )
+
+    tg_bot = type("TgBot", (), {"specialist_id": specialist_id})()
+    bot = Bot(token="123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
+    try:
+        await dp.feed_update(bot, update, telegram_bot=tg_bot)
+    finally:
+        await bot.session.close()
+
+    assert sent_messages == ["Ваши записи (UTC):\n2099-02-01 Пн [09:00] — Подтверждена"]
