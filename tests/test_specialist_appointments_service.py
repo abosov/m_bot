@@ -412,3 +412,103 @@ async def test_reject_appointment_by_specialist_without_reason_emits_event_witho
     assert deleted[0]["calendar_id"] == "cal-1"
     assert emitted[0][1] == "appointment_rejected_by_specialist"
     assert "rejection_reason" not in emitted[0][2]
+
+
+@pytest.mark.asyncio
+async def test_confirm_appointment_by_specialist_logs_decision(monkeypatch):
+    appointment = Appointment(
+        appointment_id=uuid4(),
+        specialist_id=uuid4(),
+        client_id=uuid4(),
+        start_at_utc=datetime.now(timezone.utc),
+        end_at_utc=datetime.now(timezone.utc),
+        booking_state=BookingState.awaiting_specialist_confirmation,
+        idempotency_key="idk",
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return appointment
+
+    class Session:
+        def begin(self):
+            return _Begin()
+
+        async def execute(self, _query):
+            return _Result()
+
+    logged = []
+
+    async def fake_emit(*_args, **_kwargs):
+        return None
+
+    def fake_log_event(*_args, **kwargs):
+        logged.append(kwargs)
+
+    monkeypatch.setattr(specialist_appointments, "emit_domain_event", fake_emit)
+    monkeypatch.setattr(specialist_appointments, "log_event", fake_log_event)
+
+    result = await specialist_appointments.confirm_appointment_by_specialist(
+        Session(),
+        appointment_id=appointment.appointment_id,
+        specialist_id=appointment.specialist_id,
+    )
+
+    assert result.status == "ok"
+    assert logged[-1]["action"] == "confirm"
+    assert logged[-1]["result"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_reject_appointment_by_specialist_sends_alert_on_google_delete_error(monkeypatch):
+    appointment = Appointment(
+        appointment_id=uuid4(),
+        specialist_id=uuid4(),
+        client_id=uuid4(),
+        start_at_utc=datetime.now(timezone.utc),
+        end_at_utc=datetime.now(timezone.utc),
+        booking_state=BookingState.awaiting_specialist_confirmation,
+        idempotency_key="idk",
+        gcal_event_id="ev-1",
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return appointment
+
+    class Session:
+        def begin(self):
+            return _Begin()
+
+        async def execute(self, _query):
+            return _Result()
+
+        async def get(self, model, _key):
+            if model.__name__ == "AppointmentCalendarLink":
+                return None
+            if model.__name__ == "SpecialistCalendarSettings":
+                return type("Settings", (), {"calendar_id": "cal-1"})()
+            raise AssertionError(model)
+
+    async def fake_delete(**_kwargs):
+        raise specialist_appointments.GoogleCalendarError("Google Calendar API failed with status 500")
+
+    alerts = []
+
+    async def fake_notify(event):
+        alerts.append(event)
+
+    monkeypatch.setattr(specialist_appointments, "delete_appointment_event", fake_delete)
+    monkeypatch.setattr(specialist_appointments, "notify_admin", fake_notify)
+
+    with pytest.raises(specialist_appointments.SpecialistAppointmentRejectCalendarDeleteError):
+        await specialist_appointments.reject_appointment_by_specialist(
+            Session(),
+            appointment_id=appointment.appointment_id,
+            specialist_id=appointment.specialist_id,
+            rejection_reason=None,
+        )
+
+    assert alerts
+    assert alerts[0].title == "Google Calendar delete failed"
+    assert alerts[0].context["appointment_id"] == str(appointment.appointment_id)

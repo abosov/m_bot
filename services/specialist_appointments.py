@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import timezone
 from typing import Literal
@@ -9,13 +10,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Appointment, AppointmentCalendarLink, SpecialistCalendarSettings
+from services.alerting import AlertEvent, notify_admin
 from services.appointment_state_guard import (
     InvalidAppointmentTransitionError,
     approve_by_specialist,
     reject_by_specialist,
 )
 from services.google_calendar import GoogleCalendarError, delete_appointment_event
+from services.log_context import log_event
 from services.outbox import emit_domain_event
+
+
+logger = logging.getLogger(__name__)
 
 
 ConfirmBySpecialistStatus = Literal["ok", "updated", "already_processed", "invalid_state", "not_found"]
@@ -45,14 +51,44 @@ async def confirm_by_specialist(
         )
         appointment = result.scalar_one_or_none()
         if appointment is None or str(appointment.specialist_id) != str(specialist_id):
+            log_event(
+                logger,
+                logging.INFO,
+                event="specialist_appointment_decision",
+                appointment_id=str(appointment_id),
+                specialist_id=str(specialist_id),
+                client_id="unknown",
+                action="confirm",
+                result="not_found",
+            )
             return SpecialistAppointmentConfirmationResult(status="not_found", appointment=None)
 
         try:
             transition_result = approve_by_specialist(appointment, specialist_id)
         except InvalidAppointmentTransitionError:
+            log_event(
+                logger,
+                logging.INFO,
+                event="specialist_appointment_decision",
+                appointment_id=str(appointment.appointment_id),
+                specialist_id=str(appointment.specialist_id),
+                client_id=str(appointment.client_id),
+                action="confirm",
+                result="invalid_state",
+            )
             return SpecialistAppointmentConfirmationResult(status="invalid_state", appointment=appointment)
 
         if transition_result == "already_processed":
+            log_event(
+                logger,
+                logging.INFO,
+                event="specialist_appointment_decision",
+                appointment_id=str(appointment.appointment_id),
+                specialist_id=str(appointment.specialist_id),
+                client_id=str(appointment.client_id),
+                action="confirm",
+                result="already_processed",
+            )
             return SpecialistAppointmentConfirmationResult(status="already_processed", appointment=appointment)
 
         await emit_domain_event(
@@ -65,6 +101,17 @@ async def confirm_by_specialist(
                 "start_at_utc": appointment.start_at_utc.astimezone(timezone.utc).isoformat(),
                 "end_at_utc": appointment.end_at_utc.astimezone(timezone.utc).isoformat(),
             },
+        )
+
+        log_event(
+            logger,
+            logging.INFO,
+            event="specialist_appointment_decision",
+            appointment_id=str(appointment.appointment_id),
+            specialist_id=str(appointment.specialist_id),
+            client_id=str(appointment.client_id),
+            action="confirm",
+            result="ok",
         )
 
     return SpecialistAppointmentConfirmationResult(status="ok", appointment=appointment)
@@ -98,10 +145,30 @@ async def reject_appointment_by_specialist(
         )
         appointment = result.scalar_one_or_none()
         if appointment is None or str(appointment.specialist_id) != str(specialist_id):
+            log_event(
+                logger,
+                logging.INFO,
+                event="specialist_appointment_decision",
+                appointment_id=str(appointment_id),
+                specialist_id=str(specialist_id),
+                client_id="unknown",
+                action="reject",
+                result="not_found",
+            )
             return SpecialistAppointmentConfirmationResult(status="not_found", appointment=None)
 
         result = reject_by_specialist(appointment, specialist_id, rejection_reason=rejection_reason)
         if result == "already_processed":
+            log_event(
+                logger,
+                logging.INFO,
+                event="specialist_appointment_decision",
+                appointment_id=str(appointment.appointment_id),
+                specialist_id=str(appointment.specialist_id),
+                client_id=str(appointment.client_id),
+                action="reject",
+                result="already_processed",
+            )
             return SpecialistAppointmentConfirmationResult(status="already_processed", appointment=appointment)
 
         event_identifiers = await _resolve_google_event_identifiers(
@@ -121,6 +188,32 @@ async def reject_appointment_by_specialist(
             except GoogleCalendarError as exc:
                 # 404 => already deleted in Google Calendar, treat as idempotent success.
                 if "status 404" not in str(exc).lower() and "not found" not in str(exc).lower():
+                    log_event(
+                        logger,
+                        logging.ERROR,
+                        event="specialist_appointment_decision",
+                        appointment_id=str(appointment.appointment_id),
+                        specialist_id=str(appointment.specialist_id),
+                        client_id=str(appointment.client_id),
+                        action="reject",
+                        result="google_delete_failed",
+                        error=str(exc),
+                    )
+                    await notify_admin(
+                        AlertEvent(
+                            title="Google Calendar delete failed",
+                            where="services.specialist_appointments.reject_appointment_by_specialist",
+                            error=exc.__class__.__name__,
+                            message=str(exc),
+                            context={
+                                "appointment_id": str(appointment.appointment_id),
+                                "specialist_id": str(appointment.specialist_id),
+                                "client_id": str(appointment.client_id),
+                                "action": "reject",
+                                "result": "google_delete_failed",
+                            },
+                        )
+                    )
                     raise SpecialistAppointmentRejectCalendarDeleteError(
                         "failed to delete appointment Google Calendar event"
                     ) from exc
@@ -139,6 +232,17 @@ async def reject_appointment_by_specialist(
             session,
             "appointment_rejected_by_specialist",
             payload,
+        )
+
+        log_event(
+            logger,
+            logging.INFO,
+            event="specialist_appointment_decision",
+            appointment_id=str(appointment.appointment_id),
+            specialist_id=str(appointment.specialist_id),
+            client_id=str(appointment.client_id),
+            action="reject",
+            result="updated",
         )
 
     return SpecialistAppointmentConfirmationResult(status="updated", appointment=appointment)
