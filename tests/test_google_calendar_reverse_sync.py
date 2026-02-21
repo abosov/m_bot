@@ -161,6 +161,74 @@ async def test_reverse_sync_ignores_events_without_zumbot_appointment_id(monkeyp
     assert session.committed is True
 
 
+@pytest.mark.asyncio
+async def test_reverse_sync_rejected_appointment_not_found_does_not_create_link(monkeypatch):
+    specialist_id = uuid.uuid4()
+    calendar_id = "primary"
+    missing_appointment_id = uuid.uuid4()
+
+    class Session:
+        def __init__(self):
+            self.sync_state = CalendarSyncState(
+                specialist_id=specialist_id,
+                calendar_id=calendar_id,
+                sync_token=None,
+                error_count=0,
+            )
+            self.links = {}
+            self.added = []
+            self.committed = False
+
+        async def get(self, model, key):
+            if model.__name__ == "CalendarSyncState":
+                return self.sync_state
+            if model.__name__ == "AppointmentCalendarLink":
+                return self.links.get(key)
+            return None
+
+        def add(self, obj):
+            self.added.append(obj)
+
+        async def commit(self):
+            self.committed = True
+
+    session = Session()
+
+    async def fake_headers(_specialist_id):
+        return {"Authorization": "Bearer x"}
+
+    async def fake_request(_request_callable, _url, *, method_name, timeout=10, **kwargs):
+        assert method_name == "GET"
+        return _Response(
+            200,
+            {
+                "items": [
+                    {
+                        "id": "evt-missing-appointment",
+                        "etag": '"etag-1"',
+                        "updated": datetime.now(timezone.utc).isoformat(),
+                        "extendedProperties": {
+                            "private": {
+                                "zumbot_appointment_id": str(missing_appointment_id),
+                            }
+                        },
+                    }
+                ],
+                "nextSyncToken": "sync-2",
+            },
+        )
+
+    monkeypatch.setattr(google_calendar, "_build_headers", fake_headers)
+    monkeypatch.setattr(google_calendar, "_calendar_request_with_retry", fake_request)
+    monkeypatch.setattr(google_calendar_reverse_sync, "async_session_factory", lambda: _DummySessionCtx(session))
+
+    await google_calendar_reverse_sync.run_calendar_reverse_sync(specialist_id, calendar_id)
+
+    assert session.sync_state.sync_token == "sync-2"
+    assert session.committed is True
+    assert session.added == []
+
+
 class _ScalarResult:
     def __init__(self, value):
         self._value = value

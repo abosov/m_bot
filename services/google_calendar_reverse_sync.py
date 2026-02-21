@@ -307,14 +307,18 @@ async def run_calendar_reverse_sync(specialist_id: uuid.UUID, calendar_id: str) 
 
                 reconcile_result = await reconcile_event_to_appointment(event, specialist_id, calendar_id)
 
-                if reconcile_result.result == ReconcileOutcome.REJECTED and reconcile_result.reason == "inactive_booking_state":
+                if reconcile_result.result == ReconcileOutcome.REJECTED:
                     logger.info(
-                        "event=google_calendar_reverse_sync_skip_inactive specialist_id=%s calendar_id=%s google_event_id=%s appointment_id=%s",
+                        "event=google_calendar_reverse_sync_rejected specialist_id=%s calendar_id=%s google_event_id=%s appointment_id=%s reason=%s",
                         specialist_id,
                         calendar_id,
                         google_event_id,
                         appointment_id,
+                        reconcile_result.reason,
                     )
+                    continue
+
+                if reconcile_result.result not in {ReconcileOutcome.UPDATED, ReconcileOutcome.NOOP}:
                     continue
 
                 if link is None:
