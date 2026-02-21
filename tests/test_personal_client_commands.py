@@ -1087,7 +1087,7 @@ async def test_client_pick_interval_shows_gmt_in_header(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_client_pick_slot_creates_confirmed_appointment_and_returns_menu(monkeypatch):
+async def test_client_pick_slot_creates_pending_appointment_and_returns_menu(monkeypatch):
     state = DummyState()
     message = DummyMessage("")
 
@@ -1143,13 +1143,17 @@ async def test_client_pick_slot_creates_confirmed_appointment_and_returns_menu(m
 
     monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
     monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    async def _validate_ok(**_kwargs):
+        return None
+
+    monkeypatch.setattr(client_commands, "_validate_min_hours_policy", _validate_ok)
 
     await client_commands.client_pick_slot(callback, state=state, specialist_id="sp-id")
 
     assert session.commits == 1
     assert len(session.added) == 1
     appointment = session.added[0]
-    assert appointment.booking_state == client_commands.BookingState.confirmed
+    assert appointment.booking_state == client_commands.BookingState.pending
     assert appointment.start_at_utc == datetime(2026, 2, 21, 12, 0, tzinfo=timezone.utc)
     assert appointment.end_at_utc == datetime(2026, 2, 21, 12, 45, tzinfo=timezone.utc)
     assert appointment.gcal_event_id is None
@@ -1159,7 +1163,7 @@ async def test_client_pick_slot_creates_confirmed_appointment_and_returns_menu(m
 
 
 @pytest.mark.asyncio
-async def test_client_pick_slot_logs_google_error_and_keeps_confirmed(monkeypatch):
+async def test_client_pick_slot_logs_google_error_and_sets_failed(monkeypatch):
     state = DummyState()
     message = DummyMessage("")
 
@@ -1241,15 +1245,20 @@ async def test_client_pick_slot_logs_google_error_and_keeps_confirmed(monkeypatc
 
     monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
     monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    async def _validate_ok(**_kwargs):
+        return None
+
+    monkeypatch.setattr(client_commands, "_validate_min_hours_policy", _validate_ok)
     monkeypatch.setattr(client_commands, "create_appointment_event", _raise_google_error)
     monkeypatch.setattr(client_commands.logger, "exception", _logger_exception)
 
     await client_commands.client_pick_slot(callback, state=state, specialist_id="sp-id")
 
-    assert session.commits == 1
+    assert session.commits == 2
     appointment = session.added[0]
-    assert appointment.booking_state == client_commands.BookingState.confirmed
+    assert appointment.booking_state == client_commands.BookingState.failed
     assert appointment.gcal_event_id is None
+    assert appointment.failure_message == "google_error"
     assert logged["called"] is True
 
 
@@ -1323,6 +1332,10 @@ async def test_client_pick_slot_passes_client_tg_user_id_and_client_code_to_goog
 
     monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
     monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    async def _validate_ok(**_kwargs):
+        return None
+
+    monkeypatch.setattr(client_commands, "_validate_min_hours_policy", _validate_ok)
     monkeypatch.setattr(client_commands, "create_appointment_event", _create_event_stub)
 
     await client_commands.client_pick_slot(callback, state=state, specialist_id="sp-id")

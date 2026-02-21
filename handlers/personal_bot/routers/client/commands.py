@@ -34,6 +34,11 @@ from services.booking_policy import validate_min_hours_before_start
 from services.google_calendar import create_appointment_event
 from services.google_calendar import delete_appointment_event
 from services.google_calendar import update_appointment_event
+from services.appointment_state_guard import (
+    InvalidAppointmentTransitionError,
+    mark_google_create_failed,
+    mark_google_create_succeeded,
+)
 from services.outbox import emit_domain_event as emit_outbox_domain_event
 from services.session_datetime import format_session_datetime
 
@@ -231,7 +236,15 @@ async def _is_day_limit_reached(*, specialist_id, day_local: date, specialist_tz
                 .where(Appointment.specialist_id == specialist_id)
                 .where(Appointment.start_at_utc >= start_utc)
                 .where(Appointment.start_at_utc < end_utc)
-                .where(Appointment.booking_state.in_((BookingState.confirmed, BookingState.pending)))
+                .where(
+                    Appointment.booking_state.in_(
+                        (
+                            BookingState.confirmed,
+                            BookingState.pending,
+                            BookingState.awaiting_specialist_confirmation,
+                        )
+                    )
+                )
             )
         ).scalar_one()
 
@@ -743,7 +756,7 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
             client_id=client.client_id,
             start_at_utc=slot_start_utc,
             end_at_utc=slot_end_utc,
-            booking_state=BookingState.confirmed,
+            booking_state=BookingState.pending,
             idempotency_key=f"tg:{specialist_id}:{client.client_id}:{slot_start_utc.isoformat()}",
         )
         session.add(appointment)
@@ -795,8 +808,14 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
                         "appointment_id": str(appointment.appointment_id),
                     },
                 )
+                mark_google_create_failed(appointment, specialist_id=specialist_id)
+                await session.commit()
             else:
-                appointment.gcal_event_id = event.get("id")
+                mark_google_create_succeeded(
+                    appointment,
+                    specialist_id=specialist_id,
+                    google_event_id=event.get("id"),
+                )
                 await emit_outbox_domain_event(
                     session,
                     event_type="appointment_booked",
@@ -945,14 +964,16 @@ async def client_my_appointments_retry_last(callback, specialist_id) -> None:
                     client_code=client.client_code,
                 )
         except Exception:
-            appointment.booking_state = BookingState.failed
-            appointment.failure_message = "google_error"
+            mark_google_create_failed(appointment, specialist_id=specialist_id)
             await session.commit()
             if callback.message is not None:
                 await callback.message.answer("Не удалось подтвердить запись. Попробуйте позже.")
         else:
-            appointment.gcal_event_id = event.get("id")
-            appointment.booking_state = BookingState.confirmed
+            mark_google_create_succeeded(
+                appointment,
+                specialist_id=specialist_id,
+                google_event_id=event.get("id"),
+            )
             try:
                 await _upsert_appointment_calendar_link(
                     session=session,
@@ -1170,7 +1191,13 @@ async def client_appointment_cancel_confirm(callback, specialist_id) -> None:
             await callback.answer()
             return
 
-        appointment.booking_state = BookingState.canceled_by_client
+        try:
+            if appointment.booking_state != BookingState.confirmed:
+                raise InvalidAppointmentTransitionError("client cancellation requires confirmed state")
+            appointment.booking_state = BookingState.canceled_by_client
+        except InvalidAppointmentTransitionError:
+            await callback.answer("Отмена доступна только для подтверждённой записи.", show_alert=True)
+            return
 
         settings = await session.get(SpecialistCalendarSettings, specialist_id)
         calendar_id = settings.calendar_id if settings is not None else None
