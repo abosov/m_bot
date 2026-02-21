@@ -49,12 +49,15 @@ class DummyResult:
         return DummyScalarRows(self._rows)
 
 
-def test_register_outbox_handlers_includes_appointment_booked():
+def test_register_outbox_handlers_include_specialist_confirmation_events():
     handlers = {}
 
     outbox_notifications.register_outbox_handlers(handlers)
 
     assert handlers["appointment_booked"] is outbox_notifications._handle_appointment_booked
+    assert handlers["appointment_needs_confirmation"] is outbox_notifications._handle_appointment_booked
+    assert handlers["appointment_confirmed_by_specialist"] is outbox_notifications._handle_appointment_confirmed_by_specialist
+    assert handlers["appointment_rejected_by_specialist"] is outbox_notifications._handle_appointment_rejected_by_specialist
 
 
 @pytest.mark.asyncio
@@ -366,6 +369,7 @@ async def test_cancelled_by_client_handler_sends_specialist_without_appointment_
             "specialist_id": str(specialist_id),
             "client_id": str(client_id),
             "start_at_utc": "2026-01-02T11:00:00+00:00",
+            "end_at_utc": "2026-01-02T12:00:00+00:00",
         },
     )
 
@@ -431,6 +435,7 @@ async def test_booked_handler_sends_specialist_with_username_link(monkeypatch):
             "specialist_id": str(specialist_id),
             "client_id": str(client_id),
             "start_at_utc": "2026-01-02T11:00:00+00:00",
+            "end_at_utc": "2026-01-02T12:00:00+00:00",
         },
     )
 
@@ -500,6 +505,7 @@ async def test_booked_handler_sends_specialist_with_deeplink_when_no_username(mo
             "specialist_id": str(specialist_id),
             "client_id": str(client_id),
             "start_at_utc": "2026-01-02T11:00:00+00:00",
+            "end_at_utc": "2026-01-02T12:00:00+00:00",
         },
     )
 
@@ -553,3 +559,104 @@ async def test_booked_handler_sends_specialist_with_deeplink_when_no_username(mo
     assert "tg://user?id=123456789" in sent[0][1]
     assert "appointment_id" not in sent[0][1]
     assert str(appointment_id) not in sent[0][1]
+
+
+@pytest.mark.asyncio
+async def test_confirmed_by_specialist_handler_sends_client(monkeypatch):
+    specialist_id = uuid.uuid4()
+    client_id = uuid.uuid4()
+
+    event = OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="appointment_confirmed_by_specialist",
+        payload_json={
+            "appointment_id": str(uuid.uuid4()),
+            "specialist_id": str(specialist_id),
+            "client_id": str(client_id),
+            "start_at_utc": "2026-01-02T11:00:00+00:00",
+            "end_at_utc": "2026-01-02T12:00:00+00:00",
+        },
+    )
+
+    client = Client(
+        client_id=client_id,
+        specialist_id=specialist_id,
+        tg_user_id=111,
+        client_code="C-1",
+        client_timezone="UTC",
+        timezone_source="default_from_specialist",
+    )
+
+    class Session:
+        async def get(self, model, key):
+            if model is Client and key == client_id:
+                return client
+            return None
+
+    sent = []
+
+    async def fake_send_client_message(_session, **kwargs):
+        sent.append((kwargs["client"].tg_user_id, kwargs["text"]))
+
+    async def fake_load_personal_bot(*_args, **_kwargs):
+        return SimpleNamespace()
+
+    monkeypatch.setattr(outbox_notifications, "_load_personal_bot", fake_load_personal_bot)
+    monkeypatch.setattr(outbox_notifications, "_send_client_message", fake_send_client_message)
+
+    await outbox_notifications._handle_appointment_confirmed_by_specialist(Session(), event)
+
+    assert sent[0][0] == 111
+    assert "Специалист подтвердил запись." in sent[0][1]
+    assert "Время: 2026-01-02 Пт [11:00]" in sent[0][1]
+
+
+@pytest.mark.asyncio
+async def test_rejected_by_specialist_handler_includes_rejection_reason(monkeypatch):
+    specialist_id = uuid.uuid4()
+    client_id = uuid.uuid4()
+
+    event = OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="appointment_rejected_by_specialist",
+        payload_json={
+            "appointment_id": str(uuid.uuid4()),
+            "specialist_id": str(specialist_id),
+            "client_id": str(client_id),
+            "start_at_utc": "2026-01-02T11:00:00+00:00",
+            "end_at_utc": "2026-01-02T12:00:00+00:00",
+            "rejection_reason": "Не могу в это время",
+        },
+    )
+
+    client = Client(
+        client_id=client_id,
+        specialist_id=specialist_id,
+        tg_user_id=111,
+        client_code="C-1",
+        client_timezone="UTC",
+        timezone_source="default_from_specialist",
+    )
+
+    class Session:
+        async def get(self, model, key):
+            if model is Client and key == client_id:
+                return client
+            return None
+
+    sent = []
+
+    async def fake_send_client_message(_session, **kwargs):
+        sent.append((kwargs["client"].tg_user_id, kwargs["text"]))
+
+    async def fake_load_personal_bot(*_args, **_kwargs):
+        return SimpleNamespace()
+
+    monkeypatch.setattr(outbox_notifications, "_load_personal_bot", fake_load_personal_bot)
+    monkeypatch.setattr(outbox_notifications, "_send_client_message", fake_send_client_message)
+
+    await outbox_notifications._handle_appointment_rejected_by_specialist(Session(), event)
+
+    assert sent[0][0] == 111
+    assert "Специалист отклонил запись." in sent[0][1]
+    assert "Причина: Не могу в это время" in sent[0][1]

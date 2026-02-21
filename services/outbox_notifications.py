@@ -124,6 +124,7 @@ async def _handle_appointment_booked(session: AsyncSession, event: OutboxEvent) 
     specialist_id = _parse_uuid(payload, "specialist_id")
     client_id = _parse_uuid(payload, "client_id")
     start_at_utc = _parse_dt(payload, "start_at_utc")
+    _parse_dt(payload, "end_at_utc")
 
     client = await session.get(Client, client_id)
     specialist_profile = await session.get(SpecialistProfile, specialist_id)
@@ -143,6 +144,60 @@ async def _handle_appointment_booked(session: AsyncSession, event: OutboxEvent) 
         bot=personal_bot_row,
         specialist_tg_user_id=specialist_profile.owner_tg_user_id,
         text=specialist_text,
+    )
+
+
+async def _handle_appointment_confirmed_by_specialist(session: AsyncSession, event: OutboxEvent) -> None:
+    payload = event.payload_json or {}
+    _parse_uuid(payload, "appointment_id")
+    specialist_id = _parse_uuid(payload, "specialist_id")
+    client_id = _parse_uuid(payload, "client_id")
+    start_at_utc = _parse_dt(payload, "start_at_utc")
+    _parse_dt(payload, "end_at_utc")
+
+    client = await session.get(Client, client_id)
+    personal_bot_row = await _load_personal_bot(session, specialist_id)
+    if client is None or personal_bot_row is None:
+        raise ValueError("missing recipient for specialist confirmation notification")
+
+    client_start = _format_dt_for_client(start_at_utc, client.client_timezone)
+    client_text = f"Специалист подтвердил запись.\nВремя: {client_start}"
+    await _send_client_message(
+        session,
+        outbox_event=event,
+        bot=personal_bot_row,
+        client=client,
+        text=client_text,
+    )
+
+
+async def _handle_appointment_rejected_by_specialist(session: AsyncSession, event: OutboxEvent) -> None:
+    payload = event.payload_json or {}
+    _parse_uuid(payload, "appointment_id")
+    specialist_id = _parse_uuid(payload, "specialist_id")
+    client_id = _parse_uuid(payload, "client_id")
+    start_at_utc = _parse_dt(payload, "start_at_utc")
+    _parse_dt(payload, "end_at_utc")
+
+    rejection_reason = payload.get("rejection_reason")
+    if rejection_reason is not None:
+        rejection_reason = str(rejection_reason).strip() or None
+
+    client = await session.get(Client, client_id)
+    personal_bot_row = await _load_personal_bot(session, specialist_id)
+    if client is None or personal_bot_row is None:
+        raise ValueError("missing recipient for specialist rejection notification")
+
+    client_start = _format_dt_for_client(start_at_utc, client.client_timezone)
+    client_text = f"Специалист отклонил запись.\nВремя: {client_start}"
+    if rejection_reason:
+        client_text += f"\nПричина: {rejection_reason}"
+    await _send_client_message(
+        session,
+        outbox_event=event,
+        bot=personal_bot_row,
+        client=client,
+        text=client_text,
     )
 
 
@@ -261,6 +316,9 @@ from typing import Callable, Awaitable
 
 def register_outbox_handlers(handlers: dict[str, Callable[[AsyncSession, OutboxEvent], Awaitable[None]]]) -> None:
     handlers["appointment_booked"] = _handle_appointment_booked
+    handlers["appointment_needs_confirmation"] = _handle_appointment_booked
+    handlers["appointment_confirmed_by_specialist"] = _handle_appointment_confirmed_by_specialist
+    handlers["appointment_rejected_by_specialist"] = _handle_appointment_rejected_by_specialist
     handlers["appointment_rescheduled"] = _handle_appointment_rescheduled
     handlers["appointment_cancelled_by_client"] = _handle_appointment_cancelled_by_client
     handlers["appointment_cancelled_by_specialist_calendar"] = _handle_appointment_cancelled_by_specialist_calendar

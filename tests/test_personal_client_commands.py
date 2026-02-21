@@ -1346,7 +1346,7 @@ async def test_client_pick_slot_passes_client_tg_user_id_and_client_code_to_goog
     outbox_events = [obj for obj in session.added if isinstance(obj, OutboxEvent)]
     assert len(outbox_events) == 1
     event = outbox_events[0]
-    assert event.event_type == "appointment_booked"
+    assert event.event_type == "appointment_needs_confirmation"
     assert event.payload_json == {
         "appointment_id": str(session.added[0].appointment_id),
         "specialist_id": "sp-id",

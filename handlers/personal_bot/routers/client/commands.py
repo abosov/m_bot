@@ -831,7 +831,7 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
                 )
                 await emit_outbox_domain_event(
                     session,
-                    event_type="appointment_booked",
+                    event_type="appointment_needs_confirmation",
                     payload={
                         "appointment_id": str(appointment.appointment_id),
                         "specialist_id": str(appointment.specialist_id),
@@ -989,6 +989,17 @@ async def client_my_appointments_retry_last(callback, specialist_id) -> None:
                 appointment,
                 specialist_id=specialist_id,
                 google_event_id=event.get("id"),
+            )
+            await emit_outbox_domain_event(
+                session,
+                event_type="appointment_needs_confirmation",
+                payload={
+                    "appointment_id": str(appointment.appointment_id),
+                    "specialist_id": str(appointment.specialist_id),
+                    "client_id": str(appointment.client_id),
+                    "start_at_utc": appointment.start_at_utc.isoformat(),
+                    "end_at_utc": appointment.end_at_utc.isoformat(),
+                },
             )
             try:
                 await _upsert_appointment_calendar_link(
