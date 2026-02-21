@@ -1,19 +1,87 @@
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from database import (
+    Appointment,
+    BookingState,
+    Client,
     GoogleOAuthStatus,
     Specialist,
+    SpecialistProfile,
     TelegramBot,
     TelegramBotStatus,
     async_session_factory,
 )
 from services.telegram.markdown_utils import escape_markdown_v2
+from services.session_datetime import format_session_datetime
 
 router = Router(name="personal_bot_specialist_commands")
+
+
+def _specialist_status_text(state: BookingState) -> str:
+    mapping = {
+        BookingState.awaiting_specialist_confirmation: "Ожидает вашего подтверждения",
+        BookingState.rejected_by_specialist: "Отклонено",
+        BookingState.confirmed: "Подтверждена",
+    }
+    return mapping.get(state, str(state.value if hasattr(state, "value") else state))
+
+
+def _specialist_appointments_keyboard(appointments: list[Appointment]) -> InlineKeyboardMarkup | None:
+    rows: list[list[InlineKeyboardButton]] = []
+    for appointment in appointments:
+        if appointment.booking_state != BookingState.awaiting_specialist_confirmation:
+            continue
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="✅ Подтвердить",
+                    callback_data=f"sp_appt_decision:confirm:{appointment.appointment_id}",
+                ),
+                InlineKeyboardButton(
+                    text="❌ Отклонить",
+                    callback_data=f"sp_appt_decision:reject:{appointment.appointment_id}",
+                ),
+            ]
+        )
+
+    if not rows:
+        return None
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _load_specialist_appointments(specialist_id):
+    now_utc = datetime.now(timezone.utc)
+    async with async_session_factory() as session:
+        profile = await session.get(SpecialistProfile, specialist_id)
+        appointments = (
+            await session.execute(
+                select(Appointment, Client)
+                .join(Client, Client.client_id == Appointment.client_id)
+                .where(Appointment.specialist_id == specialist_id)
+                .where(Appointment.start_at_utc >= now_utc)
+                .where(
+                    Appointment.booking_state.in_(
+                        (
+                            BookingState.awaiting_specialist_confirmation,
+                            BookingState.rejected_by_specialist,
+                            BookingState.confirmed,
+                        )
+                    )
+                )
+                .order_by(Appointment.start_at_utc.asc())
+                .limit(10)
+            )
+        ).all()
+
+    return profile, appointments
 
 
 def _status_to_text(value) -> str:
@@ -55,8 +123,41 @@ async def personal_help(message: Message) -> None:
         "Команды специалиста:\n"
         "• /start — панель специалиста\n"
         "• /status — статус профиля и интеграций\n"
+        "• /appointments — мои записи\n"
         "• /help — эта справка\n\n"
         "В разработке: управление расписанием, клиентские записи и напоминания."
+    )
+
+
+@router.message(Command("appointments"))
+@router.message(F.text == "Мои записи")
+async def specialist_my_appointments(message: Message, specialist_id, actor: str) -> None:
+    if actor != "specialist":
+        return
+
+    profile, appointment_rows = await _load_specialist_appointments(specialist_id)
+    if not appointment_rows:
+        await message.answer("У вас пока нет будущих записей.")
+        return
+
+    tz_name = profile.specialist_timezone if profile and profile.specialist_timezone else "UTC"
+    try:
+        specialist_tz = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        specialist_tz = ZoneInfo("UTC")
+
+    lines = ["Мои записи:"]
+    appointments: list[Appointment] = []
+    for appointment, client in appointment_rows:
+        appointments.append(appointment)
+        start_label = format_session_datetime(appointment.start_at_utc, specialist_tz)
+        client_name = (client.display_name or client.tg_username or "Клиент").strip()
+        status = _specialist_status_text(appointment.booking_state)
+        lines.append(f"{start_label} — {client_name} — {status}")
+
+    await message.answer(
+        "\n".join(lines),
+        reply_markup=_specialist_appointments_keyboard(appointments),
     )
 
 
