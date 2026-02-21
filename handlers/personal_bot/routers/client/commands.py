@@ -320,6 +320,15 @@ def _format_gmt_offset_label(tz: ZoneInfo, *, on_date: date | None = None) -> st
     return f"UTC{sign}{hours:02d}:{minutes:02d}"
 
 
+def _format_session_datetime_without_brackets(dt: datetime, tz: ZoneInfo) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    local_dt = dt.astimezone(tz)
+    weekday_short = RU_WEEKDAY_SHORT[local_dt.weekday()]
+    return f"{local_dt:%Y-%m-%d} {weekday_short} {local_dt:%H:%M}"
+
+
 def _first_available_day(*, now_utc: datetime, specialist_tz: ZoneInfo, min_hours: int) -> date:
     first_allowed = now_utc + timedelta(hours=min_hours)
     return first_allowed.astimezone(specialist_tz).date()
@@ -794,6 +803,28 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
 
         slot_start_utc = slot_start_local.astimezone(timezone.utc)
         slot_end_utc = slot_start_utc + timedelta(minutes=session_duration_min)
+
+        existing_rejected_appointment = (
+            await session.execute(
+                select(Appointment)
+                .where(Appointment.specialist_id == specialist_id)
+                .where(Appointment.start_at_utc == slot_start_utc)
+                .where(Appointment.booking_state == BookingState.rejected_by_specialist)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if existing_rejected_appointment is not None:
+            await state.clear()
+            blocked_slot_text = _format_session_datetime_without_brackets(slot_start_utc, client_tz)
+            await callback.message.answer(
+                "Вы уже запрашивали запись на это время.\n\n"
+                f"Дата и время: {blocked_slot_text}\n\n"
+                "Специалист ранее отклонил этот запрос.\n"
+                "Пожалуйста, выберите другое время.",
+                reply_markup=_client_menu_keyboard(),
+            )
+            await callback.answer()
+            return
 
         try:
             await _validate_min_hours_policy(specialist_id=specialist_id, target_start_utc=slot_start_utc)

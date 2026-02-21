@@ -1190,17 +1190,23 @@ async def test_client_pick_slot_creates_pending_appointment_and_returns_menu(mon
     callback.answer = _callback_answer
 
     class _Result:
-        @staticmethod
-        def scalar_one_or_none():
-            return types.SimpleNamespace(client_id="cl-1", client_timezone="UTC")
+        def __init__(self, value):
+            self._value = value
+
+        def scalar_one_or_none(self):
+            return self._value
 
     class _Session:
         def __init__(self):
             self.added = []
             self.commits = 0
+            self._execute_calls = 0
 
         async def execute(self, _stmt):
-            return _Result()
+            self._execute_calls += 1
+            if self._execute_calls <= 2:
+                return _Result(types.SimpleNamespace(client_id="cl-1", client_timezone="UTC"))
+            return _Result(None)
 
         async def get(self, model, _pk):
             if model is client_commands.SpecialistProfile:
@@ -1244,6 +1250,88 @@ async def test_client_pick_slot_creates_pending_appointment_and_returns_menu(mon
     assert appointment.end_at_utc == datetime(2026, 2, 21, 12, 45, tzinfo=timezone.utc)
     assert appointment.gcal_event_id is None
     assert message.answers[0][0] == "Заявка отправлена специалисту, ожидает подтверждения\n\n2026-02-21 Сб [12:00]"
+    assert message.answers[0][1].get("reply_markup") is not None
+    assert len(callback.answers) == 1
+
+
+@pytest.mark.asyncio
+async def test_client_pick_slot_does_not_create_duplicate_for_rejected_slot(monkeypatch):
+    state = DummyState()
+    message = DummyMessage("")
+
+    callback = types.SimpleNamespace(
+        data="client_book_slot:2026-02-27T14:00:00",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    class _Result:
+        def __init__(self, value):
+            self._value = value
+
+        def scalar_one_or_none(self):
+            return self._value
+
+    class _Session:
+        def __init__(self):
+            self.added = []
+            self.commits = 0
+            self._execute_calls = 0
+
+        async def execute(self, _stmt):
+            self._execute_calls += 1
+            if self._execute_calls == 1:
+                return _Result(types.SimpleNamespace(client_timezone="UTC"))
+            if self._execute_calls == 2:
+                return _Result(types.SimpleNamespace(client_id="cl-1", client_timezone="UTC"))
+            if self._execute_calls == 3:
+                return _Result(types.SimpleNamespace(booking_state=client_commands.BookingState.rejected_by_specialist))
+            return _Result(None)
+
+        async def get(self, model, _pk):
+            if model is client_commands.SpecialistProfile:
+                return types.SimpleNamespace(session_duration_min=45, specialist_timezone="UTC")
+            if model is client_commands.SpecialistCalendarSettings:
+                return None
+            return None
+
+        def add(self, obj):
+            self.added.append(obj)
+
+        async def commit(self):
+            self.commits += 1
+
+    session = _Session()
+
+    class _Ctx:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+
+    await client_commands.client_pick_slot(callback, state=state, specialist_id="sp-id")
+
+    assert session.commits == 0
+    assert session.added == []
+    assert message.answers[0][0] == (
+        "Вы уже запрашивали запись на это время.\n\n"
+        "Дата и время: 2026-02-27 Пт 14:00\n\n"
+        "Специалист ранее отклонил этот запрос.\n"
+        "Пожалуйста, выберите другое время."
+    )
     assert message.answers[0][1].get("reply_markup") is not None
     assert len(callback.answers) == 1
 
