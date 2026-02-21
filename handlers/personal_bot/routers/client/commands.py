@@ -268,6 +268,40 @@ async def _get_client_tz(*, specialist_id, tg_user_id) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
+async def _ensure_client_exists(*, session, specialist_id, tg_user) -> Client:
+    client = (
+        await session.execute(
+            select(Client)
+            .where(Client.specialist_id == specialist_id)
+            .where(Client.tg_user_id == tg_user.id)
+        )
+    ).scalar_one_or_none()
+    if client is not None:
+        return client
+
+    profile = await session.get(SpecialistProfile, specialist_id)
+    specialist_timezone = profile.specialist_timezone if profile and profile.specialist_timezone else "UTC"
+
+    display_name = getattr(tg_user, "full_name", None)
+    if not display_name:
+        first_name = getattr(tg_user, "first_name", None)
+        last_name = getattr(tg_user, "last_name", None)
+        display_name = " ".join(part for part in [first_name, last_name] if part).strip() or "Клиент"
+
+    client = Client(
+        specialist_id=specialist_id,
+        tg_user_id=tg_user.id,
+        tg_username=getattr(tg_user, "username", None),
+        display_name=display_name,
+        client_code=f"tg-{tg_user.id}",
+        client_timezone=specialist_timezone,
+        timezone_source=ClientTimezoneSource.default_from_specialist,
+    )
+    session.add(client)
+    await session.commit()
+    return client
+
+
 def _format_gmt_offset_label(tz: ZoneInfo, *, on_date: date | None = None) -> str:
     if on_date is None:
         local_dt = datetime.now(tz)
@@ -518,6 +552,10 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
     if actor != "client":
         return
 
+    if message.from_user is not None:
+        async with async_session_factory() as session:
+            await _ensure_client_exists(session=session, specialist_id=specialist_id, tg_user=message.from_user)
+
     specialist_tz = await _get_specialist_tz(specialist_id)
     min_hours = await _resolve_cancel_window_hours(specialist_id=specialist_id)
     first_day = _first_available_day(now_utc=datetime.now(timezone.utc), specialist_tz=specialist_tz, min_hours=min_hours)
@@ -574,6 +612,10 @@ async def client_pick_day(callback, state: FSMContext, specialist_id) -> None:
     if not (booking_day_meta.get(selected_iso) or {}).get("enabled", False):
         await callback.answer("День недоступен", show_alert=True)
         return
+
+    if callback.from_user is not None:
+        async with async_session_factory() as session:
+            await _ensure_client_exists(session=session, specialist_id=specialist_id, tg_user=callback.from_user)
 
     client_tz = (
         await _get_client_tz(specialist_id=specialist_id, tg_user_id=callback.from_user.id)
@@ -690,6 +732,10 @@ async def client_pick_interval(callback, state: FSMContext, specialist_id) -> No
     interval_start = time.fromisoformat(bounds["start"])
     interval_end = time.fromisoformat(bounds["end"])
     selected_day = date.fromisoformat(selected_iso)
+    if callback.from_user is not None:
+        async with async_session_factory() as session:
+            await _ensure_client_exists(session=session, specialist_id=specialist_id, tg_user=callback.from_user)
+
     client_tz = (
         await _get_client_tz(specialist_id=specialist_id, tg_user_id=callback.from_user.id)
         if callback.from_user is not None
@@ -741,16 +787,7 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
         slot_start_local = slot_start_local.replace(tzinfo=client_tz)
 
     async with async_session_factory() as session:
-        client = (
-            await session.execute(
-                select(Client)
-                .where(Client.specialist_id == specialist_id)
-                .where(Client.tg_user_id == callback.from_user.id)
-            )
-        ).scalar_one_or_none()
-        if client is None:
-            await callback.answer("Клиент не найден", show_alert=True)
-            return
+        client = await _ensure_client_exists(session=session, specialist_id=specialist_id, tg_user=callback.from_user)
 
         profile = await session.get(SpecialistProfile, specialist_id)
         session_duration_min = await _get_session_duration_min(specialist_id)

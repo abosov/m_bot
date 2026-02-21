@@ -67,10 +67,26 @@ class _Result:
 
 def _mock_client_tz_session_factory(*, timezone_name: str | None):
     class _Session:
+        def __init__(self):
+            self.created_client = None
+
         async def execute(self, _stmt):
+            if self.created_client is not None:
+                return _Result(self.created_client)
             if timezone_name is None:
                 return _Result(None)
             return _Result(types.SimpleNamespace(client_timezone=timezone_name))
+
+        async def get(self, model, _pk):
+            if model is client_commands.SpecialistProfile:
+                return types.SimpleNamespace(specialist_timezone="UTC")
+            return None
+
+        def add(self, obj):
+            self.created_client = obj
+
+        async def commit(self):
+            return None
 
     class _Ctx:
         async def __aenter__(self):
@@ -482,7 +498,7 @@ async def test_render_client_appointments_adds_open_button_for_confirmed(monkeyp
 
     text, kwargs = message.answers[0]
     assert "Ваши записи (UTC+0):" in text
-    assert "2026-02-18 Ср [10:45] — подтверждена" in text
+    assert "2026-02-18 Ср [10:45] — Подтверждена" in text
     markup = kwargs.get("reply_markup")
     buttons = [button for row in markup.inline_keyboard for button in row]
     assert [button.text for button in buttons] == ["Открыть 2026-02-18 Ср [10:45]", "Обновить"]
@@ -1084,6 +1100,76 @@ async def test_client_pick_interval_shows_gmt_in_header(monkeypatch):
     await client_commands.client_pick_interval(callback, state=state, specialist_id="sp-id")
 
     assert message.answers[0][0] == "Выберите слот (UTC+3):"
+
+
+@pytest.mark.asyncio
+async def test_client_pick_slot_autocreates_missing_client(monkeypatch):
+    state = DummyState()
+    message = DummyMessage("")
+
+    callback = types.SimpleNamespace(
+        data="client_book_slot:2026-02-21T12:00:00",
+        message=message,
+        from_user=types.SimpleNamespace(id=42, username="anna", full_name="Анна Тест"),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    class _Session:
+        def __init__(self):
+            self.added = []
+            self.commits = 0
+            self.client = None
+
+        async def execute(self, _stmt):
+            return _Result(self.client)
+
+        async def get(self, model, _pk):
+            if model is client_commands.SpecialistProfile:
+                return types.SimpleNamespace(session_duration_min=45, specialist_timezone="UTC")
+            if model is client_commands.SpecialistCalendarSettings:
+                return None
+            return None
+
+        def add(self, obj):
+            self.added.append(obj)
+            if isinstance(obj, client_commands.Client):
+                self.client = obj
+
+        async def commit(self):
+            self.commits += 1
+
+    session = _Session()
+
+    class _Ctx:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    async def _validate_ok(**_kwargs):
+        return None
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(client_commands, "_validate_min_hours_policy", _validate_ok)
+
+    await client_commands.client_pick_slot(callback, state=state, specialist_id="sp-id")
+
+    created_clients = [obj for obj in session.added if isinstance(obj, client_commands.Client)]
+    assert len(created_clients) == 1
+    assert created_clients[0].client_timezone == "UTC"
+    assert created_clients[0].timezone_source == client_commands.ClientTimezoneSource.default_from_specialist
+    assert created_clients[0].display_name == "Анна Тест"
+    assert all(args[0] != "Клиент не найден" for args, _kwargs in callback.answers if args)
 
 
 @pytest.mark.asyncio
