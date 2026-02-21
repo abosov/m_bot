@@ -219,6 +219,16 @@ async def reject_appointment_by_specialist(
                             },
                         )
                     )
+                    log_event(
+                        logger,
+                        logging.WARNING,
+                        event="specialist_appointment_decision",
+                        appointment_id=str(appointment.appointment_id),
+                        specialist_id=str(appointment.specialist_id),
+                        client_id=str(appointment.client_id),
+                        action="reject",
+                        result="google_delete_failed_but_rejected",
+                    )
 
         payload = {
             "appointment_id": str(appointment.appointment_id),

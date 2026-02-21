@@ -246,12 +246,13 @@ async def test_reject_appointment_by_specialist_continues_when_google_delete_fai
         raise specialist_appointments.GoogleCalendarError("Google Calendar API failed with status 500")
 
     alerts = []
+    emitted = []
 
     async def fake_notify(event):
         alerts.append(event)
 
-    async def fake_emit(*_args, **_kwargs):
-        return None
+    async def fake_emit(session, event_type, payload):
+        emitted.append((session, event_type, payload))
 
     monkeypatch.setattr(specialist_appointments, "delete_appointment_event", fake_delete)
     monkeypatch.setattr(specialist_appointments, "notify_admin", fake_notify)
@@ -267,6 +268,7 @@ async def test_reject_appointment_by_specialist_continues_when_google_delete_fai
     assert result.status == "updated"
     assert appointment.booking_state == BookingState.rejected_by_specialist
     assert appointment.gcal_event_id == "ev-1"
+    assert emitted[0][1] == "appointment_rejected_by_specialist"
     assert alerts
 
 
@@ -508,12 +510,13 @@ async def test_reject_appointment_by_specialist_sends_alert_on_google_delete_err
         raise specialist_appointments.GoogleCalendarError("Google Calendar API failed with status 500")
 
     alerts = []
+    emitted = []
 
     async def fake_notify(event):
         alerts.append(event)
 
-    async def fake_emit(*_args, **_kwargs):
-        return None
+    async def fake_emit(session, event_type, payload):
+        emitted.append((session, event_type, payload))
 
     monkeypatch.setattr(specialist_appointments, "delete_appointment_event", fake_delete)
     monkeypatch.setattr(specialist_appointments, "notify_admin", fake_notify)
