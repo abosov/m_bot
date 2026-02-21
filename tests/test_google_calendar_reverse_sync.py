@@ -460,3 +460,52 @@ async def test_reconcile_event_cancelled_noop_when_appointment_already_cancelled
     assert result.result == google_calendar_reverse_sync.ReconcileOutcome.NOOP
     assert appointment.booking_state == BookingState.canceled_by_specialist
     assert session.committed is False
+
+
+@pytest.mark.asyncio
+async def test_reconcile_event_rejected_for_rejected_appointment_state(monkeypatch):
+    specialist_id = uuid.uuid4()
+    appointment_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    appointment = Appointment(
+        appointment_id=appointment_id,
+        specialist_id=specialist_id,
+        client_id=uuid.uuid4(),
+        start_at_utc=now + timedelta(hours=30),
+        end_at_utc=now + timedelta(hours=31),
+        booking_state=BookingState.rejected_by_specialist,
+        idempotency_key='k-rejected',
+    )
+
+    class Session:
+        async def get(self, model, key):
+            if model.__name__ == 'Appointment' and key == appointment_id:
+                return appointment
+            return None
+
+        async def execute(self, _stmt):
+            return _ScalarResult(None)
+
+        async def commit(self):
+            raise AssertionError('commit must not happen for rejected state')
+
+    session = Session()
+
+    async def fake_emit_outbox_domain_event(session, event_type, payload):
+        raise AssertionError('must not emit for inactive booking state')
+
+    monkeypatch.setattr(google_calendar_reverse_sync, 'emit_outbox_domain_event', fake_emit_outbox_domain_event)
+    monkeypatch.setattr(google_calendar_reverse_sync, 'async_session_factory', lambda: _DummySessionCtx(session))
+
+    event = {
+        'id': 'evt-rejected',
+        'extendedProperties': {'private': {'zumbot_appointment_id': str(appointment_id)}},
+        'start': {'dateTime': (now + timedelta(hours=40)).isoformat(), 'timeZone': 'UTC'},
+        'end': {'dateTime': (now + timedelta(hours=41)).isoformat(), 'timeZone': 'UTC'},
+    }
+
+    result = await google_calendar_reverse_sync.reconcile_event_to_appointment(event, specialist_id, 'primary')
+
+    assert result.result == google_calendar_reverse_sync.ReconcileOutcome.REJECTED
+    assert result.reason == 'inactive_booking_state'

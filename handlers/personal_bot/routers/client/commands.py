@@ -523,7 +523,7 @@ async def _render_client_appointments(message: Message, specialist_id: UUID, tg_
             BookingState.confirmed: "Подтверждена",
             BookingState.failed: "Не подтверждена",
             BookingState.awaiting_specialist_confirmation: "Ожидает подтверждения",
-            BookingState.rejected_by_specialist: "Отклонено",
+            BookingState.rejected_by_specialist: "❌ Отклонено",
         }
         has_failed = any(appointment.booking_state == BookingState.failed for appointment in appointments)
         confirmed_appointments: list[tuple[UUID, str]] = []
@@ -532,9 +532,9 @@ async def _render_client_appointments(message: Message, specialist_id: UUID, tg_
         for appointment in appointments:
             formatted_start = format_session_datetime(appointment.start_at_utc, client_tz)
             status = state_map.get(appointment.booking_state, str(appointment.booking_state))
-            if appointment.booking_state == BookingState.rejected_by_specialist and appointment.rejection_reason:
-                status = f"{status}: {appointment.rejection_reason}"
             lines.append(f"{formatted_start} — {status}")
+            if appointment.booking_state == BookingState.rejected_by_specialist and appointment.rejection_reason:
+                lines.append(f"Комментарий: {appointment.rejection_reason}")
             if appointment.booking_state == BookingState.confirmed:
                 confirmed_appointments.append((appointment.appointment_id, formatted_start))
         text = "\n".join(lines)

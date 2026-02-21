@@ -11,11 +11,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select
 
 from database import Appointment, BookingState, async_session_factory
-from services.specialist_appointments import (
-    SpecialistAppointmentRejectCalendarDeleteError,
-    confirm_appointment_by_specialist,
-    reject_appointment_by_specialist,
-)
+from services.specialist_appointments import confirm_appointment_by_specialist, reject_appointment_by_specialist
 
 router = Router(name="personal_bot_specialist_appointment_confirmations")
 logger = logging.getLogger(__name__)
@@ -164,17 +160,13 @@ async def specialist_appointment_reject_mode(callback: CallbackQuery, specialist
         return
 
     if mode == "no_reason":
-        try:
-            async with async_session_factory() as session:
-                result = await reject_appointment_by_specialist(
-                    session,
-                    appointment_id=appointment_id,
-                    specialist_id=specialist_id,
-                    rejection_reason=None,
-                )
-        except SpecialistAppointmentRejectCalendarDeleteError:
-            await callback.answer("Не удалось отменить событие в календаре", show_alert=True)
-            return
+        async with async_session_factory() as session:
+            result = await reject_appointment_by_specialist(
+                session,
+                appointment_id=appointment_id,
+                specialist_id=specialist_id,
+                rejection_reason=None,
+            )
         await state.clear()
 
         if result.status == "updated":
@@ -227,17 +219,13 @@ async def specialist_appointment_reject_reason_input(message: Message, specialis
         await message.answer("Эта заявка уже обработана или устарела.")
         return
 
-    try:
-        async with async_session_factory() as session:
-            result = await reject_appointment_by_specialist(
-                session,
-                appointment_id=appointment_id,
-                specialist_id=specialist_id,
-                rejection_reason=text,
-            )
-    except SpecialistAppointmentRejectCalendarDeleteError:
-        await message.answer("Не удалось отменить событие в календаре")
-        return
+    async with async_session_factory() as session:
+        result = await reject_appointment_by_specialist(
+            session,
+            appointment_id=appointment_id,
+            specialist_id=specialist_id,
+            rejection_reason=text,
+        )
 
     await state.clear()
     if result.status == "updated":

@@ -33,10 +33,6 @@ class SpecialistAppointmentConfirmationResult:
     appointment: Appointment | None
 
 
-class SpecialistAppointmentRejectCalendarDeleteError(RuntimeError):
-    """Raised when specialist rejection cannot delete the linked Google Calendar event."""
-
-
 async def confirm_by_specialist(
     session: AsyncSession,
     *,
@@ -185,9 +181,18 @@ async def reject_appointment_by_specialist(
                     calendar_id=calendar_id,
                     google_event_id=google_event_id,
                 )
+                await _clear_google_event_references(session, appointment)
             except GoogleCalendarError as exc:
                 # 404 => already deleted in Google Calendar, treat as idempotent success.
-                if "status 404" not in str(exc).lower() and "not found" not in str(exc).lower():
+                if "status 404" in str(exc).lower() or "not found" in str(exc).lower():
+                    logger.warning(
+                        "event=appointment_google_event_already_deleted appointment_id=%s specialist_id=%s google_event_id=%s",
+                        appointment.appointment_id,
+                        appointment.specialist_id,
+                        google_event_id,
+                    )
+                    await _clear_google_event_references(session, appointment)
+                else:
                     log_event(
                         logger,
                         logging.ERROR,
@@ -214,9 +219,6 @@ async def reject_appointment_by_specialist(
                             },
                         )
                     )
-                    raise SpecialistAppointmentRejectCalendarDeleteError(
-                        "failed to delete appointment Google Calendar event"
-                    ) from exc
 
         payload = {
             "appointment_id": str(appointment.appointment_id),
@@ -246,6 +248,13 @@ async def reject_appointment_by_specialist(
         )
 
     return SpecialistAppointmentConfirmationResult(status="updated", appointment=appointment)
+
+
+async def _clear_google_event_references(session: AsyncSession, appointment: Appointment) -> None:
+    appointment.gcal_event_id = None
+    link = await session.get(AppointmentCalendarLink, appointment.appointment_id)
+    if link is not None and hasattr(session, "delete"):
+        await session.delete(link)
 
 
 async def _resolve_google_event_identifiers(

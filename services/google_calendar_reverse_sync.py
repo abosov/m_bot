@@ -66,6 +66,10 @@ def _is_appointment_cancelled(booking_state: BookingState) -> bool:
     return booking_state in {BookingState.canceled_by_client, BookingState.canceled_by_specialist}
 
 
+def _is_appointment_active_for_reverse_sync(booking_state: BookingState) -> bool:
+    return booking_state in {BookingState.confirmed, BookingState.awaiting_specialist_confirmation}
+
+
 def _extract_appointment_id(event: dict[str, Any]) -> uuid.UUID | None:
     appointment_id_raw = (
         event.get("extendedProperties", {})
@@ -146,6 +150,8 @@ async def reconcile_event_to_appointment(
         if event.get("status") == "cancelled":
             if _is_appointment_cancelled(appointment.booking_state):
                 return ReconcileResult(result=ReconcileOutcome.NOOP, appointment_id=appointment_id)
+            if not _is_appointment_active_for_reverse_sync(appointment.booking_state):
+                return ReconcileResult(result=ReconcileOutcome.REJECTED, reason="inactive_booking_state", appointment_id=appointment_id)
 
             appointment.booking_state = BookingState.canceled_by_specialist
             payload = {
@@ -159,6 +165,9 @@ async def reconcile_event_to_appointment(
             logger.info("event=domain_event_enqueued event_type=%s payload=%s", "appointment_cancelled_by_specialist_calendar", payload)
             await session.commit()
             return ReconcileResult(result=ReconcileOutcome.UPDATED, appointment_id=appointment_id)
+
+        if not _is_appointment_active_for_reverse_sync(appointment.booking_state):
+            return ReconcileResult(result=ReconcileOutcome.REJECTED, reason="inactive_booking_state", appointment_id=appointment_id)
 
         start_at_utc = _parse_event_datetime(event.get("start"))
         end_at_utc = _parse_event_datetime(event.get("end"))
@@ -296,7 +305,17 @@ async def run_calendar_reverse_sync(specialist_id: uuid.UUID, calendar_id: str) 
                     )
                     continue
 
-                await reconcile_event_to_appointment(event, specialist_id, calendar_id)
+                reconcile_result = await reconcile_event_to_appointment(event, specialist_id, calendar_id)
+
+                if reconcile_result.result == ReconcileOutcome.REJECTED and reconcile_result.reason == "inactive_booking_state":
+                    logger.info(
+                        "event=google_calendar_reverse_sync_skip_inactive specialist_id=%s calendar_id=%s google_event_id=%s appointment_id=%s",
+                        specialist_id,
+                        calendar_id,
+                        google_event_id,
+                        appointment_id,
+                    )
+                    continue
 
                 if link is None:
                     link = AppointmentCalendarLink(

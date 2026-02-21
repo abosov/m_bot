@@ -130,7 +130,8 @@ async def test_my_appointments_shows_client_statuses_with_retry_button(monkeypat
     assert "2099-01-11 Вс [15:45]" in text
     assert "Не подтверждена" in text
     assert "Ожидает подтверждения" in text
-    assert "Отклонено: Конфликт расписания" in text
+    assert "❌ Отклонено" in text
+    assert "Комментарий: Конфликт расписания" in text
 
     markup = kwargs["reply_markup"]
     buttons = _extract_inline_buttons(markup)

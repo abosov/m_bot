@@ -311,7 +311,7 @@ async def test_specialist_reject_with_reason_completes_and_clears_state(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_specialist_reject_without_reason_shows_calendar_delete_error(monkeypatch):
+async def test_specialist_reject_without_reason_updates_even_when_calendar_delete_error(monkeypatch):
     specialist_id = uuid4()
     appointment_id = uuid4()
     callback_answers = []
@@ -343,7 +343,7 @@ async def test_specialist_reject_without_reason_shows_calendar_delete_error(monk
             return False
 
     async def fake_reject(_session, **kwargs):
-        raise appointment_confirmations.SpecialistAppointmentRejectCalendarDeleteError("boom")
+        return SimpleNamespace(status="updated")
 
     monkeypatch.setattr(appointment_confirmations, "_resolve_pending_appointment", fake_resolve)
     monkeypatch.setattr(appointment_confirmations, "async_session_factory", lambda: DummySessionCtx())
@@ -351,11 +351,11 @@ async def test_specialist_reject_without_reason_shows_calendar_delete_error(monk
 
     await appointment_confirmations.specialist_appointment_reject_mode(callback, specialist_id=specialist_id, state=state)
 
-    assert callback_answers[0][0] == ("Не удалось отменить событие в календаре",)
+    assert callback_answers[0][0] == ("Отклонено",)
 
 
 @pytest.mark.asyncio
-async def test_specialist_reject_with_reason_shows_calendar_delete_error(monkeypatch):
+async def test_specialist_reject_with_reason_success(monkeypatch):
     specialist_id = uuid4()
     appointment_id = uuid4()
     message = SimpleNamespace(text="Нужно перенести", answers=[])
@@ -383,7 +383,7 @@ async def test_specialist_reject_with_reason_shows_calendar_delete_error(monkeyp
             return False
 
     async def fake_reject(_session, **kwargs):
-        raise appointment_confirmations.SpecialistAppointmentRejectCalendarDeleteError("boom")
+        return SimpleNamespace(status="updated")
 
     monkeypatch.setattr(appointment_confirmations, "_resolve_pending_appointment", fake_resolve)
     monkeypatch.setattr(appointment_confirmations, "async_session_factory", lambda: DummySessionCtx())
@@ -395,4 +395,4 @@ async def test_specialist_reject_with_reason_shows_calendar_delete_error(monkeyp
         state=state,
     )
 
-    assert message.answers[0][0] == "Не удалось отменить событие в календаре"
+    assert message.answers[0][0] == "Запись отклонена, пояснение отправлено клиенту"
