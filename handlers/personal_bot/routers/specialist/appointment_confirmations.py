@@ -3,25 +3,66 @@ from __future__ import annotations
 from uuid import UUID
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
 from database import Appointment, BookingState, async_session_factory
-from services.specialist_appointments import confirm_appointment_by_specialist
+from services.specialist_appointments import confirm_appointment_by_specialist, reject_appointment_by_specialist
 
 router = Router(name="personal_bot_specialist_appointment_confirmations")
 
 _STALE_TEXT = "Эта заявка уже обработана или устарела."
+_REJECTION_REASON_LIMIT = 1000
 
 
-def _reject_reason_keyboard(appointment_id: UUID) -> InlineKeyboardMarkup:
+class SpecialistAppointmentRejectStates(StatesGroup):
+    waiting_rejection_reason = State()
+
+
+def _reject_with_or_without_reason_keyboard(appointment_id: UUID) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Неподходящее время", callback_data=f"sp_appt_reject_reason:{appointment_id}:time")],
-            [InlineKeyboardButton(text="Лимит на день", callback_data=f"sp_appt_reject_reason:{appointment_id}:limit")],
-            [InlineKeyboardButton(text="Другая причина", callback_data=f"sp_appt_reject_reason:{appointment_id}:other")],
+            [
+                InlineKeyboardButton(
+                    text="Оставить пояснение",
+                    callback_data=f"sp_appt_reject_mode:with_reason:{appointment_id}",
+                ),
+                InlineKeyboardButton(
+                    text="Без пояснений",
+                    callback_data=f"sp_appt_reject_mode:no_reason:{appointment_id}",
+                ),
+            ]
         ]
     )
+
+
+def _reject_no_reason_inline_keyboard(appointment_id: UUID) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Без пояснений",
+                    callback_data=f"sp_appt_reject_mode:no_reason:{appointment_id}",
+                )
+            ]
+        ]
+    )
+
+
+async def _resolve_pending_appointment(appointment_id: UUID, specialist_id) -> Appointment | None:
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Appointment)
+            .where(Appointment.appointment_id == appointment_id)
+            .where(Appointment.specialist_id == specialist_id)
+        )
+        appointment = result.scalar_one_or_none()
+
+    if appointment is None or appointment.booking_state in (BookingState.confirmed, BookingState.rejected_by_specialist):
+        return None
+    return appointment
 
 
 @router.callback_query(F.data.startswith("sp_appt_decision:"))
@@ -62,20 +103,116 @@ async def specialist_appointment_decision(callback: CallbackQuery, specialist_id
         await callback.answer(_STALE_TEXT, show_alert=True)
         return
 
-    async with async_session_factory() as session:
-        appointment = await session.execute(
-            select(Appointment)
-            .where(Appointment.appointment_id == appointment_id)
-            .where(Appointment.specialist_id == specialist_id)
-        )
-        appointment = appointment.scalar_one_or_none()
-
-    if appointment is None or appointment.booking_state in (BookingState.confirmed, BookingState.rejected_by_specialist):
+    appointment = await _resolve_pending_appointment(appointment_id, specialist_id)
+    if appointment is None:
         await callback.answer(_STALE_TEXT, show_alert=True)
         return
 
     await callback.message.answer(
-        "Выберите причину отклонения:",
-        reply_markup=_reject_reason_keyboard(appointment_id),
+        "Добавить пояснение клиенту?",
+        reply_markup=_reject_with_or_without_reason_keyboard(appointment_id),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("sp_appt_reject_mode:"))
+async def specialist_appointment_reject_mode(callback: CallbackQuery, specialist_id, state: FSMContext) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+
+    parts = (callback.data or "").split(":")
+    if len(parts) != 3:
+        await callback.answer("Некорректные данные кнопки.", show_alert=True)
+        return
+
+    _, mode, appointment_raw = parts
+    if mode not in {"with_reason", "no_reason"}:
+        await callback.answer("Некорректное действие.", show_alert=True)
+        return
+
+    try:
+        appointment_id = UUID(appointment_raw)
+    except ValueError:
+        await callback.answer("Заявка не найдена.", show_alert=True)
+        return
+
+    appointment = await _resolve_pending_appointment(appointment_id, specialist_id)
+    if appointment is None:
+        await state.clear()
+        await callback.answer(_STALE_TEXT, show_alert=True)
+        return
+
+    if mode == "no_reason":
+        async with async_session_factory() as session:
+            result = await reject_appointment_by_specialist(
+                session,
+                appointment_id=appointment_id,
+                specialist_id=specialist_id,
+                rejection_reason=None,
+            )
+        await state.clear()
+
+        if result.status == "updated":
+            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.answer("Отклонено")
+            await callback.answer()
+            return
+
+        await callback.answer(_STALE_TEXT, show_alert=True)
+        return
+
+    await state.set_state(SpecialistAppointmentRejectStates.waiting_rejection_reason)
+    await state.update_data(appointment_id=str(appointment_id))
+    await callback.message.answer("Введите пояснение одним сообщением.")
+    await callback.answer()
+
+
+@router.message(SpecialistAppointmentRejectStates.waiting_rejection_reason)
+async def specialist_appointment_reject_reason_input(message: Message, specialist_id, state: FSMContext) -> None:
+    data = await state.get_data()
+    appointment_raw = data.get("appointment_id")
+    if not appointment_raw:
+        await state.clear()
+        await message.answer("Эта заявка уже обработана или устарела.")
+        return
+
+    try:
+        appointment_id = UUID(str(appointment_raw))
+    except ValueError:
+        await state.clear()
+        await message.answer("Эта заявка уже обработана или устарела.")
+        return
+
+    text = (message.text or "").strip()
+    if not text:
+        await message.answer(
+            "Пояснение не должно быть пустым. Введите текст или выберите вариант без пояснений:",
+            reply_markup=_reject_no_reason_inline_keyboard(appointment_id),
+        )
+        return
+
+    if len(text) > _REJECTION_REASON_LIMIT:
+        await message.answer(f"Пояснение слишком длинное. Сократите до {_REJECTION_REASON_LIMIT} символов.")
+        return
+
+    appointment = await _resolve_pending_appointment(appointment_id, specialist_id)
+    if appointment is None:
+        await state.clear()
+        await message.answer("Эта заявка уже обработана или устарела.")
+        return
+
+    async with async_session_factory() as session:
+        result = await reject_appointment_by_specialist(
+            session,
+            appointment_id=appointment_id,
+            specialist_id=specialist_id,
+            rejection_reason=text,
+        )
+
+    await state.clear()
+    if result.status == "updated":
+        await message.answer("Отклонено")
+        return
+
+    await message.answer("Эта заявка уже обработана или устарела.")
