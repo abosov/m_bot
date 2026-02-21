@@ -95,7 +95,7 @@ async def specialist_appointment_decision(callback: CallbackQuery, specialist_id
                 specialist_id=specialist_id,
             )
 
-        if result.status == "updated":
+        if result.status in {"ok", "updated"}:
             await callback.message.edit_reply_markup(reply_markup=None)
             await callback.answer("✅ Запись подтверждена")
             return

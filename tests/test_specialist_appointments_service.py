@@ -7,6 +7,14 @@ from database import Appointment, BookingState
 from services import specialist_appointments
 
 
+class _Begin:
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
 @pytest.mark.asyncio
 async def test_confirm_appointment_by_specialist_marks_updated(monkeypatch):
     appointment = Appointment(
@@ -19,16 +27,16 @@ async def test_confirm_appointment_by_specialist_marks_updated(monkeypatch):
         idempotency_key="idk",
     )
 
-    class Session:
-        committed = False
-
-        async def get(self, model, key):
-            assert model.__name__ == "Appointment"
-            assert key == appointment.appointment_id
+    class _Result:
+        def scalar_one_or_none(self):
             return appointment
 
-        async def commit(self):
-            self.committed = True
+    class Session:
+        def begin(self):
+            return _Begin()
+
+        async def execute(self, _query):
+            return _Result()
 
     emitted = []
 
@@ -44,9 +52,8 @@ async def test_confirm_appointment_by_specialist_marks_updated(monkeypatch):
         specialist_id=appointment.specialist_id,
     )
 
-    assert result.status == "updated"
+    assert result.status == "ok"
     assert appointment.booking_state == BookingState.confirmed
-    assert session.committed is True
     assert emitted[0][1] == "appointment_confirmed_by_specialist"
 
 
@@ -62,9 +69,16 @@ async def test_confirm_appointment_by_specialist_is_idempotent():
         idempotency_key="idk",
     )
 
-    class Session:
-        async def get(self, _model, _key):
+    class _Result:
+        def scalar_one_or_none(self):
             return appointment
+
+    class Session:
+        def begin(self):
+            return _Begin()
+
+        async def execute(self, _query):
+            return _Result()
 
     result = await specialist_appointments.confirm_appointment_by_specialist(
         Session(),
@@ -73,6 +87,60 @@ async def test_confirm_appointment_by_specialist_is_idempotent():
     )
 
     assert result.status == "already_processed"
+
+
+@pytest.mark.asyncio
+async def test_confirm_appointment_by_specialist_returns_invalid_state():
+    appointment = Appointment(
+        appointment_id=uuid4(),
+        specialist_id=uuid4(),
+        client_id=uuid4(),
+        start_at_utc=datetime.now(timezone.utc),
+        end_at_utc=datetime.now(timezone.utc),
+        booking_state=BookingState.pending,
+        idempotency_key="idk",
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return appointment
+
+    class Session:
+        def begin(self):
+            return _Begin()
+
+        async def execute(self, _query):
+            return _Result()
+
+    result = await specialist_appointments.confirm_appointment_by_specialist(
+        Session(),
+        appointment_id=appointment.appointment_id,
+        specialist_id=appointment.specialist_id,
+    )
+
+    assert result.status == "invalid_state"
+
+
+@pytest.mark.asyncio
+async def test_confirm_appointment_by_specialist_returns_not_found():
+    class _Result:
+        def scalar_one_or_none(self):
+            return None
+
+    class Session:
+        def begin(self):
+            return _Begin()
+
+        async def execute(self, _query):
+            return _Result()
+
+    result = await specialist_appointments.confirm_appointment_by_specialist(
+        Session(),
+        appointment_id=uuid4(),
+        specialist_id=uuid4(),
+    )
+
+    assert result.status == "not_found"
 
 
 @pytest.mark.asyncio
