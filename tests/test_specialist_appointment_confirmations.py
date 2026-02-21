@@ -124,6 +124,46 @@ async def test_specialist_reject_callback_opens_reason_mode_screen(monkeypatch):
     assert callback_answers[0][0] == ()
 
 
+
+
+@pytest.mark.asyncio
+async def test_specialist_reject_with_reason_mode_sets_fsm_state(monkeypatch):
+    specialist_id = uuid4()
+    appointment_id = uuid4()
+    callback_answers = []
+    message = DummyMessage()
+    state = DummyState()
+
+    callback = SimpleNamespace(
+        data=f"sp_appt_reject_mode:with_reason:{appointment_id}",
+        message=message,
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback_answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    async def fake_resolve(_appointment_id, _specialist_id):
+        return _appointment(
+            appointment_id=appointment_id,
+            specialist_id=specialist_id,
+            booking_state=BookingState.awaiting_specialist_confirmation,
+        )
+
+    monkeypatch.setattr(appointment_confirmations, "_resolve_pending_appointment", fake_resolve)
+
+    await appointment_confirmations.specialist_appointment_reject_mode(
+        callback,
+        specialist_id=specialist_id,
+        state=state,
+    )
+
+    assert state.state == appointment_confirmations.SpecialistAppointmentRejectStates.waiting_rejection_reason
+    assert state.data["appointment_id"] == str(appointment_id)
+    assert message.answers[0][0] == "Введите пояснение одним сообщением."
+    assert callback_answers[0][0] == ()
+
 @pytest.mark.asyncio
 async def test_specialist_reject_without_reason_completes(monkeypatch):
     specialist_id = uuid4()
