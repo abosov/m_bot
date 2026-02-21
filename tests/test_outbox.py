@@ -55,7 +55,7 @@ def test_register_outbox_handlers_include_specialist_confirmation_events():
     outbox_notifications.register_outbox_handlers(handlers)
 
     assert handlers["appointment_booked"] is outbox_notifications._handle_appointment_booked
-    assert handlers["appointment_needs_confirmation"] is outbox_notifications._handle_appointment_booked
+    assert handlers["appointment_needs_confirmation"] is outbox_notifications._handle_appointment_needs_confirmation
     assert handlers["appointment_confirmed_by_specialist"] is outbox_notifications._handle_appointment_confirmed_by_specialist
     assert handlers["appointment_rejected_by_specialist"] is outbox_notifications._handle_appointment_rejected_by_specialist
 
@@ -489,6 +489,77 @@ async def test_booked_handler_sends_specialist_with_username_link(monkeypatch):
     assert "https://t.me/smoke_client" in sent[0][1]
     assert "appointment_id" not in sent[0][1]
     assert str(appointment_id) not in sent[0][1]
+
+
+@pytest.mark.asyncio
+async def test_needs_confirmation_handler_sends_specialist_card_with_buttons(monkeypatch):
+    specialist_id = uuid.uuid4()
+    client_id = uuid.uuid4()
+    appointment_id = uuid.uuid4()
+
+    event = OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="appointment_needs_confirmation",
+        payload_json={
+            "appointment_id": str(appointment_id),
+            "specialist_id": str(specialist_id),
+            "client_id": str(client_id),
+            "start_at_utc": "2026-01-02T11:00:00+00:00",
+            "end_at_utc": "2026-01-02T12:00:00+00:00",
+        },
+    )
+
+    client = Client(
+        client_id=client_id,
+        specialist_id=specialist_id,
+        tg_user_id=111,
+        tg_username="smoke_client",
+        display_name="Smoke Client",
+        client_code="C-1",
+        client_timezone="UTC",
+        timezone_source="default_from_specialist",
+    )
+    specialist = SpecialistProfile(
+        specialist_id=specialist_id,
+        public_name="sp",
+        owner_tg_user_id=222,
+        specialist_timezone="Europe/Moscow",
+        session_duration_min=60,
+        session_buffer_min=0,
+        max_sessions_per_day=4,
+        slot_step_min=30,
+        cancel_window_hours=12,
+    )
+
+    class Session:
+        async def get(self, model, key):
+            if model is Client and key == client_id:
+                return client
+            if model is SpecialistProfile and key == specialist_id:
+                return specialist
+            return None
+
+    sent = []
+
+    async def fake_send_specialist_message(_session, **kwargs):
+        sent.append(kwargs)
+
+    async def fake_load_personal_bot(*_args, **_kwargs):
+        return SimpleNamespace()
+
+    monkeypatch.setattr(outbox_notifications, "_load_personal_bot", fake_load_personal_bot)
+    monkeypatch.setattr(outbox_notifications, "_send_specialist_message", fake_send_specialist_message)
+
+    await outbox_notifications._handle_appointment_needs_confirmation(Session(), event)
+
+    assert len(sent) == 1
+    assert sent[0]["specialist_tg_user_id"] == 222
+    assert "Новая заявка на сессию: 2026-01-02 Пт [14:00]" in sent[0]["text"]
+    assert "@smoke\\_client" in sent[0]["text"]
+    buttons = [button for row in sent[0]["reply_markup"].inline_keyboard for button in row]
+    assert [button.text for button in buttons] == ["Подтвердить", "Отклонить"]
+    assert buttons[0].callback_data == f"sp_appt_decision:confirm:{appointment_id}"
+    assert buttons[1].callback_data == f"sp_appt_decision:reject:{appointment_id}"
 
 
 @pytest.mark.asyncio

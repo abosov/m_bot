@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from services.session_datetime import format_session_datetime
 
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,13 +88,25 @@ async def _send_specialist_message(
     bot: TelegramBot,
     specialist_tg_user_id: int,
     text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
 ) -> None:
     target = f"specialist:{specialist_tg_user_id}"
     if await _already_sent(session, outbox_event.id, target):
         return
     personal_bot = await get_personal_bot(bot)
-    await personal_bot.send_message(chat_id=specialist_tg_user_id, text=text)
+    await personal_bot.send_message(chat_id=specialist_tg_user_id, text=text, reply_markup=reply_markup)
     await _mark_sent(session, outbox_event.id, target)
+
+
+
+
+def _appointment_confirmation_keyboard(appointment_id: uuid.UUID) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text="Подтвердить", callback_data=f"sp_appt_decision:confirm:{appointment_id}"),
+            InlineKeyboardButton(text="Отклонить", callback_data=f"sp_appt_decision:reject:{appointment_id}"),
+        ]]
+    )
 
 
 def _format_client_contact(client: Client) -> str:
@@ -144,6 +157,37 @@ async def _handle_appointment_booked(session: AsyncSession, event: OutboxEvent) 
         bot=personal_bot_row,
         specialist_tg_user_id=specialist_profile.owner_tg_user_id,
         text=specialist_text,
+    )
+
+
+async def _handle_appointment_needs_confirmation(session: AsyncSession, event: OutboxEvent) -> None:
+    payload = event.payload_json or {}
+    appointment_id = _parse_uuid(payload, "appointment_id")
+    specialist_id = _parse_uuid(payload, "specialist_id")
+    client_id = _parse_uuid(payload, "client_id")
+    start_at_utc = _parse_dt(payload, "start_at_utc")
+    _parse_dt(payload, "end_at_utc")
+
+    client = await session.get(Client, client_id)
+    specialist_profile = await session.get(SpecialistProfile, specialist_id)
+    personal_bot_row = await _load_personal_bot(session, specialist_id)
+    if client is None or specialist_profile is None or personal_bot_row is None:
+        raise ValueError("missing recipient for specialist confirmation request notification")
+
+    owner_tg_user_id = specialist_profile.owner_tg_user_id
+    if owner_tg_user_id is None:
+        return
+
+    specialist_start = _format_dt_for_client(start_at_utc, specialist_profile.specialist_timezone)
+    client_contact = _format_client_contact(client)
+    specialist_text = f"Новая заявка на сессию: {specialist_start}\n\nКлиент: {client_contact}"
+    await _send_specialist_message(
+        session,
+        outbox_event=event,
+        bot=personal_bot_row,
+        specialist_tg_user_id=owner_tg_user_id,
+        text=specialist_text,
+        reply_markup=_appointment_confirmation_keyboard(appointment_id),
     )
 
 
@@ -316,7 +360,7 @@ from typing import Callable, Awaitable
 
 def register_outbox_handlers(handlers: dict[str, Callable[[AsyncSession, OutboxEvent], Awaitable[None]]]) -> None:
     handlers["appointment_booked"] = _handle_appointment_booked
-    handlers["appointment_needs_confirmation"] = _handle_appointment_booked
+    handlers["appointment_needs_confirmation"] = _handle_appointment_needs_confirmation
     handlers["appointment_confirmed_by_specialist"] = _handle_appointment_confirmed_by_specialist
     handlers["appointment_rejected_by_specialist"] = _handle_appointment_rejected_by_specialist
     handlers["appointment_rescheduled"] = _handle_appointment_rescheduled
