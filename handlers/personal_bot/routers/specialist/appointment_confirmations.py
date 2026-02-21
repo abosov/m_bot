@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+from datetime import timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -10,7 +12,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 
-from database import Appointment, BookingState, async_session_factory
+from database import Appointment, BookingState, SpecialistProfile, async_session_factory
+from services.session_datetime import format_session_datetime
 from services.specialist_appointments import confirm_appointment_by_specialist, reject_appointment_by_specialist
 
 router = Router(name="personal_bot_specialist_appointment_confirmations")
@@ -32,8 +35,25 @@ async def _safe_clear_inline_keyboard(message: Message) -> None:
         logger.info("Unable to clear inline keyboard: %s", exc)
 
 
-def _format_appointment_slot(appointment: Appointment) -> str:
-    return appointment.start_at_utc.strftime("%d.%m %H:%M")
+def _format_appointment_slot(appointment: Appointment, tz_name: str | None) -> str:
+    tz = ZoneInfo("UTC")
+    if tz_name:
+        try:
+            tz = ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            pass
+    start_at_utc = appointment.start_at_utc
+    if start_at_utc.tzinfo is None:
+        start_at_utc = start_at_utc.replace(tzinfo=timezone.utc)
+    return format_session_datetime(start_at_utc, tz)
+
+
+async def _resolve_specialist_timezone(specialist_id) -> str | None:
+    async with async_session_factory() as session:
+        if not hasattr(session, "get"):
+            return None
+        profile = await session.get(SpecialistProfile, specialist_id)
+    return profile.specialist_timezone if profile is not None else None
 
 
 class SpecialistAppointmentRejectStates(StatesGroup):
@@ -197,7 +217,10 @@ async def specialist_appointment_reject_mode(callback: CallbackQuery, specialist
 
         if result.status == "updated":
             await _safe_clear_inline_keyboard(callback.message)
-            await callback.message.answer(f"Запись отклонена: {_format_appointment_slot(appointment)}")
+            specialist_tz_name = await _resolve_specialist_timezone(specialist_id)
+            await callback.message.answer(
+                f"Запись отклонена: {_format_appointment_slot(appointment, specialist_tz_name)}"
+            )
             return
 
         await callback.message.answer(_STALE_TEXT)

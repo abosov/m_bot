@@ -475,6 +475,7 @@ async def test_reconcile_event_cancels_appointment_when_google_event_cancelled(m
     assert payload['appointment_id'] == str(appointment_id)
     assert payload['specialist_id'] == str(specialist_id)
     assert payload['client_id'] == str(client_id)
+    assert payload['start_at_utc'] == appointment.start_at_utc.isoformat()
 
 
 @pytest.mark.asyncio

@@ -160,6 +160,7 @@ async def reconcile_event_to_appointment(
                     "client_id": str(appointment.client_id),
                     "calendar_id": calendar_id,
                     "google_event_id": str(event.get("id") or ""),
+                    "start_at_utc": appointment.start_at_utc.astimezone(timezone.utc).isoformat(),
                 }
             await emit_outbox_domain_event(session, "appointment_cancelled_by_specialist_calendar", payload)
             logger.info("event=domain_event_enqueued event_type=%s payload=%s", "appointment_cancelled_by_specialist_calendar", payload)

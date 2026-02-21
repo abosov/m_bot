@@ -356,6 +356,74 @@ async def test_cancelled_handler_requires_client_id():
 
 
 @pytest.mark.asyncio
+async def test_cancelled_by_specialist_calendar_handler_sends_datetime_for_both_sides(monkeypatch):
+    specialist_id = uuid.uuid4()
+    client_id = uuid.uuid4()
+
+    event = OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="appointment_cancelled_by_specialist_calendar",
+        payload_json={
+            "appointment_id": str(uuid.uuid4()),
+            "specialist_id": str(specialist_id),
+            "client_id": str(client_id),
+            "start_at_utc": "2026-01-02T11:00:00+00:00",
+        },
+    )
+
+    client = Client(
+        client_id=client_id,
+        specialist_id=specialist_id,
+        tg_user_id=111,
+        client_code="C-1",
+        client_timezone="Europe/Moscow",
+        timezone_source="default_from_specialist",
+    )
+    specialist = SpecialistProfile(
+        specialist_id=specialist_id,
+        public_name="sp",
+        owner_tg_user_id=222,
+        specialist_timezone="UTC",
+        session_duration_min=60,
+        session_buffer_min=0,
+        max_sessions_per_day=4,
+        slot_step_min=30,
+        cancel_window_hours=12,
+    )
+
+    class Session:
+        async def get(self, model, key):
+            if model is Client and key == client_id:
+                return client
+            if model is SpecialistProfile and key == specialist_id:
+                return specialist
+            return None
+
+    sent = []
+
+    async def fake_send_client_message(_session, **kwargs):
+        sent.append(("client", kwargs["client"].tg_user_id, kwargs["text"]))
+
+    async def fake_send_specialist_message(_session, **kwargs):
+        sent.append(("specialist", kwargs["specialist_tg_user_id"], kwargs["text"]))
+
+    async def fake_load_personal_bot(*_args, **_kwargs):
+        return SimpleNamespace()
+
+    monkeypatch.setattr(outbox_notifications, "_load_personal_bot", fake_load_personal_bot)
+    monkeypatch.setattr(outbox_notifications, "_send_client_message", fake_send_client_message)
+    monkeypatch.setattr(outbox_notifications, "_send_specialist_message", fake_send_specialist_message)
+
+    await outbox_notifications._handle_appointment_cancelled_by_specialist_calendar(Session(), event)
+
+    assert sent[0] == ("client", 111, "Специалист отменил запись: 2026-01-02 Пт [14:00].")
+    assert "#" not in sent[0][2]
+    assert sent[1][0] == "specialist"
+    assert "Отмена записи синхронизирована." in sent[1][2]
+    assert "Время: 2026-01-02 Пт [11:00]" in sent[1][2]
+
+
+@pytest.mark.asyncio
 async def test_cancelled_by_client_handler_sends_specialist_without_appointment_id(monkeypatch):
     specialist_id = uuid.uuid4()
     client_id = uuid.uuid4()

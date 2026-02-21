@@ -13,6 +13,10 @@ RU_WEEKDAY_SHORT = {
     6: "Вс",
 }
 
+# RULE: Session ID must NEVER be shown to users.
+# Always display session date/time using unified format.
+SESSION_DISPLAY_FORMAT = "YYYY-MM-DD ddd [HH:MM]"
+
 
 def format_session_datetime(dt: datetime, tz: ZoneInfo) -> str:
     if dt.tzinfo is None:

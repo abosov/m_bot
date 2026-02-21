@@ -258,10 +258,12 @@ async def _handle_appointment_rescheduled(session: AsyncSession, event: OutboxEv
 
     owner_tg_user_id = specialist_profile.owner_tg_user_id if specialist_profile else None
     if owner_tg_user_id is not None:
+        specialist_tz_name = specialist_profile.specialist_timezone if specialist_profile else None
+        specialist_new = _format_dt_for_client(new_start_at_utc, specialist_tz_name)
         specialist_text = (
             "Перенос записи выполнен.\n"
             f"Клиент: {_format_client_contact(client)}\n"
-            f"Новое время: {format_session_datetime(new_start_at_utc, ZoneInfo('UTC'))}"
+            f"Новое время: {specialist_new}"
         )
         await _send_specialist_message(
             session,
@@ -303,9 +305,10 @@ async def _handle_appointment_cancelled_by_client(session: AsyncSession, event: 
 
 async def _handle_appointment_cancelled_by_specialist_calendar(session: AsyncSession, event: OutboxEvent) -> None:
     payload = event.payload_json or {}
-    appointment_id = _parse_uuid(payload, "appointment_id")
+    _parse_uuid(payload, "appointment_id")
     specialist_id = _parse_uuid(payload, "specialist_id")
     client_id = _parse_uuid(payload, "client_id")
+    start_at_utc = _parse_dt(payload, "start_at_utc")
 
     client = await session.get(Client, client_id)
     specialist_profile = await session.get(SpecialistProfile, specialist_id)
@@ -313,7 +316,8 @@ async def _handle_appointment_cancelled_by_specialist_calendar(session: AsyncSes
     if client is None or personal_bot_row is None:
         raise ValueError("missing recipient for cancellation notification")
 
-    client_text = f"Специалист отменил запись #{appointment_id}."
+    client_start = _format_dt_for_client(start_at_utc, client.client_timezone)
+    client_text = f"Специалист отменил запись: {client_start}."
     await _send_client_message(
         session,
         outbox_event=event,
@@ -324,8 +328,13 @@ async def _handle_appointment_cancelled_by_specialist_calendar(session: AsyncSes
 
     owner_tg_user_id = specialist_profile.owner_tg_user_id if specialist_profile else None
     if owner_tg_user_id is not None:
+        specialist_start = _format_dt_for_client(
+            start_at_utc,
+            specialist_profile.specialist_timezone if specialist_profile else None,
+        )
         specialist_text = (
-            f"Отмена записи #{appointment_id} синхронизирована.\n"
+            "Отмена записи синхронизирована.\n"
+            f"Время: {specialist_start}\n"
             f"Клиент: {_format_client_contact(client)}"
         )
         await _send_specialist_message(

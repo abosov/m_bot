@@ -45,8 +45,8 @@ def _appointment(*, appointment_id, specialist_id, booking_state):
         appointment_id=appointment_id,
         specialist_id=specialist_id,
         client_id=uuid4(),
-        start_at_utc=datetime.now(timezone.utc),
-        end_at_utc=datetime.now(timezone.utc),
+        start_at_utc=datetime(2026, 1, 2, 11, 0, tzinfo=timezone.utc),
+        end_at_utc=datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc),
         booking_state=booking_state,
         idempotency_key="k",
     )
@@ -275,7 +275,7 @@ async def test_specialist_reject_without_reason_completes(monkeypatch):
     await appointment_confirmations.specialist_appointment_reject_mode(callback, specialist_id=specialist_id, state=state)
 
     assert message.edits == [{"reply_markup": None}]
-    assert "Запись отклонена:" in message.answers[0][0]
+    assert message.answers[0][0] == "Запись отклонена: 2026-01-02 Пт [11:00]"
     assert state.state is None
     assert callback_answers[0][0] == ()
 
