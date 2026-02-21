@@ -1319,7 +1319,6 @@ async def test_client_pick_slot_logs_google_error_and_sets_failed(monkeypatch):
         specialist_tz,
         client_display_name,
         client_tg_username=None,
-        client_tg_user_id=None,
         client_code=None,
     ):
         raise RuntimeError("google down")
@@ -1426,7 +1425,7 @@ async def test_client_pick_slot_passes_client_tg_user_id_and_client_code_to_goog
 
     await client_commands.client_pick_slot(callback, state=state, specialist_id="sp-id")
 
-    assert captured_kwargs["client_tg_user_id"] == 42
+    assert "client_tg_user_id" not in captured_kwargs
     assert captured_kwargs["client_code"] == "CL-42"
     assert any(isinstance(obj, client_commands.AppointmentCalendarLink) for obj in session.added)
     outbox_events = [obj for obj in session.added if isinstance(obj, OutboxEvent)]

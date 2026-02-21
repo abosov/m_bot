@@ -19,6 +19,7 @@ from database import (
     async_session_factory,
 )
 from services.telegram.markdown_utils import escape_markdown_v2
+from services.client_display import format_client_display
 from services.session_datetime import format_session_datetime
 
 router = Router(name="personal_bot_specialist_commands")
@@ -150,7 +151,7 @@ async def specialist_my_appointments(message: Message, specialist_id, actor: str
     for appointment, client in appointment_rows:
         appointments.append(appointment)
         start_label = format_session_datetime(appointment.start_at_utc, specialist_tz)
-        client_name = (client.display_name or client.tg_username or "Клиент").strip()
+        client_name = format_client_display(display_name=client.display_name, tg_username=client.tg_username)
         status = _specialist_status_text(appointment.booking_state)
         lines.append(f"{start_label} — {client_name} — {status}")
 

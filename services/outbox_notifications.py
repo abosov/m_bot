@@ -11,8 +11,8 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Client, NotificationLog, OutboxEvent, SpecialistProfile, TelegramBot, TelegramBotStatus
+from services.client_display import format_client_display
 from services.telegram.bot_factory import get_personal_bot
-from services.telegram.markdown_utils import escape_markdown_v2
 
 
 def _parse_uuid(payload: dict, key: str) -> uuid.UUID:
@@ -110,25 +110,7 @@ def _appointment_confirmation_keyboard(appointment_id: uuid.UUID) -> InlineKeybo
 
 
 def _format_client_contact(client: Client) -> str:
-    parts: list[str] = []
-    if client.display_name:
-        parts.append(client.display_name)
-    if client.tg_username:
-        username = client.tg_username.lstrip("@")
-        parts.append(f"@{escape_markdown_v2(username)}")
-        parts.append(f"https://t.me/{username}")
-        return " ".join(parts)
-
-    if client.tg_user_id is not None:
-        parts.append(f"(tg://user?id={client.tg_user_id})")
-        parts.append(f"id: {client.tg_user_id}")
-        return " ".join(parts)
-
-    if client.client_code:
-        parts.append(client.client_code)
-    if not parts:
-        parts.append(str(client.client_id))
-    return " ".join(parts)
+    return format_client_display(display_name=client.display_name, tg_username=client.tg_username)
 
 
 async def _handle_appointment_booked(session: AsyncSession, event: OutboxEvent) -> None:
@@ -278,7 +260,7 @@ async def _handle_appointment_rescheduled(session: AsyncSession, event: OutboxEv
     if owner_tg_user_id is not None:
         specialist_text = (
             "Перенос записи выполнен.\n"
-            f"Клиент: {client.display_name or client.client_code or client.client_id}\n"
+            f"Клиент: {_format_client_contact(client)}\n"
             f"Новое время: {format_session_datetime(new_start_at_utc, ZoneInfo('UTC'))}"
         )
         await _send_specialist_message(
@@ -344,7 +326,7 @@ async def _handle_appointment_cancelled_by_specialist_calendar(session: AsyncSes
     if owner_tg_user_id is not None:
         specialist_text = (
             f"Отмена записи #{appointment_id} синхронизирована.\n"
-            f"Клиент: {client.display_name or client.client_code or client.client_id}"
+            f"Клиент: {_format_client_contact(client)}"
         )
         await _send_specialist_message(
             session,

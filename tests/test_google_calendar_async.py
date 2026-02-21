@@ -236,7 +236,6 @@ async def test_calendar_request_raises_after_retry_exhausted(monkeypatch):
     (
         "display_name",
         "tg_username",
-        "tg_user_id",
         "client_code",
         "expected_summary",
         "expected_description",
@@ -245,47 +244,37 @@ async def test_calendar_request_raises_after_retry_exhausted(monkeypatch):
         (
             "Анна",
             "anna",
-            42,
             None,
             "Сессия с Анна (@anna)",
-            "Клиент: Анна\n"
-            "Link: tg://user?id=42",
+            "Клиент: Анна (@anna)",
         ),
         (
-            None,
             None,
             None,
             None,
             "Сессия с Клиент",
-            "Клиент: Клиент\n"
-            "Link: tg://user?id=",
+            "Клиент: Клиент",
         ),
         (
             "Анна",
             "@anna",
-            42,
             None,
             "Сессия с Анна (@anna)",
-            "Клиент: Анна\n"
-            "Link: tg://user?id=42",
+            "Клиент: Анна (@anna)",
         ),
         (
             "",
             None,
-            42,
             "A-123",
             "Сессия с Клиент (#A-123)",
-            "Клиент: Клиент\n"
-            "Link: tg://user?id=42",
+            "Клиент: Клиент",
         ),
         (
             "Иван",
             None,
-            42,
             None,
-            "Сессия с Иван (tg_id=42)",
-            "Клиент: Иван\n"
-            "Link: tg://user?id=42",
+            "Сессия с Иван",
+            "Клиент: Иван",
         ),
     ],
 )
@@ -293,7 +282,6 @@ async def test_create_appointment_event_formats_summary_and_description(
     monkeypatch,
     display_name,
     tg_username,
-    tg_user_id,
     client_code,
     expected_summary,
     expected_description,
@@ -320,7 +308,6 @@ async def test_create_appointment_event_formats_summary_and_description(
         specialist_tz="UTC",
         client_display_name=display_name,
         client_tg_username=tg_username,
-        client_tg_user_id=tg_user_id,
         client_code=client_code,
     )
 
@@ -337,7 +324,6 @@ async def _create_appointment_event_and_capture_payload(
     *,
     display_name,
     username,
-    tg_user_id,
     client_code,
 ):
     specialist_id = uuid.uuid4()
@@ -362,7 +348,6 @@ async def _create_appointment_event_and_capture_payload(
         specialist_tz="UTC",
         client_display_name=display_name,
         client_tg_username=username,
-        client_tg_user_id=tg_user_id,
         client_code=client_code,
     )
 
@@ -375,12 +360,11 @@ async def test_create_appointment_event_payload_when_username_present(monkeypatc
         monkeypatch,
         display_name="Клиент А",
         username="anna",
-        tg_user_id=42,
         client_code="A1",
     )
 
     assert "(@anna)" in payload["summary"]
-    assert payload["description"] == "Клиент: Клиент А\nLink: tg://user?id=42"
+    assert payload["description"] == "Клиент: Клиент А (@anna)"
 
 
 @pytest.mark.asyncio
@@ -389,12 +373,11 @@ async def test_create_appointment_event_payload_when_username_absent(monkeypatch
         monkeypatch,
         display_name="Клиент А",
         username=None,
-        tg_user_id=42,
         client_code="A1",
     )
 
-    assert "(#A1)" in payload["summary"] or "(tg_id=42)" in payload["summary"]
-    assert payload["description"] == "Клиент: Клиент А\nLink: tg://user?id=42"
+    assert "(#A1)" in payload["summary"]
+    assert payload["description"] == "Клиент: Клиент А"
 
 
 @pytest.mark.asyncio

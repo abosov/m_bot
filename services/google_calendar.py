@@ -13,6 +13,7 @@ from sqlalchemy import select
 import config
 from database import CalendarSyncState, GoogleOAuth, async_session_factory
 from services.crypto import decrypt_token
+from services.client_display import format_client_display
 from services.alerting import notify_exception
 from services.log_context import log_event
 
@@ -514,30 +515,24 @@ async def create_appointment_event(
     specialist_tz: str,
     client_display_name: str | None,
     client_tg_username: str | None = None,
-    client_tg_user_id: int | None = None,
     client_code: str | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     try:
         headers = await _build_headers(specialist_id)
-        display_name = (client_display_name or "").strip()
-        base_name = display_name or "Клиент"
+        client_label = format_client_display(display_name=client_display_name, tg_username=client_tg_username)
 
         normalized_username = (client_tg_username or "").strip().lstrip("@") or None
-        display_username = f"@{normalized_username}" if normalized_username else None
 
-        fallback_summary = f"Сессия с {base_name}"
+        fallback_summary = f"Сессия с {client_label}"
         if normalized_username:
-            summary = f"Сессия с {base_name} ({display_username})"
+            summary = f"Сессия с {client_label}"
         elif client_code:
-            summary = f"Сессия с {base_name} (#{client_code})"
-        elif client_tg_user_id:
-            summary = f"Сессия с {base_name} (tg_id={client_tg_user_id})"
+            summary = f"Сессия с {client_label} (#{client_code})"
         else:
             summary = fallback_summary
 
-        link_tg_user_id = client_tg_user_id if client_tg_user_id is not None else ""
-        description = f"Клиент: {base_name}\nLink: tg://user?id={link_tg_user_id}"
+        description = f"Клиент: {client_label}"
 
         payload: dict[str, Any] = {
             "summary": summary,
@@ -596,30 +591,24 @@ async def update_appointment_event(
     specialist_tz: str,
     client_display_name: str | None,
     client_tg_username: str | None = None,
-    client_tg_user_id: int | None = None,
     client_code: str | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     try:
         headers = await _build_headers(specialist_id)
-        display_name = (client_display_name or "").strip()
-        base_name = display_name or "Клиент"
+        client_label = format_client_display(display_name=client_display_name, tg_username=client_tg_username)
 
         normalized_username = (client_tg_username or "").strip().lstrip("@") or None
-        display_username = f"@{normalized_username}" if normalized_username else None
 
-        fallback_summary = f"Сессия с {base_name}"
+        fallback_summary = f"Сессия с {client_label}"
         if normalized_username:
-            summary = f"Сессия с {base_name} ({display_username})"
+            summary = f"Сессия с {client_label}"
         elif client_code:
-            summary = f"Сессия с {base_name} (#{client_code})"
-        elif client_tg_user_id:
-            summary = f"Сессия с {base_name} (tg_id={client_tg_user_id})"
+            summary = f"Сессия с {client_label} (#{client_code})"
         else:
             summary = fallback_summary
 
-        link_tg_user_id = client_tg_user_id if client_tg_user_id is not None else ""
-        description = f"Клиент: {base_name}\nLink: tg://user?id={link_tg_user_id}"
+        description = f"Клиент: {client_label}"
 
         payload: dict[str, Any] = {
             "summary": summary,
