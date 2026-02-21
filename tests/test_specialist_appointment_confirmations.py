@@ -12,6 +12,7 @@ class DummyMessage:
     def __init__(self):
         self.answers = []
         self.edits = []
+        self.message_id = 101
 
     async def answer(self, text, **kwargs):
         self.answers.append((text, kwargs))
@@ -116,6 +117,7 @@ async def test_specialist_reject_callback_opens_reason_mode_screen(monkeypatch):
 
     await appointment_confirmations.specialist_appointment_decision(callback, specialist_id=specialist_id)
 
+    assert message.edits == [{"reply_markup": None}]
     assert message.answers[0][0] == "Добавить пояснение клиенту?"
     keyboard = message.answers[0][1]["reply_markup"]
     buttons = [button for row in keyboard.inline_keyboard for button in row]
@@ -161,6 +163,8 @@ async def test_specialist_reject_with_reason_mode_sets_fsm_state(monkeypatch):
 
     assert state.state == appointment_confirmations.SpecialistAppointmentRejectStates.waiting_rejection_reason
     assert state.data["appointment_id"] == str(appointment_id)
+    assert state.data["request_message_id"] == message.message_id
+    assert message.edits == [{"reply_markup": None}]
     assert message.answers[0][0] == "Введите пояснение одним сообщением."
     assert callback_answers[0][0] == ()
 
@@ -207,9 +211,9 @@ async def test_specialist_reject_without_reason_completes(monkeypatch):
     await appointment_confirmations.specialist_appointment_reject_mode(callback, specialist_id=specialist_id, state=state)
 
     assert message.edits == [{"reply_markup": None}]
-    assert message.answers[0][0] == "Отклонено"
+    assert "Запись отклонена:" in message.answers[0][0]
     assert state.state is None
-    assert callback_answers[0][0] == ()
+    assert callback_answers[0][0] == ("Отклонено",)
 
 
 @pytest.mark.asyncio
@@ -301,7 +305,7 @@ async def test_specialist_reject_with_reason_completes_and_clears_state(monkeypa
         state=state,
     )
 
-    assert message.answers[0][0] == "Отклонено"
+    assert message.answers[0][0] == "Запись отклонена, пояснение отправлено клиенту"
     assert state.state is None
     assert state.data == {}
 
