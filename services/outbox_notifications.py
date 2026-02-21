@@ -205,7 +205,7 @@ async def _handle_appointment_confirmed_by_specialist(session: AsyncSession, eve
         raise ValueError("missing recipient for specialist confirmation notification")
 
     client_start = _format_dt_for_client(start_at_utc, client.client_timezone)
-    client_text = f"Специалист подтвердил запись.\nВремя: {client_start}"
+    client_text = f"Запись подтверждена: {client_start}"
     await _send_client_message(
         session,
         outbox_event=event,
@@ -233,9 +233,9 @@ async def _handle_appointment_rejected_by_specialist(session: AsyncSession, even
         raise ValueError("missing recipient for specialist rejection notification")
 
     client_start = _format_dt_for_client(start_at_utc, client.client_timezone)
-    client_text = f"Специалист отклонил запись.\nВремя: {client_start}"
+    client_text = f"Запись отклонена специалистом: {client_start}"
     if rejection_reason:
-        client_text += f"\nПричина: {rejection_reason}"
+        client_text += f"\nКомментарий: {rejection_reason}"
     await _send_client_message(
         session,
         outbox_event=event,

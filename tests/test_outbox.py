@@ -678,8 +678,7 @@ async def test_confirmed_by_specialist_handler_sends_client(monkeypatch):
     await outbox_notifications._handle_appointment_confirmed_by_specialist(Session(), event)
 
     assert sent[0][0] == 111
-    assert "Специалист подтвердил запись." in sent[0][1]
-    assert "Время: 2026-01-02 Пт [11:00]" in sent[0][1]
+    assert sent[0][1] == "Запись подтверждена: 2026-01-02 Пт [11:00]"
 
 
 @pytest.mark.asyncio
@@ -729,5 +728,5 @@ async def test_rejected_by_specialist_handler_includes_rejection_reason(monkeypa
     await outbox_notifications._handle_appointment_rejected_by_specialist(Session(), event)
 
     assert sent[0][0] == 111
-    assert "Специалист отклонил запись." in sent[0][1]
-    assert "Причина: Не могу в это время" in sent[0][1]
+    assert "Запись отклонена специалистом: 2026-01-02 Пт [11:00]" in sent[0][1]
+    assert "Комментарий: Не могу в это время" in sent[0][1]
