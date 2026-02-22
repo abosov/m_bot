@@ -218,12 +218,12 @@ def _normalize_calendar_items(items: list[dict]) -> list[dict]:
 
 def _calendar_select_keyboard(items: list[dict], page: int, per_page: int) -> types.InlineKeyboardMarkup:
     total = len(items)
-    refresh_row = [types.InlineKeyboardButton(text="🔄 Обновить список календарей", callback_data="calendar:refresh")]
+    refresh_row = [types.InlineKeyboardButton(text="🔄 Обновить список", callback_data="calendar:refresh")]
     if total == 0:
         return types.InlineKeyboardMarkup(
             inline_keyboard=[
                 refresh_row,
-                [types.InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")],
+                [types.InlineKeyboardButton(text="⬅️ Отмена", callback_data="calendar:cancel_select")],
             ]
         )
 
@@ -251,30 +251,16 @@ def _calendar_select_keyboard(items: list[dict], page: int, per_page: int) -> ty
     if nav:
         rows.append(nav)
 
-    rows.append([types.InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")])
+    rows.append([types.InlineKeyboardButton(text="⬅️ Отмена", callback_data="calendar:cancel_select")])
     return types.InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _calendar_select_text(total: int, page: int, per_page: int, has_readonly: bool) -> str:
-    pages = max(1, (total + per_page - 1) // per_page)
-    readonly_note = "\n⚠️ В списке есть календари только для чтения — запись в них недоступна." if has_readonly else ""
-    warning = (
-        "Zumbot подключается к уже существующему календарю Google.\n"
-        "Если нужен отдельный календарь — создайте его вручную в Google Calendar, затем выберите в боте."
-    )
-    if total == 0:
-        return (
-            f"{warning}\n\n"
-            "📂 Пока не удалось получить доступные календари.\n"
-            "Сначала выберите календарь. Откройте доступ к нужному календарю в Google Calendar и нажмите "
-            "«Обновить список календарей»."
-        )
+    _ = (page, per_page, has_readonly)
     return (
-        f"{warning}\n\n"
-        "📂 Выберите рабочий Google Календарь.\n"
-        f"Найдено календарей: {total}. Страница {page + 1}/{pages}.\n"
-        "После выбора будет запущена проверка интеграции (создание и удаление тестового события)."
-        f"{readonly_note}"
+        "📂 Выберите рабочий Google Календарь\n\n"
+        f"Найдено календарей: {total}.\n"
+        "После выбора будет выполнена проверка интеграции."
     )
 
 

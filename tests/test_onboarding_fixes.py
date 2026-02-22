@@ -531,16 +531,22 @@ def test_calendar_select_keyboard_and_text_navigation(monkeypatch):
     assert any(btn.callback_data == "calendar:pick:6" for btn in buttons1)
 
     text = onboarding._calendar_select_text(total=7, page=1, per_page=6, has_readonly=True)
-    assert "Zumbot подключается к уже существующему календарю Google" in text
-    assert "Страница 2/2" in text
-    assert "только для чтения" in text
+    assert text == (
+        "📂 Выберите рабочий Google Календарь\n\n"
+        "Найдено календарей: 7.\n"
+        "После выбора будет выполнена проверка интеграции."
+    )
 
     empty_text = onboarding._calendar_select_text(total=0, page=0, per_page=6, has_readonly=False)
-    assert "Пока не удалось получить доступные календари" in empty_text
+    assert empty_text == (
+        "📂 Выберите рабочий Google Календарь\n\n"
+        "Найдено календарей: 0.\n"
+        "После выбора будет выполнена проверка интеграции."
+    )
 
     kb_empty = onboarding._calendar_select_keyboard([], page=0, per_page=6)
-    buttons_empty = [btn for row in kb_empty.inline_keyboard for btn in row]
-    assert any(btn.callback_data == "calendar:refresh" for btn in buttons_empty)
+    assert kb_empty.inline_keyboard[0][0].text == "🔄 Обновить список"
+    assert kb_empty.inline_keyboard[-1][0].text == "⬅️ Отмена"
 
 
 @pytest.mark.asyncio
