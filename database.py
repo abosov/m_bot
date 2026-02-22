@@ -7,7 +7,7 @@ from typing import Optional, List
 import config
 from sqlalchemy import (
     BigInteger, Boolean, String, ForeignKey, DateTime, Time,
-    Integer, Text, Enum as SAEnum, func, Float, CheckConstraint, UniqueConstraint, JSON
+    Integer, Text, Enum as SAEnum, func, Float, CheckConstraint, UniqueConstraint, JSON, Index
 )
 from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -101,6 +101,7 @@ class Specialist(Base):
     calendar_settings: Mapped["SpecialistCalendarSettings"] = relationship(back_populates="specialist", uselist=False)
     calendar_sync_states: Mapped[List["CalendarSyncState"]] = relationship(back_populates="specialist")
     weekly_availability: Mapped[List["WeeklyAvailability"]] = relationship(back_populates="specialist")
+    working_hours: Mapped[List["SpecialistWorkingHours"]] = relationship(back_populates="specialist")
     clients: Mapped[List["Client"]] = relationship(back_populates="specialist")
     appointments: Mapped[List["Appointment"]] = relationship(back_populates="specialist")
     telegram_bots: Mapped[List["TelegramBot"]] = relationship(back_populates="specialist")
@@ -274,6 +275,45 @@ class WeeklyAvailability(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     specialist: Mapped["Specialist"] = relationship(back_populates="weekly_availability")
+
+
+class SpecialistWorkingHours(Base):
+    __tablename__ = "specialist_working_hours"
+    __table_args__ = (
+        CheckConstraint("weekday BETWEEN 0 AND 6", name="ck_specialist_working_hours_weekday_range"),
+        CheckConstraint("start_time < end_time", name="ck_specialist_working_hours_time_order"),
+        Index("ix_specialist_working_hours_specialist_weekday", "specialist_id", "weekday"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    specialist_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("specialist.specialist_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    weekday: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_time: Mapped[time] = mapped_column(Time, nullable=False)
+    end_time: Mapped[time] = mapped_column(Time, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    specialist: Mapped["Specialist"] = relationship(back_populates="working_hours")
+
+    def __repr__(self) -> str:
+        return (
+            f"SpecialistWorkingHours(id={self.id!r}, specialist_id={self.specialist_id!r}, "
+            f"weekday={self.weekday!r}, start_time={self.start_time!r}, end_time={self.end_time!r})"
+        )
+
+    def __str__(self) -> str:
+        return (
+            f"SpecialistWorkingHours(specialist_id={self.specialist_id}, weekday={self.weekday}, "
+            f"{self.start_time}-{self.end_time})"
+        )
 
 
 class Client(Base):
