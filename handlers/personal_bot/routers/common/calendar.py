@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from aiogram import F, Router, types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -12,6 +12,7 @@ from database import (
     SpecialistAuthTelegram,
     SpecialistCalendarSettings,
     SpecialistCalendarSource,
+    SpecialistProfile,
     async_session_factory,
 )
 from services.google_calendar import (
@@ -19,7 +20,9 @@ from services.google_calendar import (
     create_and_cleanup_test_event,
 )
 from handlers.personal_bot.routers.common.start import _render_onboarding_screen
+from services.alerting import notify_exception
 from services.log_context import log_event
+from services.specialist_defaults import apply_specialist_defaults_if_missing
 from services.telegram.calendar_keyboard import build_calendar_selection_keyboard
 
 router = Router(name="personal_bot_common_calendar")
@@ -46,15 +49,6 @@ class PersonalGoogleCalendarPickState(StatesGroup):
     page = State()
 
 
-def _calendar_action_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📂 Выбрать календарь", callback_data="calendar:select")],
-            [InlineKeyboardButton(text="⬅️ Отмена", callback_data="calendar:cancel_select")],
-        ]
-    )
-
-
 def _calendar_select_text(*, total: int, page: int, page_size: int) -> str:
     _ = (page, page_size)
     return (
@@ -64,8 +58,19 @@ def _calendar_select_text(*, total: int, page: int, page_size: int) -> str:
     )
 
 
-def _calendar_select_keyboard(*, items: list[dict], page: int, page_size: int) -> InlineKeyboardMarkup:
-    return build_calendar_selection_keyboard(items, page=page, per_page=page_size)
+def _calendar_select_keyboard(
+    *,
+    items: list[dict],
+    page: int,
+    page_size: int,
+    current_calendar_id: str | None,
+) -> InlineKeyboardMarkup:
+    return build_calendar_selection_keyboard(
+        items,
+        page=page,
+        per_page=page_size,
+        current_calendar_id=current_calendar_id,
+    )
 
 
 async def _upsert_calendar_settings(
@@ -118,27 +123,10 @@ async def personal_calendar_switch_stub(callback: types.CallbackQuery, state: FS
         await callback.answer()
         return
 
-    await callback.message.answer(
-        "Шаг: выберите рабочий Google Календарь.",
-        reply_markup=_calendar_action_keyboard(),
-    )
-    await callback.answer()
+    await _calendar_select(callback, state)
 
 
-@router.callback_query(F.data == "calendar:create")
-async def personal_calendar_create_legacy_redirect(callback: types.CallbackQuery, state: FSMContext):
-    _log_personal_handler(
-        callback=callback,
-        handler_name="personal_calendar_create_legacy_redirect",
-        fsm_state=await state.get_state(),
-        outcome="legacy_redirect_to_select",
-    )
-    callback.data = "calendar:select"
-    await personal_calendar_select(callback, state)
-
-
-@router.callback_query(F.data == "calendar:select")
-async def personal_calendar_select(callback: types.CallbackQuery, state: FSMContext):
+async def _calendar_select(callback: types.CallbackQuery, state: FSMContext):
     _log_personal_handler(callback=callback, handler_name="personal_calendar_select", fsm_state=await state.get_state(), outcome="start")
     specialist_id = await _get_specialist_id_by_tg_user_id(callback.from_user.id)
     if not specialist_id:
@@ -147,6 +135,9 @@ async def personal_calendar_select(callback: types.CallbackQuery, state: FSMCont
         return
 
     items_raw = await list_calendars(specialist_id)
+    async with async_session_factory() as session:
+        settings = await session.get(SpecialistCalendarSettings, specialist_id)
+    current_calendar_id = settings.calendar_id if settings else None
     items: list[dict] = []
     for item in items_raw:
         item_id = item.get("id")
@@ -164,19 +155,19 @@ async def personal_calendar_select(callback: types.CallbackQuery, state: FSMCont
             }
         )
 
-    await state.update_data(items=items, page=0)
+    await state.update_data(items=items, page=0, current_calendar_id=current_calendar_id)
     await state.set_state(PersonalGoogleCalendarPickState.items)
 
     await callback.message.answer(
-        _calendar_select_text(total=len(items), page=0, page_size=5),
-        reply_markup=_calendar_select_keyboard(items=items, page=0, page_size=5),
+        _calendar_select_text(total=len(items), page=0, page_size=6),
+        reply_markup=_calendar_select_keyboard(items=items, page=0, page_size=6, current_calendar_id=current_calendar_id),
     )
     await callback.answer()
 
 
 @router.callback_query(F.data == "calendar:refresh")
 async def personal_calendar_refresh(callback: types.CallbackQuery, state: FSMContext):
-    await personal_calendar_select(callback, state)
+    await _calendar_select(callback, state)
 
 
 @router.callback_query(F.data.startswith("calendar:page:"))
@@ -190,13 +181,14 @@ async def personal_calendar_page(callback: types.CallbackQuery, state: FSMContex
         await callback.answer("Некорректная страница")
         return
 
-    max_page = max(0, (len(items) - 1) // 5) if items else 0
+    current_calendar_id = data.get("current_calendar_id")
+    max_page = max(0, (len(items) - 1) // 6) if items else 0
     page = max(0, min(page, max_page))
     await state.update_data(page=page)
 
     await callback.message.edit_text(
-        _calendar_select_text(total=len(items), page=page, page_size=5),
-        reply_markup=_calendar_select_keyboard(items=items, page=page, page_size=5),
+        _calendar_select_text(total=len(items), page=page, page_size=6),
+        reply_markup=_calendar_select_keyboard(items=items, page=page, page_size=6, current_calendar_id=current_calendar_id),
     )
     await callback.answer()
 
@@ -229,29 +221,40 @@ async def personal_calendar_pick(callback: types.CallbackQuery, state: FSMContex
         await callback.answer()
         return
 
-    calendar_tz = item.get("timeZone") or "UTC"
-    smoke_status = "ok"
     try:
-        await create_and_cleanup_test_event(specialist_id, item["id"], calendar_tz)
+        calendar_tz = item.get("timeZone") or "UTC"
+        smoke_status = "ok"
+        try:
+            await create_and_cleanup_test_event(specialist_id, item["id"], calendar_tz)
+        except Exception:
+            smoke_status = "failed"
+
+        await _upsert_calendar_settings(
+            specialist_id=specialist_id,
+            calendar_id=item["id"],
+            calendar_summary=item.get("summary"),
+            calendar_tz=calendar_tz,
+            smoke_status=smoke_status,
+        )
+
+        async with async_session_factory() as session:
+            await apply_specialist_defaults_if_missing(session, specialist_id, preferred_timezone=calendar_tz)
+            await session.commit()
+
+        await state.clear()
+        await callback.message.answer("Календарь применён.")
+        await _render_onboarding_screen(callback.message, specialist_id)
+        await callback.answer()
     except Exception:
-        smoke_status = "failed"
-
-    await _upsert_calendar_settings(
-        specialist_id=specialist_id,
-        calendar_id=item["id"],
-        calendar_summary=item.get("summary"),
-        calendar_tz=calendar_tz,
-        smoke_status=smoke_status,
-    )
-
-    async with async_session_factory() as session:
-        await apply_specialist_defaults_if_missing(session, specialist_id, preferred_timezone=calendar_tz)
-        await session.commit()
-
-    await state.clear()
-    await callback.message.answer("✅ Календарь применён.")
-    await _render_onboarding_screen(callback.message, specialist_id)
-    await callback.answer()
+        logger.exception(
+            "personal_calendar_pick failed tg_user_id=%s specialist_id=%s",
+            callback.from_user.id if callback.from_user else None,
+            specialist_id,
+        )
+        await callback.message.answer(
+            "Не удалось применить выбранный календарь. Попробуйте снова или нажмите «Обновить список»."
+        )
+        await callback.answer()
 
 
 @router.callback_query(F.data == "calendar:cancel_select")
@@ -275,40 +278,53 @@ async def personal_calendar_smoke(callback: types.CallbackQuery, state: FSMConte
         await callback.answer()
         return
 
-    async with async_session_factory() as session:
-        settings = await session.get(SpecialistCalendarSettings, specialist_id)
-        profile = await session.get(SpecialistProfile, specialist_id)
-
-    if settings is None or not settings.calendar_id:
-        await callback.message.answer("⚠️ Календарь ещё не подключен.")
-        await callback.answer()
-        return
-
-    tz = settings.calendar_time_zone or (profile.specialist_timezone if profile else None) or "UTC"
     try:
-        await create_and_cleanup_test_event(specialist_id, settings.calendar_id, tz)
-        await _upsert_calendar_settings(
-            specialist_id=specialist_id,
-            calendar_id=settings.calendar_id,
-            calendar_summary=settings.calendar_summary,
-            calendar_tz=tz,
-            smoke_status="ok",
-        )
-        await callback.message.answer("✅ Интеграция выполнена успешно.")
+        async with async_session_factory() as session:
+            settings = await session.get(SpecialistCalendarSettings, specialist_id)
+            profile = await session.get(SpecialistProfile, specialist_id)
+
+        if settings is None or not settings.calendar_id:
+            await callback.message.answer("⚠️ Календарь ещё не подключен.")
+            return
+
+        tz = settings.calendar_time_zone or (profile.specialist_timezone if profile else None) or "UTC"
+        try:
+            await create_and_cleanup_test_event(specialist_id, settings.calendar_id, tz)
+            await _upsert_calendar_settings(
+                specialist_id=specialist_id,
+                calendar_id=settings.calendar_id,
+                calendar_summary=settings.calendar_summary,
+                calendar_tz=tz,
+                smoke_status="ok",
+            )
+            await callback.message.answer("✅ Интеграция выполнена успешно.")
+        except Exception as exc:
+            await _upsert_calendar_settings(
+                specialist_id=specialist_id,
+                calendar_id=settings.calendar_id,
+                calendar_summary=settings.calendar_summary,
+                calendar_tz=tz,
+                smoke_status="failed",
+            )
+            await notify_exception(
+                where="handlers.personal_bot.common.calendar.personal_calendar_smoke",
+                exc=exc,
+                context={"tg_user_id": callback.from_user.id},
+                event=callback,
+            )
+            await callback.message.answer("⚠️ Интеграция не завершена.")
     except Exception as exc:
-        await _upsert_calendar_settings(
-            specialist_id=specialist_id,
-            calendar_id=settings.calendar_id,
-            calendar_summary=settings.calendar_summary,
-            calendar_tz=tz,
-            smoke_status="failed",
+        logger.exception(
+            "personal_calendar_smoke failed tg_user_id=%s specialist_id=%s",
+            callback.from_user.id if callback.from_user else None,
+            specialist_id,
         )
         await notify_exception(
-            where="handlers.personal_bot.common.calendar.personal_calendar_smoke",
+            where="handlers.personal_bot.common.calendar.personal_calendar_smoke.unexpected",
             exc=exc,
-            context={"tg_user_id": callback.from_user.id},
+            context={"tg_user_id": callback.from_user.id if callback.from_user else None, "specialist_id": specialist_id},
             event=callback,
         )
-        await callback.message.answer("⚠️ Интеграция не завершена.")
-
-    await callback.answer()
+        await callback.message.answer("⚠️ Не удалось проверить интеграцию. Попробуйте снова позже.")
+    finally:
+        await callback.answer()
