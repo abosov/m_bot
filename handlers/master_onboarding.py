@@ -182,10 +182,11 @@ async def _check_full_onboarding_or_prompt(message: types.Message, specialist: S
     return False
 
 
-def _calendar_switch_keyboard() -> types.InlineKeyboardMarkup:
+def _calendar_switch_keyboard(*, has_selected_calendar: bool) -> types.InlineKeyboardMarkup:
+    button_text = "📅 Сменить календарь" if has_selected_calendar else "📅 Выбрать календарь"
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="🗓️ Сменить календарь", callback_data="calendar:switch_stub")],
+            [types.InlineKeyboardButton(text=button_text, callback_data="calendar:switch_stub")],
         ]
     )
 
@@ -704,7 +705,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 keyboard = types.InlineKeyboardMarkup(
                     inline_keyboard=[
                         [types.InlineKeyboardButton(text="🔁 Проверить интеграцию", callback_data="calendar:smoke")],
-                        [types.InlineKeyboardButton(text="♻️ Сменить календарь", callback_data="calendar:switch_stub")],
+                        [types.InlineKeyboardButton(text="📅 Сменить календарь", callback_data="calendar:switch_stub")],
                     ]
                 )
                 new_state = "calendar_connected"
@@ -712,7 +713,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
             else:
                 await state.set_state(OnboardingStates.waiting_for_calendar_action)
                 next_step_msg = "\n👇 <b>Действие:</b> Выберите как подключить рабочий календарь бота."
-                keyboard = _calendar_switch_keyboard()
+                keyboard = _calendar_switch_keyboard(has_selected_calendar=has_calendar)
                 new_state = "waiting_for_calendar_action"
             
             final_text = status_text + next_step_msg

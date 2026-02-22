@@ -57,7 +57,7 @@ def _onboarding_keyboard() -> InlineKeyboardMarkup:
 def _onboarding_keyboard_with_calendar() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🗓️ Сменить календарь", callback_data="calendar:switch_stub")],
+            [InlineKeyboardButton(text="📅 Сменить календарь", callback_data="calendar:switch_stub")],
             [InlineKeyboardButton(text="⚙️ Изменить параметры записи", callback_data="onboarding:change")],
             [InlineKeyboardButton(text="✅ Оставить как есть", callback_data="onboarding:keep")],
             [InlineKeyboardButton(text="⏳ Позже", callback_data="onboarding:later")],
@@ -67,10 +67,21 @@ def _onboarding_keyboard_with_calendar() -> InlineKeyboardMarkup:
 
 
 
-def _first_run_settings_keyboard() -> InlineKeyboardMarkup:
+def _specialist_quick_menu_keyboard(*, has_selected_calendar: bool) -> InlineKeyboardMarkup:
+    calendar_text = "📅 Сменить календарь" if has_selected_calendar else "📅 Календарь"
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="🔧 Перейти к настройкам", callback_data="open_settings")]]
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⚙️ Настройки", callback_data="open_settings")],
+            [InlineKeyboardButton(text=calendar_text, callback_data="calendar:switch_stub")],
+            [InlineKeyboardButton(text="🔁 Статус / Интеграции", callback_data="calendar:smoke")],
+            [InlineKeyboardButton(text="❓ Помощь", switch_inline_query_current_chat="/help")],
+        ]
     )
+
+
+def _first_run_settings_keyboard(*, has_selected_calendar: bool) -> InlineKeyboardMarkup:
+    return _specialist_quick_menu_keyboard(has_selected_calendar=has_selected_calendar)
+
 
 
 def _is_basic_setup_completed(*, specialist, profile, calendar_settings) -> bool:
@@ -305,7 +316,12 @@ async def personal_start(
                 calendar_settings=calendar_settings,
             ):
                 text, _ = _format_start_settings_summary(profile=profile, specialist=specialist)
-                await message.answer(text, reply_markup=_first_run_settings_keyboard())
+                await message.answer(
+                    text,
+                    reply_markup=_first_run_settings_keyboard(
+                        has_selected_calendar=bool(calendar_settings and getattr(calendar_settings, "calendar_id", None))
+                    ),
+                )
                 return
 
             if command.args and command.args != "owner_panel":
@@ -333,7 +349,10 @@ async def personal_start(
             "Доступно сейчас:\n"
             "• /status — состояние интеграций\n"
             "• /help — список команд\n\n"
-            f"Поддержка: {SUPPORT_TG_URL}"
+            f"Поддержка: {SUPPORT_TG_URL}",
+            reply_markup=_specialist_quick_menu_keyboard(
+                has_selected_calendar=bool(calendar_settings and getattr(calendar_settings, "calendar_id", None))
+            ),
         )
         return
 
