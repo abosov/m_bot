@@ -26,6 +26,7 @@ from services.specialist_schedule import (
     add_working_interval,
     delete_working_interval,
     get_specialist_schedule,
+    update_session_settings,
 )
 from services.specialist_defaults import (
     apply_specialist_defaults_if_missing,
@@ -74,6 +75,11 @@ class ScheduleEditStates(StatesGroup):
     menu = State()
     waiting_start_time = State()
     waiting_end_time = State()
+
+
+class SessionSettingsStates(StatesGroup):
+    waiting_duration = State()
+    waiting_buffer = State()
 
 
 def _validate_interval_pair(*, start: time | None, end: time | None) -> None:
@@ -1062,11 +1068,68 @@ async def owner_panel_set_slot_step(
 
 
 @router.callback_query(F.data == "owner_panel:change_duration_buffer")
-async def owner_panel_change_duration_buffer(callback: CallbackQuery) -> None:
+async def owner_panel_change_duration_buffer(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(SessionSettingsStates.waiting_duration)
+    await state.update_data(session_duration_candidate=None)
     await callback.answer()
     await callback.message.answer(
-        "⏱️ Изменение длительности и буфера в разработке. Пока можно использовать мастер настроек."
+        "⏱️ Введите длительность сессии в минутах (15..240, кратно 5)."
     )
+
+
+@router.message(SessionSettingsStates.waiting_duration)
+async def owner_panel_receive_session_duration(message: Message, state: FSMContext, specialist_id) -> None:
+    try:
+        duration = int((message.text or "").strip())
+    except ValueError:
+        await message.answer("⚠️ Длительность должна быть целым числом минут. Попробуйте ещё раз.")
+        return
+
+    try:
+        _validate_session_settings_input(duration=duration, buffer=0)
+    except SpecialistScheduleValidationError as exc:
+        await message.answer(f"⚠️ Некорректная длительность: {exc}. Попробуйте ещё раз.")
+        return
+
+    await state.update_data(session_duration_candidate=duration, specialist_id=specialist_id)
+    await state.set_state(SessionSettingsStates.waiting_buffer)
+    await message.answer("⏱️ Введите буфер между сессиями в минутах (0..120).")
+
+
+@router.message(SessionSettingsStates.waiting_buffer)
+async def owner_panel_receive_session_buffer(
+    message: Message,
+    state: FSMContext,
+    specialist_id,
+    owner_tg_user_id: int | None,
+    public_name: str | None,
+) -> None:
+    try:
+        buffer_min = int((message.text or "").strip())
+    except ValueError:
+        await message.answer("⚠️ Буфер должен быть целым числом минут. Попробуйте ещё раз.")
+        return
+
+    data = await state.get_data()
+    duration = data.get("session_duration_candidate")
+    if not isinstance(duration, int):
+        await state.set_state(SessionSettingsStates.waiting_duration)
+        await message.answer("⚠️ Не найдена длительность. Введите длительность заново.")
+        return
+
+    try:
+        updated = await update_session_settings(specialist_id, duration=duration, buffer=buffer_min)
+    except SpecialistScheduleValidationError as exc:
+        await message.answer(f"⚠️ Некорректный буфер: {exc}. Попробуйте ещё раз.")
+        return
+
+    await state.clear()
+    await message.answer(
+        "✅ Настройки сессии сохранены\n"
+        f"• Длительность: {updated['session_duration_min']} мин\n"
+        f"• Буфер: {updated['session_buffer_min']} мин"
+    )
+    await send_owner_panel(message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
 
 
 @router.callback_query(F.data == "owner_panel:change_timezone")
@@ -1169,6 +1232,16 @@ async def schedule_add_start(callback: CallbackQuery, state: FSMContext) -> None
         f"✍️ {_weekday_label(weekday)}: введите время начала в формате HH:MM (например, 09:00)."
     )
 
+
+
+
+def _validate_session_settings_input(duration: int, buffer: int) -> None:
+    if duration < 15 or duration > 240:
+        raise SpecialistScheduleValidationError("session_duration must be between 15 and 240 minutes")
+    if duration % 5 != 0:
+        raise SpecialistScheduleValidationError("session_duration must be a multiple of 5 minutes")
+    if buffer < 0 or buffer > 120:
+        raise SpecialistScheduleValidationError("buffer_minutes must be between 0 and 120 minutes")
 
 def _parse_hhmm(value: str) -> time | None:
     try:

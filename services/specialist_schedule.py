@@ -6,7 +6,7 @@ from datetime import datetime, time, timezone
 
 from sqlalchemy import select
 
-from database import Appointment, BookingState, SpecialistWorkingHours, async_session_factory
+from database import Appointment, BookingState, SpecialistProfile, SpecialistWorkingHours, async_session_factory
 
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,43 @@ async def invalidate_availability_cache(specialist_id: uuid.UUID) -> None:
     """
     logger.debug("event=availability_cache_invalidate specialist_id=%s", specialist_id)
 
+
+
+
+def _validate_session_settings(duration: int, buffer: int) -> None:
+    if duration < 15 or duration > 240:
+        raise ValidationError("session_duration must be between 15 and 240 minutes")
+    if duration % 5 != 0:
+        raise ValidationError("session_duration must be a multiple of 5 minutes")
+    if buffer < 0 or buffer > 120:
+        raise ValidationError("buffer_minutes must be between 0 and 120 minutes")
+
+
+async def update_session_settings(
+    specialist_id: uuid.UUID,
+    duration: int,
+    buffer: int,
+) -> dict[str, int]:
+    _validate_session_settings(duration, buffer)
+
+    async with async_session_factory() as session:
+        async with session.begin():
+            profile = await session.get(SpecialistProfile, specialist_id)
+            if profile is None:
+                raise ValidationError("specialist profile not found")
+
+            profile.session_duration_min = duration
+            profile.session_buffer_min = buffer
+
+        updated_duration = profile.session_duration_min
+        updated_buffer = profile.session_buffer_min
+
+    await invalidate_availability_cache(specialist_id)
+
+    return {
+        "session_duration_min": updated_duration,
+        "session_buffer_min": updated_buffer,
+    }
 
 async def get_specialist_schedule(specialist_id: uuid.UUID) -> dict[int, list[dict[str, str]]]:
     grouped: dict[int, list[tuple[time, time]]] = {weekday: [] for weekday in range(7)}

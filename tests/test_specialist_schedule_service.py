@@ -243,3 +243,77 @@ async def test_delete_working_interval_rejects_foreign_interval(monkeypatch):
 
     with pytest.raises(specialist_schedule.ValidationError):
         await specialist_schedule.delete_working_interval(uuid.uuid4(), specialist_id)
+
+
+@pytest.mark.asyncio
+async def test_update_session_settings_validates_inputs() -> None:
+    specialist_id = uuid.uuid4()
+
+    with pytest.raises(specialist_schedule.ValidationError):
+        await specialist_schedule.update_session_settings(specialist_id, duration=10, buffer=0)
+
+    with pytest.raises(specialist_schedule.ValidationError):
+        await specialist_schedule.update_session_settings(specialist_id, duration=30, buffer=121)
+
+
+@pytest.mark.asyncio
+async def test_update_session_settings_updates_profile_invalidates_cache_and_returns_values(monkeypatch):
+    specialist_id = uuid.uuid4()
+    profile = type("Profile", (), {"session_duration_min": 60, "session_buffer_min": 0})()
+
+    class Tx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class Session:
+        def begin(self):
+            return Tx()
+
+        async def get(self, model, sid):
+            assert sid == specialist_id
+            return profile
+
+    monkeypatch.setattr(specialist_schedule, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    calls = {"invalidate": 0}
+
+    async def fake_invalidate(sid):
+        calls["invalidate"] += 1
+        assert sid == specialist_id
+
+    monkeypatch.setattr(specialist_schedule, "invalidate_availability_cache", fake_invalidate)
+
+    actual = await specialist_schedule.update_session_settings(specialist_id, duration=45, buffer=15)
+
+    assert profile.session_duration_min == 45
+    assert profile.session_buffer_min == 15
+    assert calls == {"invalidate": 1}
+    assert actual == {"session_duration_min": 45, "session_buffer_min": 15}
+
+
+@pytest.mark.asyncio
+async def test_update_session_settings_raises_when_profile_not_found(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class Tx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class Session:
+        def begin(self):
+            return Tx()
+
+        async def get(self, model, sid):
+            assert sid == specialist_id
+            return None
+
+    monkeypatch.setattr(specialist_schedule, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    with pytest.raises(specialist_schedule.ValidationError):
+        await specialist_schedule.update_session_settings(specialist_id, duration=45, buffer=15)

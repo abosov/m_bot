@@ -138,3 +138,16 @@ async def test_owner_cal_create_returns_soft_refusal_and_calendar_menu() -> None
     keyboard = callback.message.answers[1][1]["reply_markup"]
     callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
     assert callbacks == ["owner_cal:select", "owner_cal:smoke", "owner_cal:back"]
+
+
+def test_validate_session_settings_input_accepts_valid_values() -> None:
+    owner_panel._validate_session_settings_input(duration=60, buffer=10)
+
+
+def test_validate_session_settings_input_rejects_invalid_values() -> None:
+    with pytest.raises(owner_panel.SpecialistScheduleValidationError):
+        owner_panel._validate_session_settings_input(duration=10, buffer=10)
+    with pytest.raises(owner_panel.SpecialistScheduleValidationError):
+        owner_panel._validate_session_settings_input(duration=62, buffer=10)
+    with pytest.raises(owner_panel.SpecialistScheduleValidationError):
+        owner_panel._validate_session_settings_input(duration=60, buffer=121)
