@@ -4,10 +4,40 @@ from datetime import datetime, timedelta
 from typing import Iterable, Sequence
 
 
+class ValidationError(ValueError):
+    """Raised when slot ranking input parameters are invalid."""
+
+
 def _as_timedelta_minutes(value: int | timedelta) -> timedelta:
     if isinstance(value, timedelta):
         return value
     return timedelta(minutes=value)
+
+
+def _to_int_minutes(value: int | timedelta, *, field_name: str) -> int:
+    if isinstance(value, timedelta):
+        seconds = value.total_seconds()
+        if seconds % 60 != 0:
+            raise ValidationError(f"{field_name} must be in whole minutes")
+        return int(seconds // 60)
+    return value
+
+
+def _validate_ranking_params(
+    *,
+    session_duration: int | timedelta,
+    buffer_minutes: int | timedelta,
+) -> None:
+    duration_min = _to_int_minutes(session_duration, field_name="session_duration")
+    buffer_min = _to_int_minutes(buffer_minutes, field_name="buffer_minutes")
+
+    if duration_min < 15 or duration_min > 240:
+        raise ValidationError("session_duration must be between 15 and 240 minutes")
+    if duration_min % 5 != 0:
+        raise ValidationError("session_duration must be a multiple of 5 minutes")
+
+    if buffer_min < 0 or buffer_min > 120:
+        raise ValidationError("buffer_minutes must be between 0 and 120 minutes")
 
 
 def _is_adjacent(
@@ -34,6 +64,11 @@ def rank_slots_for_interval(
     buffer_minutes: int | timedelta,
     max_results: int = 6,
 ) -> list[datetime]:
+    _validate_ranking_params(
+        session_duration=session_duration,
+        buffer_minutes=buffer_minutes,
+    )
+
     duration_delta = _as_timedelta_minutes(session_duration)
     buffer_delta = _as_timedelta_minutes(buffer_minutes)
 
