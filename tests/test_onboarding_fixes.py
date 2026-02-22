@@ -58,6 +58,17 @@ def _load_web_app(tmp_path, monkeypatch):
     return web_server, database
 
 
+
+def test_build_calendar_switch_keyboard_text_depends_on_selection(tmp_path, monkeypatch):
+    web_server, _ = _load_web_app(tmp_path, monkeypatch)
+
+    without_calendar = web_server.build_calendar_switch_keyboard(has_selected_calendar=False)
+    with_calendar = web_server.build_calendar_switch_keyboard(has_selected_calendar=True)
+
+    assert without_calendar.inline_keyboard[0][0].text == "📅 Выбрать календарь"
+    assert with_calendar.inline_keyboard[0][0].text == "📅 Сменить календарь"
+
+
 @pytest.mark.asyncio
 async def test_google_oauth_callback_without_refresh_uses_existing_token(tmp_path, monkeypatch):
     web_server, database = _load_web_app(tmp_path, monkeypatch)
@@ -342,7 +353,7 @@ async def test_google_oauth_callback_valid_state_consumes_and_upserts_token(tmp_
     texts = [btn.text for row in keyboard.inline_keyboard for btn in row]
     assert "calendar:create" not in callbacks
     assert "calendar:switch_stub" in callbacks
-    assert "🗓️ Сменить календарь" in texts
+    assert "📅 Выбрать календарь" in texts
 
     async with database.async_session_factory() as session:
         oauth = await session.get(database.GoogleOAuth, specialist_id)

@@ -114,6 +114,13 @@ async def test_personal_start_specialist_completed_onboarding_opens_owner_panel(
     assert captured["public_name"] == "Dr Gregory House"
     assert captured["owner_tg_user_id"] == 987
     assert any("Доступно сейчас" in msg[0] for msg in message.answers)
+    quick_menu_messages = [msg for msg in message.answers if "Доступно сейчас" in msg[0]]
+    assert quick_menu_messages
+    markup = quick_menu_messages[-1][1]["reply_markup"]
+    callback_data = [button.callback_data for row in markup.inline_keyboard for button in row if button.callback_data]
+    help_queries = [button.switch_inline_query_current_chat for row in markup.inline_keyboard for button in row if button.switch_inline_query_current_chat]
+    assert callback_data == ["open_settings", "calendar:switch_stub", "calendar:smoke"]
+    assert help_queries == ["/help"]
 
 
 @pytest.mark.asyncio
@@ -282,6 +289,21 @@ def test_onboarding_keyboard_with_calendar_contains_calendar_and_existing_action
     ]
 
 
+def test_specialist_quick_menu_keyboard_contains_required_actions():
+    keyboard = start_router._specialist_quick_menu_keyboard(has_selected_calendar=False)
+    callback_data = [button.callback_data for row in keyboard.inline_keyboard for button in row if button.callback_data]
+    help_queries = [button.switch_inline_query_current_chat for row in keyboard.inline_keyboard for button in row if button.switch_inline_query_current_chat]
+    texts = [button.text for row in keyboard.inline_keyboard for button in row]
+
+    assert callback_data == ["open_settings", "calendar:switch_stub", "calendar:smoke"]
+    assert help_queries == ["/help"]
+    assert "📅 Календарь" in texts
+
+    keyboard_with_calendar = start_router._specialist_quick_menu_keyboard(has_selected_calendar=True)
+    texts_with_calendar = [button.text for row in keyboard_with_calendar.inline_keyboard for button in row]
+    assert "📅 Сменить календарь" in texts_with_calendar
+
+
 @pytest.mark.asyncio
 async def test_render_onboarding_screen_has_expected_headings_and_no_ambiguous_timezone_label(monkeypatch):
     message = DummyMessage(from_user=types.SimpleNamespace(id=123, full_name="Dr House", first_name="Gregory", last_name="House"))
@@ -375,8 +397,12 @@ async def test_personal_start_specialist_with_incomplete_basic_setup_shows_setti
     assert any("Личный бот готов к работе" in msg[0] for msg in message.answers)
     assert any("Рекомендуем завершить первоначальную настройку" in msg[0] for msg in message.answers)
     markup = message.answers[-1][1]["reply_markup"]
-    callback_data = [button.callback_data for row in markup.inline_keyboard for button in row]
-    assert "open_settings" in callback_data
+    callback_data = [button.callback_data for row in markup.inline_keyboard for button in row if button.callback_data]
+    help_queries = [button.switch_inline_query_current_chat for row in markup.inline_keyboard for button in row if button.switch_inline_query_current_chat]
+    button_texts = [button.text for row in markup.inline_keyboard for button in row]
+    assert callback_data == ["open_settings", "calendar:switch_stub", "calendar:smoke"]
+    assert help_queries == ["/help"]
+    assert "📅 Календарь" in button_texts
 
 
 @pytest.mark.asyncio
