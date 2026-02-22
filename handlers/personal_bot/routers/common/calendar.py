@@ -49,23 +49,25 @@ def _calendar_action_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📂 Выбрать календарь", callback_data="calendar:select")],
-            [InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")],
+            [InlineKeyboardButton(text="⬅️ Отмена", callback_data="calendar:cancel_select")],
         ]
     )
 
 
 def _calendar_select_text(*, total: int, page: int, page_size: int) -> str:
-    total_pages = max(1, (total + page_size - 1) // page_size)
+    _ = (page, page_size)
     return (
-        "📂 Выберите рабочий Google Календарь.\n"
-        f"Найдено календарей: {total}. Страница {page + 1}/{total_pages}.\n"
-        "После выбора будет запущена проверка интеграции (создание и удаление тестового события)."
+        "📂 Выберите рабочий Google Календарь\n\n"
+        f"Найдено календарей: {total}.\n"
+        "После выбора будет выполнена проверка интеграции."
     )
 
 
 def _calendar_select_keyboard(*, items: list[dict], page: int, page_size: int) -> InlineKeyboardMarkup:
     total = len(items)
-    rows: list[list[InlineKeyboardButton]] = []
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text="🔄 Обновить список", callback_data="calendar:refresh")]
+    ]
     if total:
         max_page = max(0, (total - 1) // page_size)
         page = max(0, min(page, max_page))
@@ -75,10 +77,13 @@ def _calendar_select_keyboard(*, items: list[dict], page: int, page_size: int) -
         for idx in range(start, end):
             item = items[idx]
             summary = item.get("summary") or "Без названия"
-            if item.get("readOnly"):
-                summary = f"{summary} (только чтение)"
+            marker = ""
+            if item.get("primary"):
+                marker = " (основной)"
+            elif item.get("readOnly"):
+                marker = " (только чтение)"
             rows.append([
-                InlineKeyboardButton(text=summary, callback_data=f"calendar:pick:{idx}")
+                InlineKeyboardButton(text=f"📅 {summary}{marker}", callback_data=f"calendar:pick:{idx}")
             ])
 
         nav: list[InlineKeyboardButton] = []
@@ -89,7 +94,7 @@ def _calendar_select_keyboard(*, items: list[dict], page: int, page_size: int) -
         if nav:
             rows.append(nav)
 
-    rows.append([InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")])
+    rows.append([InlineKeyboardButton(text="⬅️ Отмена", callback_data="calendar:cancel_select")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -184,6 +189,7 @@ async def personal_calendar_select(callback: types.CallbackQuery, state: FSMCont
                 "summary": item.get("summary"),
                 "accessRole": access_role,
                 "readOnly": access_role == "reader",
+                "primary": bool(item.get("primary")),
                 "timeZone": item.get("timeZone"),
             }
         )
@@ -196,6 +202,11 @@ async def personal_calendar_select(callback: types.CallbackQuery, state: FSMCont
         reply_markup=_calendar_select_keyboard(items=items, page=0, page_size=5),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data == "calendar:refresh")
+async def personal_calendar_refresh(callback: types.CallbackQuery, state: FSMContext):
+    await personal_calendar_select(callback, state)
 
 
 @router.callback_query(F.data.startswith("calendar:page:"))
