@@ -54,7 +54,6 @@ class PersonalGoogleCalendarPickState(StatesGroup):
 def _calendar_action_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🆕 Создать новый", callback_data="calendar:create")],
             [InlineKeyboardButton(text="📂 Выбрать существующий", callback_data="calendar:select")],
             [InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")],
         ]
@@ -151,7 +150,7 @@ async def personal_calendar_switch_stub(callback: types.CallbackQuery, state: FS
         return
 
     await callback.message.answer(
-        "Шаг: выберите действие с календарём (создать отдельный или выбрать существующий).",
+        "Шаг: выберите рабочий Google Календарь.",
         reply_markup=_calendar_action_keyboard(),
     )
     await callback.answer()
