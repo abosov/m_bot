@@ -151,20 +151,15 @@ async def personal_calendar_switch_stub(callback: types.CallbackQuery, state: FS
 
 
 @router.callback_query(F.data == "calendar:create")
-async def personal_calendar_create(callback: types.CallbackQuery, state: FSMContext):
-    _log_personal_handler(callback=callback, handler_name="personal_calendar_create", fsm_state=await state.get_state(), outcome="start")
-    specialist_id = await _get_specialist_id_by_tg_user_id(callback.from_user.id)
-    if specialist_id is None:
-        await callback.message.answer("⚠️ Профиль специалиста не найден. Нажмите /start.")
-        await callback.answer()
-        return
-
-    await callback.message.answer(
-        "Понимаю задачу, но создание календаря через бота сейчас недоступно. "
-        "Выберите уже существующий календарь в Google Calendar.",
-        reply_markup=_calendar_action_keyboard(),
+async def personal_calendar_create_legacy_redirect(callback: types.CallbackQuery, state: FSMContext):
+    _log_personal_handler(
+        callback=callback,
+        handler_name="personal_calendar_create_legacy_redirect",
+        fsm_state=await state.get_state(),
+        outcome="legacy_redirect_to_select",
     )
-    await callback.answer()
+    callback.data = "calendar:select"
+    await personal_calendar_select(callback, state)
 
 
 @router.callback_query(F.data == "calendar:select")
