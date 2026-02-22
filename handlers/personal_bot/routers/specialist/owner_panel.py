@@ -803,7 +803,6 @@ async def owner_panel_calendar_menu(callback: CallbackQuery) -> None:
         "Выберите действие с календарём:",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="🆕 Создать новый", callback_data="owner_cal:create")],
                 [InlineKeyboardButton(text="📂 Выбрать существующий", callback_data="owner_cal:select")],
                 [InlineKeyboardButton(text="🔁 Проверить доступ", callback_data="owner_cal:smoke")],
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="owner_cal:back")],
