@@ -16,9 +16,7 @@ from database import (
 )
 from services.google_calendar import (
     create_and_cleanup_test_event,
-    create_bot_calendar,
     list_calendars,
-    resolve_tz_for_calendar_creation,
 )
 from services.specialist_defaults import (
     apply_specialist_defaults_if_missing,
@@ -835,87 +833,19 @@ async def owner_calendar_create(
     public_name: str | None,
 ) -> None:
     await callback.answer()
-    async with async_session_factory() as session:
-        specialist = await session.get(Specialist, specialist_id)
-        profile = await session.get(SpecialistProfile, specialist_id)
-
-    if specialist is None or profile is None:
-        await callback.message.answer("⚠️ Профиль специалиста не найден.")
-        await send_owner_panel(
-            callback.message,
-            specialist_id=specialist_id,
-            public_name=public_name,
-            owner_tg_user_id=owner_tg_user_id,
-        )
-        return
-
-    tz_for_create = await resolve_tz_for_calendar_creation(
-        specialist_id=specialist.specialist_id,
-        profile_tz=profile.specialist_timezone,
+    await callback.message.answer(
+        "ℹ️ Сейчас Zumbot подключается только к уже существующему календарю Google.\n"
+        "Если вам нужен отдельный календарь — создайте его вручную в Google Calendar, затем нажмите «📂 Выбрать существующий»."
     )
-    calendar = await create_bot_calendar(
-        specialist.specialist_id,
-        profile.public_name,
-        tz_for_create,
-    )
-    calendar_id = calendar.get("id")
-    calendar_summary = calendar.get("summary")
-    if not calendar_id:
-        await callback.message.answer("⚠️ Google не вернул ID календаря.")
-        await send_owner_panel(
-            callback.message,
-            specialist_id=specialist_id,
-            public_name=public_name,
-            owner_tg_user_id=owner_tg_user_id,
-        )
-        return
-    calendar_tz = (calendar.get("timeZone") or tz_for_create or "UTC").strip() or "UTC"
-
-    await _upsert_calendar_settings(
-        specialist_id=specialist.specialist_id,
-        calendar_id=calendar_id,
-        calendar_summary=calendar_summary,
-        calendar_tz=calendar_tz,
-        source=SpecialistCalendarSource.created,
-    )
-
-    async with async_session_factory() as session:
-        await apply_specialist_defaults_if_missing(
-            session,
-            specialist.specialist_id,
-            preferred_timezone=calendar_tz,
-        )
-        await session.commit()
-
-    try:
-        await create_and_cleanup_test_event(specialist.specialist_id, calendar_id, calendar_tz)
-        await _upsert_calendar_settings(
-            specialist_id=specialist.specialist_id,
-            calendar_id=calendar_id,
-            calendar_summary=calendar_summary,
-            calendar_tz=calendar_tz,
-            source=SpecialistCalendarSource.created,
-            smoke_status="ok",
-            smoke_error=None,
-        )
-        await callback.message.answer("✅ Новый календарь создан, интеграция успешно выполнена.")
-    except Exception as exc:
-        await _upsert_calendar_settings(
-            specialist_id=specialist.specialist_id,
-            calendar_id=calendar_id,
-            calendar_summary=calendar_summary,
-            calendar_tz=calendar_tz,
-            source=SpecialistCalendarSource.created,
-            smoke_status="failed",
-            smoke_error=str(exc)[:255],
-        )
-        await callback.message.answer("⚠️ Календарь создан, но интеграция не завершена.")
-
-    await send_owner_panel(
-        callback.message,
-        specialist_id=specialist_id,
-        public_name=public_name,
-        owner_tg_user_id=owner_tg_user_id,
+    await callback.message.answer(
+        "Выберите действие с календарём:",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="📂 Выбрать существующий", callback_data="owner_cal:select")],
+                [InlineKeyboardButton(text="🔁 Проверить доступ", callback_data="owner_cal:smoke")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="owner_cal:back")],
+            ]
+        ),
     )
 
 
