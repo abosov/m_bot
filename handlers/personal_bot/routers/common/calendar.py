@@ -9,8 +9,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from database import (
-    Specialist,
-    SpecialistProfile,
     SpecialistAuthTelegram,
     SpecialistCalendarSettings,
     SpecialistCalendarSource,
@@ -18,12 +16,8 @@ from database import (
 )
 from services.google_calendar import (
     list_calendars,
-    create_bot_calendar,
     create_and_cleanup_test_event,
-    resolve_tz_for_calendar_creation,
 )
-from services.specialist_defaults import apply_specialist_defaults_if_missing
-from services.notify import notify_exception
 from handlers.personal_bot.routers.common.start import _render_onboarding_screen
 from services.log_context import log_event
 
@@ -54,7 +48,7 @@ class PersonalGoogleCalendarPickState(StatesGroup):
 def _calendar_action_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📂 Выбрать существующий", callback_data="calendar:select")],
+            [InlineKeyboardButton(text="📂 Выбрать календарь", callback_data="calendar:select")],
             [InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")],
         ]
     )
@@ -159,77 +153,17 @@ async def personal_calendar_switch_stub(callback: types.CallbackQuery, state: FS
 @router.callback_query(F.data == "calendar:create")
 async def personal_calendar_create(callback: types.CallbackQuery, state: FSMContext):
     _log_personal_handler(callback=callback, handler_name="personal_calendar_create", fsm_state=await state.get_state(), outcome="start")
-    tg_user_id = callback.from_user.id
-    specialist_id = await _get_specialist_id_by_tg_user_id(tg_user_id)
-    if not specialist_id:
+    specialist_id = await _get_specialist_id_by_tg_user_id(callback.from_user.id)
+    if specialist_id is None:
         await callback.message.answer("⚠️ Профиль специалиста не найден. Нажмите /start.")
         await callback.answer()
         return
 
-    try:
-        async with async_session_factory() as session:
-            specialist = (
-                await session.execute(
-                    select(Specialist)
-                    .options(selectinload(Specialist.profile), selectinload(Specialist.calendar_settings))
-                    .where(Specialist.specialist_id == specialist_id)
-                )
-            ).scalar_one_or_none()
-
-        if specialist is None:
-            await callback.message.answer("⚠️ Профиль специалиста не найден. Нажмите /start.")
-            await callback.answer()
-            return
-
-        profile = specialist.profile
-        if profile is None:
-            await callback.message.answer("⚠️ Сначала заполните профиль через /start.")
-            await callback.answer()
-            return
-
-        calendar_name = (profile.public_name or "Специалист").strip() or "Специалист"
-        tz_for_create = await resolve_tz_for_calendar_creation(
-            specialist_id=specialist_id,
-            profile_tz=profile.specialist_timezone,
-        )
-        calendar = await create_bot_calendar(specialist_id, calendar_name, tz_for_create)
-        calendar_id = calendar.get("id")
-        summary = calendar.get("summary")
-        calendar_tz = (calendar.get("timeZone") or tz_for_create or "UTC").strip() or "UTC"
-
-        smoke_status = "ok"
-        try:
-            await create_and_cleanup_test_event(specialist_id, calendar_id, calendar_tz)
-        except Exception:
-            smoke_status = "failed"
-
-        await _upsert_calendar_settings(
-            specialist_id=specialist_id,
-            calendar_id=calendar_id,
-            calendar_summary=summary,
-            calendar_tz=calendar_tz,
-            smoke_status=smoke_status,
-        )
-
-        async with async_session_factory() as session:
-            await apply_specialist_defaults_if_missing(
-                session,
-                specialist_id,
-                preferred_timezone=calendar_tz,
-            )
-            await session.commit()
-
-        await callback.message.answer("✅ Календарь подключён.")
-        await _render_onboarding_screen(callback.message, specialist_id)
-    except Exception as exc:
-        await notify_exception(
-            where="handlers.personal_bot.common.calendar.personal_calendar_create",
-            exc=exc,
-            context={"tg_user_id": tg_user_id},
-            event=callback,
-        )
-        await callback.message.answer("⚠️ Не удалось подключить календарь. Попробуйте позже.")
-
+    await callback.message.answer(
+        "Понимаю задачу, но создание календаря через бота сейчас недоступно. "
+        "Выберите уже существующий календарь в Google Calendar.",
+        reply_markup=_calendar_action_keyboard(),
+    )
     await callback.answer()
 
 
