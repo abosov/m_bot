@@ -31,6 +31,7 @@ from services.specialist_schedule import (
     update_specialist_timezone,
 )
 from services.telegram.calendar_keyboard import format_calendar_button_text
+from services.log_context import log_event
 from services.specialist_defaults import (
     apply_specialist_defaults_if_missing,
     DEFAULT_BUFFER_MIN,
@@ -1542,8 +1543,27 @@ async def schedule_noop(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "owner_panel:keep")
-async def owner_panel_keep(callback: CallbackQuery) -> None:
+async def owner_panel_keep(
+    callback: CallbackQuery,
+    state: FSMContext,
+    specialist_id,
+    public_name: str | None,
+    owner_tg_user_id: int | None,
+) -> None:
+    await state.clear()
+    log_event(
+        logger,
+        logging.INFO,
+        event="settings_no_change",
+        specialist_id=specialist_id,
+        tg_user_id=callback.from_user.id if callback.from_user else None,
+    )
     await callback.answer("Отлично")
-    await callback.message.answer("👌 Оставили текущие настройки без изменений.")
-
+    await callback.message.answer("👌 Оставили текущие настройки без изменений. Возвращаю в главное меню.")
+    await send_owner_panel(
+        message=callback.message,
+        specialist_id=specialist_id,
+        public_name=public_name,
+        owner_tg_user_id=owner_tg_user_id,
+    )
 
