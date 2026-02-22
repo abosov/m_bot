@@ -199,27 +199,40 @@ async def _render_onboarding_screen(message: Message, specialist_id) -> None:
         return
 
     calendar_settings = getattr(specialist, "calendar_settings", None)
-    current_calendar_lines = ["Текущий календарь: не выбран"]
+    calendar_summary = "не выбран"
+    calendar_time_zone = "UTC"
+    smoke_status = "unknown"
     if calendar_settings and getattr(calendar_settings, "calendar_id", None):
         smoke_status = getattr(calendar_settings, "last_smoke_test_status", None)
         if smoke_status not in {"ok", "failed"}:
             smoke_status = "unknown"
-        current_calendar_lines = [
-            f"Текущий календарь: {calendar_settings.calendar_summary or 'подключён'}",
-            f"Часовой пояс: {calendar_settings.calendar_time_zone or 'UTC'}",
-            f"Интеграция: {smoke_status}",
+        calendar_summary = calendar_settings.calendar_summary or "не выбран"
+        calendar_time_zone = calendar_settings.calendar_time_zone or "UTC"
+
+    specialist_timezone = profile.specialist_timezone or "UTC"
+    if specialist_timezone == calendar_time_zone:
+        specialist_timezone_lines = [
+            f"• Часовой пояс специалиста: {specialist_timezone} (совпадает с Google Calendar)"
+        ]
+    else:
+        specialist_timezone_lines = [
+            f"• Часовой пояс специалиста (для расчётов): {specialist_timezone}",
+            "⚠️ Часовой пояс специалиста отличается от TZ календаря. Рекомендуем привести их к одному значению.",
         ]
 
     text = (
         "🧩 Продолжим онбординг в персональном боте.\n\n"
-        "Настройки по умолчанию:\n"
+        "Google Calendar:\n"
+        f"• Календарь: {calendar_summary}\n"
+        f"• Часовой пояс календаря (Google): {calendar_time_zone}\n"
+        f"• Интеграция: {smoke_status}\n\n"
+        "Параметры записи:\n"
         f"• Длительность сессии: {profile.session_duration_min} мин\n"
-        f"• Перерыв между сессиями: {profile.session_buffer_min} мин\n"
-        f"• Часовой пояс: {profile.specialist_timezone or 'UTC'}\n"
-        f"• Макс. сессий в день: {profile.max_sessions_per_day}\n"
+        f"• Перерыв (буфер): {profile.session_buffer_min} мин\n"
         f"• Шаг слотов: {profile.slot_step_min} мин\n"
+        f"• Макс. сессий в день: {profile.max_sessions_per_day}\n"
         f"• Окно отмены: {profile.cancel_window_hours} ч\n\n"
-        f"{chr(10).join(current_calendar_lines)}\n\n"
+        f"{chr(10).join(specialist_timezone_lines)}\n\n"
         "Подтвердите настройки или измените их перед завершением онбординга."
     )
     await message.answer(text, reply_markup=_onboarding_keyboard_with_calendar())

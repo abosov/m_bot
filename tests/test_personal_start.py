@@ -62,8 +62,9 @@ async def test_personal_start_specialist_with_incomplete_onboarding_shows_defaul
         owner_tg_user_id=None,
     )
 
-    assert any("Настройки по умолчанию" in msg[0] for msg in message.answers)
-    assert any("Текущий календарь: не выбран" in msg[0] for msg in message.answers)
+    assert any("Google Calendar:" in msg[0] for msg in message.answers)
+    assert any("• Календарь: не выбран" in msg[0] for msg in message.answers)
+    assert any("• Часовой пояс специалиста: UTC (совпадает с Google Calendar)" in msg[0] for msg in message.answers)
     assert not any("Доступно сейчас" in msg[0] for msg in message.answers)
 
 
