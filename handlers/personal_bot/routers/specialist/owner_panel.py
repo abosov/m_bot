@@ -77,7 +77,7 @@ def _owner_panel_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="⏱️ Изменить длительность и буфер", callback_data="owner_panel:change_duration_buffer")],
             [InlineKeyboardButton(text="⚙️ Изменить лимиты (max/day, шаг слота)", callback_data="owner_panel:slot_params_menu")],
             [InlineKeyboardButton(text="🗓️ Сменить календарь", callback_data="owner_panel:calendar_menu")],
-            [InlineKeyboardButton(text="🌍 Сменить TZ", callback_data="owner_panel:change_timezone")],
+            [InlineKeyboardButton(text="🌍 Сменить часовой пояс специалиста", callback_data="owner_panel:change_timezone")],
             [InlineKeyboardButton(text="👌 Оставить как есть", callback_data="owner_panel:keep")],
             [InlineKeyboardButton(text="♻️ Сбросить на дефолты", callback_data="owner_panel:apply_defaults")],
         ]
@@ -362,7 +362,7 @@ def _calendar_info_text(calendar_settings: SpecialistCalendarSettings | None) ->
     return (
         "🗓 Календарь:\n"
         f"Название: {calendar_settings.calendar_summary or '—'}\n"
-        f"TZ: {calendar_settings.calendar_time_zone or '—'}\n"
+        f"Часовой пояс календаря (Google): {calendar_settings.calendar_time_zone or '—'}\n"
         f"Интеграция: {calendar_settings.last_smoke_test_status or '—'}"
     )
 
@@ -424,7 +424,7 @@ async def send_owner_panel(
 
     if defaults_applied:
         await message.answer(
-            "✅ Применены базовые настройки (их можно изменить): TZ, расписание (Пн–Пт, утро/день/вечер), "
+            "✅ Применены базовые настройки (их можно изменить): часовой пояс специалиста (для расчётов), расписание (Пн–Пт, утро/день/вечер), "
             "длительность, буфер, лимиты."
         )
 
@@ -444,7 +444,7 @@ async def send_owner_panel(
     text = (
         f"✅ Базовые настройки уже применены автоматически после онбординга, {display_name}.\n"
         "Хотите изменить их сейчас?\n\n"
-        f"• Таймзона: {(profile.specialist_timezone or DEFAULT_TIMEZONE)}\n"
+        f"• Часовой пояс специалиста (для расчётов): {(profile.specialist_timezone or DEFAULT_TIMEZONE)}\n"
         f"• Рабочие дни: {_working_days(rows)}\n"
         f"• Интервалы (утро/день/вечер): {intervals_text}\n"
         f"• Длительность сессии: {(profile.session_duration_min or _DEFAULT_DURATION_MIN)} мин\n"
@@ -775,7 +775,7 @@ async def owner_panel_apply_defaults(
 
     await callback.answer("Готово")
     await callback.message.answer(
-        "✅ Применены базовые настройки (их можно изменить): TZ, расписание (Пн–Пт, утро/день/вечер), "
+        "✅ Применены базовые настройки (их можно изменить): часовой пояс специалиста (для расчётов), расписание (Пн–Пт, утро/день/вечер), "
         "длительность, буфер, лимиты."
     )
     await send_owner_panel(
@@ -1128,7 +1128,7 @@ async def owner_panel_change_duration_buffer(callback: CallbackQuery) -> None:
 async def owner_panel_change_timezone(callback: CallbackQuery) -> None:
     await callback.answer()
     await callback.message.answer(
-        "🌍 Смена TZ в разработке. Пока используется TZ из профиля специалиста."
+        "🌍 Смена часового пояса специалиста в разработке. Пока используется часовой пояс специалиста (для расчётов) из профиля."
     )
 
 @router.callback_query(F.data == "owner_panel:change_schedule")

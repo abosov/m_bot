@@ -212,12 +212,12 @@ async def _render_onboarding_screen(message: Message, specialist_id) -> None:
     specialist_timezone = profile.specialist_timezone or "UTC"
     if specialist_timezone == calendar_time_zone:
         specialist_timezone_lines = [
-            f"• Часовой пояс специалиста: {specialist_timezone} (совпадает с Google Calendar)"
+            f"• Часовой пояс специалиста (для расчётов): {specialist_timezone} (совпадает с Google Calendar)"
         ]
     else:
         specialist_timezone_lines = [
             f"• Часовой пояс специалиста (для расчётов): {specialist_timezone}",
-            "⚠️ Часовой пояс специалиста отличается от TZ календаря. Рекомендуем привести их к одному значению.",
+            "⚠️ Часовой пояс специалиста (для расчётов) отличается от часового пояса календаря (Google). Рекомендуем привести их к одному значению.",
         ]
 
     text = (
