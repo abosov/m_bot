@@ -1581,7 +1581,7 @@ async def calendar_create(callback: types.CallbackQuery, state: FSMContext):
                 smoke_error=str(smoke_exc)[:255],
             )
             await callback.message.answer(
-                "❌ Календарь создан, но интеграция не завершена: не удалось создать/удалить тестовое событие. "
+                "❌ Календарь создан, но интеграция не завершена: не пройдена проверка интеграции. "
                 "Проверьте права Google и переподключите аккаунт."
             )
             await callback.answer()

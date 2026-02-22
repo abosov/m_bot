@@ -16,7 +16,7 @@ from services.specialist_defaults import apply_specialist_defaults_if_missing
 
 
 async def is_specialist_ready(specialist_id: uuid.UUID) -> bool:
-    """Specialist is ready when profile, active personal bot, calendar selection and successful smoke-test exist."""
+    """Specialist is ready when profile, active personal bot, calendar selection and successful integration check exist."""
     async with async_session_factory() as session:
         profile_exists = (
             await session.execute(
