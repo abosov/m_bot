@@ -835,7 +835,7 @@ async def owner_calendar_create(
     await callback.answer()
     await callback.message.answer(
         "ℹ️ Сейчас Zumbot подключается только к уже существующему календарю Google.\n"
-        "Если вам нужен отдельный календарь — создайте его вручную в Google Calendar, затем нажмите «📂 Выбрать существующий»."
+        "Если нужен отдельный календарь — создайте его вручную в Google Calendar, затем выберите в боте."
     )
     await callback.message.answer(
         "Выберите действие с календарём:",
@@ -952,7 +952,7 @@ async def owner_calendar_smoke(
     await callback.answer()
     settings = await _load_calendar_settings(specialist_id)
     if settings is None or not settings.calendar_id:
-        await callback.message.answer("⚠️ Календарь не выбран. Сначала создайте или выберите календарь.")
+        await callback.message.answer("⚠️ Календарь не выбран. Сначала выберите календарь.")
         return
 
     try:
