@@ -61,6 +61,44 @@ async def update_session_settings(
         "session_buffer_min": updated_buffer,
     }
 
+
+
+def _validate_limits(max_per_day: int, slot_step: int, session_duration: int) -> None:
+    if max_per_day < 1 or max_per_day > 20:
+        raise ValidationError("max_sessions_per_day must be between 1 and 20")
+    if slot_step < 5:
+        raise ValidationError("slot_step_minutes must be >= 5")
+    if slot_step > session_duration:
+        raise ValidationError("slot_step_minutes must be <= session_duration")
+    if slot_step % 5 != 0:
+        raise ValidationError("slot_step_minutes must be a multiple of 5")
+
+
+async def update_limits(
+    specialist_id: uuid.UUID,
+    max_per_day: int,
+    slot_step: int,
+) -> dict[str, int]:
+    async with async_session_factory() as session:
+        async with session.begin():
+            profile = await session.get(SpecialistProfile, specialist_id)
+            if profile is None:
+                raise ValidationError("specialist profile not found")
+
+            _validate_limits(max_per_day=max_per_day, slot_step=slot_step, session_duration=profile.session_duration_min)
+
+            profile.max_sessions_per_day = max_per_day
+            profile.slot_step_min = slot_step
+
+        updated_max = profile.max_sessions_per_day
+        updated_step = profile.slot_step_min
+
+    await invalidate_availability_cache(specialist_id)
+
+    return {
+        "max_sessions_per_day": updated_max,
+        "slot_step_min": updated_step,
+    }
 async def get_specialist_schedule(specialist_id: uuid.UUID) -> dict[int, list[dict[str, str]]]:
     grouped: dict[int, list[tuple[time, time]]] = {weekday: [] for weekday in range(7)}
 

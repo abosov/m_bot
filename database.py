@@ -136,7 +136,7 @@ class SpecialistProfile(Base):
             name="ck_specialist_profile_max_sessions_per_day",
         ),
         CheckConstraint(
-            "slot_step_min IN (60, 30, 15, 10)",
+            "slot_step_min >= 5 AND slot_step_min <= session_duration_min AND MOD(slot_step_min, 5) = 0",
             name="ck_specialist_profile_slot_step_min",
         ),
     )
