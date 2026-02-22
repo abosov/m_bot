@@ -182,10 +182,10 @@ async def _check_full_onboarding_or_prompt(message: types.Message, specialist: S
     return False
 
 
-def _calendar_action_keyboard() -> types.InlineKeyboardMarkup:
+def _calendar_switch_keyboard() -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text="📂 Выбрать календарь", callback_data="calendar:select")],
+            [types.InlineKeyboardButton(text="🗓️ Сменить календарь", callback_data="calendar:switch_stub")],
         ]
     )
 
@@ -207,8 +207,18 @@ def _normalize_calendar_items(items: list[dict]) -> list[dict]:
     return normalized
 
 
-def _calendar_select_keyboard(items: list[dict], page: int, per_page: int) -> types.InlineKeyboardMarkup:
-    return build_calendar_selection_keyboard(items, page=page, per_page=per_page)
+def _calendar_select_keyboard(
+    items: list[dict],
+    page: int,
+    per_page: int,
+    current_calendar_id: str | None = None,
+) -> types.InlineKeyboardMarkup:
+    return build_calendar_selection_keyboard(
+        items,
+        page=page,
+        per_page=per_page,
+        current_calendar_id=current_calendar_id,
+    )
 
 
 def _calendar_select_text(total: int, page: int, per_page: int, has_readonly: bool) -> str:
@@ -220,15 +230,26 @@ def _calendar_select_text(total: int, page: int, per_page: int, has_readonly: bo
     )
 
 
-async def _render_calendar_selection(callback: types.CallbackQuery, state: FSMContext, items_norm: list[dict], page: int = 0) -> None:
+async def _render_calendar_selection(
+    callback: types.CallbackQuery,
+    state: FSMContext,
+    items_norm: list[dict],
+    page: int = 0,
+    current_calendar_id: str | None = None,
+) -> None:
     per_page = 6
-    await state.update_data(cal_items=items_norm, cal_page=page, cal_per_page=per_page)
+    await state.update_data(
+        cal_items=items_norm,
+        cal_page=page,
+        cal_per_page=per_page,
+        cal_current_calendar_id=current_calendar_id,
+    )
     await state.set_state(OnboardingStates.waiting_for_calendar_action)
 
     has_readonly = any(item.get("accessRole") == "reader" for item in items_norm)
     await callback.message.answer(
         _calendar_select_text(len(items_norm), page, per_page, has_readonly),
-        reply_markup=_calendar_select_keyboard(items_norm, page, per_page),
+        reply_markup=_calendar_select_keyboard(items_norm, page, per_page, current_calendar_id),
     )
 
 
@@ -248,7 +269,12 @@ async def _start_calendar_select(callback: types.CallbackQuery, state: FSMContex
 
     items = await list_calendars(auth.specialist_id)
     items_norm = _normalize_calendar_items(items)
-    await _render_calendar_selection(callback, state, items_norm, page=0)
+
+    async with async_session_factory() as session:
+        settings = await session.get(SpecialistCalendarSettings, auth.specialist_id)
+    current_calendar_id = settings.calendar_id if settings else None
+
+    await _render_calendar_selection(callback, state, items_norm, page=0, current_calendar_id=current_calendar_id)
     await callback.answer()
 
 
@@ -686,7 +712,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
             else:
                 await state.set_state(OnboardingStates.waiting_for_calendar_action)
                 next_step_msg = "\n👇 <b>Действие:</b> Выберите как подключить рабочий календарь бота."
-                keyboard = _calendar_action_keyboard()
+                keyboard = _calendar_switch_keyboard()
                 new_state = "waiting_for_calendar_action"
             
             final_text = status_text + next_step_msg
@@ -1047,8 +1073,7 @@ async def process_bot_token(message: types.Message, state: FSMContext):
         await send_user_message(message, text_out)
 
 
-@router.callback_query(F.data == "calendar:select")
-async def calendar_select(callback: types.CallbackQuery, state: FSMContext):
+async def _calendar_select(callback: types.CallbackQuery, state: FSMContext):
     from_state = await state.get_state()
     try:
         await _start_calendar_select(callback, state)
@@ -1136,6 +1161,7 @@ async def calendar_select_page(callback: types.CallbackQuery, state: FSMContext)
     data = await state.get_data()
     items = data.get("cal_items") or []
     per_page = int(data.get("cal_per_page") or 6)
+    current_calendar_id = data.get("cal_current_calendar_id")
     if not items:
         await callback.message.answer("⚠️ Список календарей устарел. Нажмите /start и попробуйте снова.")
         await callback.answer()
@@ -1154,7 +1180,7 @@ async def calendar_select_page(callback: types.CallbackQuery, state: FSMContext)
     has_readonly = any(item.get("accessRole") == "reader" for item in items)
     await callback.message.edit_text(
         _calendar_select_text(len(items), page, per_page, has_readonly),
-        reply_markup=_calendar_select_keyboard(items, page, per_page),
+        reply_markup=_calendar_select_keyboard(items, page, per_page, current_calendar_id),
     )
     await callback.answer()
 
@@ -1359,20 +1385,13 @@ async def calendar_pick(callback: types.CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "calendar:cancel_select")
 async def calendar_select_cancel(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.answer("Выбор календаря отменён. Нажмите /start.")
+    await cmd_start(callback.message, state)
     await callback.answer()
 
 
 @router.callback_query(F.data == "calendar:switch_stub")
 async def calendar_switch_stub(callback: types.CallbackQuery, state: FSMContext):
-    keyboard = types.InlineKeyboardMarkup(
-        inline_keyboard=[
-            [types.InlineKeyboardButton(text="📂 Выбрать календарь", callback_data="calendar:select")],
-            [types.InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")],
-        ]
-    )
-    await callback.message.answer("Выберите способ смены календаря:", reply_markup=keyboard)
-    await callback.answer()
+    await _calendar_select(callback, state)
 
 
 async def _upsert_calendar_settings(

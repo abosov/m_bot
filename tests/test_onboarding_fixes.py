@@ -341,8 +341,8 @@ async def test_google_oauth_callback_valid_state_consumes_and_upserts_token(tmp_
     callbacks = [btn.callback_data for row in keyboard.inline_keyboard for btn in row]
     texts = [btn.text for row in keyboard.inline_keyboard for btn in row]
     assert "calendar:create" not in callbacks
-    assert "calendar:select" in callbacks
-    assert "📂 Выбрать календарь" in texts
+    assert "calendar:switch_stub" in callbacks
+    assert "🗓️ Сменить календарь" in texts
 
     async with database.async_session_factory() as session:
         oauth = await session.get(database.GoogleOAuth, specialist_id)
@@ -519,6 +519,11 @@ def test_calendar_select_keyboard_and_text_navigation(monkeypatch):
 
     kb_page0 = onboarding._calendar_select_keyboard(items, page=0, per_page=6)
     buttons0 = [btn for row in kb_page0.inline_keyboard for btn in row]
+    assert any(btn.text == "📅 Calendar 0" for btn in buttons0)
+
+    kb_with_current = onboarding._calendar_select_keyboard(items, page=0, per_page=6, current_calendar_id="cal-1")
+    marked_buttons = [btn for row in kb_with_current.inline_keyboard for btn in row]
+    assert any(btn.text == "📅 Calendar 1 ✓ Текущий" for btn in marked_buttons)
     assert any(btn.callback_data == "calendar:refresh" for btn in buttons0)
     assert any(btn.callback_data == "calendar:page:1" for btn in buttons0)
     assert not any(btn.callback_data == "calendar:page:-1" for btn in buttons0)
@@ -546,7 +551,7 @@ def test_calendar_select_keyboard_and_text_navigation(monkeypatch):
 
     kb_empty = onboarding._calendar_select_keyboard([], page=0, per_page=6)
     assert kb_empty.inline_keyboard[0][0].text == "🔄 Обновить список"
-    assert kb_empty.inline_keyboard[-1][0].text == "⬅️ Отмена"
+    assert kb_empty.inline_keyboard[-1][0].text == "⬅️ Назад"
 
 
 @pytest.mark.asyncio
@@ -1132,3 +1137,67 @@ async def test_process_bot_token_sends_connect_page_button_with_fragment_token(t
     assert keyboard is not None
     assert keyboard.inline_keyboard[0][0].text == "Подключить Google Календарь"
     assert keyboard.inline_keyboard[0][0].url.startswith(f"{onboarding.PUBLIC_SITE_URL}/connect#token=")
+
+
+@pytest.mark.asyncio
+async def test_calendar_cancel_select_returns_to_onboarding_menu(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("MASTER_BOT_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
+    monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+
+    import handlers.master_onboarding as onboarding
+
+    called = {"start": False}
+
+    class _State:
+        def __init__(self):
+            self.cleared = False
+
+        async def clear(self):
+            self.cleared = True
+
+    class _Message:
+        pass
+
+    class _Callback:
+        message = _Message()
+
+        async def answer(self):
+            return None
+
+    async def _cmd_start_stub(message, state):
+        called["start"] = isinstance(message, _Message)
+
+    monkeypatch.setattr(onboarding, "cmd_start", _cmd_start_stub)
+
+    state = _State()
+    await onboarding.calendar_select_cancel(callback=_Callback(), state=state)
+
+    assert state.cleared is True
+    assert called["start"] is True
+
+
+@pytest.mark.asyncio
+async def test_master_calendar_switch_stub_starts_selection(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("MASTER_BOT_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
+    monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+
+    import handlers.master_onboarding as onboarding
+
+    called = {"select": False}
+
+    class _State:
+        pass
+
+    class _Callback:
+        pass
+
+    async def _select_stub(callback, state):
+        called["select"] = isinstance(callback, _Callback) and isinstance(state, _State)
+
+    monkeypatch.setattr(onboarding, "_calendar_select", _select_stub)
+
+    await onboarding.calendar_switch_stub(callback=_Callback(), state=_State())
+
+    assert called["select"] is True

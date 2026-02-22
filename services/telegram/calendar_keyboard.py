@@ -6,13 +6,14 @@ def build_calendar_selection_keyboard(
     *,
     page: int,
     per_page: int,
+    current_calendar_id: str | None = None,
 ) -> types.InlineKeyboardMarkup:
     total = len(calendars)
     rows: list[list[types.InlineKeyboardButton]] = [
         [types.InlineKeyboardButton(text="🔄 Обновить список", callback_data="calendar:refresh")]
     ]
     if total == 0:
-        rows.append([types.InlineKeyboardButton(text="⬅️ Отмена", callback_data="calendar:cancel_select")])
+        rows.append([types.InlineKeyboardButton(text="⬅️ Назад", callback_data="calendar:cancel_select")])
         return types.InlineKeyboardMarkup(inline_keyboard=rows)
 
     pages = max(1, (total + per_page - 1) // per_page)
@@ -23,13 +24,8 @@ def build_calendar_selection_keyboard(
     for idx in range(start, end):
         item = calendars[idx]
         summary = item.get("summary") or "Без названия"
-        is_primary = bool(item.get("primary"))
-        is_read_only = item.get("readOnly") or item.get("accessRole") == "reader"
-        marker = ""
-        if is_primary:
-            marker = " (основной)"
-        elif is_read_only:
-            marker = " (только чтение)"
+        item_id = item.get("id")
+        marker = " ✓ Текущий" if current_calendar_id and item_id == current_calendar_id else ""
         rows.append(
             [
                 types.InlineKeyboardButton(
@@ -47,5 +43,5 @@ def build_calendar_selection_keyboard(
     if nav:
         rows.append(nav)
 
-    rows.append([types.InlineKeyboardButton(text="⬅️ Отмена", callback_data="calendar:cancel_select")])
+    rows.append([types.InlineKeyboardButton(text="⬅️ Назад", callback_data="calendar:cancel_select")])
     return types.InlineKeyboardMarkup(inline_keyboard=rows)

@@ -75,11 +75,11 @@ def _request_id_from_request(request: Request) -> str:
     return getattr(request.state, "request_id", get_request_id())
 
 
-def build_calendar_action_keyboard() -> InlineKeyboardMarkup:
+def build_calendar_switch_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📂 Выбрать календарь", callback_data="calendar:select")],
-            [InlineKeyboardButton(text="Отмена", callback_data="calendar:cancel_select")],
+            [InlineKeyboardButton(text="🗓️ Сменить календарь", callback_data="calendar:switch_stub")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="calendar:cancel_select")],
         ]
     )
 
@@ -994,7 +994,7 @@ async def google_oauth_callback(request: Request):
             if auth_data and bot is not None:
                 if permissions_ok:
                     text_out = "✅ **Google подключен!**\n\nШаг 4 из 4: выберите рабочий календарь в master bot."
-                    reply_markup = build_calendar_action_keyboard()
+                    reply_markup = build_calendar_switch_keyboard()
                 else:
                     text_out = (
                         "⚠️ Google подключен, но доступов недостаточно для просмотра календарей и выбора рабочего календаря.\n"
