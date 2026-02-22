@@ -20,6 +20,7 @@ from services.google_calendar import (
 )
 from handlers.personal_bot.routers.common.start import _render_onboarding_screen
 from services.log_context import log_event
+from services.telegram.calendar_keyboard import build_calendar_selection_keyboard
 
 router = Router(name="personal_bot_common_calendar")
 logger = logging.getLogger(__name__)
@@ -64,38 +65,7 @@ def _calendar_select_text(*, total: int, page: int, page_size: int) -> str:
 
 
 def _calendar_select_keyboard(*, items: list[dict], page: int, page_size: int) -> InlineKeyboardMarkup:
-    total = len(items)
-    rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text="🔄 Обновить список", callback_data="calendar:refresh")]
-    ]
-    if total:
-        max_page = max(0, (total - 1) // page_size)
-        page = max(0, min(page, max_page))
-        start = page * page_size
-        end = min(start + page_size, total)
-
-        for idx in range(start, end):
-            item = items[idx]
-            summary = item.get("summary") or "Без названия"
-            marker = ""
-            if item.get("primary"):
-                marker = " (основной)"
-            elif item.get("readOnly"):
-                marker = " (только чтение)"
-            rows.append([
-                InlineKeyboardButton(text=f"📅 {summary}{marker}", callback_data=f"calendar:pick:{idx}")
-            ])
-
-        nav: list[InlineKeyboardButton] = []
-        if page > 0:
-            nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"calendar:page:{page - 1}"))
-        if end < total:
-            nav.append(InlineKeyboardButton(text="➡️", callback_data=f"calendar:page:{page + 1}"))
-        if nav:
-            rows.append(nav)
-
-    rows.append([InlineKeyboardButton(text="⬅️ Отмена", callback_data="calendar:cancel_select")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return build_calendar_selection_keyboard(items, page=page, per_page=page_size)
 
 
 async def _upsert_calendar_settings(

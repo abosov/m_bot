@@ -63,6 +63,7 @@ from services.specialist_onboarding import get_specialist_by_tg_user_id, set_mas
 from services.alerting import notify_exception
 from services.log_context import log_event
 from services.telegram.markdown_utils import escape_markdown_v2
+from services.telegram.calendar_keyboard import build_calendar_selection_keyboard
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -189,16 +190,6 @@ def _calendar_action_keyboard() -> types.InlineKeyboardMarkup:
     )
 
 
-def _format_calendar_label(item: dict) -> str:
-    summary = item.get("summary") or "Без названия"
-    marker = ""
-    if item.get("primary"):
-        marker = " (основной)"
-    elif item.get("accessRole") == "reader":
-        marker = " (только чтение)"
-    return f"📅 {summary}{marker}"
-
-
 def _normalize_calendar_items(items: list[dict]) -> list[dict]:
     normalized: list[dict] = []
     for item in items:
@@ -217,42 +208,7 @@ def _normalize_calendar_items(items: list[dict]) -> list[dict]:
 
 
 def _calendar_select_keyboard(items: list[dict], page: int, per_page: int) -> types.InlineKeyboardMarkup:
-    total = len(items)
-    refresh_row = [types.InlineKeyboardButton(text="🔄 Обновить список", callback_data="calendar:refresh")]
-    if total == 0:
-        return types.InlineKeyboardMarkup(
-            inline_keyboard=[
-                refresh_row,
-                [types.InlineKeyboardButton(text="⬅️ Отмена", callback_data="calendar:cancel_select")],
-            ]
-        )
-
-    pages = max(1, (total + per_page - 1) // per_page)
-    page = max(0, min(page, pages - 1))
-    start = page * per_page
-    end = min(start + per_page, total)
-
-    rows: list[list[types.InlineKeyboardButton]] = [refresh_row]
-    for idx in range(start, end):
-        rows.append(
-            [
-                types.InlineKeyboardButton(
-                    text=_format_calendar_label(items[idx]),
-                    callback_data=f"calendar:pick:{idx}",
-                )
-            ]
-        )
-
-    nav: list[types.InlineKeyboardButton] = []
-    if page > 0:
-        nav.append(types.InlineKeyboardButton(text="⬅️ Prev", callback_data=f"calendar:page:{page - 1}"))
-    if page < pages - 1:
-        nav.append(types.InlineKeyboardButton(text="Next ➡️", callback_data=f"calendar:page:{page + 1}"))
-    if nav:
-        rows.append(nav)
-
-    rows.append([types.InlineKeyboardButton(text="⬅️ Отмена", callback_data="calendar:cancel_select")])
-    return types.InlineKeyboardMarkup(inline_keyboard=rows)
+    return build_calendar_selection_keyboard(items, page=page, per_page=per_page)
 
 
 def _calendar_select_text(total: int, page: int, per_page: int, has_readonly: bool) -> str:
