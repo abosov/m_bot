@@ -28,6 +28,7 @@ from services.specialist_schedule import (
     get_specialist_schedule,
     update_limits,
     update_session_settings,
+    update_specialist_timezone,
 )
 from services.telegram.calendar_keyboard import format_calendar_button_text
 from services.specialist_defaults import (
@@ -87,6 +88,10 @@ class LimitsSettingsStates(StatesGroup):
     waiting_slot_step = State()
 
 
+class TimezoneSettingsStates(StatesGroup):
+    waiting_manual_timezone = State()
+
+
 def _validate_interval_pair(*, start: time | None, end: time | None) -> None:
     if (start is None) ^ (end is None):
         raise AvailabilityValidationError("Interval start/end must be both NULL or both set.")
@@ -124,6 +129,72 @@ def _slot_step_keyboard() -> InlineKeyboardMarkup:
         ]
     )
 
+
+
+
+_POPULAR_TIMEZONES = [
+    "UTC",
+    "Europe/Moscow",
+    "Europe/Berlin",
+    "Europe/London",
+    "Asia/Dubai",
+    "Asia/Almaty",
+    "Asia/Tbilisi",
+    "Asia/Yerevan",
+    "Asia/Tashkent",
+    "Asia/Bangkok",
+    "Asia/Tokyo",
+    "America/New_York",
+]
+
+
+def _timezone_keyboard() -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for tz_name in _POPULAR_TIMEZONES:
+        row.append(InlineKeyboardButton(text=tz_name, callback_data=f"owner_tz:set:{tz_name}"))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="✍️ Ввести вручную", callback_data="owner_tz:manual")])
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="owner_tz:back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _save_specialist_timezone(
+    *,
+    message: Message,
+    state: FSMContext,
+    specialist_id,
+    owner_tg_user_id: int | None,
+    public_name: str | None,
+    timezone_name: str,
+) -> None:
+    try:
+        updated = await update_specialist_timezone(specialist_id, timezone_name)
+    except SpecialistScheduleValidationError as exc:
+        await message.answer(
+            f"⚠️ Не удалось сохранить timezone: {exc}.\n"
+            "Выберите timezone из списка или введите вручную в формате Region/City.",
+            reply_markup=_timezone_keyboard(),
+        )
+        await state.set_state(TimezoneSettingsStates.waiting_manual_timezone)
+        return
+
+    await state.clear()
+    await message.answer(
+        "✅ Часовой пояс специалиста сохранён\n"
+        f"• Timezone: {updated['specialist_timezone']}\n\n"
+        "ℹ️ Уже созданные события Google Calendar не изменяются.",
+    )
+    await send_owner_panel(
+        message,
+        specialist_id=specialist_id,
+        public_name=public_name,
+        owner_tg_user_id=owner_tg_user_id,
+    )
 
 def _max_sessions_keyboard() -> InlineKeyboardMarkup:
     rows = []
@@ -1183,10 +1254,73 @@ async def owner_panel_receive_session_buffer(
 
 
 @router.callback_query(F.data == "owner_panel:change_timezone")
-async def owner_panel_change_timezone(callback: CallbackQuery) -> None:
+async def owner_panel_change_timezone(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(TimezoneSettingsStates.waiting_manual_timezone)
     await callback.answer()
     await callback.message.answer(
-        "🌍 Смена часового пояса специалиста в разработке. Пока используется часовой пояс специалиста (для расчётов) из профиля."
+        "🌍 Выберите часовой пояс специалиста из популярных или введите вручную в формате Region/City "
+        "(например, Europe/Berlin).\n\n"
+        "ℹ️ Смена timezone не изменяет уже созданные события Google Calendar.",
+        reply_markup=_timezone_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "owner_tz:manual")
+async def owner_panel_timezone_manual(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(TimezoneSettingsStates.waiting_manual_timezone)
+    await callback.answer()
+    await callback.message.answer("✍️ Введите timezone вручную в формате Region/City, например: Europe/Berlin")
+
+
+@router.callback_query(F.data == "owner_tz:back")
+async def owner_panel_timezone_back(
+    callback: CallbackQuery,
+    state: FSMContext,
+    specialist_id,
+    owner_tg_user_id: int | None,
+    public_name: str | None,
+) -> None:
+    await state.clear()
+    await callback.answer()
+    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
+
+
+@router.callback_query(F.data.startswith("owner_tz:set:"))
+async def owner_panel_timezone_set(
+    callback: CallbackQuery,
+    state: FSMContext,
+    specialist_id,
+    owner_tg_user_id: int | None,
+    public_name: str | None,
+) -> None:
+    timezone_name = (callback.data or "").split("owner_tz:set:", 1)[-1].strip()
+    await callback.answer()
+    await _save_specialist_timezone(
+        message=callback.message,
+        state=state,
+        specialist_id=specialist_id,
+        owner_tg_user_id=owner_tg_user_id,
+        public_name=public_name,
+        timezone_name=timezone_name,
+    )
+
+
+@router.message(TimezoneSettingsStates.waiting_manual_timezone)
+async def owner_panel_timezone_manual_input(
+    message: Message,
+    state: FSMContext,
+    specialist_id,
+    owner_tg_user_id: int | None,
+    public_name: str | None,
+) -> None:
+    timezone_name = (message.text or "").strip()
+    await _save_specialist_timezone(
+        message=message,
+        state=state,
+        specialist_id=specialist_id,
+        owner_tg_user_id=owner_tg_user_id,
+        public_name=public_name,
+        timezone_name=timezone_name,
     )
 
 def _schedule_weekday_keyboard() -> InlineKeyboardMarkup:

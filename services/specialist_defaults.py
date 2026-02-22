@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import time
 from typing import Iterable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 
@@ -23,6 +24,17 @@ DEFAULT_WORKING_INTERVALS = [
 ]
 
 
+class ValidationError(ValueError):
+    pass
+
+
+def _validate_timezone(value: str) -> None:
+    try:
+        ZoneInfo(value)
+    except ZoneInfoNotFoundError as exc:
+        raise ValidationError(f"timezone does not exist: {value}") from exc
+
+
 async def apply_specialist_defaults_if_missing(
     session,
     specialist_id,
@@ -30,6 +42,8 @@ async def apply_specialist_defaults_if_missing(
     preferred_timezone: str | None = None,
 ) -> None:
     preferred_timezone_norm = (preferred_timezone or "").strip()
+    if preferred_timezone_norm:
+        _validate_timezone(preferred_timezone_norm)
     timezone = preferred_timezone_norm or DEFAULT_TIMEZONE
 
     profile = await session.get(SpecialistProfile, specialist_id)

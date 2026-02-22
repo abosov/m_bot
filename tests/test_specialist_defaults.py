@@ -198,3 +198,16 @@ async def test_apply_defaults_keeps_non_default_timezone_from_preferred():
     )
 
     assert profile.specialist_timezone == "Asia/Tokyo"
+
+
+@pytest.mark.asyncio
+async def test_apply_defaults_raises_validation_error_for_unknown_timezone():
+    specialist_id = uuid.uuid4()
+    session = DummySession(profile=None, auth=None, weekly_rows=[])
+
+    with pytest.raises(specialist_defaults.ValidationError, match="timezone does not exist"):
+        await specialist_defaults.apply_specialist_defaults_if_missing(
+            session,
+            specialist_id,
+            preferred_timezone="Mars/Olympus",
+        )

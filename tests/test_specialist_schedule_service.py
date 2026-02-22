@@ -246,6 +246,78 @@ async def test_delete_working_interval_rejects_foreign_interval(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_update_specialist_timezone_updates_profile_invalidates_cache_and_returns_values(monkeypatch):
+    specialist_id = uuid.uuid4()
+    profile = type("Profile", (), {"specialist_timezone": "UTC"})()
+
+    class Tx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class Session:
+        def begin(self):
+            return Tx()
+
+        async def get(self, model, sid):
+            assert sid == specialist_id
+            return profile
+
+    monkeypatch.setattr(specialist_schedule, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    calls = {"invalidate": 0}
+
+    async def fake_invalidate(sid):
+        calls["invalidate"] += 1
+        assert sid == specialist_id
+
+    async def fake_warn(_sid):
+        raise AssertionError("update_specialist_timezone must not touch existing sessions")
+
+    monkeypatch.setattr(specialist_schedule, "invalidate_availability_cache", fake_invalidate)
+    monkeypatch.setattr(specialist_schedule, "_warn_future_confirmed_outside_schedule", fake_warn)
+
+    actual = await specialist_schedule.update_specialist_timezone(specialist_id, "Europe/Berlin")
+
+    assert profile.specialist_timezone == "Europe/Berlin"
+    assert calls == {"invalidate": 1}
+    assert actual == {"specialist_timezone": "Europe/Berlin"}
+
+
+@pytest.mark.asyncio
+async def test_update_specialist_timezone_raises_for_invalid_timezone():
+    with pytest.raises(specialist_schedule.ValidationError, match="timezone does not exist"):
+        await specialist_schedule.update_specialist_timezone(uuid.uuid4(), "Mars/Olympus")
+
+
+@pytest.mark.asyncio
+async def test_update_specialist_timezone_raises_when_profile_not_found(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class Tx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class Session:
+        def begin(self):
+            return Tx()
+
+        async def get(self, model, sid):
+            assert sid == specialist_id
+            return None
+
+    monkeypatch.setattr(specialist_schedule, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    with pytest.raises(specialist_schedule.ValidationError, match="specialist profile not found"):
+        await specialist_schedule.update_specialist_timezone(specialist_id, "UTC")
+
+
+@pytest.mark.asyncio
 async def test_update_session_settings_validates_inputs() -> None:
     specialist_id = uuid.uuid4()
 
