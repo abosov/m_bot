@@ -33,7 +33,7 @@ async def test_personal_start_specialist_with_incomplete_onboarding_shows_defaul
     from_user = types.SimpleNamespace(id=987, full_name="Dr Gregory House", first_name="Gregory", last_name="House")
     message = DummyMessage(from_user=from_user)
 
-    specialist = types.SimpleNamespace(onboarding_master_completed_at=None, onboarding_personal_completed_at=None)
+    specialist = types.SimpleNamespace(onboarding_master_completed_at=None, onboarding_personal_completed_at=None, profile=None)
     profile = types.SimpleNamespace(
         session_duration_min=60,
         session_buffer_min=10,
@@ -41,6 +41,7 @@ async def test_personal_start_specialist_with_incomplete_onboarding_shows_defaul
         max_sessions_per_day=4,
         slot_step_min=15,
         cancel_window_hours=12,
+        onboarding_completed=False,
     )
 
     async def fake_load(_specialist_id):
@@ -75,8 +76,15 @@ async def test_personal_start_specialist_completed_onboarding_opens_owner_panel(
         captured["public_name"] = public_name
         captured["owner_tg_user_id"] = owner_tg_user_id
 
-    specialist = types.SimpleNamespace(onboarding_master_completed_at="2026-02-12T00:00:00Z", onboarding_personal_completed_at="2026-02-12T00:00:00Z")
-    profile = types.SimpleNamespace()
+    profile = types.SimpleNamespace(specialist_timezone="UTC", session_duration_min=60, cancel_window_hours=12, onboarding_completed=True)
+    specialist = types.SimpleNamespace(
+        onboarding_master_completed_at="2026-02-12T00:00:00Z",
+        onboarding_personal_completed_at="2026-02-12T00:00:00Z",
+        google_oauth=types.SimpleNamespace(status="connected"),
+        calendar_settings=types.SimpleNamespace(calendar_id="cal"),
+        calendar_sync_states=[object()],
+        profile=profile,
+    )
 
     async def fake_load(_specialist_id):
         return specialist, profile
@@ -179,13 +187,18 @@ async def test_personal_start_specialist_owner_panel_exception_sends_fallback(mo
     async def fake_send_owner_panel(*args, **kwargs):
         raise RuntimeError("boom")
 
+    profile = types.SimpleNamespace(specialist_timezone="UTC", session_duration_min=60, cancel_window_hours=12, onboarding_completed=True)
     specialist = types.SimpleNamespace(
         onboarding_master_completed_at="2026-02-12T00:00:00Z",
         onboarding_personal_completed_at="2026-02-12T00:00:00Z",
+        google_oauth=types.SimpleNamespace(status="connected"),
+        calendar_settings=types.SimpleNamespace(calendar_id="cal"),
+        calendar_sync_states=[object()],
+        profile=profile,
     )
 
     async def fake_load(_specialist_id):
-        return specialist, types.SimpleNamespace()
+        return specialist, profile
 
     monkeypatch.setattr(start_router, "_load_specialist_and_profile", fake_load)
     monkeypatch.setattr(start_router, "send_owner_panel", fake_send_owner_panel)
@@ -263,3 +276,75 @@ def test_onboarding_keyboard_with_calendar_contains_calendar_and_existing_action
     assert "calendar:switch_stub" in callback_data
     assert "onboarding:keep" in callback_data
     assert "onboarding:change" in callback_data
+
+
+@pytest.mark.asyncio
+async def test_personal_start_specialist_with_incomplete_basic_setup_shows_settings_button(monkeypatch):
+    from_user = types.SimpleNamespace(id=987, full_name="Dr Gregory House", first_name="Gregory", last_name="House")
+    message = DummyMessage(from_user=from_user)
+
+    profile = types.SimpleNamespace(
+        specialist_timezone="",
+        session_duration_min=60,
+        cancel_window_hours=12,
+        onboarding_completed=False,
+    )
+    specialist = types.SimpleNamespace(
+        onboarding_master_completed_at="2026-02-12T00:00:00Z",
+        onboarding_personal_completed_at="2026-02-12T00:00:00Z",
+        google_oauth=None,
+        calendar_settings=None,
+        calendar_sync_states=[],
+        profile=profile,
+    )
+
+    async def fake_load(_specialist_id):
+        return specialist, profile
+
+    called = {"owner_panel": False}
+
+    async def fake_send_owner_panel(*args, **kwargs):
+        called["owner_panel"] = True
+
+    monkeypatch.setattr(start_router, "_load_specialist_and_profile", fake_load)
+    monkeypatch.setattr(start_router, "send_owner_panel", fake_send_owner_panel)
+
+    await start_router.personal_start(
+        message=message,
+        command=CommandObject(prefix="/", command="start", mention=None, args=None),
+        actor="specialist",
+        specialist_id="sp-id",
+        public_name=None,
+        owner_tg_user_id=None,
+    )
+
+    assert called["owner_panel"] is False
+    assert any("Личный бот готов к работе" in msg[0] for msg in message.answers)
+    assert any("Рекомендуем завершить первоначальную настройку" in msg[0] for msg in message.answers)
+    markup = message.answers[-1][1]["reply_markup"]
+    callback_data = [button.callback_data for row in markup.inline_keyboard for button in row]
+    assert "open_settings" in callback_data
+
+
+@pytest.mark.asyncio
+async def test_open_settings_callback_opens_owner_panel(monkeypatch):
+    message = DummyMessage(from_user=types.SimpleNamespace(id=111))
+    callback = DummyCallback(message)
+    called = {}
+
+    async def fake_send_owner_panel(message, specialist_id, public_name, owner_tg_user_id=None):
+        called["specialist_id"] = specialist_id
+        called["public_name"] = public_name
+        called["owner_tg_user_id"] = owner_tg_user_id
+
+    monkeypatch.setattr(start_router, "send_owner_panel", fake_send_owner_panel)
+
+    await start_router.open_settings(
+        callback=callback,
+        specialist_id="sp-id",
+        public_name="Doc",
+        owner_tg_user_id=111,
+    )
+
+    assert callback.answered is True
+    assert called == {"specialist_id": "sp-id", "public_name": "Doc", "owner_tg_user_id": 111}

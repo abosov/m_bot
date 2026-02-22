@@ -65,6 +65,50 @@ def _onboarding_keyboard_with_calendar() -> InlineKeyboardMarkup:
     )
 
 
+
+
+def _first_run_settings_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="🔧 Перейти к настройкам", callback_data="open_settings")]]
+    )
+
+
+def _is_basic_setup_completed(*, specialist, profile, calendar_settings) -> bool:
+    tz_configured = bool(profile and (profile.specialist_timezone or "").strip())
+    google_connected = bool(getattr(specialist, "google_oauth", None) is not None and getattr(specialist.google_oauth, "status", None) == "connected")
+    has_calendar = bool(calendar_settings and getattr(calendar_settings, "calendar_id", None))
+    onboarding_completed = bool(profile and getattr(profile, "onboarding_completed", False))
+    return onboarding_completed and tz_configured and google_connected and has_calendar
+
+
+def _format_start_settings_summary(*, profile, specialist) -> tuple[str, bool]:
+    calendar_settings = getattr(specialist, "calendar_settings", None)
+    sync_states = getattr(specialist, "calendar_sync_states", None) or []
+    google_connected = bool(getattr(specialist, "google_oauth", None) is not None and getattr(specialist.google_oauth, "status", None) == "connected")
+    tz_value = (profile.specialist_timezone or "").strip() if profile else ""
+    tz_display = tz_value or "не задан"
+    google_display = "подключён" if google_connected else "не подключён"
+    calendars_count = len(sync_states) if sync_states else (1 if calendar_settings and getattr(calendar_settings, "calendar_id", None) else 0)
+    session_duration = profile.session_duration_min if profile and profile.session_duration_min is not None else "—"
+    cancel_window = profile.cancel_window_hours if profile and profile.cancel_window_hours is not None else "—"
+
+    incomplete = not (tz_value and google_connected)
+    lines = [
+        "🎉 Личный бот готов к работе.",
+        "",
+        "Чтобы начать, выполните первоначальную настройку.",
+        "",
+        "Текущие параметры:",
+        f"• Часовой пояс: {tz_display}",
+        f"• Google Calendar: {google_display}",
+        f"• Подключённых календарей: {calendars_count}",
+        f"• Длительность сессии по умолчанию: {session_duration} мин",
+        f"• Интервал отмены: {cancel_window} ч",
+    ]
+    if incomplete:
+        lines.extend(["", "⚠️ Рекомендуем завершить первоначальную настройку."])
+    return "\n".join(lines), incomplete
+
 def _client_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -122,7 +166,7 @@ async def _load_specialist_and_profile(specialist_id):
         specialist = (
             await session.execute(
                 select(Specialist)
-                .options(selectinload(Specialist.profile), selectinload(Specialist.calendar_settings))
+                .options(selectinload(Specialist.profile), selectinload(Specialist.calendar_settings), selectinload(Specialist.google_oauth), selectinload(Specialist.calendar_sync_states))
                 .where(Specialist.specialist_id == specialist_id)
             )
         ).scalar_one_or_none()
@@ -216,7 +260,7 @@ async def personal_start(
             return
 
         try:
-            specialist, _ = await _load_specialist_and_profile(specialist_id)
+            specialist, profile = await _load_specialist_and_profile(specialist_id)
             if specialist is None:
                 await message.answer(
                     "⚠️ Профиль специалиста не найден. Вернитесь в master-бот и завершите онбординг заново. "
@@ -233,10 +277,22 @@ async def personal_start(
                 specialist.onboarding_personal_completed_at,
             )
 
+            profile = getattr(specialist, "profile", None) or profile
+            calendar_settings = getattr(specialist, "calendar_settings", None)
+
             if specialist.onboarding_personal_completed_at is None:
                 if command.args and command.args not in {"owner_panel", "onboarding"}:
                     await message.answer("ℹ️ Неизвестный старт-параметр. Продолжаем онбординг.")
                 await _render_onboarding_screen(message, specialist_id)
+                return
+
+            if profile is not None and not _is_basic_setup_completed(
+                specialist=specialist,
+                profile=profile,
+                calendar_settings=calendar_settings,
+            ):
+                text, _ = _format_start_settings_summary(profile=profile, specialist=specialist)
+                await message.answer(text, reply_markup=_first_run_settings_keyboard())
                 return
 
             if command.args and command.args != "owner_panel":
@@ -309,6 +365,9 @@ async def onboarding_keep(callback: CallbackQuery, specialist_id, public_name: s
                 await callback.answer()
                 return
             specialist.onboarding_personal_completed_at = datetime.now(timezone.utc)
+            profile = await session.get(SpecialistProfile, specialist_id)
+            if profile is not None:
+                profile.onboarding_completed = True
             await session.commit()
 
         await callback.message.answer("✅ Отлично, онбординг завершён. Открываю панель специалиста.")
@@ -379,3 +438,22 @@ async def onboarding_later(callback: CallbackQuery) -> None:
         logger.exception("onboarding_later failed")
         await callback.message.answer(f"⚠️ Не удалось обработать действие. Поддержка: {SUPPORT_TG_URL}")
         await callback.answer()
+
+
+@router.callback_query(F.data == "open_settings")
+async def open_settings(callback: CallbackQuery, specialist_id, public_name: str | None, owner_tg_user_id: int | None) -> None:
+    _log_personal_handler(
+        handler_name="open_settings",
+        bot_id=callback.bot.id,
+        tg_user_id=callback.from_user.id if callback.from_user else None,
+        fsm_state=None,
+        outcome="start",
+        update_type="callback_query",
+    )
+    await callback.answer()
+    await send_owner_panel(
+        message=callback.message,
+        specialist_id=specialist_id,
+        public_name=public_name,
+        owner_tg_user_id=owner_tg_user_id,
+    )
