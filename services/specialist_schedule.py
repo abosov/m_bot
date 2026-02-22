@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 
@@ -24,6 +25,36 @@ async def invalidate_availability_cache(specialist_id: uuid.UUID) -> None:
     logger.debug("event=availability_cache_invalidate specialist_id=%s", specialist_id)
 
 
+def _validate_timezone(value: str) -> str:
+    timezone_name = value.strip()
+    if not timezone_name:
+        raise ValidationError("timezone must not be empty")
+    try:
+        ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError as exc:
+        raise ValidationError(f"timezone does not exist: {timezone_name}") from exc
+    return timezone_name
+
+
+async def update_specialist_timezone(
+    specialist_id: uuid.UUID,
+    timezone_name: str,
+) -> dict[str, str]:
+    valid_timezone = _validate_timezone(timezone_name)
+
+    async with async_session_factory() as session:
+        async with session.begin():
+            profile = await session.get(SpecialistProfile, specialist_id)
+            if profile is None:
+                raise ValidationError("specialist profile not found")
+
+            profile.specialist_timezone = valid_timezone
+
+        updated_timezone = profile.specialist_timezone
+
+    await invalidate_availability_cache(specialist_id)
+
+    return {"specialist_timezone": updated_timezone}
 
 
 def _validate_session_settings(duration: int, buffer: int) -> None:
@@ -99,6 +130,8 @@ async def update_limits(
         "max_sessions_per_day": updated_max,
         "slot_step_min": updated_step,
     }
+
+
 async def get_specialist_schedule(specialist_id: uuid.UUID) -> dict[int, list[dict[str, str]]]:
     grouped: dict[int, list[tuple[time, time]]] = {weekday: [] for weekday in range(7)}
 

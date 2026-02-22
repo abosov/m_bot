@@ -260,3 +260,72 @@ async def test_limits_fsm_rejects_invalid_slot_step(monkeypatch) -> None:
 
     assert "не может быть больше длительности" in message.answers[-1][0]
     assert called == {"update": 0}
+
+
+def test_timezone_keyboard_has_popular_and_manual_actions() -> None:
+    keyboard = owner_panel._timezone_keyboard()
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+    assert "owner_tz:set:UTC" in callbacks
+    assert "owner_tz:set:Europe/Berlin" in callbacks
+    assert "owner_tz:manual" in callbacks
+    assert "owner_tz:back" in callbacks
+
+
+@pytest.mark.asyncio
+async def test_timezone_fsm_flow_manual_input_saves_and_confirms(monkeypatch) -> None:
+    state = DummyState()
+    callback = DummyCallback()
+    message = DummyMessage()
+
+    captured = {"owner_panel": 0}
+
+    async def fake_update_specialist_timezone(_specialist_id, timezone_name):
+        assert _specialist_id == "sp-id"
+        assert timezone_name == "Europe/Berlin"
+        return {"specialist_timezone": timezone_name}
+
+    async def fake_send_owner_panel(*args, **kwargs):
+        captured["owner_panel"] += 1
+
+    monkeypatch.setattr(owner_panel, "update_specialist_timezone", fake_update_specialist_timezone)
+    monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
+
+    await owner_panel.owner_panel_change_timezone(callback=callback, state=state)
+    assert state.current_state == owner_panel.TimezoneSettingsStates.waiting_manual_timezone
+    assert "Выберите часовой пояс" in callback.message.answers[-1][0]
+
+    message.text = "Europe/Berlin"
+    await owner_panel.owner_panel_timezone_manual_input(
+        message=message,
+        state=state,
+        specialist_id="sp-id",
+        owner_tg_user_id=123,
+        public_name="Dr. Test",
+    )
+
+    assert state.current_state is None
+    assert "✅ Часовой пояс специалиста сохранён" in message.answers[-1][0]
+    assert captured == {"owner_panel": 1}
+
+
+@pytest.mark.asyncio
+async def test_timezone_fsm_keeps_state_on_validation_error(monkeypatch) -> None:
+    state = DummyState()
+    message = DummyMessage()
+
+    async def fake_update_specialist_timezone(_specialist_id, timezone_name):
+        raise owner_panel.SpecialistScheduleValidationError(f"timezone does not exist: {timezone_name}")
+
+    monkeypatch.setattr(owner_panel, "update_specialist_timezone", fake_update_specialist_timezone)
+
+    message.text = "Mars/Olympus"
+    await owner_panel.owner_panel_timezone_manual_input(
+        message=message,
+        state=state,
+        specialist_id="sp-id",
+        owner_tg_user_id=123,
+        public_name="Dr. Test",
+    )
+
+    assert state.current_state == owner_panel.TimezoneSettingsStates.waiting_manual_timezone
+    assert "Не удалось сохранить timezone" in message.answers[-1][0]
