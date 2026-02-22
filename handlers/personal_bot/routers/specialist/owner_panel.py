@@ -29,6 +29,7 @@ from services.specialist_schedule import (
     update_limits,
     update_session_settings,
 )
+from services.telegram.calendar_keyboard import format_calendar_button_text
 from services.specialist_defaults import (
     apply_specialist_defaults_if_missing,
     DEFAULT_BUFFER_MIN,
@@ -895,6 +896,7 @@ async def owner_calendar_create(
 
 
 @router.callback_query(F.data == "owner_cal:select")
+@router.callback_query(F.data == "owner_cal:refresh")
 async def owner_calendar_select(callback: CallbackQuery, specialist_id) -> None:
     await callback.answer()
     items = await list_calendars(specialist_id)
@@ -904,16 +906,20 @@ async def owner_calendar_select(callback: CallbackQuery, specialist_id) -> None:
 
     _CALENDAR_SELECTION_CACHE[callback.from_user.id] = items
 
-    keyboard_rows = []
+    keyboard_rows = [[InlineKeyboardButton(text="🔄 Обновить список", callback_data="owner_cal:refresh")]]
     for index, item in enumerate(items):
-        title = item.get("summary") or f"Календарь {index + 1}"
         keyboard_rows.append(
-            [InlineKeyboardButton(text=f"{index + 1}. {title}", callback_data=f"owner_cal:pick:{index}")]
+            [
+                InlineKeyboardButton(
+                    text=f"📅 {format_calendar_button_text(item)}",
+                    callback_data=f"owner_cal:pick:{index}",
+                )
+            ]
         )
     keyboard_rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="owner_cal:back")])
 
     await callback.message.answer(
-        "Выберите календарь:",
+        "Выберите календарь\n\nФормат: Название / Timezone / Primary|Secondary",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_rows),
     )
 

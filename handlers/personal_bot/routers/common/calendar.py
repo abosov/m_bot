@@ -54,7 +54,7 @@ def _calendar_select_text(*, total: int, page: int, page_size: int) -> str:
     return (
         "📂 Выберите рабочий Google Календарь\n\n"
         f"Найдено календарей: {total}.\n"
-        "После выбора будет выполнена проверка интеграции."
+        "Формат в списке: Название / Timezone / Primary|Secondary.\nПосле выбора будет выполнена проверка интеграции."
     )
 
 
