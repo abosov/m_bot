@@ -3,6 +3,8 @@ import logging
 from typing import Sequence
 
 from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
 from sqlalchemy import select
 
@@ -11,12 +13,19 @@ from database import (
     SpecialistCalendarSettings,
     SpecialistCalendarSource,
     SpecialistProfile,
+    SpecialistWorkingHours,
     WeeklyAvailability,
     async_session_factory,
 )
 from services.google_calendar import (
     create_and_cleanup_test_event,
     list_calendars,
+)
+from services.specialist_schedule import (
+    ValidationError as SpecialistScheduleValidationError,
+    add_working_interval,
+    delete_working_interval,
+    get_specialist_schedule,
 )
 from services.specialist_defaults import (
     apply_specialist_defaults_if_missing,
@@ -58,6 +67,13 @@ _DEFAULT_WORKING_HOURS = DEFAULT_WORKING_INTERVALS
 
 class AvailabilityValidationError(ValueError):
     """Ошибка валидации интервала weekly availability."""
+
+
+class ScheduleEditStates(StatesGroup):
+    choosing_weekday = State()
+    menu = State()
+    waiting_start_time = State()
+    waiting_end_time = State()
 
 
 def _validate_interval_pair(*, start: time | None, end: time | None) -> None:
@@ -1060,12 +1076,212 @@ async def owner_panel_change_timezone(callback: CallbackQuery) -> None:
         "🌍 Смена часового пояса специалиста в разработке. Пока используется часовой пояс специалиста (для расчётов) из профиля."
     )
 
+def _schedule_weekday_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Пн", callback_data="schedule:day:0"), InlineKeyboardButton(text="Вт", callback_data="schedule:day:1")],
+            [InlineKeyboardButton(text="Ср", callback_data="schedule:day:2"), InlineKeyboardButton(text="Чт", callback_data="schedule:day:3")],
+            [InlineKeyboardButton(text="Пт", callback_data="schedule:day:4"), InlineKeyboardButton(text="Сб", callback_data="schedule:day:5")],
+            [InlineKeyboardButton(text="Вс", callback_data="schedule:day:6")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="schedule:back_owner")],
+        ]
+    )
+
+
+def _schedule_menu_keyboard(weekday: int, intervals: list[dict[str, str]]) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="➕ Добавить", callback_data=f"schedule:add:{weekday}")],
+        [InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"schedule:delete_menu:{weekday}")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="schedule:pick_day")],
+    ]
+    if not intervals:
+        rows[1][0] = InlineKeyboardButton(text="🗑️ Удалить (нет интервалов)", callback_data="schedule:noop")
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _weekday_label(weekday: int) -> str:
+    return _WEEKDAY_LABELS.get(weekday, str(weekday))
+
+
+async def _send_schedule_day_menu(message: Message, specialist_id, weekday: int) -> None:
+    schedule = await get_specialist_schedule(specialist_id)
+    intervals = schedule.get(weekday, [])
+    if intervals:
+        intervals_text = "\n".join(f"• {it['start']}–{it['end']}" for it in intervals)
+    else:
+        intervals_text = "• интервалов нет"
+    await message.answer(
+        f"📅 Настройка расписания — {_weekday_label(weekday)}\n\n"
+        f"Текущие интервалы:\n{intervals_text}\n\n"
+        "Выберите действие:",
+        reply_markup=_schedule_menu_keyboard(weekday, intervals),
+    )
+
+
 @router.callback_query(F.data == "owner_panel:change_schedule")
-async def owner_panel_change_schedule(callback: CallbackQuery) -> None:
+async def owner_panel_change_schedule(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(ScheduleEditStates.choosing_weekday)
     await callback.answer()
     await callback.message.answer(
-        "📅 Изменение расписания в разработке. Пока можно использовать мастер настроек."
+        "📅 Настройка расписания\n\nВыберите день недели:",
+        reply_markup=_schedule_weekday_keyboard(),
     )
+
+
+@router.callback_query(F.data == "schedule:pick_day")
+async def schedule_pick_day(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(ScheduleEditStates.choosing_weekday)
+    await callback.answer()
+    await callback.message.answer("📅 Выберите день недели:", reply_markup=_schedule_weekday_keyboard())
+
+
+@router.callback_query(F.data == "schedule:back_owner")
+async def schedule_back_owner(callback: CallbackQuery, state: FSMContext, specialist_id, owner_tg_user_id: int | None, public_name: str | None) -> None:
+    await state.clear()
+    await callback.answer()
+    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
+
+
+@router.callback_query(F.data.startswith("schedule:day:"))
+async def schedule_select_day(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
+    try:
+        weekday = int((callback.data or "").split(":")[-1])
+    except ValueError:
+        await callback.answer("Некорректный день", show_alert=True)
+        return
+    await state.update_data(schedule_weekday=weekday)
+    await state.set_state(ScheduleEditStates.menu)
+    await callback.answer()
+    await _send_schedule_day_menu(callback.message, specialist_id, weekday)
+
+
+@router.callback_query(F.data.startswith("schedule:add:"))
+async def schedule_add_start(callback: CallbackQuery, state: FSMContext) -> None:
+    try:
+        weekday = int((callback.data or "").split(":")[-1])
+    except ValueError:
+        await callback.answer("Некорректный день", show_alert=True)
+        return
+    await state.update_data(schedule_weekday=weekday)
+    await state.set_state(ScheduleEditStates.waiting_start_time)
+    await callback.answer()
+    await callback.message.answer(
+        f"✍️ {_weekday_label(weekday)}: введите время начала в формате HH:MM (например, 09:00)."
+    )
+
+
+def _parse_hhmm(value: str) -> time | None:
+    try:
+        parts = value.strip().split(":")
+        if len(parts) != 2:
+            return None
+        hour = int(parts[0])
+        minute = int(parts[1])
+        return time(hour=hour, minute=minute)
+    except Exception:
+        return None
+
+
+@router.message(ScheduleEditStates.waiting_start_time)
+async def schedule_add_receive_start(message: Message, state: FSMContext) -> None:
+    start_time = _parse_hhmm(message.text or "")
+    if start_time is None:
+        await message.answer("⚠️ Неверный формат времени. Используйте HH:MM, например 09:00.")
+        return
+    await state.update_data(schedule_start_time=start_time.strftime("%H:%M"))
+    await state.set_state(ScheduleEditStates.waiting_end_time)
+    await message.answer("✍️ Теперь введите время окончания в формате HH:MM (например, 18:00).")
+
+
+@router.message(ScheduleEditStates.waiting_end_time)
+async def schedule_add_receive_end(message: Message, state: FSMContext, specialist_id) -> None:
+    end_time = _parse_hhmm(message.text or "")
+    if end_time is None:
+        await message.answer("⚠️ Неверный формат времени. Используйте HH:MM, например 18:00.")
+        return
+
+    data = await state.get_data()
+    weekday = int(data.get("schedule_weekday", 0))
+    start_time_raw = str(data.get("schedule_start_time", ""))
+    start_time = _parse_hhmm(start_time_raw)
+    if start_time is None:
+        await state.set_state(ScheduleEditStates.waiting_start_time)
+        await message.answer("⚠️ Не удалось прочитать время начала. Введите время начала заново (HH:MM).")
+        return
+
+    try:
+        await add_working_interval(specialist_id, weekday, start_time, end_time)
+    except SpecialistScheduleValidationError as exc:
+        await message.answer(f"⚠️ Интервал не сохранён: {exc}")
+        await state.set_state(ScheduleEditStates.waiting_start_time)
+        await message.answer("✍️ Введите новое время начала в формате HH:MM.")
+        return
+
+    await state.set_state(ScheduleEditStates.menu)
+    await message.answer("✅ Интервал добавлен.")
+    await _send_schedule_day_menu(message, specialist_id, weekday)
+
+
+@router.callback_query(F.data.startswith("schedule:delete_menu:"))
+async def schedule_delete_menu(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
+    try:
+        weekday = int((callback.data or "").split(":")[-1])
+    except ValueError:
+        await callback.answer("Некорректный день", show_alert=True)
+        return
+
+    schedule = await get_specialist_schedule(specialist_id)
+    intervals = schedule.get(weekday, [])
+    if not intervals:
+        await callback.answer("Нет интервалов для удаления", show_alert=True)
+        return
+
+    async with async_session_factory() as session:
+        rows = (
+            await session.execute(
+                select(SpecialistWorkingHours).where(
+                    SpecialistWorkingHours.specialist_id == specialist_id,
+                    SpecialistWorkingHours.weekday == weekday,
+                ).order_by(SpecialistWorkingHours.start_time)
+            )
+        ).scalars().all()
+
+    kb_rows = [[InlineKeyboardButton(text=f"🗑️ {row.start_time.strftime('%H:%M')}–{row.end_time.strftime('%H:%M')}", callback_data=f"schedule:delete:{row.id}")] for row in rows]
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=f"schedule:day:{weekday}")])
+    await state.update_data(schedule_weekday=weekday)
+    await callback.answer()
+    await callback.message.answer(
+        f"🗑️ {_weekday_label(weekday)}: выберите интервал для удаления.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
+    )
+
+
+@router.callback_query(F.data.startswith("schedule:delete:"))
+async def schedule_delete_interval(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
+    raw_id = (callback.data or "").split(":")[-1]
+    try:
+        interval_id = uuid.UUID(raw_id)
+    except ValueError:
+        await callback.answer("Некорректный интервал", show_alert=True)
+        return
+
+    data = await state.get_data()
+    weekday = int(data.get("schedule_weekday", 0))
+
+    try:
+        await delete_working_interval(interval_id, specialist_id)
+    except SpecialistScheduleValidationError as exc:
+        await callback.answer(str(exc), show_alert=True)
+        return
+
+    await callback.answer("Удалено")
+    await callback.message.answer("✅ Интервал удалён.")
+    await _send_schedule_day_menu(callback.message, specialist_id, weekday)
+
+
+@router.callback_query(F.data == "schedule:noop")
+async def schedule_noop(callback: CallbackQuery) -> None:
+    await callback.answer("Нет интервалов")
 
 
 @router.callback_query(F.data == "owner_panel:keep")
