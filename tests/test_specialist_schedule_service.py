@@ -483,3 +483,120 @@ async def test_update_limits_raises_when_slot_step_gt_duration(monkeypatch):
 
     with pytest.raises(specialist_schedule.ValidationError):
         await specialist_schedule.update_limits(specialist_id, max_per_day=4, slot_step=35)
+
+
+@pytest.mark.asyncio
+async def test_reset_specialist_settings_to_default_resets_profile_schedule_and_invalidates_cache(monkeypatch):
+    specialist_id = uuid.uuid4()
+    profile = type(
+        "Profile",
+        (),
+        {
+            "session_duration_min": 90,
+            "session_buffer_min": 20,
+            "slot_step_min": 30,
+            "max_sessions_per_day": 10,
+        },
+    )()
+
+    class Scalars:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+    class ExecResult:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def scalars(self):
+            return Scalars(self._rows)
+
+    class Tx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class Session:
+        def __init__(self):
+            self.deleted = []
+            self.added = []
+
+        def begin(self):
+            return Tx()
+
+        async def get(self, model, sid):
+            assert sid == specialist_id
+            return profile
+
+        async def execute(self, _query):
+            return ExecResult([object(), object()])
+
+        async def delete(self, value):
+            self.deleted.append(value)
+
+        def add(self, value):
+            self.added.append(value)
+
+    session = Session()
+    monkeypatch.setattr(specialist_schedule, "async_session_factory", lambda: DummySessionCtx(session))
+
+    calls = {"invalidate": 0}
+
+    async def fake_invalidate(sid):
+        calls["invalidate"] += 1
+        assert sid == specialist_id
+
+    expected_schedule = {weekday: [] for weekday in range(7)}
+
+    async def fake_get_schedule(sid):
+        assert sid == specialist_id
+        return expected_schedule
+
+    monkeypatch.setattr(specialist_schedule, "invalidate_availability_cache", fake_invalidate)
+    monkeypatch.setattr(specialist_schedule, "get_specialist_schedule", fake_get_schedule)
+
+    actual = await specialist_schedule.reset_specialist_settings_to_default(specialist_id)
+
+    assert profile.session_duration_min == specialist_schedule.DEFAULT_DURATION_MIN
+    assert profile.session_buffer_min == specialist_schedule.DEFAULT_BUFFER_MIN
+    assert profile.slot_step_min == specialist_schedule.DEFAULT_SLOT_STEP_MIN
+    assert profile.max_sessions_per_day == specialist_schedule.DEFAULT_MAX_SESSIONS_PER_DAY
+    assert len(session.deleted) == 2
+    assert len(session.added) == len(specialist_schedule.DEFAULT_WORKING_DAYS) * len(specialist_schedule.DEFAULT_WORKING_INTERVALS)
+    assert calls == {"invalidate": 1}
+    assert actual == {
+        "session_duration_min": specialist_schedule.DEFAULT_DURATION_MIN,
+        "session_buffer_min": specialist_schedule.DEFAULT_BUFFER_MIN,
+        "slot_step_min": specialist_schedule.DEFAULT_SLOT_STEP_MIN,
+        "max_sessions_per_day": specialist_schedule.DEFAULT_MAX_SESSIONS_PER_DAY,
+        "schedule": expected_schedule,
+    }
+
+
+@pytest.mark.asyncio
+async def test_reset_specialist_settings_to_default_raises_when_profile_not_found(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class Tx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class Session:
+        def begin(self):
+            return Tx()
+
+        async def get(self, model, sid):
+            assert sid == specialist_id
+            return None
+
+    monkeypatch.setattr(specialist_schedule, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    with pytest.raises(specialist_schedule.ValidationError, match="specialist profile not found"):
+        await specialist_schedule.reset_specialist_settings_to_default(specialist_id)

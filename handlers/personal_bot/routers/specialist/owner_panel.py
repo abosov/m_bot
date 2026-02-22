@@ -29,6 +29,7 @@ from services.specialist_schedule import (
     update_limits,
     update_session_settings,
     update_specialist_timezone,
+    reset_specialist_settings_to_default,
 )
 from services.telegram.calendar_keyboard import format_calendar_button_text
 from services.log_context import log_event
@@ -130,6 +131,16 @@ def _slot_step_keyboard() -> InlineKeyboardMarkup:
         ]
     )
 
+
+
+
+def _apply_defaults_confirmation_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Подтвердить", callback_data="owner_panel:apply_defaults:confirm")],
+            [InlineKeyboardButton(text="Отмена", callback_data="owner_panel:apply_defaults:cancel")],
+        ]
+    )
 
 
 
@@ -866,33 +877,26 @@ async def owner_wizard_limits_set(
 
 
 @router.callback_query(F.data == "owner_panel:apply_defaults")
-async def owner_panel_apply_defaults(
+async def owner_panel_apply_defaults(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.answer(
+        "Вы уверены, что хотите сбросить настройки?",
+        reply_markup=_apply_defaults_confirmation_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "owner_panel:apply_defaults:confirm")
+async def owner_panel_apply_defaults_confirm(
     callback: CallbackQuery,
     specialist_id,
     owner_tg_user_id: int | None,
     public_name: str | None,
 ) -> None:
-    await _update_profile_settings(
-        specialist_id=specialist_id,
-        session_duration_min=_DEFAULT_DURATION_MIN,
-        session_buffer_min=_DEFAULT_BUFFER_MIN,
-        max_sessions_per_day=_DEFAULT_MAX_SESSIONS_PER_DAY,
-        slot_step_min=_DEFAULT_SLOT_STEP_MIN,
-        owner_tg_user_id=owner_tg_user_id,
-        public_name=public_name,
-    )
-    await _apply_weekly_defaults(
-        specialist_id=specialist_id,
-        working_days=set(DEFAULT_WORKING_DAYS),
-        interval_1=_DEFAULT_WORKING_HOURS[0],
-        interval_2=_DEFAULT_WORKING_HOURS[1],
-        interval_3=_DEFAULT_WORKING_HOURS[2],
-    )
+    await reset_specialist_settings_to_default(specialist_id)
 
     await callback.answer("Готово")
     await callback.message.answer(
-        "✅ Применены базовые настройки (их можно изменить): часовой пояс специалиста (для расчётов), расписание (Пн–Пт, утро/день/вечер), "
-        "длительность, буфер, лимиты."
+        "✅ Применены базовые настройки (их можно изменить): расписание (Пн–Пт, утро/день/вечер), длительность, буфер, лимиты."
     )
     await send_owner_panel(
         callback.message,
@@ -900,6 +904,12 @@ async def owner_panel_apply_defaults(
         public_name=public_name,
         owner_tg_user_id=owner_tg_user_id,
     )
+
+
+@router.callback_query(F.data == "owner_panel:apply_defaults:cancel")
+async def owner_panel_apply_defaults_cancel(callback: CallbackQuery) -> None:
+    await callback.answer("Отменено")
+    await callback.message.answer("Сброс настроек отменён.")
 
 
 

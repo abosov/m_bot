@@ -76,39 +76,59 @@ class DummyCallback:
 
 
 @pytest.mark.asyncio
-async def test_apply_defaults_uses_expected_profile_defaults(monkeypatch) -> None:
-    captured = {}
+async def test_apply_defaults_requests_confirmation() -> None:
+    callback = DummyCallback()
 
-    async def fake_update_profile_settings(**kwargs):
-        captured["profile"] = kwargs
+    await owner_panel.owner_panel_apply_defaults(callback=callback)
 
-    async def fake_apply_weekly_defaults(**kwargs):
-        captured["weekly"] = kwargs
+    assert callback.message.answers[0][0] == "Вы уверены, что хотите сбросить настройки?"
+    keyboard = callback.message.answers[0][1]["reply_markup"]
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+    assert callbacks == ["owner_panel:apply_defaults:confirm", "owner_panel:apply_defaults:cancel"]
+
+
+@pytest.mark.asyncio
+async def test_apply_defaults_confirm_calls_reset_service_and_returns_to_owner_panel(monkeypatch) -> None:
+    captured = {"reset": 0, "owner_panel": 0}
+
+    async def fake_reset(_specialist_id):
+        captured["reset"] += 1
+        assert _specialist_id == "sp-id"
+        return {
+            "session_duration_min": 60,
+            "session_buffer_min": 10,
+            "slot_step_min": 15,
+            "max_sessions_per_day": 4,
+            "schedule": {weekday: [] for weekday in range(7)},
+        }
 
     async def fake_send_owner_panel(*args, **kwargs):
-        captured["owner_panel"] = {"args": args, "kwargs": kwargs}
+        captured["owner_panel"] += 1
+        assert kwargs["specialist_id"] == "sp-id"
 
-    monkeypatch.setattr(owner_panel, "_update_profile_settings", fake_update_profile_settings)
-    monkeypatch.setattr(owner_panel, "_apply_weekly_defaults", fake_apply_weekly_defaults)
+    monkeypatch.setattr(owner_panel, "reset_specialist_settings_to_default", fake_reset)
     monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
 
     callback = DummyCallback()
 
-    await owner_panel.owner_panel_apply_defaults(
+    await owner_panel.owner_panel_apply_defaults_confirm(
         callback=callback,
         specialist_id="sp-id",
         owner_tg_user_id=123,
         public_name="Dr. House",
     )
 
-    assert captured["profile"]["session_duration_min"] == 60
-    assert captured["profile"]["session_buffer_min"] == 10
-    assert captured["profile"]["max_sessions_per_day"] == 4
-    assert captured["profile"]["slot_step_min"] == 15
+    assert captured == {"reset": 1, "owner_panel": 1}
 
-    assert captured["weekly"]["interval_1"] == (time(9, 0), time(12, 0))
-    assert captured["weekly"]["interval_2"] == (time(13, 0), time(17, 0))
-    assert captured["weekly"]["interval_3"] == (time(17, 0), time(21, 0))
+
+@pytest.mark.asyncio
+async def test_apply_defaults_cancel_sends_cancel_message() -> None:
+    callback = DummyCallback()
+
+    await owner_panel.owner_panel_apply_defaults_cancel(callback=callback)
+
+    assert callback.answers[0][0] == "Отменено"
+    assert callback.message.answers[0][0] == "Сброс настроек отменён."
 
 
 def test_format_intervals_for_ui_hides_null_intervals() -> None:

@@ -8,6 +8,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import select
 
 from database import Appointment, BookingState, SpecialistProfile, SpecialistWorkingHours, async_session_factory
+from services.specialist_defaults import (
+    DEFAULT_BUFFER_MIN,
+    DEFAULT_DURATION_MIN,
+    DEFAULT_MAX_SESSIONS_PER_DAY,
+    DEFAULT_SLOT_STEP_MIN,
+    DEFAULT_WORKING_DAYS,
+    DEFAULT_WORKING_INTERVALS,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -129,6 +137,53 @@ async def update_limits(
     return {
         "max_sessions_per_day": updated_max,
         "slot_step_min": updated_step,
+    }
+
+
+async def reset_specialist_settings_to_default(specialist_id: uuid.UUID) -> dict[str, int | dict[int, list[dict[str, str]]]]:
+    async with async_session_factory() as session:
+        async with session.begin():
+            profile = await session.get(SpecialistProfile, specialist_id)
+            if profile is None:
+                raise ValidationError("specialist profile not found")
+
+            profile.session_duration_min = DEFAULT_DURATION_MIN
+            profile.session_buffer_min = DEFAULT_BUFFER_MIN
+            profile.slot_step_min = DEFAULT_SLOT_STEP_MIN
+            profile.max_sessions_per_day = DEFAULT_MAX_SESSIONS_PER_DAY
+
+            existing_intervals = (
+                await session.execute(
+                    select(SpecialistWorkingHours).where(SpecialistWorkingHours.specialist_id == specialist_id)
+                )
+            ).scalars().all()
+            for interval in existing_intervals:
+                await session.delete(interval)
+
+            for weekday in sorted(DEFAULT_WORKING_DAYS):
+                for start_time, end_time in DEFAULT_WORKING_INTERVALS:
+                    session.add(
+                        SpecialistWorkingHours(
+                            specialist_id=specialist_id,
+                            weekday=weekday,
+                            start_time=start_time,
+                            end_time=end_time,
+                        )
+                    )
+
+        updated_duration = profile.session_duration_min
+        updated_buffer = profile.session_buffer_min
+        updated_slot_step = profile.slot_step_min
+        updated_max_per_day = profile.max_sessions_per_day
+
+    await invalidate_availability_cache(specialist_id)
+
+    return {
+        "session_duration_min": updated_duration,
+        "session_buffer_min": updated_buffer,
+        "slot_step_min": updated_slot_step,
+        "max_sessions_per_day": updated_max_per_day,
+        "schedule": await get_specialist_schedule(specialist_id),
     }
 
 
