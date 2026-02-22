@@ -317,3 +317,97 @@ async def test_update_session_settings_raises_when_profile_not_found(monkeypatch
 
     with pytest.raises(specialist_schedule.ValidationError):
         await specialist_schedule.update_session_settings(specialist_id, duration=45, buffer=15)
+
+
+@pytest.mark.asyncio
+async def test_update_limits_validates_inputs(monkeypatch) -> None:
+    specialist_id = uuid.uuid4()
+    profile = type("Profile", (), {"session_duration_min": 60, "max_sessions_per_day": 4, "slot_step_min": 15})()
+
+    class Tx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class Session:
+        def begin(self):
+            return Tx()
+
+        async def get(self, model, sid):
+            assert sid == specialist_id
+            return profile
+
+    monkeypatch.setattr(specialist_schedule, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    with pytest.raises(specialist_schedule.ValidationError):
+        await specialist_schedule.update_limits(specialist_id, max_per_day=0, slot_step=15)
+
+
+@pytest.mark.asyncio
+async def test_update_limits_updates_profile_invalidates_cache_and_returns_values(monkeypatch):
+    specialist_id = uuid.uuid4()
+    profile = type("Profile", (), {"session_duration_min": 60, "max_sessions_per_day": 4, "slot_step_min": 15})()
+
+    class Tx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class Session:
+        def begin(self):
+            return Tx()
+
+        async def get(self, model, sid):
+            assert sid == specialist_id
+            return profile
+
+    monkeypatch.setattr(specialist_schedule, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    calls = {"invalidate": 0}
+
+    async def fake_invalidate(sid):
+        calls["invalidate"] += 1
+        assert sid == specialist_id
+
+    async def fake_warn(_sid):
+        raise AssertionError("update_limits must not touch existing sessions")
+
+    monkeypatch.setattr(specialist_schedule, "invalidate_availability_cache", fake_invalidate)
+    monkeypatch.setattr(specialist_schedule, "_warn_future_confirmed_outside_schedule", fake_warn)
+
+    actual = await specialist_schedule.update_limits(specialist_id, max_per_day=20, slot_step=10)
+
+    assert profile.max_sessions_per_day == 20
+    assert profile.slot_step_min == 10
+    assert calls == {"invalidate": 1}
+    assert actual == {"max_sessions_per_day": 20, "slot_step_min": 10}
+
+
+@pytest.mark.asyncio
+async def test_update_limits_raises_when_slot_step_gt_duration(monkeypatch):
+    specialist_id = uuid.uuid4()
+    profile = type("Profile", (), {"session_duration_min": 30, "max_sessions_per_day": 4, "slot_step_min": 15})()
+
+    class Tx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class Session:
+        def begin(self):
+            return Tx()
+
+        async def get(self, model, sid):
+            assert sid == specialist_id
+            return profile
+
+    monkeypatch.setattr(specialist_schedule, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    with pytest.raises(specialist_schedule.ValidationError):
+        await specialist_schedule.update_limits(specialist_id, max_per_day=4, slot_step=35)

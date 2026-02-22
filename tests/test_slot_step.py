@@ -1,5 +1,7 @@
 from datetime import datetime
 
+import pytest
+
 from services.slot_step import is_aligned_to_step, iter_slot_starts, round_up_to_step
 
 
@@ -41,3 +43,13 @@ def test_iter_slot_starts_for_60_step() -> None:
     )
 
     assert result == [datetime(2026, 2, 11, 9, 0)]
+
+
+def test_slot_step_validation_rejects_values_less_than_5() -> None:
+    with pytest.raises(ValueError):
+        is_aligned_to_step(datetime(2026, 2, 11, 9, 0), 1)
+
+
+def test_slot_step_validation_rejects_non_multiple_of_5() -> None:
+    with pytest.raises(ValueError):
+        round_up_to_step(datetime(2026, 2, 11, 9, 0), 7)

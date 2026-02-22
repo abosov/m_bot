@@ -26,11 +26,11 @@ from services.specialist_schedule import (
     add_working_interval,
     delete_working_interval,
     get_specialist_schedule,
+    update_limits,
     update_session_settings,
 )
 from services.specialist_defaults import (
     apply_specialist_defaults_if_missing,
-    ALLOWED_SLOT_STEPS_MIN,
     DEFAULT_BUFFER_MIN,
     DEFAULT_CANCEL_WINDOW_HOURS,
     DEFAULT_DURATION_MIN,
@@ -51,7 +51,6 @@ _DEFAULT_BUFFER_MIN = DEFAULT_BUFFER_MIN
 _DEFAULT_CANCEL_WINDOW_HOURS = DEFAULT_CANCEL_WINDOW_HOURS
 _DEFAULT_MAX_SESSIONS_PER_DAY = DEFAULT_MAX_SESSIONS_PER_DAY
 _DEFAULT_SLOT_STEP_MIN = DEFAULT_SLOT_STEP_MIN
-_ALLOWED_SLOT_STEPS_MIN = ALLOWED_SLOT_STEPS_MIN
 
 _WEEKDAY_LABELS = {
     0: "Пн",
@@ -80,6 +79,11 @@ class ScheduleEditStates(StatesGroup):
 class SessionSettingsStates(StatesGroup):
     waiting_duration = State()
     waiting_buffer = State()
+
+
+class LimitsSettingsStates(StatesGroup):
+    waiting_max_sessions = State()
+    waiting_slot_step = State()
 
 
 def _validate_interval_pair(*, start: time | None, end: time | None) -> None:
@@ -115,6 +119,7 @@ def _slot_step_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="15", callback_data="owner:slot_step:15"),
                 InlineKeyboardButton(text="10", callback_data="owner:slot_step:10"),
             ],
+            [InlineKeyboardButton(text="5", callback_data="owner:slot_step:5")],
         ]
     )
 
@@ -122,7 +127,7 @@ def _slot_step_keyboard() -> InlineKeyboardMarkup:
 def _max_sessions_keyboard() -> InlineKeyboardMarkup:
     rows = []
     row = []
-    for value in range(1, 11):
+    for value in range(1, 21):
         row.append(InlineKeyboardButton(text=str(value), callback_data=f"owner:max_sessions:{value}"))
         if len(row) == 5:
             rows.append(row)
@@ -232,7 +237,12 @@ async def _ensure_profile_defaults(
             if profile.max_sessions_per_day <= 0:
                 profile.max_sessions_per_day = _DEFAULT_MAX_SESSIONS_PER_DAY
                 changed = True
-            if profile.slot_step_min not in _ALLOWED_SLOT_STEPS_MIN:
+            if (
+                profile.slot_step_min is None
+                or profile.slot_step_min < 5
+                or profile.slot_step_min > profile.session_duration_min
+                or profile.slot_step_min % 5 != 0
+            ):
                 profile.slot_step_min = _DEFAULT_SLOT_STEP_MIN
                 changed = True
 
@@ -307,13 +317,26 @@ async def _update_profile_settings(
         if profile is None:
             return
 
+        next_duration = session_duration_min if session_duration_min is not None else profile.session_duration_min
+        next_max_sessions = max_sessions_per_day if max_sessions_per_day is not None else profile.max_sessions_per_day
+        next_slot_step = slot_step_min if slot_step_min is not None else profile.slot_step_min
+
+        if next_max_sessions < 1 or next_max_sessions > 20:
+            raise AvailabilityValidationError("max_sessions_per_day must be between 1 and 20")
+        if next_slot_step < 5:
+            raise AvailabilityValidationError("slot_step_minutes must be >= 5")
+        if next_slot_step > next_duration:
+            raise AvailabilityValidationError("slot_step_minutes must be <= session_duration")
+        if next_slot_step % 5 != 0:
+            raise AvailabilityValidationError("slot_step_minutes must be a multiple of 5")
+
         if session_duration_min is not None:
             profile.session_duration_min = session_duration_min
         if session_buffer_min is not None:
             profile.session_buffer_min = session_buffer_min
         if max_sessions_per_day is not None:
             profile.max_sessions_per_day = max_sessions_per_day
-        if slot_step_min is not None and slot_step_min in _ALLOWED_SLOT_STEPS_MIN:
+        if slot_step_min is not None:
             profile.slot_step_min = slot_step_min
 
         await session.commit()
@@ -1014,56 +1037,77 @@ async def owner_calendar_smoke(
 
 
 @router.callback_query(F.data == "owner_panel:slot_params_menu")
-async def owner_panel_slot_params_menu(callback: CallbackQuery) -> None:
+async def owner_panel_slot_params_menu(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
+    await state.set_state(LimitsSettingsStates.waiting_max_sessions)
+    await state.update_data(limits_max_sessions_candidate=None)
     await callback.answer()
-    await callback.message.answer(
-        "Что хотите изменить?",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="Шаг слотов", callback_data="owner_panel:slot_step_menu")],
-                [InlineKeyboardButton(text="Максимум сессий/день", callback_data="owner_panel:max_sessions_menu")],
-            ]
-        ),
-    )
+    await callback.message.answer("⚙️ Введите максимум сессий в день (1..20).")
 
 
-@router.callback_query(F.data == "owner_panel:max_sessions_menu")
-async def owner_panel_max_sessions_menu(callback: CallbackQuery) -> None:
-    await callback.answer()
-    await callback.message.answer(
-        "Выберите максимум сессий в день:",
-        reply_markup=_max_sessions_keyboard(),
-    )
+@router.message(LimitsSettingsStates.waiting_max_sessions)
+async def owner_panel_receive_max_sessions(message: Message, state: FSMContext, specialist_id) -> None:
+    try:
+        max_sessions = int((message.text or "").strip())
+    except ValueError:
+        await message.answer("⚠️ Максимум сессий должен быть целым числом. Попробуйте ещё раз.")
+        return
+
+    if max_sessions < 1 or max_sessions > 20:
+        await message.answer("⚠️ Максимум сессий должен быть в диапазоне 1..20. Попробуйте ещё раз.")
+        return
+
+    profile, _ = await _load_profile_and_rows(specialist_id)
+    duration_min = profile.session_duration_min if profile else _DEFAULT_DURATION_MIN
+    await state.update_data(limits_max_sessions_candidate=max_sessions, limits_duration_min=duration_min)
+    await state.set_state(LimitsSettingsStates.waiting_slot_step)
+    await message.answer(f"⚙️ Введите шаг слота в минутах (минимум 5, кратно 5, максимум {duration_min}).")
 
 
-@router.callback_query(F.data.startswith("owner:slot_step:"))
-async def owner_panel_set_slot_step(
-    callback: CallbackQuery,
+@router.message(LimitsSettingsStates.waiting_slot_step)
+async def owner_panel_receive_slot_step(
+    message: Message,
+    state: FSMContext,
     specialist_id,
     owner_tg_user_id: int | None,
     public_name: str | None,
 ) -> None:
     try:
-        step_min = int((callback.data or "").split(":")[-1])
+        slot_step = int((message.text or "").strip())
     except ValueError:
-        await callback.answer("Некорректный шаг", show_alert=True)
+        await message.answer("⚠️ Шаг слота должен быть целым числом. Попробуйте ещё раз.")
         return
 
-    if step_min not in _ALLOWED_SLOT_STEPS_MIN:
-        await callback.answer("Некорректный шаг", show_alert=True)
+    data = await state.get_data()
+    max_sessions = data.get("limits_max_sessions_candidate")
+    duration_min = data.get("limits_duration_min", _DEFAULT_DURATION_MIN)
+    if not isinstance(max_sessions, int):
+        await state.set_state(LimitsSettingsStates.waiting_max_sessions)
+        await message.answer("⚠️ Не найден максимум сессий. Введите максимум заново (1..20).")
         return
 
-    await _update_profile_settings(
-        specialist_id=specialist_id,
-        slot_step_min=step_min,
-        owner_tg_user_id=owner_tg_user_id,
-        public_name=public_name,
+    if slot_step < 5:
+        await message.answer("⚠️ Шаг слота должен быть не меньше 5 минут. Попробуйте ещё раз.")
+        return
+    if slot_step % 5 != 0:
+        await message.answer("⚠️ Шаг слота должен быть кратен 5 минутам. Попробуйте ещё раз.")
+        return
+    if slot_step > duration_min:
+        await message.answer(f"⚠️ Шаг слота не может быть больше длительности сессии ({duration_min} мин). Попробуйте ещё раз.")
+        return
+
+    try:
+        updated = await update_limits(specialist_id, max_per_day=max_sessions, slot_step=slot_step)
+    except SpecialistScheduleValidationError as exc:
+        await message.answer(f"⚠️ Не удалось сохранить лимиты: {exc}. Попробуйте ещё раз.")
+        return
+
+    await state.clear()
+    await message.answer(
+        "✅ Лимиты сохранены\n"
+        f"• Максимум сессий в день: {updated['max_sessions_per_day']}\n"
+        f"• Шаг слота: {updated['slot_step_min']} мин"
     )
-
-    await callback.answer()
-    await callback.message.answer(f"Шаг начала слотов обновлён: {step_min} мин")
-    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
-
+    await send_owner_panel(message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
 
 
 
@@ -1363,30 +1407,3 @@ async def owner_panel_keep(callback: CallbackQuery) -> None:
     await callback.message.answer("👌 Оставили текущие настройки без изменений.")
 
 
-@router.callback_query(F.data.startswith("owner:max_sessions:"))
-async def owner_panel_set_max_sessions(
-    callback: CallbackQuery,
-    specialist_id,
-    owner_tg_user_id: int | None,
-    public_name: str | None,
-) -> None:
-    try:
-        max_sessions = int((callback.data or "").split(":")[-1])
-    except ValueError:
-        await callback.answer("Некорректное значение", show_alert=True)
-        return
-
-    if max_sessions < 1 or max_sessions > 10:
-        await callback.answer("Некорректное значение", show_alert=True)
-        return
-
-    await _update_profile_settings(
-        specialist_id=specialist_id,
-        max_sessions_per_day=max_sessions,
-        owner_tg_user_id=owner_tg_user_id,
-        public_name=public_name,
-    )
-
-    await callback.answer()
-    await callback.message.answer(f"Лимит сессий в день обновлён: {max_sessions}")
-    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)

@@ -3,12 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 
-_ALLOWED_SLOT_STEPS = {60, 30, 15, 10}
+_MIN_SLOT_STEP = 5
 
 
 def _validate_step(step_min: int) -> None:
-    if step_min not in _ALLOWED_SLOT_STEPS:
-        raise ValueError("step_min must be one of 60, 30, 15, 10")
+    if step_min < _MIN_SLOT_STEP:
+        raise ValueError("step_min must be >= 5")
+    if step_min % 5 != 0:
+        raise ValueError("step_min must be a multiple of 5")
 
 
 def is_aligned_to_step(dt_local: datetime, step_min: int) -> bool:
