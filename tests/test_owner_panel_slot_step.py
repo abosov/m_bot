@@ -262,6 +262,48 @@ async def test_limits_fsm_rejects_invalid_slot_step(monkeypatch) -> None:
     assert called == {"update": 0}
 
 
+@pytest.mark.asyncio
+async def test_owner_panel_keep_clears_fsm_logs_and_returns_to_menu(monkeypatch) -> None:
+    callback = DummyCallback()
+    state = DummyState()
+    state.current_state = owner_panel.ScheduleEditStates.waiting_start_time
+
+    captured = {"events": [], "owner_panel": 0}
+
+    def fake_log_event(_logger, _level, *, event, **fields):
+        captured["events"].append((event, fields))
+
+    async def fake_send_owner_panel(*args, **kwargs):
+        captured["owner_panel"] += 1
+
+    monkeypatch.setattr(owner_panel, "log_event", fake_log_event)
+    monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
+
+    callback.from_user = type("FromUser", (), {"id": 777})()
+
+    await owner_panel.owner_panel_keep(
+        callback=callback,
+        state=state,
+        specialist_id="sp-id",
+        public_name="Dr. Test",
+        owner_tg_user_id=123,
+    )
+
+    assert state.current_state is None
+    assert captured["owner_panel"] == 1
+    assert captured["events"] == [
+        (
+            "settings_no_change",
+            {
+                "specialist_id": "sp-id",
+                "tg_user_id": 777,
+            },
+        )
+    ]
+    assert callback.answers == [("Отлично", {})]
+    assert "Возвращаю в главное меню" in callback.message.answers[0][0]
+
+
 def test_timezone_keyboard_has_popular_and_manual_actions() -> None:
     keyboard = owner_panel._timezone_keyboard()
     callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
