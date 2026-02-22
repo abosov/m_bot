@@ -47,9 +47,9 @@ def _fallback_public_name(message: Message, public_name: str | None) -> str:
 def _onboarding_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Изменить настройки", callback_data="onboarding:change")],
-            [InlineKeyboardButton(text="👌 Оставить как есть", callback_data="onboarding:keep")],
-            [InlineKeyboardButton(text="Позже", callback_data="onboarding:later")],
+            [InlineKeyboardButton(text="⚙️ Изменить параметры записи", callback_data="onboarding:change")],
+            [InlineKeyboardButton(text="✅ Оставить как есть", callback_data="onboarding:keep")],
+            [InlineKeyboardButton(text="⏳ Позже", callback_data="onboarding:later")],
         ]
     )
 
@@ -57,10 +57,10 @@ def _onboarding_keyboard() -> InlineKeyboardMarkup:
 def _onboarding_keyboard_with_calendar() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📅 Изменить календарь", callback_data="calendar:switch_stub")],
-            [InlineKeyboardButton(text="✏️ Изменить настройки", callback_data="onboarding:change")],
-            [InlineKeyboardButton(text="👌 Оставить как есть", callback_data="onboarding:keep")],
-            [InlineKeyboardButton(text="Позже", callback_data="onboarding:later")],
+            [InlineKeyboardButton(text="🗓️ Сменить календарь", callback_data="calendar:switch_stub")],
+            [InlineKeyboardButton(text="⚙️ Изменить параметры записи", callback_data="onboarding:change")],
+            [InlineKeyboardButton(text="✅ Оставить как есть", callback_data="onboarding:keep")],
+            [InlineKeyboardButton(text="⏳ Позже", callback_data="onboarding:later")],
         ]
     )
 
