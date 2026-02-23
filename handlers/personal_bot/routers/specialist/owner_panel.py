@@ -91,8 +91,8 @@ class SessionSettingsStates(StatesGroup):
 
 
 class LimitsSettingsStates(StatesGroup):
-    waiting_max_sessions = State()
-    waiting_slot_step = State()
+    waiting_for_daily_limit = State()
+    waiting_for_slot_step = State()
 
 
 class TimezoneSettingsStates(StatesGroup):
@@ -1227,33 +1227,39 @@ async def owner_calendar_smoke(
 
 @router.callback_query(F.data == "owner_panel:slot_params_menu")
 async def owner_panel_slot_params_menu(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
-    await state.set_state(LimitsSettingsStates.waiting_max_sessions)
+    await state.set_state(LimitsSettingsStates.waiting_for_daily_limit)
     await state.update_data(limits_max_sessions_candidate=None)
     await _remember_nav_message(state, callback.message)
+    profile, _ = await _load_profile_and_rows(specialist_id)
+    max_sessions = profile.max_sessions_per_day if profile is not None else _DEFAULT_MAX_SESSIONS_PER_DAY
+    slot_step = profile.slot_step_min if profile is not None else _DEFAULT_SLOT_STEP_MIN
     await callback.answer()
-    await callback.message.edit_text("⚙️ Введите максимум сессий в день (1..20).")
+    await callback.message.edit_text(
+        "✅ Лимиты сохранены\n"
+        f"• Максимум сессий в день: {max_sessions}\n"
+        f"• Шаг слота: {slot_step} мин\n\n"
+        "⚙️ Введите максимум сессий в день (1..20)."
+    )
 
 
-@router.message(LimitsSettingsStates.waiting_max_sessions)
+@router.message(LimitsSettingsStates.waiting_for_daily_limit)
 async def owner_panel_receive_max_sessions(message: Message, state: FSMContext, specialist_id) -> None:
     try:
         max_sessions = int((message.text or "").strip())
     except ValueError:
-        await _edit_nav_message_from_state(message, state, text="⚠️ Максимум сессий должен быть целым числом. Попробуйте ещё раз.")
+        await message.answer("⚠️ Максимум сессий должен быть целым числом.\n\n⚙️ Введите максимум сессий в день (1..20).")
         return
 
     if max_sessions < 1 or max_sessions > 20:
-        await _edit_nav_message_from_state(message, state, text="⚠️ Максимум сессий должен быть в диапазоне 1..20. Попробуйте ещё раз.")
+        await message.answer("⚠️ Максимум сессий должен быть в диапазоне 1..20.\n\n⚙️ Введите максимум сессий в день (1..20).")
         return
 
-    profile, _ = await _load_profile_and_rows(specialist_id)
-    duration_min = profile.session_duration_min if profile else _DEFAULT_DURATION_MIN
-    await state.update_data(limits_max_sessions_candidate=max_sessions, limits_duration_min=duration_min)
-    await state.set_state(LimitsSettingsStates.waiting_slot_step)
-    await _edit_nav_message_from_state(message, state, text=f"⚙️ Введите шаг слота в минутах (минимум 5, кратно 5, максимум {duration_min}).")
+    await state.update_data(limits_max_sessions_candidate=max_sessions)
+    await state.set_state(LimitsSettingsStates.waiting_for_slot_step)
+    await message.answer("⚙️ Введите шаг слота в минутах (минимум 5, кратно 5, максимум 50).")
 
 
-@router.message(LimitsSettingsStates.waiting_slot_step)
+@router.message(LimitsSettingsStates.waiting_for_slot_step)
 async def owner_panel_receive_slot_step(
     message: Message,
     state: FSMContext,
@@ -1264,31 +1270,45 @@ async def owner_panel_receive_slot_step(
     try:
         slot_step = int((message.text or "").strip())
     except ValueError:
-        await _edit_nav_message_from_state(message, state, text="⚠️ Шаг слота должен быть целым числом. Попробуйте ещё раз.")
+        await message.answer(
+            "⚠️ Шаг слота должен быть целым числом.\n\n"
+            "⚙️ Введите шаг слота в минутах (минимум 5, кратно 5, максимум 50)."
+        )
         return
 
     data = await state.get_data()
     max_sessions = data.get("limits_max_sessions_candidate")
-    duration_min = data.get("limits_duration_min", _DEFAULT_DURATION_MIN)
     if not isinstance(max_sessions, int):
-        await state.set_state(LimitsSettingsStates.waiting_max_sessions)
-        await _edit_nav_message_from_state(message, state, text="⚠️ Не найден максимум сессий. Введите максимум заново (1..20).")
+        await state.set_state(LimitsSettingsStates.waiting_for_daily_limit)
+        await message.answer("⚠️ Не найден максимум сессий.\n\n⚙️ Введите максимум сессий в день (1..20).")
         return
 
     if slot_step < 5:
-        await _edit_nav_message_from_state(message, state, text="⚠️ Шаг слота должен быть не меньше 5 минут. Попробуйте ещё раз.")
+        await message.answer(
+            "⚠️ Шаг слота должен быть не меньше 5 минут.\n\n"
+            "⚙️ Введите шаг слота в минутах (минимум 5, кратно 5, максимум 50)."
+        )
         return
     if slot_step % 5 != 0:
-        await _edit_nav_message_from_state(message, state, text="⚠️ Шаг слота должен быть кратен 5 минутам. Попробуйте ещё раз.")
+        await message.answer(
+            "⚠️ Шаг слота должен быть кратен 5 минутам.\n\n"
+            "⚙️ Введите шаг слота в минутах (минимум 5, кратно 5, максимум 50)."
+        )
         return
-    if slot_step > duration_min:
-        await _edit_nav_message_from_state(message, state, text=f"⚠️ Шаг слота не может быть больше длительности сессии ({duration_min} мин). Попробуйте ещё раз.")
+    if slot_step > 50:
+        await message.answer(
+            "⚠️ Шаг слота должен быть не больше 50 минут.\n\n"
+            "⚙️ Введите шаг слота в минутах (минимум 5, кратно 5, максимум 50)."
+        )
         return
 
     try:
         updated = await update_limits(specialist_id, max_per_day=max_sessions, slot_step=slot_step)
     except SpecialistScheduleValidationError as exc:
-        await _edit_nav_message_from_state(message, state, text=f"⚠️ Не удалось сохранить лимиты: {exc}. Попробуйте ещё раз.")
+        await message.answer(
+            f"⚠️ Не удалось сохранить лимиты: {exc}.\n\n"
+            "⚙️ Введите шаг слота в минутах (минимум 5, кратно 5, максимум 50)."
+        )
         return
 
     await state.clear()

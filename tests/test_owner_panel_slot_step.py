@@ -250,7 +250,7 @@ async def test_limits_fsm_flow_saves_and_confirms(monkeypatch) -> None:
     first_message = DummyMessage()
     second_message = DummyMessage()
 
-    profile = type("Profile", (), {"session_duration_min": 60})()
+    profile = type("Profile", (), {"session_duration_min": 60, "max_sessions_per_day": 4, "slot_step_min": 15})()
 
     async def fake_load_profile_and_rows(_specialist_id):
         return profile, []
@@ -270,11 +270,14 @@ async def test_limits_fsm_flow_saves_and_confirms(monkeypatch) -> None:
     monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
 
     await owner_panel.owner_panel_slot_params_menu(callback=callback, state=state, specialist_id="sp-id")
-    assert state.current_state == owner_panel.LimitsSettingsStates.waiting_max_sessions
+    assert state.current_state == owner_panel.LimitsSettingsStates.waiting_for_daily_limit
+    assert "✅ Лимиты сохранены" in callback.message.edits[-1][0]
 
     first_message.text = "12"
     await owner_panel.owner_panel_receive_max_sessions(first_message, state=state, specialist_id="sp-id")
-    assert state.current_state == owner_panel.LimitsSettingsStates.waiting_slot_step
+    assert state.current_state == owner_panel.LimitsSettingsStates.waiting_for_slot_step
+    assert first_message.answers[-1][0] == "⚙️ Введите шаг слота в минутах (минимум 5, кратно 5, максимум 50)."
+    assert first_message.edits == []
 
     second_message.text = "15"
     await owner_panel.owner_panel_receive_slot_step(
@@ -294,7 +297,7 @@ async def test_limits_fsm_flow_saves_and_confirms(monkeypatch) -> None:
 async def test_limits_fsm_rejects_invalid_slot_step(monkeypatch) -> None:
     state = DummyState()
     message = DummyMessage()
-    state.data = {"limits_max_sessions_candidate": 8, "limits_duration_min": 30}
+    state.data = {"limits_max_sessions_candidate": 8}
 
     called = {"update": 0}
 
@@ -304,7 +307,7 @@ async def test_limits_fsm_rejects_invalid_slot_step(monkeypatch) -> None:
 
     monkeypatch.setattr(owner_panel, "update_limits", fake_update_limits)
 
-    message.text = "35"
+    message.text = "55"
     await owner_panel.owner_panel_receive_slot_step(
         message,
         state=state,
@@ -314,7 +317,7 @@ async def test_limits_fsm_rejects_invalid_slot_step(monkeypatch) -> None:
     )
 
     last_text = message.edits[-1][0] if message.edits else message.answers[-1][0]
-    assert "не может быть больше длительности" in last_text
+    assert "не больше 50" in last_text
     assert called == {"update": 0}
 
 
