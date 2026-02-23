@@ -48,8 +48,8 @@ def build_specialist_settings_view(
     profile,
     rows: Sequence,
     calendar_settings,
-    keep_button_text: str,
-    keep_callback_data: str,
+    keep_button_text: str | None,
+    keep_callback_data: str | None,
     include_reset_button: bool,
     later_button: tuple[str, str] | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
@@ -81,13 +81,14 @@ def build_specialist_settings_view(
     )
 
     keyboard_rows = [
-        [InlineKeyboardButton(text="📅 Изменить расписание", callback_data="owner_panel:change_schedule")],
+        [InlineKeyboardButton(text="📅 Изменить расписание и интервалы", callback_data="owner_panel:change_schedule")],
         [InlineKeyboardButton(text="⏱️ Изменить длительность и буфер", callback_data="owner_panel:change_duration_buffer")],
         [InlineKeyboardButton(text="⚙️ Изменить лимиты (max/day, шаг слота)", callback_data="owner_panel:slot_params_menu")],
         [InlineKeyboardButton(text="🗓️ Сменить календарь", callback_data="owner_panel:calendar_menu")],
         [InlineKeyboardButton(text="🌍 Сменить часовой пояс специалиста", callback_data="owner_panel:change_timezone")],
-        [InlineKeyboardButton(text=keep_button_text, callback_data=keep_callback_data)],
     ]
+    if keep_button_text is not None and keep_callback_data is not None:
+        keyboard_rows.append([InlineKeyboardButton(text=keep_button_text, callback_data=keep_callback_data)])
     if include_reset_button:
         keyboard_rows.append([InlineKeyboardButton(text="♻️ Сбросить на дефолты", callback_data="owner_panel:apply_defaults")])
     if later_button is not None:
@@ -95,4 +96,3 @@ def build_specialist_settings_view(
         keyboard_rows.append([InlineKeyboardButton(text=later_text, callback_data=later_callback)])
 
     return text, InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
-

@@ -97,6 +97,10 @@ class TimezoneSettingsStates(StatesGroup):
     waiting_manual_timezone = State()
 
 
+_NAV_CHAT_ID_KEY = "owner_panel_nav_chat_id"
+_NAV_MESSAGE_ID_KEY = "owner_panel_nav_message_id"
+
+
 def _validate_interval_pair(*, start: time | None, end: time | None) -> None:
     if (start is None) ^ (end is None):
         raise AvailabilityValidationError("Interval start/end must be both NULL or both set.")
@@ -196,6 +200,55 @@ async def _save_specialist_timezone(
         public_name=public_name,
         owner_tg_user_id=owner_tg_user_id,
     )
+
+
+async def _remember_nav_message(state: FSMContext, message: Message) -> None:
+    chat_id = getattr(getattr(message, "chat", None), "id", None)
+    message_id = getattr(message, "message_id", None)
+    if isinstance(chat_id, int) and isinstance(message_id, int):
+        await state.update_data(**{_NAV_CHAT_ID_KEY: chat_id, _NAV_MESSAGE_ID_KEY: message_id})
+
+
+async def _edit_nav_message(
+    bot,
+    *,
+    chat_id: int,
+    message_id: int,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            reply_markup=reply_markup,
+        )
+    except TelegramBadRequest as exc:
+        if "message is not modified" not in str(exc).lower():
+            raise
+
+
+async def _edit_nav_message_from_state(
+    message: Message,
+    state: FSMContext,
+    *,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    data = await state.get_data()
+    chat_id = data.get(_NAV_CHAT_ID_KEY)
+    message_id = data.get(_NAV_MESSAGE_ID_KEY)
+    if isinstance(chat_id, int) and isinstance(message_id, int):
+        await _edit_nav_message(
+            message.bot,
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            reply_markup=reply_markup,
+        )
+        return
+    await message.answer(text, reply_markup=reply_markup)
 
 def _max_sessions_keyboard() -> InlineKeyboardMarkup:
     rows = []
@@ -557,8 +610,8 @@ async def send_owner_panel(
         profile=profile,
         rows=rows,
         calendar_settings=calendar_settings,
-        keep_button_text="👌 Оставить как есть",
-        keep_callback_data="owner_panel:keep",
+        keep_button_text=None,
+        keep_callback_data=None,
         include_reset_button=True,
     )
     text = (
@@ -864,7 +917,7 @@ async def owner_wizard_limits_set(
 @router.callback_query(F.data == "owner_panel:apply_defaults")
 async def owner_panel_apply_defaults(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.answer(
+    await callback.message.edit_text(
         "Вы уверены, что хотите сбросить настройки?",
         reply_markup=_apply_defaults_confirmation_keyboard(),
     )
@@ -880,9 +933,6 @@ async def owner_panel_apply_defaults_confirm(
     await reset_specialist_settings_to_default(specialist_id)
 
     await callback.answer("Готово")
-    await callback.message.answer(
-        "✅ Применены базовые настройки (их можно изменить): расписание (Пн–Пт, утро/день/вечер), длительность, буфер, лимиты."
-    )
     await send_owner_panel(
         callback.message,
         specialist_id=specialist_id,
@@ -892,9 +942,19 @@ async def owner_panel_apply_defaults_confirm(
 
 
 @router.callback_query(F.data == "owner_panel:apply_defaults:cancel")
-async def owner_panel_apply_defaults_cancel(callback: CallbackQuery) -> None:
+async def owner_panel_apply_defaults_cancel(
+    callback: CallbackQuery,
+    specialist_id,
+    owner_tg_user_id: int | None,
+    public_name: str | None,
+) -> None:
     await callback.answer("Отменено")
-    await callback.message.answer("Сброс настроек отменён.")
+    await send_owner_panel(
+        callback.message,
+        specialist_id=specialist_id,
+        public_name=public_name,
+        owner_tg_user_id=owner_tg_user_id,
+    )
 
 
 
@@ -910,7 +970,7 @@ async def owner_panel_slot_step_menu(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "owner_panel:calendar_menu")
 async def owner_panel_calendar_menu(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.answer(
+    await callback.message.edit_text(
         "Выберите действие с календарём:",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
@@ -968,7 +1028,7 @@ async def owner_calendar_select(callback: CallbackQuery, specialist_id) -> None:
     await callback.answer()
     items = await list_calendars(specialist_id)
     if not items:
-        await callback.message.answer("⚠️ В аккаунте Google не найдено доступных календарей.")
+        await callback.message.edit_text("⚠️ В аккаунте Google не найдено доступных календарей.")
         return
 
     _CALENDAR_SELECTION_CACHE[callback.from_user.id] = items
@@ -985,7 +1045,7 @@ async def owner_calendar_select(callback: CallbackQuery, specialist_id) -> None:
         )
     keyboard_rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="owner_cal:back")])
 
-    await callback.message.answer(
+    await callback.message.edit_text(
         "Выберите календарь\n\nФормат: Название / Timezone / Primary|Secondary",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_rows),
     )
@@ -1003,19 +1063,19 @@ async def owner_calendar_pick(
     try:
         pick_index = int((callback.data or "").split(":")[-1])
     except ValueError:
-        await callback.message.answer("⚠️ Не удалось выбрать календарь.")
+        await callback.answer("⚠️ Не удалось выбрать календарь.", show_alert=True)
         return
 
     items = _CALENDAR_SELECTION_CACHE.get(callback.from_user.id) or []
     if pick_index < 0 or pick_index >= len(items):
-        await callback.message.answer("⚠️ Список календарей устарел. Откройте выбор заново.")
+        await callback.answer("⚠️ Список календарей устарел. Откройте выбор заново.", show_alert=True)
         return
 
     item = items[pick_index]
     calendar_id = item.get("id")
     summary = item.get("summary")
     if not calendar_id:
-        await callback.message.answer("⚠️ Выбранный календарь не содержит ID.")
+        await callback.answer("⚠️ Выбранный календарь не содержит ID.", show_alert=True)
         return
     calendar_tz = item.get("timeZone") or "UTC"
 
@@ -1038,7 +1098,7 @@ async def owner_calendar_pick(
             smoke_status="ok",
             smoke_error=None,
         )
-        await callback.message.answer("✅ Календарь выбран, интеграция успешно выполнена.")
+        await callback.answer("✅ Календарь выбран, интеграция успешно выполнена.")
     except Exception as exc:
         await _upsert_calendar_settings(
             specialist_id=specialist_id,
@@ -1049,7 +1109,7 @@ async def owner_calendar_pick(
             smoke_status="failed",
             smoke_error=str(exc)[:255],
         )
-        await callback.message.answer("⚠️ Календарь сохранён, но интеграция не завершена.")
+        await callback.answer("⚠️ Календарь сохранён, но интеграция не завершена.")
 
     _CALENDAR_SELECTION_CACHE.pop(callback.from_user.id, None)
     await send_owner_panel(
@@ -1070,7 +1130,7 @@ async def owner_calendar_smoke(
     await callback.answer()
     settings = await _load_calendar_settings(specialist_id)
     if settings is None or not settings.calendar_id:
-        await callback.message.answer("⚠️ Календарь не выбран. Сначала выберите календарь.")
+        await callback.answer("⚠️ Календарь не выбран. Сначала выберите календарь.", show_alert=True)
         return
 
     try:
@@ -1088,7 +1148,7 @@ async def owner_calendar_smoke(
             smoke_status="ok",
             smoke_error=None,
         )
-        await callback.message.answer("✅ Интеграция успешно выполнена.")
+        await callback.answer("✅ Интеграция успешно выполнена.")
     except Exception as exc:
         await _upsert_calendar_settings(
             specialist_id=specialist_id,
@@ -1099,7 +1159,7 @@ async def owner_calendar_smoke(
             smoke_status="failed",
             smoke_error=str(exc)[:255],
         )
-        await callback.message.answer("❌ Интеграция не завершена.")
+        await callback.answer("❌ Интеграция не завершена.")
 
     await send_owner_panel(
         callback.message,
@@ -1113,8 +1173,9 @@ async def owner_calendar_smoke(
 async def owner_panel_slot_params_menu(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
     await state.set_state(LimitsSettingsStates.waiting_max_sessions)
     await state.update_data(limits_max_sessions_candidate=None)
+    await _remember_nav_message(state, callback.message)
     await callback.answer()
-    await callback.message.answer("⚙️ Введите максимум сессий в день (1..20).")
+    await callback.message.edit_text("⚙️ Введите максимум сессий в день (1..20).")
 
 
 @router.message(LimitsSettingsStates.waiting_max_sessions)
@@ -1122,18 +1183,18 @@ async def owner_panel_receive_max_sessions(message: Message, state: FSMContext, 
     try:
         max_sessions = int((message.text or "").strip())
     except ValueError:
-        await message.answer("⚠️ Максимум сессий должен быть целым числом. Попробуйте ещё раз.")
+        await _edit_nav_message_from_state(message, state, text="⚠️ Максимум сессий должен быть целым числом. Попробуйте ещё раз.")
         return
 
     if max_sessions < 1 or max_sessions > 20:
-        await message.answer("⚠️ Максимум сессий должен быть в диапазоне 1..20. Попробуйте ещё раз.")
+        await _edit_nav_message_from_state(message, state, text="⚠️ Максимум сессий должен быть в диапазоне 1..20. Попробуйте ещё раз.")
         return
 
     profile, _ = await _load_profile_and_rows(specialist_id)
     duration_min = profile.session_duration_min if profile else _DEFAULT_DURATION_MIN
     await state.update_data(limits_max_sessions_candidate=max_sessions, limits_duration_min=duration_min)
     await state.set_state(LimitsSettingsStates.waiting_slot_step)
-    await message.answer(f"⚙️ Введите шаг слота в минутах (минимум 5, кратно 5, максимум {duration_min}).")
+    await _edit_nav_message_from_state(message, state, text=f"⚙️ Введите шаг слота в минутах (минимум 5, кратно 5, максимум {duration_min}).")
 
 
 @router.message(LimitsSettingsStates.waiting_slot_step)
@@ -1147,7 +1208,7 @@ async def owner_panel_receive_slot_step(
     try:
         slot_step = int((message.text or "").strip())
     except ValueError:
-        await message.answer("⚠️ Шаг слота должен быть целым числом. Попробуйте ещё раз.")
+        await _edit_nav_message_from_state(message, state, text="⚠️ Шаг слота должен быть целым числом. Попробуйте ещё раз.")
         return
 
     data = await state.get_data()
@@ -1155,23 +1216,23 @@ async def owner_panel_receive_slot_step(
     duration_min = data.get("limits_duration_min", _DEFAULT_DURATION_MIN)
     if not isinstance(max_sessions, int):
         await state.set_state(LimitsSettingsStates.waiting_max_sessions)
-        await message.answer("⚠️ Не найден максимум сессий. Введите максимум заново (1..20).")
+        await _edit_nav_message_from_state(message, state, text="⚠️ Не найден максимум сессий. Введите максимум заново (1..20).")
         return
 
     if slot_step < 5:
-        await message.answer("⚠️ Шаг слота должен быть не меньше 5 минут. Попробуйте ещё раз.")
+        await _edit_nav_message_from_state(message, state, text="⚠️ Шаг слота должен быть не меньше 5 минут. Попробуйте ещё раз.")
         return
     if slot_step % 5 != 0:
-        await message.answer("⚠️ Шаг слота должен быть кратен 5 минутам. Попробуйте ещё раз.")
+        await _edit_nav_message_from_state(message, state, text="⚠️ Шаг слота должен быть кратен 5 минутам. Попробуйте ещё раз.")
         return
     if slot_step > duration_min:
-        await message.answer(f"⚠️ Шаг слота не может быть больше длительности сессии ({duration_min} мин). Попробуйте ещё раз.")
+        await _edit_nav_message_from_state(message, state, text=f"⚠️ Шаг слота не может быть больше длительности сессии ({duration_min} мин). Попробуйте ещё раз.")
         return
 
     try:
         updated = await update_limits(specialist_id, max_per_day=max_sessions, slot_step=slot_step)
     except SpecialistScheduleValidationError as exc:
-        await message.answer(f"⚠️ Не удалось сохранить лимиты: {exc}. Попробуйте ещё раз.")
+        await _edit_nav_message_from_state(message, state, text=f"⚠️ Не удалось сохранить лимиты: {exc}. Попробуйте ещё раз.")
         return
 
     await state.clear()
@@ -1188,8 +1249,9 @@ async def owner_panel_receive_slot_step(
 async def owner_panel_change_duration_buffer(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(SessionSettingsStates.waiting_duration)
     await state.update_data(session_duration_candidate=None)
+    await _remember_nav_message(state, callback.message)
     await callback.answer()
-    await callback.message.answer(
+    await callback.message.edit_text(
         "⏱️ Введите длительность сессии в минутах (15..240, кратно 5)."
     )
 
@@ -1252,8 +1314,9 @@ async def owner_panel_receive_session_buffer(
 @router.callback_query(F.data == "owner_panel:change_timezone")
 async def owner_panel_change_timezone(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(TimezoneSettingsStates.waiting_manual_timezone)
+    await _remember_nav_message(state, callback.message)
     await callback.answer()
-    await callback.message.answer(
+    await callback.message.edit_text(
         "🌍 Выберите часовой пояс специалиста из популярных или введите вручную в формате Region/City "
         "(например, Europe/Berlin).\n\n"
         "ℹ️ Смена timezone не изменяет уже созданные события Google Calendar.",
@@ -1264,8 +1327,9 @@ async def owner_panel_change_timezone(callback: CallbackQuery, state: FSMContext
 @router.callback_query(F.data == "owner_tz:manual")
 async def owner_panel_timezone_manual(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(TimezoneSettingsStates.waiting_manual_timezone)
+    await _remember_nav_message(state, callback.message)
     await callback.answer()
-    await callback.message.answer("✍️ Введите timezone вручную в формате Region/City, например: Europe/Berlin")
+    await callback.message.edit_text("✍️ Введите timezone вручную в формате Region/City, например: Europe/Berlin")
 
 
 @router.callback_query(F.data == "owner_tz:back")
@@ -1363,10 +1427,7 @@ async def _edit_or_send_schedule_picker(
     text: str,
     reply_markup: InlineKeyboardMarkup,
 ) -> Message:
-    try:
-        return await callback.message.edit_text(text, reply_markup=reply_markup)
-    except TelegramBadRequest:
-        return await callback.message.answer(text, reply_markup=reply_markup)
+    return await callback.message.edit_text(text, reply_markup=reply_markup)
 
 
 def _schedule_menu_keyboard(weekday: int, intervals: list[dict[str, str]]) -> InlineKeyboardMarkup:
@@ -1391,7 +1452,7 @@ async def _send_schedule_day_menu(message: Message, specialist_id, weekday: int)
         intervals_text = "\n".join(f"• {it['start']}–{it['end']}" for it in intervals)
     else:
         intervals_text = "• интервалов нет"
-    await message.answer(
+    await message.edit_text(
         f"📅 Настройка расписания — {_weekday_label(weekday)}\n\n"
         f"Текущие интервалы:\n{intervals_text}\n\n"
         "Выберите действие:",
@@ -1402,6 +1463,7 @@ async def _send_schedule_day_menu(message: Message, specialist_id, weekday: int)
 @router.callback_query(F.data == "owner_panel:change_schedule")
 async def owner_panel_change_schedule(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
     await state.set_state(ScheduleEditStates.choosing_weekday)
+    await _remember_nav_message(state, callback.message)
     await callback.answer()
     await _edit_or_send_schedule_picker(
         callback,
@@ -1481,8 +1543,9 @@ async def schedule_add_start(callback: CallbackQuery, state: FSMContext) -> None
         return
     await state.update_data(schedule_weekday=weekday)
     await state.set_state(ScheduleEditStates.waiting_start_time)
+    await _remember_nav_message(state, callback.message)
     await callback.answer()
-    await callback.message.answer(
+    await callback.message.edit_text(
         f"✍️ {_weekday_label(weekday)}: введите время начала в формате HH:MM (например, 09:00)."
     )
 
@@ -1513,18 +1576,18 @@ def _parse_hhmm(value: str) -> time | None:
 async def schedule_add_receive_start(message: Message, state: FSMContext) -> None:
     start_time = _parse_hhmm(message.text or "")
     if start_time is None:
-        await message.answer("⚠️ Неверный формат времени. Используйте HH:MM, например 09:00.")
+        await _edit_nav_message_from_state(message, state, text="⚠️ Неверный формат времени. Используйте HH:MM, например 09:00.")
         return
     await state.update_data(schedule_start_time=start_time.strftime("%H:%M"))
     await state.set_state(ScheduleEditStates.waiting_end_time)
-    await message.answer("✍️ Теперь введите время окончания в формате HH:MM (например, 18:00).")
+    await _edit_nav_message_from_state(message, state, text="✍️ Теперь введите время окончания в формате HH:MM (например, 18:00).")
 
 
 @router.message(ScheduleEditStates.waiting_end_time)
 async def schedule_add_receive_end(message: Message, state: FSMContext, specialist_id) -> None:
     end_time = _parse_hhmm(message.text or "")
     if end_time is None:
-        await message.answer("⚠️ Неверный формат времени. Используйте HH:MM, например 18:00.")
+        await _edit_nav_message_from_state(message, state, text="⚠️ Неверный формат времени. Используйте HH:MM, например 18:00.")
         return
 
     data = await state.get_data()
@@ -1533,19 +1596,17 @@ async def schedule_add_receive_end(message: Message, state: FSMContext, speciali
     start_time = _parse_hhmm(start_time_raw)
     if start_time is None:
         await state.set_state(ScheduleEditStates.waiting_start_time)
-        await message.answer("⚠️ Не удалось прочитать время начала. Введите время начала заново (HH:MM).")
+        await _edit_nav_message_from_state(message, state, text="⚠️ Не удалось прочитать время начала. Введите время начала заново (HH:MM).")
         return
 
     try:
         await add_working_interval(specialist_id, weekday, start_time, end_time)
     except SpecialistScheduleValidationError as exc:
-        await message.answer(f"⚠️ Интервал не сохранён: {exc}")
+        await _edit_nav_message_from_state(message, state, text=f"⚠️ Интервал не сохранён: {exc}\n✍️ Введите новое время начала в формате HH:MM.")
         await state.set_state(ScheduleEditStates.waiting_start_time)
-        await message.answer("✍️ Введите новое время начала в формате HH:MM.")
         return
 
     await state.set_state(ScheduleEditStates.menu)
-    await message.answer("✅ Интервал добавлен.")
     await _send_schedule_day_menu(message, specialist_id, weekday)
 
 
@@ -1577,7 +1638,7 @@ async def schedule_delete_menu(callback: CallbackQuery, state: FSMContext, speci
     kb_rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=f"schedule:day:{weekday}")])
     await state.update_data(schedule_weekday=weekday)
     await callback.answer()
-    await callback.message.answer(
+    await callback.message.edit_text(
         f"🗑️ {_weekday_label(weekday)}: выберите интервал для удаления.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
     )
@@ -1602,36 +1663,9 @@ async def schedule_delete_interval(callback: CallbackQuery, state: FSMContext, s
         return
 
     await callback.answer("Удалено")
-    await callback.message.answer("✅ Интервал удалён.")
     await _send_schedule_day_menu(callback.message, specialist_id, weekday)
 
 
 @router.callback_query(F.data == "schedule:noop")
 async def schedule_noop(callback: CallbackQuery) -> None:
     await callback.answer("Нет интервалов")
-
-
-@router.callback_query(F.data == "owner_panel:keep")
-async def owner_panel_keep(
-    callback: CallbackQuery,
-    state: FSMContext,
-    specialist_id,
-    public_name: str | None,
-    owner_tg_user_id: int | None,
-) -> None:
-    await state.clear()
-    log_event(
-        logger,
-        logging.INFO,
-        event="settings_no_change",
-        specialist_id=specialist_id,
-        tg_user_id=callback.from_user.id if callback.from_user else None,
-    )
-    await callback.answer("Отлично")
-    await callback.message.answer("👌 Оставили текущие настройки без изменений. Возвращаю в главное меню.")
-    await send_owner_panel(
-        message=callback.message,
-        specialist_id=specialist_id,
-        public_name=public_name,
-        owner_tg_user_id=owner_tg_user_id,
-    )

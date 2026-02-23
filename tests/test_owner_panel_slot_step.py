@@ -61,9 +61,24 @@ def test_validate_interval_pair_rejects_non_positive_interval() -> None:
 class DummyMessage:
     def __init__(self):
         self.answers = []
+        self.edits = []
+        self.chat = type("Chat", (), {"id": 1})()
+        self.message_id = 1
+
+        class _Bot:
+            def __init__(self, outer):
+                self.outer = outer
+
+            async def edit_message_text(self, *, chat_id, message_id, text, reply_markup=None):
+                self.outer.edits.append((text, {"chat_id": chat_id, "message_id": message_id, "reply_markup": reply_markup}))
+
+        self.bot = _Bot(self)
 
     async def answer(self, text, **kwargs):
         self.answers.append((text, kwargs))
+
+    async def edit_text(self, text, **kwargs):
+        self.edits.append((text, kwargs))
 
 
 class DummyCallback:
@@ -81,8 +96,8 @@ async def test_apply_defaults_requests_confirmation() -> None:
 
     await owner_panel.owner_panel_apply_defaults(callback=callback)
 
-    assert callback.message.answers[0][0] == "Вы уверены, что хотите сбросить настройки?"
-    keyboard = callback.message.answers[0][1]["reply_markup"]
+    assert callback.message.edits[0][0] == "Вы уверены, что хотите сбросить настройки?"
+    keyboard = callback.message.edits[0][1]["reply_markup"]
     callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
     assert callbacks == ["owner_panel:apply_defaults:confirm", "owner_panel:apply_defaults:cancel"]
 
@@ -122,13 +137,24 @@ async def test_apply_defaults_confirm_calls_reset_service_and_returns_to_owner_p
 
 
 @pytest.mark.asyncio
-async def test_apply_defaults_cancel_sends_cancel_message() -> None:
+async def test_apply_defaults_cancel_sends_cancel_message(monkeypatch) -> None:
     callback = DummyCallback()
+    captured = {"owner_panel": 0}
 
-    await owner_panel.owner_panel_apply_defaults_cancel(callback=callback)
+    async def fake_send_owner_panel(*args, **kwargs):
+        captured["owner_panel"] += 1
+
+    monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
+
+    await owner_panel.owner_panel_apply_defaults_cancel(
+        callback=callback,
+        specialist_id="sp-id",
+        owner_tg_user_id=123,
+        public_name="Dr. Test",
+    )
 
     assert callback.answers[0][0] == "Отменено"
-    assert callback.message.answers[0][0] == "Сброс настроек отменён."
+    assert captured["owner_panel"] == 1
 
 
 def test_format_intervals_for_ui_hides_null_intervals() -> None:
@@ -154,8 +180,8 @@ def test_owner_panel_keyboard_has_calendar_menu_button() -> None:
         profile=profile,
         rows=[],
         calendar_settings=None,
-        keep_button_text="👌 Оставить как есть",
-        keep_callback_data="owner_panel:keep",
+        keep_button_text="✅ Оставить как есть",
+        keep_callback_data="onboarding:keep",
         include_reset_button=True,
     )
     callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
@@ -287,50 +313,9 @@ async def test_limits_fsm_rejects_invalid_slot_step(monkeypatch) -> None:
         public_name="Dr. Test",
     )
 
-    assert "не может быть больше длительности" in message.answers[-1][0]
+    last_text = message.edits[-1][0] if message.edits else message.answers[-1][0]
+    assert "не может быть больше длительности" in last_text
     assert called == {"update": 0}
-
-
-@pytest.mark.asyncio
-async def test_owner_panel_keep_clears_fsm_logs_and_returns_to_menu(monkeypatch) -> None:
-    callback = DummyCallback()
-    state = DummyState()
-    state.current_state = owner_panel.ScheduleEditStates.waiting_start_time
-
-    captured = {"events": [], "owner_panel": 0}
-
-    def fake_log_event(_logger, _level, *, event, **fields):
-        captured["events"].append((event, fields))
-
-    async def fake_send_owner_panel(*args, **kwargs):
-        captured["owner_panel"] += 1
-
-    monkeypatch.setattr(owner_panel, "log_event", fake_log_event)
-    monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
-
-    callback.from_user = type("FromUser", (), {"id": 777})()
-
-    await owner_panel.owner_panel_keep(
-        callback=callback,
-        state=state,
-        specialist_id="sp-id",
-        public_name="Dr. Test",
-        owner_tg_user_id=123,
-    )
-
-    assert state.current_state is None
-    assert captured["owner_panel"] == 1
-    assert captured["events"] == [
-        (
-            "settings_no_change",
-            {
-                "specialist_id": "sp-id",
-                "tg_user_id": 777,
-            },
-        )
-    ]
-    assert callback.answers == [("Отлично", {})]
-    assert "Возвращаю в главное меню" in callback.message.answers[0][0]
 
 
 def test_timezone_keyboard_has_popular_and_manual_actions() -> None:
@@ -363,7 +348,8 @@ async def test_timezone_fsm_flow_manual_input_saves_and_confirms(monkeypatch) ->
 
     await owner_panel.owner_panel_change_timezone(callback=callback, state=state)
     assert state.current_state == owner_panel.TimezoneSettingsStates.waiting_manual_timezone
-    assert "Выберите часовой пояс" in callback.message.answers[-1][0]
+    last_timezone_prompt = callback.message.edits[-1][0] if callback.message.edits else callback.message.answers[-1][0]
+    assert "Выберите часовой пояс" in last_timezone_prompt
 
     message.text = "Europe/Berlin"
     await owner_panel.owner_panel_timezone_manual_input(
