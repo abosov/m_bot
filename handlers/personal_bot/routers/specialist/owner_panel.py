@@ -18,6 +18,7 @@ from database import (
     WeeklyAvailability,
     async_session_factory,
 )
+from handlers.personal_bot.routers.specialist.settings_view import build_specialist_settings_view
 from services.google_calendar import (
     create_and_cleanup_test_event,
     list_calendars,
@@ -102,20 +103,6 @@ def _validate_interval_pair(*, start: time | None, end: time | None) -> None:
     if start is not None and end is not None and start >= end:
         raise AvailabilityValidationError("Interval start must be earlier than end.")
 
-
-
-def _owner_panel_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📅 Изменить расписание", callback_data="owner_panel:change_schedule")],
-            [InlineKeyboardButton(text="⏱️ Изменить длительность и буфер", callback_data="owner_panel:change_duration_buffer")],
-            [InlineKeyboardButton(text="⚙️ Изменить лимиты (max/day, шаг слота)", callback_data="owner_panel:slot_params_menu")],
-            [InlineKeyboardButton(text="🗓️ Сменить календарь", callback_data="owner_panel:calendar_menu")],
-            [InlineKeyboardButton(text="🌍 Сменить часовой пояс специалиста", callback_data="owner_panel:change_timezone")],
-            [InlineKeyboardButton(text="👌 Оставить как есть", callback_data="owner_panel:keep")],
-            [InlineKeyboardButton(text="♻️ Сбросить на дефолты", callback_data="owner_panel:apply_defaults")],
-        ]
-    )
 
 
 def _slot_step_keyboard() -> InlineKeyboardMarkup:
@@ -565,25 +552,21 @@ async def send_owner_panel(
             "⚠️ Профиль не найден. Вернитесь в master-бот и завершите онбординг заново."
         )
         return
-
     display_name = public_name or profile.public_name or "специалист"
-    sample_day = next((row for row in rows if row.is_working), None)
-    intervals_text = _format_intervals_for_ui(sample_day)
-
+    text, keyboard = build_specialist_settings_view(
+        profile=profile,
+        rows=rows,
+        calendar_settings=calendar_settings,
+        keep_button_text="👌 Оставить как есть",
+        keep_callback_data="owner_panel:keep",
+        include_reset_button=True,
+    )
     text = (
         f"✅ Базовые настройки уже применены автоматически после онбординга, {display_name}.\n"
         "Хотите изменить их сейчас?\n\n"
-        f"• Часовой пояс специалиста (для расчётов): {(profile.specialist_timezone or DEFAULT_TIMEZONE)}\n"
-        f"• Рабочие дни: {_working_days(rows)}\n"
-        f"• Интервалы (утро/день/вечер): {intervals_text}\n"
-        f"• Длительность сессии: {(profile.session_duration_min or _DEFAULT_DURATION_MIN)} мин\n"
-        f"• Буфер между сессиями: {(profile.session_buffer_min if profile.session_buffer_min is not None else _DEFAULT_BUFFER_MIN)} мин\n"
-        f"• Шаг начала слотов: {(profile.slot_step_min or _DEFAULT_SLOT_STEP_MIN)} мин\n"
-        f"• Окно отмены: {(profile.cancel_window_hours or _DEFAULT_CANCEL_WINDOW_HOURS)} ч\n"
-        f"• Максимум сессий в день: {(profile.max_sessions_per_day or _DEFAULT_MAX_SESSIONS_PER_DAY)}\n\n"
-        f"{_calendar_info_text(calendar_settings)}"
+        + text
     )
-    await message.answer(text, reply_markup=_owner_panel_keyboard())
+    await message.answer(text, reply_markup=keyboard)
 
 
 async def _send_wizard_step_days(message: Message) -> None:

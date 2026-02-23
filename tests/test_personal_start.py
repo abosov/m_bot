@@ -47,11 +47,25 @@ async def test_personal_start_specialist_with_incomplete_onboarding_shows_defaul
     async def fake_load(_specialist_id):
         return specialist, profile
 
+    async def fake_load_rows(_specialist_id):
+        row = types.SimpleNamespace(
+            weekday=0,
+            is_working=True,
+            interval_1_start=None,
+            interval_1_end=None,
+            interval_2_start=None,
+            interval_2_end=None,
+            interval_3_start=None,
+            interval_3_end=None,
+        )
+        return profile, [row]
+
     async def fake_ensure(_specialist_id):
         return None
 
     monkeypatch.setattr(start_router, "_load_specialist_and_profile", fake_load)
     monkeypatch.setattr(start_router, "_ensure_defaults_exist", fake_ensure)
+    monkeypatch.setattr(start_router, "_load_profile_and_rows", fake_load_rows)
 
     await start_router.personal_start(
         message=message,
@@ -62,9 +76,9 @@ async def test_personal_start_specialist_with_incomplete_onboarding_shows_defaul
         owner_tg_user_id=None,
     )
 
-    assert any("Google Calendar:" in msg[0] for msg in message.answers)
-    assert any("• Календарь: не выбран" in msg[0] for msg in message.answers)
-    assert any("• Часовой пояс специалиста (для расчётов): UTC (совпадает с Google Calendar)" in msg[0] for msg in message.answers)
+    assert any("Календарь:" in msg[0] for msg in message.answers)
+    assert any("• Название: не выбран" in msg[0] for msg in message.answers)
+    assert any("Часовой пояс специалиста:" in msg[0] for msg in message.answers)
     assert not any("Доступно сейчас" in msg[0] for msg in message.answers)
 
 
@@ -331,23 +345,40 @@ async def test_render_onboarding_screen_has_expected_headings_and_no_ambiguous_t
     async def fake_load(_specialist_id):
         return specialist, profile
 
+    async def fake_load_rows(_specialist_id):
+        row = types.SimpleNamespace(
+            weekday=0,
+            is_working=True,
+            interval_1_start=None,
+            interval_1_end=None,
+            interval_2_start=None,
+            interval_2_end=None,
+            interval_3_start=None,
+            interval_3_end=None,
+        )
+        return profile, [row]
+
     monkeypatch.setattr(start_router, "_ensure_defaults_exist", fake_ensure)
     monkeypatch.setattr(start_router, "_load_specialist_and_profile", fake_load)
+    monkeypatch.setattr(start_router, "_load_profile_and_rows", fake_load_rows)
 
     await start_router._render_onboarding_screen(message=message, specialist_id="sp-id")
 
     assert len(message.answers) == 1
     text, kwargs = message.answers[0]
-    assert "Google Calendar:" in text
+    assert "Календарь:" in text
     assert "Параметры записи:" in text
     assert "Часовой пояс:" not in text
     assert "Часовой пояс календаря (Google):" in text
-    assert "Часовой пояс специалиста (для расчётов):" in text
+    assert "Часовой пояс специалиста:" in text
 
     callback_data = [button.callback_data for row in kwargs["reply_markup"].inline_keyboard for button in row]
     assert callback_data == [
-        "calendar:switch_stub",
-        "onboarding:change",
+        "owner_panel:change_schedule",
+        "owner_panel:change_duration_buffer",
+        "owner_panel:slot_params_menu",
+        "owner_panel:calendar_menu",
+        "owner_panel:change_timezone",
         "onboarding:keep",
         "onboarding:later",
     ]

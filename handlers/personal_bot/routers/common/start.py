@@ -8,8 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from config import SUPPORT_TG_URL
-from database import Client, ClientTimezoneSource, Specialist, SpecialistProfile, async_session_factory
+from database import Client, ClientTimezoneSource, Specialist, SpecialistProfile, WeeklyAvailability, async_session_factory
 from handlers.personal_bot.routers.specialist.owner_panel import send_owner_panel
+from handlers.personal_bot.routers.specialist.settings_view import build_specialist_settings_view
 from services.specialist_defaults import apply_specialist_defaults_if_missing
 from services.log_context import log_event
 
@@ -185,6 +186,19 @@ async def _load_specialist_and_profile(specialist_id):
     return specialist, profile
 
 
+async def _load_profile_and_rows(specialist_id):
+    async with async_session_factory() as session:
+        profile = await session.get(SpecialistProfile, specialist_id)
+        rows = (
+            await session.execute(
+                select(WeeklyAvailability)
+                .where(WeeklyAvailability.specialist_id == specialist_id)
+                .order_by(WeeklyAvailability.weekday.asc())
+            )
+        ).scalars().all()
+    return profile, rows
+
+
 async def _ensure_defaults_exist(specialist_id) -> None:
     async with async_session_factory() as session:
         await apply_specialist_defaults_if_missing(session, specialist_id)
@@ -210,43 +224,18 @@ async def _render_onboarding_screen(message: Message, specialist_id) -> None:
         return
 
     calendar_settings = getattr(specialist, "calendar_settings", None)
-    calendar_summary = "не выбран"
-    calendar_time_zone = "UTC"
-    smoke_status = "unknown"
-    if calendar_settings and getattr(calendar_settings, "calendar_id", None):
-        smoke_status = getattr(calendar_settings, "last_smoke_test_status", None)
-        if smoke_status not in {"ok", "failed"}:
-            smoke_status = "unknown"
-        calendar_summary = calendar_settings.calendar_summary or "не выбран"
-        calendar_time_zone = calendar_settings.calendar_time_zone or "UTC"
-
-    specialist_timezone = profile.specialist_timezone or "UTC"
-    if specialist_timezone == calendar_time_zone:
-        specialist_timezone_lines = [
-            f"• Часовой пояс специалиста (для расчётов): {specialist_timezone} (совпадает с Google Calendar)"
-        ]
-    else:
-        specialist_timezone_lines = [
-            f"• Часовой пояс специалиста (для расчётов): {specialist_timezone}",
-            "⚠️ Часовой пояс специалиста (для расчётов) отличается от часового пояса календаря (Google). Рекомендуем привести их к одному значению.",
-        ]
-
-    text = (
-        "🧩 Продолжим онбординг в персональном боте.\n\n"
-        "Google Calendar:\n"
-        f"• Календарь: {calendar_summary}\n"
-        f"• Часовой пояс календаря (Google): {calendar_time_zone}\n"
-        f"• Интеграция: {smoke_status}\n\n"
-        "Параметры записи:\n"
-        f"• Длительность сессии: {profile.session_duration_min} мин\n"
-        f"• Перерыв (буфер): {profile.session_buffer_min} мин\n"
-        f"• Шаг слотов: {profile.slot_step_min} мин\n"
-        f"• Макс. сессий в день: {profile.max_sessions_per_day}\n"
-        f"• Окно отмены: {profile.cancel_window_hours} ч\n\n"
-        f"{chr(10).join(specialist_timezone_lines)}\n\n"
-        "Подтвердите настройки или измените их перед завершением онбординга."
+    _, rows = await _load_profile_and_rows(specialist_id)
+    text, keyboard = build_specialist_settings_view(
+        profile=profile,
+        rows=rows,
+        calendar_settings=calendar_settings,
+        keep_button_text="✅ Оставить как есть",
+        keep_callback_data="onboarding:keep",
+        include_reset_button=False,
+        later_button=("⏳ Позже", "onboarding:later"),
     )
-    await message.answer(text, reply_markup=_onboarding_keyboard_with_calendar())
+    text = "🧩 Продолжим онбординг в персональном боте.\n\n" + text + "\n\nПодтвердите настройки или измените их перед завершением онбординга."
+    await message.answer(text, reply_markup=keyboard)
 
 
 @router.message(CommandStart())

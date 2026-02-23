@@ -149,9 +149,18 @@ def test_format_intervals_for_ui_hides_null_intervals() -> None:
 
 
 def test_owner_panel_keyboard_has_calendar_menu_button() -> None:
-    keyboard = owner_panel._owner_panel_keyboard()
+    profile = type("Profile", (), {"specialist_timezone": "UTC", "session_duration_min": 60, "session_buffer_min": 10, "slot_step_min": 15, "max_sessions_per_day": 4, "cancel_window_hours": 12})()
+    text, keyboard = owner_panel.build_specialist_settings_view(
+        profile=profile,
+        rows=[],
+        calendar_settings=None,
+        keep_button_text="👌 Оставить как есть",
+        keep_callback_data="owner_panel:keep",
+        include_reset_button=True,
+    )
     callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
     assert "owner_panel:calendar_menu" in callbacks
+    assert "Календарь:" in text
 
 
 @pytest.mark.asyncio
