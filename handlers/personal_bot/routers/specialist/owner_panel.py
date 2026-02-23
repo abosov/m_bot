@@ -3,6 +3,7 @@ import logging
 from typing import Sequence
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
@@ -31,6 +32,7 @@ from services.specialist_schedule import (
     update_specialist_timezone,
     reset_specialist_settings_to_default,
 )
+from services.weekly_availability import get_working_days, toggle_working_day
 from services.telegram.calendar_keyboard import format_calendar_button_text
 from services.log_context import log_event
 from services.specialist_defaults import (
@@ -1334,16 +1336,54 @@ async def owner_panel_timezone_manual_input(
         timezone_name=timezone_name,
     )
 
-def _schedule_weekday_keyboard() -> InlineKeyboardMarkup:
+def build_weekday_button_text(weekday: int, working_days: set[int]) -> str:
+    label = _WEEKDAY_LABELS.get(weekday, str(weekday))
+    if weekday in working_days:
+        return f"✅ {label}"
+    return label
+
+
+def _schedule_weekday_keyboard(working_days: set[int]) -> InlineKeyboardMarkup:
+    def _day_button(weekday: int) -> InlineKeyboardButton:
+        label = build_weekday_button_text(weekday, working_days)
+        return InlineKeyboardButton(text=label, callback_data=f"schedule:toggle_day:{weekday}")
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_day_button(0), _day_button(1)],
+            [_day_button(2), _day_button(3)],
+            [_day_button(4), _day_button(5)],
+            [_day_button(6)],
+            [InlineKeyboardButton(text="🕒 Интервалы дня", callback_data="schedule:intervals_pick_day")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="schedule:back_owner")],
+        ]
+    )
+
+
+def _schedule_intervals_pick_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Пн", callback_data="schedule:day:0"), InlineKeyboardButton(text="Вт", callback_data="schedule:day:1")],
             [InlineKeyboardButton(text="Ср", callback_data="schedule:day:2"), InlineKeyboardButton(text="Чт", callback_data="schedule:day:3")],
             [InlineKeyboardButton(text="Пт", callback_data="schedule:day:4"), InlineKeyboardButton(text="Сб", callback_data="schedule:day:5")],
             [InlineKeyboardButton(text="Вс", callback_data="schedule:day:6")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="schedule:back_owner")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="schedule:pick_day")],
         ]
     )
+
+
+
+
+async def _edit_or_send_schedule_picker(
+    callback: CallbackQuery,
+    *,
+    text: str,
+    reply_markup: InlineKeyboardMarkup,
+) -> Message:
+    try:
+        return await callback.message.edit_text(text, reply_markup=reply_markup)
+    except TelegramBadRequest:
+        return await callback.message.answer(text, reply_markup=reply_markup)
 
 
 def _schedule_menu_keyboard(weekday: int, intervals: list[dict[str, str]]) -> InlineKeyboardMarkup:
@@ -1377,20 +1417,56 @@ async def _send_schedule_day_menu(message: Message, specialist_id, weekday: int)
 
 
 @router.callback_query(F.data == "owner_panel:change_schedule")
-async def owner_panel_change_schedule(callback: CallbackQuery, state: FSMContext) -> None:
+async def owner_panel_change_schedule(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
     await state.set_state(ScheduleEditStates.choosing_weekday)
     await callback.answer()
-    await callback.message.answer(
-        "📅 Настройка расписания\n\nВыберите день недели:",
-        reply_markup=_schedule_weekday_keyboard(),
+    await _edit_or_send_schedule_picker(
+        callback,
+        text="📅 Настройка расписания\n\nВыберите день недели:",
+        reply_markup=_schedule_weekday_keyboard(await get_working_days(specialist_id)),
     )
 
 
 @router.callback_query(F.data == "schedule:pick_day")
-async def schedule_pick_day(callback: CallbackQuery, state: FSMContext) -> None:
+async def schedule_pick_day(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
+    await state.set_state(ScheduleEditStates.choosing_weekday)
+    working_days = await get_working_days(specialist_id)
+    await callback.answer()
+    await _edit_or_send_schedule_picker(
+        callback,
+        text="📅 Настройка расписания\n\nВыберите день недели:",
+        reply_markup=_schedule_weekday_keyboard(working_days),
+    )
+
+
+@router.callback_query(F.data == "schedule:intervals_pick_day")
+async def schedule_intervals_pick_day(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(ScheduleEditStates.choosing_weekday)
     await callback.answer()
-    await callback.message.answer("📅 Выберите день недели:", reply_markup=_schedule_weekday_keyboard())
+    await _edit_or_send_schedule_picker(
+        callback,
+        text="📅 Выберите день недели для настройки интервалов:",
+        reply_markup=_schedule_intervals_pick_keyboard(),
+    )
+
+
+@router.callback_query(F.data.startswith("schedule:toggle_day:"))
+async def schedule_toggle_day(callback: CallbackQuery, specialist_id) -> None:
+    try:
+        weekday = int((callback.data or "").split(":")[-1])
+    except ValueError:
+        await callback.answer("Некорректный день", show_alert=True)
+        return
+
+    working_days = await toggle_working_day(specialist_id, weekday)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=_schedule_weekday_keyboard(working_days))
+    except TelegramBadRequest:
+        await callback.message.answer(
+            "📅 Настройка расписания\n\nВыберите день недели:",
+            reply_markup=_schedule_weekday_keyboard(working_days),
+        )
+    await callback.answer()
 
 
 @router.callback_query(F.data == "schedule:back_owner")
@@ -1576,4 +1652,3 @@ async def owner_panel_keep(
         public_name=public_name,
         owner_tg_user_id=owner_tg_user_id,
     )
-
