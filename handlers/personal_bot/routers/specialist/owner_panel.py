@@ -182,7 +182,7 @@ async def _save_specialist_timezone(
     timezone_name: str,
 ) -> None:
     try:
-        updated = await update_specialist_timezone(specialist_id, timezone_name)
+        await update_specialist_timezone(specialist_id, timezone_name)
     except SpecialistScheduleValidationError as exc:
         await message.answer(
             f"⚠️ Не удалось сохранить timezone: {exc}.\n"
@@ -626,6 +626,60 @@ async def send_owner_panel(
     await message.answer(text, reply_markup=keyboard)
 
 
+async def _render_owner_panel_inplace(
+    message: Message,
+    specialist_id,
+    public_name: str | None,
+    owner_tg_user_id: int | None = None,
+) -> None:
+    if specialist_id is None:
+        logger.error("_render_owner_panel_inplace called without specialist_id")
+        await message.edit_text(
+            "⚠️ Профиль специалиста не найден. Вернитесь в master-бот и завершите онбординг заново."
+        )
+        return
+
+    if owner_tg_user_id is None:
+        logger.error("_render_owner_panel_inplace called without owner_tg_user_id for specialist_id=%s", specialist_id)
+        await message.edit_text(
+            "⚠️ Не удалось определить Telegram-профиль владельца бота. "
+            "Вернитесь в master-бот и завершите онбординг заново."
+        )
+        return
+
+    await _ensure_owner_panel_defaults(
+        specialist_id=specialist_id,
+        owner_tg_user_id=owner_tg_user_id,
+        public_name=public_name,
+    )
+
+    profile, rows = await _load_profile_and_rows(specialist_id)
+    calendar_settings = await _load_calendar_settings(specialist_id)
+    if profile is None:
+        logger.error("_render_owner_panel_inplace: SpecialistProfile not found for specialist_id=%s", specialist_id)
+        await message.edit_text(
+            "⚠️ Профиль не найден. Вернитесь в master-бот и завершите онбординг заново."
+        )
+        return
+
+    display_name = public_name or profile.public_name or "специалист"
+    text, keyboard = build_specialist_settings_view(
+        profile=profile,
+        rows=rows,
+        calendar_settings=calendar_settings,
+        keep_button_text=None,
+        keep_callback_data=None,
+        include_reset_button=True,
+    )
+    text = (
+        f"✅ Базовые настройки уже применены автоматически после онбординга, {display_name}.\n"
+        "Хотите изменить их сейчас?\n\n"
+        + text
+    )
+    # IMPORTANT: Settings menu must always re-render via edit_message to avoid message stacking
+    await message.edit_text(text, reply_markup=keyboard)
+
+
 async def _send_wizard_step_days(message: Message) -> None:
     await message.answer(
         "Шаг 1/4 — рабочие дни.\n"
@@ -877,7 +931,7 @@ async def owner_wizard_limits_keep(
     )
     await callback.answer("Готово")
     await callback.message.answer("✅ Мастер завершён. Базовые настройки сохранены.")
-    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
+    await _render_owner_panel_inplace(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
 
 
 @router.callback_query(F.data == "owner_wizard:limits:change")
@@ -915,7 +969,7 @@ async def owner_wizard_limits_set(
     )
     await callback.answer("Готово")
     await callback.message.answer("✅ Мастер завершён. Базовые настройки сохранены.")
-    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
+    await _render_owner_panel_inplace(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
 
 
 @router.callback_query(F.data == "owner_panel:apply_defaults")
@@ -937,7 +991,7 @@ async def owner_panel_apply_defaults_confirm(
     await reset_specialist_settings_to_default(specialist_id)
 
     await callback.answer("Готово")
-    await send_owner_panel(
+    await _render_owner_panel_inplace(
         callback.message,
         specialist_id=specialist_id,
         public_name=public_name,
@@ -953,7 +1007,7 @@ async def owner_panel_apply_defaults_cancel(
     public_name: str | None,
 ) -> None:
     await callback.answer("Отменено")
-    await send_owner_panel(
+    await _render_owner_panel_inplace(
         callback.message,
         specialist_id=specialist_id,
         public_name=public_name,
@@ -994,7 +1048,7 @@ async def owner_calendar_back(
     public_name: str | None,
 ) -> None:
     await callback.answer()
-    await send_owner_panel(
+    await _render_owner_panel_inplace(
         callback.message,
         specialist_id=specialist_id,
         public_name=public_name,
@@ -1010,11 +1064,9 @@ async def owner_calendar_create(
     public_name: str | None,
 ) -> None:
     await callback.answer()
-    await callback.message.answer(
+    await callback.message.edit_text(
         "ℹ️ Сейчас Zumbot подключается только к уже существующему календарю Google.\n"
-        "Если нужен отдельный календарь — создайте его вручную в Google Calendar, затем выберите в боте."
-    )
-    await callback.message.answer(
+        "Если нужен отдельный календарь — создайте его вручную в Google Calendar, затем выберите в боте.\n\n"
         "Выберите действие с календарём:",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
@@ -1116,7 +1168,7 @@ async def owner_calendar_pick(
         await callback.answer("⚠️ Календарь сохранён, но интеграция не завершена.")
 
     _CALENDAR_SELECTION_CACHE.pop(callback.from_user.id, None)
-    await send_owner_panel(
+    await _render_owner_panel_inplace(
         callback.message,
         specialist_id=specialist_id,
         public_name=public_name,
@@ -1165,7 +1217,7 @@ async def owner_calendar_smoke(
         )
         await callback.answer("❌ Интеграция не завершена.")
 
-    await send_owner_panel(
+    await _render_owner_panel_inplace(
         callback.message,
         specialist_id=specialist_id,
         public_name=public_name,
@@ -1387,7 +1439,7 @@ async def owner_panel_timezone_back(
 ) -> None:
     await state.clear()
     await callback.answer()
-    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
+    await _render_owner_panel_inplace(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
 
 
 @router.callback_query(F.data.startswith("owner_tz:set:"))
@@ -1430,7 +1482,7 @@ async def owner_panel_timezone_set(
         return
 
     try:
-        updated = await update_specialist_timezone(specialist_id, timezone_name)
+        await update_specialist_timezone(specialist_id, timezone_name)
     except SpecialistScheduleValidationError as exc:
         data = await state.get_data()
         page = data.get(_OWNER_TZ_PAGE_KEY, 1)
@@ -1454,14 +1506,9 @@ async def owner_panel_timezone_set(
         )
         return
 
-    await callback.answer()
+    await callback.answer("✅ Часовой пояс специалиста сохранён")
     await state.clear()
-    await callback.message.answer(
-        "✅ Часовой пояс специалиста сохранён\n"
-        f"• Timezone: {updated['specialist_timezone']}\n\n"
-        "ℹ️ Уже созданные события Google Calendar не изменяются.",
-    )
-    await send_owner_panel(
+    await _render_owner_panel_inplace(
         callback.message,
         specialist_id=specialist_id,
         public_name=public_name,
@@ -1608,13 +1655,10 @@ async def schedule_toggle_day(callback: CallbackQuery, specialist_id) -> None:
         return
 
     working_days = await toggle_working_day(specialist_id, weekday)
-    try:
-        await callback.message.edit_reply_markup(reply_markup=_schedule_weekday_keyboard(working_days))
-    except TelegramBadRequest:
-        await callback.message.answer(
-            "📅 Настройка расписания\n\nВыберите день недели:",
-            reply_markup=_schedule_weekday_keyboard(working_days),
-        )
+    await callback.message.edit_text(
+        "📅 Настройка расписания\n\nВыберите день недели:",
+        reply_markup=_schedule_weekday_keyboard(working_days),
+    )
     await callback.answer()
 
 
@@ -1622,7 +1666,7 @@ async def schedule_toggle_day(callback: CallbackQuery, specialist_id) -> None:
 async def schedule_back_owner(callback: CallbackQuery, state: FSMContext, specialist_id, owner_tg_user_id: int | None, public_name: str | None) -> None:
     await state.clear()
     await callback.answer()
-    await send_owner_panel(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
+    await _render_owner_panel_inplace(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
 
 
 @router.callback_query(F.data.startswith("schedule:day:"))
