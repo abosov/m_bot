@@ -1,4 +1,5 @@
 from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
 from typing import Sequence
 
@@ -18,6 +19,7 @@ from database import (
     WeeklyAvailability,
     async_session_factory,
 )
+from handlers.personal_bot.ui.timezones import MAX_TZ_PAGE, build_timezone_keyboard
 from handlers.personal_bot.routers.specialist.settings_view import build_specialist_settings_view
 from services.google_calendar import (
     create_and_cleanup_test_event,
@@ -94,11 +96,13 @@ class LimitsSettingsStates(StatesGroup):
 
 
 class TimezoneSettingsStates(StatesGroup):
+    waiting_for_timezone = State()
     waiting_manual_timezone = State()
 
 
 _NAV_CHAT_ID_KEY = "owner_panel_nav_chat_id"
 _NAV_MESSAGE_ID_KEY = "owner_panel_nav_message_id"
+_OWNER_TZ_PAGE_KEY = "owner_panel_tz_page"
 
 
 def _validate_interval_pair(*, start: time | None, end: time | None) -> None:
@@ -1313,16 +1317,57 @@ async def owner_panel_receive_session_buffer(
 
 @router.callback_query(F.data == "owner_panel:change_timezone")
 async def owner_panel_change_timezone(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(TimezoneSettingsStates.waiting_manual_timezone)
+    if callback.message is None:
+        await callback.answer()
+        return
+
+    await state.set_state(TimezoneSettingsStates.waiting_for_timezone)
+    await state.update_data(**{_OWNER_TZ_PAGE_KEY: 1})
     await _remember_nav_message(state, callback.message)
     await callback.answer()
-    await callback.message.edit_text(
-        "🌍 Выберите часовой пояс специалиста из популярных или введите вручную в формате Region/City "
-        "(например, Europe/Berlin).\n\n"
-        "ℹ️ Смена timezone не изменяет уже созданные события Google Calendar.",
-        reply_markup=_timezone_keyboard(),
+    await _edit_nav_message_from_state(
+        callback.message,
+        state,
+        text=(
+            "🌍 Выберите часовой пояс специалиста из популярных или введите вручную в формате Region/City "
+            "(например, Europe/Berlin).\n\n"
+            "ℹ️ Смена timezone не изменяет уже созданные события Google Calendar.\n"
+            "Страница: 1/3"
+        ),
+        reply_markup=build_timezone_keyboard(1, "owner_tz", include_cancel=False),
     )
 
+
+
+
+@router.callback_query(F.data.startswith("owner_tz:page:"))
+async def owner_panel_timezone_page(callback: CallbackQuery, state: FSMContext) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+
+    raw_page = (callback.data or "").removeprefix("owner_tz:page:")
+    try:
+        page = int(raw_page)
+    except ValueError:
+        page = 1
+
+    page = max(1, min(page, MAX_TZ_PAGE))
+    await state.set_state(TimezoneSettingsStates.waiting_for_timezone)
+    await state.update_data(**{_OWNER_TZ_PAGE_KEY: page})
+    await _remember_nav_message(state, callback.message)
+    await callback.answer()
+    await _edit_nav_message_from_state(
+        callback.message,
+        state,
+        text=(
+            "🌍 Выберите часовой пояс специалиста из популярных или введите вручную в формате Region/City "
+            "(например, Europe/Berlin).\n\n"
+            "ℹ️ Смена timezone не изменяет уже созданные события Google Calendar.\n"
+            f"Страница: {page}/{MAX_TZ_PAGE}"
+        ),
+        reply_markup=build_timezone_keyboard(page, "owner_tz", include_cancel=False),
+    )
 
 @router.callback_query(F.data == "owner_tz:manual")
 async def owner_panel_timezone_manual(callback: CallbackQuery, state: FSMContext) -> None:
@@ -1353,15 +1398,74 @@ async def owner_panel_timezone_set(
     owner_tg_user_id: int | None,
     public_name: str | None,
 ) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+
     timezone_name = (callback.data or "").split("owner_tz:set:", 1)[-1].strip()
+
+    try:
+        ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        data = await state.get_data()
+        page = data.get(_OWNER_TZ_PAGE_KEY, 1)
+        if not isinstance(page, int):
+            page = 1
+        page = max(1, min(page, MAX_TZ_PAGE))
+        await state.set_state(TimezoneSettingsStates.waiting_for_timezone)
+        await state.update_data(**{_OWNER_TZ_PAGE_KEY: page})
+        await _remember_nav_message(state, callback.message)
+        await callback.answer()
+        await _edit_nav_message_from_state(
+            callback.message,
+            state,
+            text=(
+                f"⚠️ Не удалось сохранить timezone: timezone does not exist: {timezone_name}.\n"
+                "Выберите timezone из списка.\n\n"
+                "ℹ️ Смена timezone не изменяет уже созданные события Google Calendar.\n"
+                f"Страница: {page}/{MAX_TZ_PAGE}"
+            ),
+            reply_markup=build_timezone_keyboard(page, "owner_tz", include_cancel=False),
+        )
+        return
+
+    try:
+        updated = await update_specialist_timezone(specialist_id, timezone_name)
+    except SpecialistScheduleValidationError as exc:
+        data = await state.get_data()
+        page = data.get(_OWNER_TZ_PAGE_KEY, 1)
+        if not isinstance(page, int):
+            page = 1
+        page = max(1, min(page, MAX_TZ_PAGE))
+        await state.set_state(TimezoneSettingsStates.waiting_for_timezone)
+        await state.update_data(**{_OWNER_TZ_PAGE_KEY: page})
+        await _remember_nav_message(state, callback.message)
+        await callback.answer()
+        await _edit_nav_message_from_state(
+            callback.message,
+            state,
+            text=(
+                f"⚠️ Не удалось сохранить timezone: {exc}.\n"
+                "Выберите timezone из списка.\n\n"
+                "ℹ️ Смена timezone не изменяет уже созданные события Google Calendar.\n"
+                f"Страница: {page}/{MAX_TZ_PAGE}"
+            ),
+            reply_markup=build_timezone_keyboard(page, "owner_tz", include_cancel=False),
+        )
+        return
+
     await callback.answer()
-    await _save_specialist_timezone(
-        message=callback.message,
-        state=state,
+    await state.clear()
+    await callback.message.answer(
+        "✅ Часовой пояс специалиста сохранён\n"
+        f"• Timezone: {updated['specialist_timezone']}\n\n"
+        "ℹ️ Уже созданные события Google Calendar не изменяются.",
+    )
+    await send_owner_panel(
+        callback.message,
         specialist_id=specialist_id,
-        owner_tg_user_id=owner_tg_user_id,
         public_name=public_name,
-        timezone_name=timezone_name,
+        owner_tg_user_id=owner_tg_user_id,
     )
 
 
