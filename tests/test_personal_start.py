@@ -374,11 +374,11 @@ async def test_render_onboarding_screen_has_expected_headings_and_no_ambiguous_t
 
     callback_data = [button.callback_data for row in kwargs["reply_markup"].inline_keyboard for button in row]
     assert callback_data == [
-        "owner_panel:change_schedule",
+        "owner_panel:calendar_menu",
         "owner_panel:change_duration_buffer",
         "owner_panel:slot_params_menu",
-        "owner_panel:calendar_menu",
         "owner_panel:change_timezone",
+        "owner_panel:change_schedule",
         "onboarding:keep",
         "onboarding:later",
     ]

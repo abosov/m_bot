@@ -81,11 +81,11 @@ def build_specialist_settings_view(
     )
 
     keyboard_rows = [
-        [InlineKeyboardButton(text="📅 Изменить расписание и интервалы", callback_data="owner_panel:change_schedule")],
+        [InlineKeyboardButton(text="📅 Сменить календарь", callback_data="owner_panel:calendar_menu")],
         [InlineKeyboardButton(text="⏱️ Изменить длительность и буфер", callback_data="owner_panel:change_duration_buffer")],
         [InlineKeyboardButton(text="⚙️ Изменить лимиты (max/day, шаг слота)", callback_data="owner_panel:slot_params_menu")],
-        [InlineKeyboardButton(text="🗓️ Сменить календарь", callback_data="owner_panel:calendar_menu")],
         [InlineKeyboardButton(text="🌍 Сменить часовой пояс специалиста", callback_data="owner_panel:change_timezone")],
+        [InlineKeyboardButton(text="📅 Изменить расписание и интервалы", callback_data="owner_panel:change_schedule")],
     ]
     if keep_button_text is not None and keep_callback_data is not None:
         keyboard_rows.append([InlineKeyboardButton(text=keep_button_text, callback_data=keep_callback_data)])

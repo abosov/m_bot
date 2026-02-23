@@ -43,13 +43,22 @@ def test_build_specialist_settings_view_has_unified_block_order() -> None:
     assert text.index("Параметры записи:") < text.index("Часовой пояс специалиста:")
     assert text.index("Часовой пояс специалиста:") < text.index("Расписание:")
 
+    button_texts = [button.text for row in keyboard.inline_keyboard for button in row]
+    assert button_texts[:5] == [
+        "📅 Сменить календарь",
+        "⏱️ Изменить длительность и буфер",
+        "⚙️ Изменить лимиты (max/day, шаг слота)",
+        "🌍 Сменить часовой пояс специалиста",
+        "📅 Изменить расписание и интервалы",
+    ]
+
     callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
     assert callbacks == [
-        "owner_panel:change_schedule",
+        "owner_panel:calendar_menu",
         "owner_panel:change_duration_buffer",
         "owner_panel:slot_params_menu",
-        "owner_panel:calendar_menu",
         "owner_panel:change_timezone",
+        "owner_panel:change_schedule",
         "onboarding:keep",
         "onboarding:later",
     ]
