@@ -7,7 +7,7 @@ import pytest
 
 from database import OutboxEvent
 from handlers.personal_bot.routers.client import commands as client_commands
-from handlers.personal_bot.routers.client.commands import CLIENT_TZ_PAGES, _client_tz_keyboard
+from handlers.personal_bot.ui.timezones import TZ_PAGES, build_timezone_keyboard
 
 
 class DummyMessage:
@@ -99,7 +99,7 @@ def _mock_client_tz_session_factory(*, timezone_name: str | None):
 
 
 def test_client_tz_keyboard_page_1_contains_berlin_and_more():
-    markup = _client_tz_keyboard(1)
+    markup = build_timezone_keyboard(1, "client_tz", include_manual=False)
 
     texts = [button.text for row in markup.inline_keyboard for button in row]
     assert "UTC+1 — Берлин" in texts
@@ -108,7 +108,7 @@ def test_client_tz_keyboard_page_1_contains_berlin_and_more():
 
 
 def test_client_tz_keyboard_page_3_has_no_more_button():
-    markup = _client_tz_keyboard(3)
+    markup = build_timezone_keyboard(3, "client_tz", include_manual=False)
 
     texts = [button.text for row in markup.inline_keyboard for button in row]
     assert "еще" not in texts
@@ -116,10 +116,10 @@ def test_client_tz_keyboard_page_3_has_no_more_button():
 
 
 def test_client_tz_pages_mapping_is_valid_shape():
-    assert set(CLIENT_TZ_PAGES.keys()) == {1, 2, 3}
-    assert len(CLIENT_TZ_PAGES[1]) == 8
-    assert len(CLIENT_TZ_PAGES[2]) == 8
-    assert len(CLIENT_TZ_PAGES[3]) == 11
+    assert set(TZ_PAGES.keys()) == {1, 2, 3}
+    assert len(TZ_PAGES[1]) == 8
+    assert len(TZ_PAGES[2]) == 8
+    assert len(TZ_PAGES[3]) == 11
 
 
 @pytest.mark.asyncio

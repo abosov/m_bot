@@ -16,6 +16,8 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from handlers.personal_bot.ui.timezones import MAX_TZ_PAGE, build_timezone_keyboard
 from sqlalchemy import func, select
 
 from database import (
@@ -54,42 +56,6 @@ class ClientBookingState(StatesGroup):
 class ClientTimezoneState(StatesGroup):
     waiting_for_timezone = State()
 
-
-CLIENT_TZ_PAGES: dict[int, list[tuple[str, str]]] = {
-    1: [
-        ("UTC−1 — Понта-Делгада", "Atlantic/Azores"),
-        ("UTC-0 — Лондон", "Europe/London"),
-        ("UTC+1 — Берлин", "Europe/Berlin"),
-        ("UTC+2 — Афины", "Europe/Athens"),
-        ("UTC+3 — Москва", "Europe/Moscow"),
-        ("UTC+4 — Дубай", "Asia/Dubai"),
-        ("UTC+5 — Ташкент", "Asia/Tashkent"),
-        ("UTC+6 — Алматы", "Asia/Almaty"),
-    ],
-    2: [
-        ("UTC+7 — Бангкок", "Asia/Bangkok"),
-        ("UTC+8 — Пекин", "Asia/Shanghai"),
-        ("UTC+9 — Токио", "Asia/Tokyo"),
-        ("UTC+10 — Сидней", "Australia/Sydney"),
-        ("UTC+11 — Нумеа", "Pacific/Noumea"),
-        ("UTC+12 — Окленд", "Pacific/Auckland"),
-        ("UTC+13 — Апиа", "Pacific/Apia"),
-        ("UTC+14 — Киритимати", "Pacific/Kiritimati"),
-    ],
-    3: [
-        ("UTC−12 — Бейкер-Айленд", "Etc/GMT+12"),
-        ("UTC−11 — Паго-Паго", "Pacific/Pago_Pago"),
-        ("UTC−10 — Гонолулу", "Pacific/Honolulu"),
-        ("UTC−9 — Анкоридж", "America/Anchorage"),
-        ("UTC−8 — Лос-Анджелес", "America/Los_Angeles"),
-        ("UTC−7 — Денвер", "America/Denver"),
-        ("UTC−6 — Чикаго", "America/Chicago"),
-        ("UTC−5 — Нью-Йорк", "America/New_York"),
-        ("UTC−4 — Каракас", "America/Caracas"),
-        ("UTC−3 — Буэнос-Айрес", "America/Argentina/Buenos_Aires"),
-        ("UTC−2 — Южная Георгия", "Atlantic/South_Georgia"),
-    ],
-}
 
 
 _INTERVAL_META = (
@@ -366,25 +332,6 @@ def _format_interval_title_for_client_tz(
     end_dt_cl = end_dt_sp.astimezone(client_tz)
 
     return f"{base_title} ({start_dt_cl:%H:%M}–{end_dt_cl:%H:%M})"
-
-
-def _client_tz_max_page() -> int:
-    return max(CLIENT_TZ_PAGES.keys())
-
-
-def _client_tz_keyboard(page: int) -> InlineKeyboardMarkup:
-    max_page = _client_tz_max_page()
-    page = max(1, min(page, max_page))
-
-    builder = InlineKeyboardBuilder()
-    for button_text, iana_tz in CLIENT_TZ_PAGES[page]:
-        builder.button(text=button_text, callback_data=f"client_tz:set:{iana_tz}")
-    builder.adjust(2)
-
-    if page < max_page:
-        builder.row(InlineKeyboardButton(text="еще", callback_data=f"client_tz:page:{page + 1}"))
-    builder.row(InlineKeyboardButton(text="Отмена", callback_data="client_tz:cancel"))
-    return builder.as_markup()
 
 
 def _build_interval_options(row: WeeklyAvailability | None) -> list[tuple[str, str, time, time]]:
@@ -1372,7 +1319,7 @@ async def client_change_timezone_button(
         f"Текущий часовой пояс: {current_tz}\n"
         "Выберите из списка или отправьте вручную (пример: Europe/Berlin).\n"
         "Страница: 1/3",
-        reply_markup=_client_tz_keyboard(1),
+        reply_markup=build_timezone_keyboard(1, "client_tz", include_manual=False),
     )
 
 
@@ -1388,7 +1335,7 @@ async def client_tz_page_callback(callback: CallbackQuery, state: FSMContext, ac
     except ValueError:
         page = 1
 
-    max_page = _client_tz_max_page()
+    max_page = MAX_TZ_PAGE
     page = max(1, min(page, max_page))
 
     await state.set_state(ClientTimezoneState.waiting_for_timezone)
@@ -1400,9 +1347,9 @@ async def client_tz_page_callback(callback: CallbackQuery, state: FSMContext, ac
 
     if callback.message is not None:
         try:
-            await callback.message.edit_text(text, reply_markup=_client_tz_keyboard(page))
+            await callback.message.edit_text(text, reply_markup=build_timezone_keyboard(page, "client_tz", include_manual=False))
         except Exception:
-            await callback.message.answer(text, reply_markup=_client_tz_keyboard(page))
+            await callback.message.answer(text, reply_markup=build_timezone_keyboard(page, "client_tz", include_manual=False))
 
     await callback.answer()
 

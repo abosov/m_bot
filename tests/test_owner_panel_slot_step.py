@@ -347,9 +347,15 @@ async def test_timezone_fsm_flow_manual_input_saves_and_confirms(monkeypatch) ->
     monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
 
     await owner_panel.owner_panel_change_timezone(callback=callback, state=state)
-    assert state.current_state == owner_panel.TimezoneSettingsStates.waiting_manual_timezone
+    assert state.current_state == owner_panel.TimezoneSettingsStates.waiting_for_timezone
     last_timezone_prompt = callback.message.edits[-1][0] if callback.message.edits else callback.message.answers[-1][0]
     assert "Выберите часовой пояс" in last_timezone_prompt
+    assert "Страница: 1/3" in last_timezone_prompt
+
+    keyboard = callback.message.edits[-1][1]["reply_markup"]
+    callbacks = {button.callback_data for row in keyboard.inline_keyboard for button in row}
+    assert "owner_tz:manual" in callbacks
+    assert "owner_tz:page:2" in callbacks
 
     message.text = "Europe/Berlin"
     await owner_panel.owner_panel_timezone_manual_input(
@@ -363,6 +369,128 @@ async def test_timezone_fsm_flow_manual_input_saves_and_confirms(monkeypatch) ->
     assert state.current_state is None
     assert "✅ Часовой пояс специалиста сохранён" in message.answers[-1][0]
     assert captured == {"owner_panel": 1}
+
+
+@pytest.mark.asyncio
+async def test_timezone_manual_callback_switches_state_and_prompts_input() -> None:
+    state = DummyState()
+    callback = DummyCallback()
+    callback.data = "owner_tz:manual"
+
+    await owner_panel.owner_panel_timezone_manual(callback=callback, state=state)
+
+    assert state.current_state == owner_panel.TimezoneSettingsStates.waiting_manual_timezone
+    last_text = callback.message.edits[-1][0] if callback.message.edits else callback.message.answers[-1][0]
+    assert "Введите timezone вручную" in last_text
+    assert "Europe/Berlin" in last_text
+
+
+@pytest.mark.asyncio
+async def test_timezone_page_callback_renders_requested_page_and_keeps_state() -> None:
+    state = DummyState()
+    callback = DummyCallback()
+    callback.data = "owner_tz:page:2"
+
+    await owner_panel.owner_panel_timezone_page(callback=callback, state=state)
+
+    assert state.current_state == owner_panel.TimezoneSettingsStates.waiting_for_timezone
+    last_text = callback.message.edits[-1][0] if callback.message.edits else callback.message.answers[-1][0]
+    assert "Страница: 2/3" in last_text
+
+    keyboard = callback.message.edits[-1][1]["reply_markup"]
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+    assert "owner_tz:page:3" in callbacks
+
+
+@pytest.mark.asyncio
+async def test_timezone_page_callback_clamps_invalid_page_to_bounds() -> None:
+    state = DummyState()
+    callback = DummyCallback()
+    callback.data = "owner_tz:page:999"
+
+    await owner_panel.owner_panel_timezone_page(callback=callback, state=state)
+
+    assert state.current_state == owner_panel.TimezoneSettingsStates.waiting_for_timezone
+    last_text = callback.message.edits[-1][0] if callback.message.edits else callback.message.answers[-1][0]
+    assert "Страница: 3/3" in last_text
+
+
+@pytest.mark.asyncio
+async def test_timezone_set_callback_saves_and_returns_to_owner_panel(monkeypatch) -> None:
+    state = DummyState()
+    callback = DummyCallback()
+    callback.data = "owner_tz:set:Europe/Berlin"
+
+    async def fake_update_specialist_timezone(_specialist_id, timezone_name):
+        assert _specialist_id == "sp-id"
+        assert timezone_name == "Europe/Berlin"
+        return {"specialist_timezone": timezone_name}
+
+    captured = {"owner_panel": 0}
+
+    async def fake_send_owner_panel(*args, **kwargs):
+        captured["owner_panel"] += 1
+
+    monkeypatch.setattr(owner_panel, "update_specialist_timezone", fake_update_specialist_timezone)
+    monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
+
+    await owner_panel.owner_panel_timezone_set(
+        callback=callback,
+        state=state,
+        specialist_id="sp-id",
+        owner_tg_user_id=123,
+        public_name="Dr. Test",
+    )
+
+    assert state.current_state is None
+    assert "✅ Часовой пояс специалиста сохранён" in callback.message.answers[-1][0]
+    assert captured == {"owner_panel": 1}
+
+
+@pytest.mark.asyncio
+async def test_timezone_set_callback_invalid_iana_keeps_state_and_picker() -> None:
+    state = DummyState()
+    callback = DummyCallback()
+    callback.data = "owner_tz:set:Mars/Olympus"
+    state.data = {"owner_panel_tz_page": 2}
+
+    await owner_panel.owner_panel_timezone_set(
+        callback=callback,
+        state=state,
+        specialist_id="sp-id",
+        owner_tg_user_id=123,
+        public_name="Dr. Test",
+    )
+
+    assert state.current_state == owner_panel.TimezoneSettingsStates.waiting_for_timezone
+    last_text = callback.message.edits[-1][0] if callback.message.edits else callback.message.answers[-1][0]
+    assert "Не удалось сохранить timezone" in last_text
+    assert "Страница: 2/3" in last_text
+
+
+@pytest.mark.asyncio
+async def test_timezone_set_callback_save_error_keeps_state_and_picker(monkeypatch) -> None:
+    state = DummyState()
+    callback = DummyCallback()
+    callback.data = "owner_tz:set:Europe/Berlin"
+
+    async def fake_update_specialist_timezone(_specialist_id, timezone_name):
+        raise owner_panel.SpecialistScheduleValidationError(f"timezone does not exist: {timezone_name}")
+
+    monkeypatch.setattr(owner_panel, "update_specialist_timezone", fake_update_specialist_timezone)
+
+    await owner_panel.owner_panel_timezone_set(
+        callback=callback,
+        state=state,
+        specialist_id="sp-id",
+        owner_tg_user_id=123,
+        public_name="Dr. Test",
+    )
+
+    assert state.current_state == owner_panel.TimezoneSettingsStates.waiting_for_timezone
+    last_text = callback.message.edits[-1][0] if callback.message.edits else callback.message.answers[-1][0]
+    assert "Не удалось сохранить timezone" in last_text
+    assert "Страница: 1/3" in last_text
 
 
 @pytest.mark.asyncio
