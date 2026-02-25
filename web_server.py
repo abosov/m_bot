@@ -846,8 +846,6 @@ async def google_oauth_callback(request: Request):
                 "ok",
                 specialist_id,
             )
-            await session.delete(oauth_state)
-            await session.commit()
 
         try:
             refresh_token, _access_token, credentials = await exchange_code_for_token_async(code)
@@ -985,6 +983,14 @@ async def google_oauth_callback(request: Request):
                 )
             ).scalar_one_or_none()
             specialist_name = profile.public_name if profile else "Unknown"
+
+            state_entry = (
+                await session.execute(
+                    select(OAuthState).where(OAuthState.state == state)
+                )
+            ).scalar_one_or_none()
+            if state_entry is not None:
+                await session.delete(state_entry)
 
             await session.commit()
 

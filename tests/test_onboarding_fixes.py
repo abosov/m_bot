@@ -444,6 +444,15 @@ async def test_google_oauth_callback_reused_state_rejected_on_second_call(tmp_pa
 
     assert first.status_code == 302
     assert first.headers["location"] == "http://localhost/success"
+
+    async with database.async_session_factory() as session:
+        state_entry = (
+            await session.execute(
+                select(database.OAuthState).where(database.OAuthState.state == state_value)
+            )
+        ).scalar_one_or_none()
+        assert state_entry is None
+
     assert second.status_code == 200
     assert "state не найден или уже использован" in second.text
 
@@ -481,6 +490,14 @@ async def test_google_oauth_callback_token_exchange_timeout_returns_timeout_html
     assert response.status_code == 200
     assert "timeout" in response.text.lower()
 
+    async with database.async_session_factory() as session:
+        state_entry = (
+            await session.execute(
+                select(database.OAuthState).where(database.OAuthState.state == state_value)
+            )
+        ).scalar_one_or_none()
+        assert state_entry is not None
+
 
 @pytest.mark.asyncio
 async def test_google_oauth_callback_token_exchange_network_error_returns_network_html(tmp_path, monkeypatch):
@@ -514,6 +531,14 @@ async def test_google_oauth_callback_token_exchange_network_error_returns_networ
 
     assert response.status_code == 200
     assert "network error" in response.text.lower()
+
+    async with database.async_session_factory() as session:
+        state_entry = (
+            await session.execute(
+                select(database.OAuthState).where(database.OAuthState.state == state_value)
+            )
+        ).scalar_one_or_none()
+        assert state_entry is not None
 
 
 def test_calendar_select_keyboard_and_text_navigation(monkeypatch):

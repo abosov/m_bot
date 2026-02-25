@@ -436,14 +436,14 @@ def test_merge_private_extended_properties_preserves_existing_keys():
 
 def test_required_scopes_match_minimum_calendar_access():
     scopes = google_calendar.required_scopes()
-    assert "https://www.googleapis.com/auth/calendar.readonly" in scopes
+    assert "https://www.googleapis.com/auth/calendar.calendarlist.readonly" in scopes
     assert "https://www.googleapis.com/auth/calendar.events" in scopes
     assert "https://www.googleapis.com/auth/calendar" not in scopes
 
 
 def test_scopes_as_string_contains_required_scopes():
     scopes_str = google_calendar.scopes_as_string()
-    assert "https://www.googleapis.com/auth/calendar.readonly" in scopes_str
+    assert "https://www.googleapis.com/auth/calendar.calendarlist.readonly" in scopes_str
     assert "https://www.googleapis.com/auth/calendar.events" in scopes_str
 
 

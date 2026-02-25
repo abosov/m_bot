@@ -1,5 +1,6 @@
 import logging
 import types
+import warnings
 
 import pytest
 
@@ -60,3 +61,28 @@ async def test_google_oauth_exception_does_not_leak_tokens(caplog, monkeypatch):
 
     assert "access_token" not in caplog.text
     assert "refresh_token" not in caplog.text
+
+
+def test_google_oauth_scope_change_warning_is_ignored(monkeypatch):
+    class _FakeFlow:
+        def __init__(self):
+            self.credentials = types.SimpleNamespace(refresh_token="r1", token="a1", scopes=["scope-a"])
+
+        def fetch_token(self, code):
+            warnings.warn(
+                "Scope has changed from \"old\" to \"new\".",
+                UserWarning,
+            )
+
+    monkeypatch.setattr(google_oauth, "_ensure_google_oauth_config", lambda: None)
+    monkeypatch.setattr(
+        google_oauth.Flow,
+        "from_client_config",
+        lambda *args, **kwargs: _FakeFlow(),
+    )
+
+    refresh_token, access_token, credentials = google_oauth.exchange_code_for_token("dummy-code")
+
+    assert refresh_token == "r1"
+    assert access_token == "a1"
+    assert credentials.scopes == ["scope-a"]

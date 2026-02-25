@@ -5,7 +5,7 @@
 Для onboarding требуется OAuth 2.0 с offline-доступом и календарными scope.
 
 Минимальные scope текущего MVP:
-- `https://www.googleapis.com/auth/calendar.readonly` — нужен для получения списка календарей пользователя и выбора рабочего календаря (`calendarList.list`).
+- `https://www.googleapis.com/auth/calendar.calendarlist.readonly` — нужен для получения списка календарей пользователя и выбора рабочего календаря (`calendarList.list`).
 - `https://www.googleapis.com/auth/calendar.events` — нужен для интеграции в выбранном календаре (`events.insert` + `events.delete`) и дальнейшего управления событиями.
 
 Если пользователь уже выдавал доступ с меньшими правами, требуется re-consent (повторное подключение).
@@ -88,6 +88,6 @@ OAuth инициируется через обычную web-страницу, �
 ## OAuth state lifecycle (фиксированный)
 - `state` генерируется backend и сохраняется в `oauth_state` c TTL.
 - Callback валидирует `state` (существует, не истёк, корректный тип).
-- После успешной проверки `state` удаляется (one-time consume).
+- `state` удаляется только после успешного обмена `code` на токены и успешной записи OAuth-данных в БД (one-time consume).
 - Reuse/expired `state` отклоняется.
 - `state` не равен `specialist_id`.
