@@ -229,7 +229,7 @@ async def test_notify_personal_bot_welcome_picks_most_recent_active_bot(tmp_path
 
     assert username == "newer_bot"
     assert sent == [
-        ("decrypted::enc-newer", 777, "🎉 Личный бот готов к работе.", 6.0, {}),
+        ("decrypted::enc-newer", 777, "🎉 Личный бот готов к работе. /start", 6.0, {}),
     ]
 
 

@@ -1462,7 +1462,7 @@ async def _notify_personal_bot_welcome(specialist_id: uuid.UUID, tg_user_id: int
             try:
                 await personal.send_message(
                     chat_id=tg_user_id,
-                    text="🎉 Личный бот готов к работе.",
+                    text="🎉 Личный бот готов к работе. /start",
                     request_timeout=timeout_sec,
                 )
                 break
