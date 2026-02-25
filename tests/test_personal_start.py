@@ -63,8 +63,12 @@ async def test_personal_start_specialist_with_incomplete_onboarding_shows_defaul
     async def fake_ensure(_specialist_id):
         return None
 
+    async def fake_complete(_specialist_id):
+        return None
+
     monkeypatch.setattr(start_router, "_load_specialist_and_profile", fake_load)
     monkeypatch.setattr(start_router, "_ensure_defaults_exist", fake_ensure)
+    monkeypatch.setattr(start_router, "_complete_personal_onboarding_if_needed", fake_complete)
     monkeypatch.setattr(start_router, "_load_profile_and_rows", fake_load_rows)
 
     await start_router.personal_start(
@@ -135,46 +139,6 @@ async def test_personal_start_specialist_completed_onboarding_opens_owner_panel(
     help_queries = [button.switch_inline_query_current_chat for row in markup.inline_keyboard for button in row if button.switch_inline_query_current_chat]
     assert callback_data == ["open_settings", "calendar:switch_stub", "calendar:smoke"]
     assert help_queries == ["/help"]
-
-
-@pytest.mark.asyncio
-async def test_onboarding_keep_sets_full_onboarding_and_opens_owner_panel(monkeypatch):
-    message = DummyMessage(from_user=types.SimpleNamespace(id=111))
-    callback = DummyCallback(message)
-    calls = {"committed": False, "owner_panel": False}
-
-    specialist = types.SimpleNamespace(onboarding_master_completed_at=None, onboarding_personal_completed_at=None)
-
-    class _Session:
-        async def get(self, model, specialist_id):
-            return specialist
-
-        async def commit(self):
-            calls["committed"] = True
-
-    class _Ctx:
-        async def __aenter__(self):
-            return _Session()
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-    async def fake_send_owner_panel(*args, **kwargs):
-        calls["owner_panel"] = True
-
-    monkeypatch.setattr(start_router, "async_session_factory", lambda: _Ctx())
-    monkeypatch.setattr(start_router, "send_owner_panel", fake_send_owner_panel)
-
-    await start_router.onboarding_keep(
-        callback=callback,
-        specialist_id="sp-id",
-        public_name="Doc",
-        owner_tg_user_id=111,
-    )
-
-    assert specialist.onboarding_personal_completed_at is not None
-    assert calls["committed"] is True
-    assert calls["owner_panel"] is True
 
 
 @pytest.mark.asyncio
@@ -298,8 +262,6 @@ def test_onboarding_keyboard_with_calendar_contains_calendar_and_existing_action
     assert callback_data == [
         "calendar:switch_stub",
         "onboarding:change",
-        "onboarding:keep",
-        "onboarding:later",
     ]
 
 
@@ -342,6 +304,9 @@ async def test_render_onboarding_screen_has_expected_headings_and_no_ambiguous_t
     async def fake_ensure(_specialist_id):
         return None
 
+    async def fake_complete(_specialist_id):
+        return None
+
     async def fake_load(_specialist_id):
         return specialist, profile
 
@@ -359,6 +324,7 @@ async def test_render_onboarding_screen_has_expected_headings_and_no_ambiguous_t
         return profile, [row]
 
     monkeypatch.setattr(start_router, "_ensure_defaults_exist", fake_ensure)
+    monkeypatch.setattr(start_router, "_complete_personal_onboarding_if_needed", fake_complete)
     monkeypatch.setattr(start_router, "_load_specialist_and_profile", fake_load)
     monkeypatch.setattr(start_router, "_load_profile_and_rows", fake_load_rows)
 
@@ -379,8 +345,6 @@ async def test_render_onboarding_screen_has_expected_headings_and_no_ambiguous_t
         "owner_panel:slot_params_menu",
         "owner_panel:change_timezone",
         "owner_panel:change_schedule",
-        "onboarding:keep",
-        "onboarding:later",
     ]
 
 
@@ -434,6 +398,94 @@ async def test_personal_start_specialist_with_incomplete_basic_setup_shows_setti
     assert callback_data == ["open_settings", "calendar:switch_stub", "calendar:smoke"]
     assert help_queries == ["/help"]
     assert "📅 Календарь" in button_texts
+
+
+
+
+@pytest.mark.asyncio
+async def test_render_onboarding_screen_marks_onboarding_completed_idempotently(monkeypatch):
+    message = DummyMessage(from_user=types.SimpleNamespace(id=123))
+
+    specialist = types.SimpleNamespace(
+        onboarding_personal_completed_at=None,
+        calendar_settings=types.SimpleNamespace(
+            calendar_id="cal-1",
+            calendar_summary="Основной календарь",
+            calendar_time_zone="Europe/Moscow",
+            last_smoke_test_status="ok",
+        ),
+    )
+    profile = types.SimpleNamespace(
+        onboarding_completed=False,
+        session_duration_min=60,
+        session_buffer_min=10,
+        slot_step_min=15,
+        max_sessions_per_day=4,
+        cancel_window_hours=12,
+        specialist_timezone="Europe/Moscow",
+    )
+
+    commits = {"count": 0}
+
+    class _Session:
+        async def get(self, model, specialist_id):
+            if model is start_router.Specialist:
+                return specialist
+            if model is start_router.SpecialistProfile:
+                return profile
+            return None
+
+        async def commit(self):
+            commits["count"] += 1
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def fake_ensure(_specialist_id):
+        return None
+
+    async def fake_load(_specialist_id):
+        return specialist, profile
+
+    async def fake_load_rows(_specialist_id):
+        row = types.SimpleNamespace(
+            weekday=0,
+            is_working=True,
+            interval_1_start=None,
+            interval_1_end=None,
+            interval_2_start=None,
+            interval_2_end=None,
+            interval_3_start=None,
+            interval_3_end=None,
+        )
+        return profile, [row]
+
+    monkeypatch.setattr(start_router, "_ensure_defaults_exist", fake_ensure)
+    monkeypatch.setattr(start_router, "_load_specialist_and_profile", fake_load)
+    monkeypatch.setattr(start_router, "_load_profile_and_rows", fake_load_rows)
+    monkeypatch.setattr(start_router, "async_session_factory", lambda: _Ctx())
+
+    await start_router._render_onboarding_screen(message=message, specialist_id="sp-id")
+    first_timestamp = specialist.onboarding_personal_completed_at
+
+    await start_router._render_onboarding_screen(message=message, specialist_id="sp-id")
+
+    assert first_timestamp is not None
+    assert specialist.onboarding_personal_completed_at == first_timestamp
+    assert profile.onboarding_completed is True
+    assert commits["count"] == 1
+
+
+def test_render_onboarding_screen_keyboard_no_keep_or_later_buttons():
+    keyboard = start_router._onboarding_keyboard_with_calendar()
+    callback_data = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+
+    assert "onboarding:keep" not in callback_data
+    assert "onboarding:later" not in callback_data
 
 
 @pytest.mark.asyncio

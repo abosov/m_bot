@@ -49,8 +49,6 @@ def _onboarding_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="⚙️ Изменить параметры записи", callback_data="onboarding:change")],
-            [InlineKeyboardButton(text="✅ Оставить как есть", callback_data="onboarding:keep")],
-            [InlineKeyboardButton(text="⏳ Позже", callback_data="onboarding:later")],
         ]
     )
 
@@ -60,8 +58,6 @@ def _onboarding_keyboard_with_calendar() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="📅 Сменить календарь", callback_data="calendar:switch_stub")],
             [InlineKeyboardButton(text="⚙️ Изменить параметры записи", callback_data="onboarding:change")],
-            [InlineKeyboardButton(text="✅ Оставить как есть", callback_data="onboarding:keep")],
-            [InlineKeyboardButton(text="⏳ Позже", callback_data="onboarding:later")],
         ]
     )
 
@@ -106,7 +102,7 @@ def _format_start_settings_summary(*, profile, specialist) -> tuple[str, bool]:
 
     incomplete = not (tz_value and google_connected)
     lines = [
-        "🎉 Личный бот готов к работе.",
+        "🎉 Личный бот готов к работе. /start",
         "",
         "Чтобы начать, выполните первоначальную настройку.",
         "",
@@ -205,8 +201,30 @@ async def _ensure_defaults_exist(specialist_id) -> None:
         await session.commit()
 
 
+async def _complete_personal_onboarding_if_needed(specialist_id) -> None:
+    async with async_session_factory() as session:
+        specialist = await session.get(Specialist, specialist_id)
+        if specialist is None:
+            return
+
+        profile = await session.get(SpecialistProfile, specialist_id)
+        changed = False
+
+        if specialist.onboarding_personal_completed_at is None:
+            specialist.onboarding_personal_completed_at = datetime.now(timezone.utc)
+            changed = True
+
+        if profile is not None and not profile.onboarding_completed:
+            profile.onboarding_completed = True
+            changed = True
+
+        if changed:
+            await session.commit()
+
+
 async def _render_onboarding_screen(message: Message, specialist_id) -> None:
     await _ensure_defaults_exist(specialist_id)
+    await _complete_personal_onboarding_if_needed(specialist_id)
     specialist, profile = await _load_specialist_and_profile(specialist_id)
 
     if specialist is None:
@@ -229,12 +247,12 @@ async def _render_onboarding_screen(message: Message, specialist_id) -> None:
         profile=profile,
         rows=rows,
         calendar_settings=calendar_settings,
-        keep_button_text="✅ Оставить как есть",
-        keep_callback_data="onboarding:keep",
+        keep_button_text=None,
+        keep_callback_data=None,
         include_reset_button=False,
-        later_button=("⏳ Позже", "onboarding:later"),
+        later_button=None,
     )
-    text = "🧩 Продолжим онбординг в персональном боте.\n\n" + text + "\n\nПодтвердите настройки или измените их перед завершением онбординга."
+    text = "🧩 Продолжим онбординг в персональном боте.\n\n" + text + "\n\nПроверьте настройки. При необходимости измените их."
     await message.answer(text, reply_markup=keyboard)
 
 
@@ -368,47 +386,6 @@ async def personal_start(
         logger.exception("personal_start: failed to render client menu")
 
 
-@router.callback_query(F.data == "onboarding:keep")
-async def onboarding_keep(callback: CallbackQuery, specialist_id, public_name: str | None, owner_tg_user_id: int | None) -> None:
-    _log_personal_handler(
-        handler_name="onboarding_keep",
-        bot_id=callback.bot.id,
-        tg_user_id=callback.from_user.id if callback.from_user else None,
-        fsm_state=None,
-        outcome="start",
-        update_type="callback_query",
-    )
-    try:
-        async with async_session_factory() as session:
-            specialist = await session.get(Specialist, specialist_id)
-            if specialist is None:
-                await callback.message.answer("⚠️ Профиль специалиста не найден. Нажмите /start в master-боте.")
-                await callback.answer()
-                return
-            specialist.onboarding_personal_completed_at = datetime.now(timezone.utc)
-            profile = await session.get(SpecialistProfile, specialist_id)
-            if profile is not None:
-                profile.onboarding_completed = True
-            await session.commit()
-
-        await callback.message.answer("✅ Отлично, онбординг завершён. Открываю панель специалиста.")
-        try:
-            await send_owner_panel(
-                message=callback.message,
-                specialist_id=specialist_id,
-                public_name=public_name,
-                owner_tg_user_id=owner_tg_user_id,
-            )
-        except Exception:
-            logger.exception("onboarding_keep send_owner_panel failed specialist_id=%s", specialist_id)
-            await callback.message.answer("⚠️ Возникла ошибка при открытии панели. Попробуйте еще раз или напишите в поддержку.")
-        await callback.answer()
-    except Exception:
-        logger.exception("onboarding_keep failed specialist_id=%s", specialist_id)
-        await callback.message.answer(f"⚠️ Не удалось завершить онбординг. Поддержка: {SUPPORT_TG_URL}")
-        await callback.answer()
-
-
 @router.callback_query(F.data == "onboarding:change")
 async def onboarding_change(callback: CallbackQuery, specialist_id, public_name: str | None, owner_tg_user_id: int | None) -> None:
     _log_personal_handler(
@@ -421,7 +398,7 @@ async def onboarding_change(callback: CallbackQuery, specialist_id, public_name:
     )
     try:
         await callback.message.answer(
-            "✏️ Откройте панель и измените параметры. После этого нажмите «👌 Оставить как есть» в онбординге.",
+            "✏️ Откройте панель и измените параметры. При необходимости вернитесь в /start.",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text="Открыть панель настроек", callback_data="owner_panel:change_duration_buffer")]]
             ),
@@ -436,28 +413,6 @@ async def onboarding_change(callback: CallbackQuery, specialist_id, public_name:
     except Exception:
         logger.exception("onboarding_change failed specialist_id=%s", specialist_id)
         await callback.message.answer(f"⚠️ Не удалось открыть настройки. Поддержка: {SUPPORT_TG_URL}")
-        await callback.answer()
-
-
-@router.callback_query(F.data == "onboarding:later")
-async def onboarding_later(callback: CallbackQuery) -> None:
-    _log_personal_handler(
-        handler_name="onboarding_later",
-        bot_id=callback.bot.id,
-        tg_user_id=callback.from_user.id if callback.from_user else None,
-        fsm_state=None,
-        outcome="start",
-        update_type="callback_query",
-    )
-    try:
-        await callback.message.answer(
-            "⏳ Вы можете завершить онбординг позже. В master-боте часть функций пока будет недоступна. "
-            "Когда будете готовы, вернитесь и нажмите /start здесь снова."
-        )
-        await callback.answer()
-    except Exception:
-        logger.exception("onboarding_later failed")
-        await callback.message.answer(f"⚠️ Не удалось обработать действие. Поддержка: {SUPPORT_TG_URL}")
         await callback.answer()
 
 
