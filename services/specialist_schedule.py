@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import select
 
 from database import Appointment, BookingState, SpecialistProfile, SpecialistWorkingHours, async_session_factory
+from services.working_intervals import DEFAULT_WORKING_INTERVALS_MIN
+from services.working_intervals_repository import WorkingIntervalsRepository
 from services.specialist_defaults import (
     DEFAULT_BUFFER_MIN,
     DEFAULT_DURATION_MIN,
@@ -101,7 +103,6 @@ async def update_session_settings(
     }
 
 
-
 def _validate_limits(max_per_day: int, slot_step: int, session_duration: int) -> None:
     if max_per_day < 1 or max_per_day > 20:
         raise ValidationError("max_sessions_per_day must be between 1 and 20")
@@ -175,6 +176,11 @@ async def reset_specialist_settings_to_default(specialist_id: uuid.UUID) -> dict
         updated_buffer = profile.session_buffer_min
         updated_slot_step = profile.slot_step_min
         updated_max_per_day = profile.max_sessions_per_day
+
+    await WorkingIntervalsRepository().upsert_working_intervals(
+        specialist_id,
+        DEFAULT_WORKING_INTERVALS_MIN,
+    )
 
     await invalidate_availability_cache(specialist_id)
 
