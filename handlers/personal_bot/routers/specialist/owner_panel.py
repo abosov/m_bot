@@ -191,7 +191,7 @@ async def _save_specialist_timezone(
     timezone_name: str,
 ) -> None:
     try:
-        await update_specialist_timezone(specialist_id, timezone_name)
+        updated = await update_specialist_timezone(specialist_id, timezone_name)
     except SpecialistScheduleValidationError as exc:
         await message.answer(
             f"⚠️ Не удалось сохранить timezone: {exc}.\n"
@@ -578,6 +578,36 @@ async def _ensure_owner_panel_defaults(
     return (not weekly_ready) or working_intervals_changed
 
 
+
+
+async def _build_owner_panel_view(
+    *,
+    specialist_id,
+    public_name: str | None,
+) -> tuple[str, InlineKeyboardMarkup] | None:
+    profile, rows = await _load_profile_and_rows(specialist_id)
+    calendar_settings = await _load_calendar_settings(specialist_id)
+    working_intervals_by_idx = await WorkingIntervalsRepository().get_working_intervals(specialist_id)
+    if profile is None:
+        return None
+
+    display_name = public_name or profile.public_name or "специалист"
+    text, keyboard = build_specialist_settings_view(
+        profile=profile,
+        rows=rows,
+        calendar_settings=calendar_settings,
+        keep_button_text=None,
+        keep_callback_data=None,
+        include_reset_button=True,
+        working_intervals_by_idx=working_intervals_by_idx,
+    )
+    text = (
+        f"✅ Базовые настройки уже применены автоматически после онбординга, {display_name}.\n"
+        "Хотите изменить их сейчас?\n\n"
+        + text
+    )
+    return text, keyboard
+
 async def send_owner_panel(
     message: Message,
     specialist_id,
@@ -599,42 +629,21 @@ async def send_owner_panel(
         )
         return
 
-    defaults_applied = await _ensure_owner_panel_defaults(
+    await _ensure_owner_panel_defaults(
         specialist_id=specialist_id,
         owner_tg_user_id=owner_tg_user_id,
         public_name=public_name,
     )
 
-    if defaults_applied:
-        await message.answer(
-            "✅ Применены базовые настройки (их можно изменить): часовой пояс специалиста (для расчётов), расписание (Пн–Пт, утро/день/вечер), "
-            "длительность, буфер, лимиты."
-        )
-
-    profile, rows = await _load_profile_and_rows(specialist_id)
-    calendar_settings = await _load_calendar_settings(specialist_id)
-    working_intervals_by_idx = await WorkingIntervalsRepository().get_working_intervals(specialist_id)
-    if profile is None:
+    panel_view = await _build_owner_panel_view(specialist_id=specialist_id, public_name=public_name)
+    if panel_view is None:
         logger.error("send_owner_panel: SpecialistProfile not found for specialist_id=%s", specialist_id)
         await message.answer(
             "⚠️ Профиль не найден. Вернитесь в master-бот и завершите онбординг заново."
         )
         return
-    display_name = public_name or profile.public_name or "специалист"
-    text, keyboard = build_specialist_settings_view(
-        profile=profile,
-        rows=rows,
-        calendar_settings=calendar_settings,
-        keep_button_text=None,
-        keep_callback_data=None,
-        include_reset_button=True,
-        working_intervals_by_idx=working_intervals_by_idx,
-    )
-    text = (
-        f"✅ Базовые настройки уже применены автоматически после онбординга, {display_name}.\n"
-        "Хотите изменить их сейчас?\n\n"
-        + text
-    )
+
+    text, keyboard = panel_view
     await message.answer(text, reply_markup=keyboard)
 
 
@@ -665,31 +674,15 @@ async def _render_owner_panel_inplace(
         public_name=public_name,
     )
 
-    profile, rows = await _load_profile_and_rows(specialist_id)
-    calendar_settings = await _load_calendar_settings(specialist_id)
-    working_intervals_by_idx = await WorkingIntervalsRepository().get_working_intervals(specialist_id)
-    if profile is None:
+    panel_view = await _build_owner_panel_view(specialist_id=specialist_id, public_name=public_name)
+    if panel_view is None:
         logger.error("_render_owner_panel_inplace: SpecialistProfile not found for specialist_id=%s", specialist_id)
         await message.edit_text(
             "⚠️ Профиль не найден. Вернитесь в master-бот и завершите онбординг заново."
         )
         return
 
-    display_name = public_name or profile.public_name or "специалист"
-    text, keyboard = build_specialist_settings_view(
-        profile=profile,
-        rows=rows,
-        calendar_settings=calendar_settings,
-        keep_button_text=None,
-        keep_callback_data=None,
-        include_reset_button=True,
-        working_intervals_by_idx=working_intervals_by_idx,
-    )
-    text = (
-        f"✅ Базовые настройки уже применены автоматически после онбординга, {display_name}.\n"
-        "Хотите изменить их сейчас?\n\n"
-        + text
-    )
+    text, keyboard = panel_view
     # IMPORTANT: Settings menu must always re-render via edit_message to avoid message stacking
     await message.edit_text(text, reply_markup=keyboard)
 
@@ -1516,7 +1509,7 @@ async def owner_panel_timezone_set(
         return
 
     try:
-        await update_specialist_timezone(specialist_id, timezone_name)
+        updated = await update_specialist_timezone(specialist_id, timezone_name)
     except SpecialistScheduleValidationError as exc:
         data = await state.get_data()
         page = data.get(_OWNER_TZ_PAGE_KEY, 1)
