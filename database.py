@@ -102,6 +102,7 @@ class Specialist(Base):
     calendar_sync_states: Mapped[List["CalendarSyncState"]] = relationship(back_populates="specialist")
     weekly_availability: Mapped[List["WeeklyAvailability"]] = relationship(back_populates="specialist")
     working_hours: Mapped[List["SpecialistWorkingHours"]] = relationship(back_populates="specialist")
+    working_intervals: Mapped[List["SpecialistWorkingInterval"]] = relationship(back_populates="specialist")
     clients: Mapped[List["Client"]] = relationship(back_populates="specialist")
     appointments: Mapped[List["Appointment"]] = relationship(back_populates="specialist")
     telegram_bots: Mapped[List["TelegramBot"]] = relationship(back_populates="specialist")
@@ -314,6 +315,42 @@ class SpecialistWorkingHours(Base):
             f"SpecialistWorkingHours(specialist_id={self.specialist_id}, weekday={self.weekday}, "
             f"{self.start_time}-{self.end_time})"
         )
+
+
+class SpecialistWorkingInterval(Base):
+    __tablename__ = "specialist_working_intervals"
+    __table_args__ = (
+        UniqueConstraint("specialist_id", "idx", name="uq_specialist_working_intervals_specialist_idx"),
+        CheckConstraint("idx IN (1, 2, 3)", name="ck_specialist_working_intervals_idx"),
+        CheckConstraint("(start_min BETWEEN 0 AND 1439) OR start_min IS NULL", name="ck_specialist_working_intervals_start_min_range"),
+        CheckConstraint("(end_min BETWEEN 1 AND 1440) OR end_min IS NULL", name="ck_specialist_working_intervals_end_min_range"),
+        CheckConstraint(
+            "(start_min IS NULL AND end_min IS NULL) OR (start_min IS NOT NULL AND end_min IS NOT NULL)",
+            name="ck_specialist_working_intervals_pair_presence",
+        ),
+        CheckConstraint(
+            "start_min IS NULL OR end_min IS NULL OR start_min < end_min",
+            name="ck_specialist_working_intervals_order",
+        ),
+        Index("ix_specialist_working_intervals_specialist_id", "specialist_id"),
+    )
+
+    specialist_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("specialist.specialist_id", ondelete="CASCADE"),
+        nullable=False,
+        primary_key=True,
+    )
+    idx: Mapped[int] = mapped_column(Integer, nullable=False, primary_key=True)
+    start_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    end_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    specialist: Mapped["Specialist"] = relationship(back_populates="working_intervals")
 
 
 class Client(Base):
