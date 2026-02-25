@@ -97,10 +97,14 @@ def exchange_code_for_token(code: str) -> Tuple[str, str, Any]:
     )
     
     with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message=r"^Scope has changed from", category=Warning)
+        warnings.filterwarnings("ignore", message=r".*Scope has changed from.*", category=Warning)
         flow.fetch_token(code=code)
     creds = flow.credentials
-    
+    logger.info(
+        "event=google_oauth_scopes_granted scopes=%s",
+        getattr(creds, "scopes", None),
+    )
+
     return creds.refresh_token, creds.token, creds
 
 
