@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 import pytest
@@ -389,3 +390,43 @@ async def test_client_can_view_own_appointments_after_confirmation_feature(monke
         await bot.session.close()
 
     assert sent_messages == ["Ваши записи (UTC):\n2099-02-01 Пн [09:00] — Подтверждена"]
+
+
+@pytest.mark.asyncio
+async def test_personal_global_error_middleware_logs_context(monkeypatch, caplog):
+    async def fake_answer(self, text, *args, **kwargs):
+        return None
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+
+    middleware = personal_dispatcher.PersonalGlobalErrorMiddleware()
+    update = Update.model_validate(
+        {
+            "update_id": 77,
+            "message": {
+                "message_id": 13,
+                "date": 1,
+                "chat": {"id": 777, "type": "private"},
+                "from": {"id": 777, "is_bot": False, "first_name": "Owner"},
+                "text": "/start",
+            },
+        }
+    )
+
+    async def broken_handler(event, data):
+        raise RuntimeError("boom")
+
+    specialist_id = uuid.uuid4()
+    tg_bot = type(
+        "TgBot",
+        (),
+        {"bot_username": "x_bot", "bot_user_id": 123, "specialist_id": specialist_id},
+    )()
+
+    with caplog.at_level(logging.ERROR):
+        await middleware(broken_handler, update, {"telegram_bot": tg_bot})
+
+    logs = "\n".join(record.getMessage() for record in caplog.records)
+    assert "personal bot unhandled exception" in logs
+    assert str(specialist_id) in logs
+    assert "update_id=77" in logs

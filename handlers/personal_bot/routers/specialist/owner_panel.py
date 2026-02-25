@@ -1104,7 +1104,7 @@ async def owner_calendar_select(callback: CallbackQuery, specialist_id) -> None:
         keyboard_rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"📅 {format_calendar_button_text(item)}",
+                    text=format_calendar_button_text(item),
                     callback_data=f"owner_cal:pick:{index}",
                 )
             ]
@@ -1112,7 +1112,7 @@ async def owner_calendar_select(callback: CallbackQuery, specialist_id) -> None:
     keyboard_rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="owner_cal:back")])
 
     await callback.message.edit_text(
-        "Выберите календарь\n\nФормат: Название / Timezone / Primary|Secondary",
+        "Выберите календарь\n\nФормат: Название и часовой пояс календаря.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_rows),
     )
 
@@ -1582,23 +1582,12 @@ def _schedule_weekday_keyboard(working_days: set[int]) -> InlineKeyboardMarkup:
             [_day_button(2), _day_button(3)],
             [_day_button(4), _day_button(5)],
             [_day_button(6)],
-            [InlineKeyboardButton(text="🕒 Интервалы", callback_data="schedule:intervals_menu")],
-            [InlineKeyboardButton(text="🕒 Интервалы дня", callback_data="schedule:intervals_pick_day")],
+            [InlineKeyboardButton(text="⏰ Интервалы", callback_data="schedule:intervals_menu")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="schedule:back_owner")],
         ]
     )
 
 
-def _schedule_intervals_pick_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Пн", callback_data="schedule:day:0"), InlineKeyboardButton(text="Вт", callback_data="schedule:day:1")],
-            [InlineKeyboardButton(text="Ср", callback_data="schedule:day:2"), InlineKeyboardButton(text="Чт", callback_data="schedule:day:3")],
-            [InlineKeyboardButton(text="Пт", callback_data="schedule:day:4"), InlineKeyboardButton(text="Сб", callback_data="schedule:day:5")],
-            [InlineKeyboardButton(text="Вс", callback_data="schedule:day:6")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="schedule:pick_day")],
-        ]
-    )
 
 
 
@@ -1890,15 +1879,6 @@ async def schedule_pick_day(callback: CallbackQuery, state: FSMContext, speciali
     await _render_weekday_picker(callback, specialist_id=specialist_id)
 
 
-@router.callback_query(F.data == "schedule:intervals_pick_day")
-async def schedule_intervals_pick_day(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(ScheduleEditStates.choosing_weekday)
-    await callback.answer()
-    await _edit_or_send_schedule_picker(
-        callback,
-        text="📅 Выберите день недели для настройки интервалов:",
-        reply_markup=_schedule_intervals_pick_keyboard(),
-    )
 
 
 @router.callback_query(F.data.startswith("schedule:toggle_day:"))
@@ -1911,7 +1891,7 @@ async def schedule_toggle_day(callback: CallbackQuery, specialist_id) -> None:
 
     working_days = await toggle_working_day(specialist_id, weekday)
     await callback.message.edit_text(
-        "📅 Настройка расписания\n\nВыберите день недели:",
+        "📅 Настройка расписания\n\nВыберите рабочие дни недели:",
         reply_markup=_schedule_weekday_keyboard(working_days),
     )
     await callback.answer()

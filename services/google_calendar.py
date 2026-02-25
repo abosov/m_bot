@@ -424,6 +424,23 @@ def _parse_google_channel_expiration(expiration_raw: Any) -> datetime | None:
     return datetime.fromtimestamp(expiration_ms / 1000, tz=timezone.utc)
 
 
+async def _stop_google_channel(*, headers: dict[str, str], channel_id: str, resource_id: str) -> None:
+    response = await _calendar_request_with_retry(
+        requests.post,
+        f"{GOOGLE_CALENDAR_BASE_URL}/channels/stop",
+        method_name="POST",
+        headers=headers,
+        json={"id": channel_id, "resourceId": resource_id},
+    )
+    if response.status_code not in (200, 204):
+        logger.info(
+            "event=google_calendar_watch_stop_non_2xx channel_id=%s resource_id=%s status=%s",
+            channel_id,
+            resource_id,
+            response.status_code,
+        )
+
+
 async def ensure_calendar_watch(specialist_id: uuid.UUID, calendar_id: str) -> None:
     async with async_session_factory() as session:
         sync_state = await session.get(
@@ -444,8 +461,27 @@ async def ensure_calendar_watch(specialist_id: uuid.UUID, calendar_id: str) -> N
             sync_state = CalendarSyncState(specialist_id=specialist_id, calendar_id=calendar_id)
             session.add(sync_state)
 
+        prev_channel_id = sync_state.channel_id
+        prev_resource_id = sync_state.resource_id
+
         try:
             headers = await _build_headers(specialist_id)
+            if prev_channel_id and prev_resource_id:
+                try:
+                    await _stop_google_channel(
+                        headers=headers,
+                        channel_id=prev_channel_id,
+                        resource_id=prev_resource_id,
+                    )
+                except Exception:
+                    logger.info(
+                        "event=google_calendar_watch_stop_failed specialist_id=%s calendar_id=%s channel_id=%s",
+                        specialist_id,
+                        calendar_id,
+                        prev_channel_id,
+                        exc_info=True,
+                    )
+
             channel_id = str(uuid.uuid4())
             response = await _calendar_request_with_retry(
                 requests.post,
@@ -501,6 +537,7 @@ def _merge_private_extended_properties(
         private_properties = {}
         extended_properties["private"] = private_properties
 
+    private_properties["zumbot_managed"] = "1"
     private_properties["zumbot_appointment_id"] = str(appointment_id)
     private_properties["zumbot_specialist_id"] = str(specialist_id)
 

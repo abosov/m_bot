@@ -100,6 +100,27 @@ async def _load_specialist_auth_tg_user_id(specialist_id) -> int | None:
     return getattr(auth, "tg_user_id", None) if auth is not None else None
 
 
+async def _extract_fsm_state_name(data: dict[str, Any]) -> str | None:
+    state_ctx = data.get("state")
+    if state_ctx is None or not hasattr(state_ctx, "get_state"):
+        return None
+    try:
+        state_name = await state_ctx.get_state()
+    except Exception:
+        return None
+    return str(state_name) if state_name else None
+
+
+def _extract_handler_name(data: dict[str, Any]) -> str | None:
+    handler_obj = data.get("handler")
+    if handler_obj is None:
+        return None
+    callback = getattr(handler_obj, "callback", None)
+    if callback is None:
+        return getattr(handler_obj, "__name__", None)
+    return getattr(callback, "__name__", None)
+
+
 class PersonalGlobalErrorMiddleware(BaseMiddleware):
     async def __call__(
         self,
@@ -114,11 +135,18 @@ class PersonalGlobalErrorMiddleware(BaseMiddleware):
             tg_bot: TelegramBot | None = data.get("telegram_bot")
             bot_username = getattr(tg_bot, "bot_username", None)
             bot_user_id = getattr(tg_bot, "bot_user_id", None)
-            logger.exception(
-                "personal bot unhandled exception update_id=%s bot_username=%s bot_id=%s",
+            specialist_id = getattr(tg_bot, "specialist_id", None)
+            handler_name = _extract_handler_name(data)
+            fsm_state = await _extract_fsm_state_name(data)
+            logger.error(
+                "personal bot unhandled exception update_id=%s bot_username=%s bot_id=%s specialist_id=%s handler=%s fsm_state=%s",
                 update.update_id if update else None,
                 bot_username,
                 bot_user_id,
+                specialist_id,
+                handler_name,
+                fsm_state,
+                exc_info=True,
             )
             if update and update.message and update.message.chat and update.message.chat.type == "private":
                 try:
