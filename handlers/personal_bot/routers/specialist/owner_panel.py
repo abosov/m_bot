@@ -36,6 +36,12 @@ from services.specialist_schedule import (
     reset_specialist_settings_to_default,
 )
 from services.weekly_availability import get_working_days, toggle_working_day
+from services.working_intervals import (
+    WorkingIntervalsValidationError,
+    apply_interval_edit,
+    ensure_default_working_intervals,
+)
+from services.working_intervals_repository import WorkingIntervalsRepository
 from services.telegram.calendar_keyboard import format_calendar_button_text
 from services.log_context import log_event
 from services.specialist_defaults import (
@@ -81,6 +87,9 @@ class AvailabilityValidationError(ValueError):
 class ScheduleEditStates(StatesGroup):
     choosing_weekday = State()
     menu = State()
+    interval_menu = State()
+    waiting_interval_start = State()
+    waiting_interval_end = State()
     waiting_start_time = State()
     waiting_end_time = State()
 
@@ -565,7 +574,8 @@ async def _ensure_owner_panel_defaults(
             interval_3=_DEFAULT_WORKING_HOURS[2],
         )
 
-    return not weekly_ready
+    working_intervals_changed = await ensure_default_working_intervals(specialist_id)
+    return (not weekly_ready) or working_intervals_changed
 
 
 async def send_owner_panel(
@@ -1631,16 +1641,237 @@ async def _send_schedule_day_menu(message: Message, specialist_id, weekday: int)
     )
 
 
+def _format_min_to_hhmm(value: int | None) -> str:
+    if value is None:
+        return "—"
+    hour, minute = divmod(value, 60)
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _format_interval_pair_min(pair: tuple[int | None, int | None]) -> str:
+    start_min, end_min = pair
+    if start_min is None or end_min is None:
+        return "—"
+    return f"{_format_min_to_hhmm(start_min)}–{_format_min_to_hhmm(end_min)}"
+
+
+def _interval_short_warning(*, pair: tuple[int | None, int | None], required_min: int) -> str:
+    start_min, end_min = pair
+    if start_min is None or end_min is None:
+        return ""
+    if (end_min - start_min) >= required_min:
+        return ""
+    return f" ⚠️ Слоты недоступны: окно короче {required_min} мин (текущей длительности сессии)."
+
+
+def _schedule_intervals_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Интервал 1", callback_data="schedule:interval:1")],
+            [InlineKeyboardButton(text="Интервал 2", callback_data="schedule:interval:2")],
+            [InlineKeyboardButton(text="Интервал 3", callback_data="schedule:interval:3")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="schedule:back_owner")],
+        ]
+    )
+
+
+def _schedule_interval_actions_keyboard(idx: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Изменить начало", callback_data=f"schedule:interval_start:{idx}")],
+            [InlineKeyboardButton(text="Изменить конец", callback_data=f"schedule:interval_end:{idx}")],
+            [InlineKeyboardButton(text="Выключить интервал", callback_data=f"schedule:interval_disable:{idx}")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="schedule:intervals_menu")],
+        ]
+    )
+
+
+async def _render_intervals_menu(message: Message, specialist_id) -> None:
+    await ensure_default_working_intervals(specialist_id)
+    repository = WorkingIntervalsRepository()
+    intervals = await repository.get_working_intervals(specialist_id)
+    required_min = await _get_required_interval_min(specialist_id)
+
+    await message.edit_text(
+        _intervals_overview_text(intervals, required_min=required_min),
+        reply_markup=_schedule_intervals_keyboard(),
+    )
+
+
+async def _render_interval_actions_menu(message: Message, specialist_id, idx: int) -> None:
+    await ensure_default_working_intervals(specialist_id)
+    repository = WorkingIntervalsRepository()
+    intervals = await repository.get_working_intervals(specialist_id)
+    value_text = _format_interval_pair_min(intervals[idx])
+
+    await message.edit_text(
+        _interval_actions_text(idx=idx, value_text=value_text),
+        reply_markup=_schedule_interval_actions_keyboard(idx),
+    )
+
+
+def _interval_actions_text(*, idx: int, value_text: str) -> str:
+    return (
+        "📅 Настройка расписания и интервалов\n\n"
+        f"Интервал {idx}: {value_text}\n\n"
+        "Выберите действие:"
+    )
+
+
+async def _get_required_interval_min(specialist_id) -> int:
+    async with async_session_factory() as session:
+        profile = await session.get(SpecialistProfile, specialist_id)
+
+    # В текущей модели слоты внутри окна считаются по session_duration_min,
+    # buffer учитывается отдельно как разрыв между слотами/занятостью.
+    return profile.session_duration_min if profile is not None else _DEFAULT_DURATION_MIN
+
+
+def _intervals_overview_text(
+    intervals: dict[int, tuple[int | None, int | None]],
+    *,
+    required_min: int,
+    note: str | None = None,
+) -> str:
+    rows = [
+        f"Интервал 1: {_format_interval_pair_min(intervals[1])}{_interval_short_warning(pair=intervals[1], required_min=required_min)}",
+        f"Интервал 2: {_format_interval_pair_min(intervals[2])}{_interval_short_warning(pair=intervals[2], required_min=required_min)}",
+        f"Интервал 3: {_format_interval_pair_min(intervals[3])}{_interval_short_warning(pair=intervals[3], required_min=required_min)}",
+    ]
+    text = (
+        "📅 Настройка расписания и интервалов\n\n"
+        + "\n".join(rows)
+        + "\n\n"
+        "Выберите интервал:"
+    )
+    if not note:
+        return text
+    return f"{text}\n\n{note}"
+
+
+def _build_overlap_note(
+    *,
+    before: dict[int, tuple[int | None, int | None]],
+    after: dict[int, tuple[int | None, int | None]],
+    edited_idx: int,
+) -> str | None:
+    disabled: list[int] = []
+    for idx in (1, 2, 3):
+        if idx == edited_idx:
+            continue
+        b_start, b_end = before[idx]
+        a_start, a_end = after[idx]
+        was_active = b_start is not None and b_end is not None
+        is_active = a_start is not None and a_end is not None
+        if was_active and not is_active:
+            disabled.append(idx)
+
+    if not disabled:
+        return None
+
+    if len(disabled) == 1:
+        return (
+            f"ℹ️ Интервал {disabled[0]} выключен из-за перекрытия "
+            f"после изменения интервала {edited_idx}."
+        )
+
+    listed = ", ".join(str(idx) for idx in disabled)
+    return f"ℹ️ Интервалы {listed} выключены из-за перекрытия после изменения интервала {edited_idx}."
+
+
 @router.callback_query(F.data == "owner_panel:change_schedule")
 async def owner_panel_change_schedule(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
-    await state.set_state(ScheduleEditStates.choosing_weekday)
+    await state.set_state(ScheduleEditStates.menu)
     await _remember_nav_message(state, callback.message)
     await callback.answer()
-    await _edit_or_send_schedule_picker(
-        callback,
-        text="📅 Настройка расписания\n\nВыберите день недели:",
-        reply_markup=_schedule_weekday_keyboard(await get_working_days(specialist_id)),
+    await _render_intervals_menu(callback.message, specialist_id)
+
+
+@router.callback_query(F.data.startswith("schedule:interval:"))
+async def schedule_interval_select(callback: CallbackQuery, state: FSMContext) -> None:
+    raw_idx = (callback.data or "").split(":")[-1]
+    try:
+        idx = int(raw_idx)
+    except ValueError:
+        await callback.answer("Некорректный интервал", show_alert=True)
+        return
+    if idx not in {1, 2, 3}:
+        await callback.answer("Некорректный интервал", show_alert=True)
+        return
+    await state.update_data(schedule_interval_idx=idx)
+    await state.set_state(ScheduleEditStates.interval_menu)
+    await callback.answer()
+    await _render_interval_actions_menu(callback.message, specialist_id, idx)
+
+
+@router.callback_query(F.data == "schedule:intervals_menu")
+async def schedule_intervals_menu(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
+    await state.set_state(ScheduleEditStates.menu)
+    await callback.answer()
+    await _render_intervals_menu(callback.message, specialist_id)
+
+
+@router.callback_query(F.data.startswith("schedule:interval_disable:"))
+async def schedule_interval_disable(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
+    raw_idx = (callback.data or "").split(":")[-1]
+    try:
+        idx = int(raw_idx)
+    except ValueError:
+        await callback.answer("Некорректный интервал", show_alert=True)
+        return
+    if idx not in {1, 2, 3}:
+        await callback.answer("Некорректный интервал", show_alert=True)
+        return
+
+    await apply_interval_edit(
+        specialist_id=specialist_id,
+        idx=idx,
+        new_start_min=None,
+        new_end_min=None,
+        action="disable",
     )
+    await state.update_data(schedule_interval_idx=idx)
+    await state.set_state(ScheduleEditStates.interval_menu)
+    await callback.answer("Интервал выключен")
+    await _render_interval_actions_menu(callback.message, specialist_id, idx)
+
+
+@router.callback_query(F.data.startswith("schedule:interval_start:"))
+async def schedule_interval_start_prompt(callback: CallbackQuery, state: FSMContext) -> None:
+    raw_idx = (callback.data or "").split(":")[-1]
+    try:
+        idx = int(raw_idx)
+    except ValueError:
+        await callback.answer("Некорректный интервал", show_alert=True)
+        return
+    if idx not in {1, 2, 3}:
+        await callback.answer("Некорректный интервал", show_alert=True)
+        return
+
+    await state.update_data(schedule_interval_idx=idx)
+    await state.set_state(ScheduleEditStates.waiting_interval_start)
+    await _remember_nav_message(state, callback.message)
+    await callback.answer()
+    await callback.message.edit_text(f"✍️ Интервал {idx}: введите новое начало в формате HH:MM.")
+
+
+@router.callback_query(F.data.startswith("schedule:interval_end:"))
+async def schedule_interval_end_prompt(callback: CallbackQuery, state: FSMContext) -> None:
+    raw_idx = (callback.data or "").split(":")[-1]
+    try:
+        idx = int(raw_idx)
+    except ValueError:
+        await callback.answer("Некорректный интервал", show_alert=True)
+        return
+    if idx not in {1, 2, 3}:
+        await callback.answer("Некорректный интервал", show_alert=True)
+        return
+
+    await state.update_data(schedule_interval_idx=idx)
+    await state.set_state(ScheduleEditStates.waiting_interval_end)
+    await _remember_nav_message(state, callback.message)
+    await callback.answer()
+    await callback.message.edit_text(f"✍️ Интервал {idx}: введите новое окончание в формате HH:MM.")
 
 
 @router.callback_query(F.data == "schedule:pick_day")
@@ -1738,6 +1969,130 @@ def _parse_hhmm(value: str) -> time | None:
         return time(hour=hour, minute=minute)
     except Exception:
         return None
+
+
+def _time_to_min(value: time) -> int:
+    return value.hour * 60 + value.minute
+
+
+@router.message(ScheduleEditStates.waiting_interval_start)
+async def schedule_interval_receive_start(message: Message, state: FSMContext, specialist_id) -> None:
+    start_time = _parse_hhmm(message.text or "")
+    if start_time is None:
+        await _edit_nav_message_from_state(message, state, text="⚠️ Неверный формат времени. Используйте HH:MM, например 09:00.")
+        return
+
+    data = await state.get_data()
+    idx = int(data.get("schedule_interval_idx", 0))
+    if idx not in {1, 2, 3}:
+        await state.set_state(ScheduleEditStates.menu)
+        await _edit_nav_message_from_state(message, state, text="⚠️ Интервал не выбран. Вернитесь в меню интервалов.")
+        return
+
+    repository = WorkingIntervalsRepository()
+    intervals = await repository.get_working_intervals(specialist_id)
+    _, current_end = intervals[idx]
+    if current_end is None:
+        await _edit_nav_message_from_state(message, state, text="⚠️ У интервала нет конца. Сначала задайте конец.")
+        return
+
+    new_start_min = _time_to_min(start_time)
+    if new_start_min >= current_end:
+        await _edit_nav_message_from_state(
+            message,
+            state,
+            text=(
+                "⚠️ Начало должно быть раньше конца. "
+                f"Текущий конец: {_format_min_to_hhmm(current_end)}."
+            ),
+        )
+        return
+
+    before_intervals = dict(intervals)
+    try:
+        updated_intervals = await apply_interval_edit(
+            specialist_id=specialist_id,
+            idx=idx,
+            new_start_min=new_start_min,
+            new_end_min=current_end,
+            action="set",
+        )
+    except WorkingIntervalsValidationError as exc:
+        await _edit_nav_message_from_state(message, state, text=f"⚠️ Интервал не сохранён: {exc}")
+        return
+
+    await state.set_state(ScheduleEditStates.menu)
+    overlap_note = _build_overlap_note(before=before_intervals, after=updated_intervals, edited_idx=idx)
+    await _edit_nav_message_from_state(
+        message,
+        state,
+        text=_intervals_overview_text(
+            updated_intervals,
+            required_min=await _get_required_interval_min(specialist_id),
+            note=overlap_note,
+        ),
+        reply_markup=_schedule_intervals_keyboard(),
+    )
+
+
+@router.message(ScheduleEditStates.waiting_interval_end)
+async def schedule_interval_receive_end(message: Message, state: FSMContext, specialist_id) -> None:
+    end_time = _parse_hhmm(message.text or "")
+    if end_time is None:
+        await _edit_nav_message_from_state(message, state, text="⚠️ Неверный формат времени. Используйте HH:MM, например 18:00.")
+        return
+
+    data = await state.get_data()
+    idx = int(data.get("schedule_interval_idx", 0))
+    if idx not in {1, 2, 3}:
+        await state.set_state(ScheduleEditStates.menu)
+        await _edit_nav_message_from_state(message, state, text="⚠️ Интервал не выбран. Вернитесь в меню интервалов.")
+        return
+
+    repository = WorkingIntervalsRepository()
+    intervals = await repository.get_working_intervals(specialist_id)
+    current_start, _ = intervals[idx]
+    if current_start is None:
+        await _edit_nav_message_from_state(message, state, text="⚠️ У интервала нет начала. Сначала задайте начало.")
+        return
+
+    new_end_min = _time_to_min(end_time)
+    if current_start >= new_end_min:
+        await _edit_nav_message_from_state(
+            message,
+            state,
+            text=(
+                "⚠️ Конец должен быть позже начала. "
+                f"Текущее начало: {_format_min_to_hhmm(current_start)}."
+            ),
+        )
+        return
+
+    before_intervals = dict(intervals)
+    try:
+        updated_intervals = await apply_interval_edit(
+            specialist_id=specialist_id,
+            idx=idx,
+            new_start_min=current_start,
+            new_end_min=new_end_min,
+            action="set",
+        )
+    except WorkingIntervalsValidationError as exc:
+        await _edit_nav_message_from_state(message, state, text=f"⚠️ Интервал не сохранён: {exc}")
+        return
+
+    await state.set_state(ScheduleEditStates.menu)
+    overlap_note = _build_overlap_note(before=before_intervals, after=updated_intervals, edited_idx=idx)
+    await _edit_nav_message_from_state(
+        message,
+        state,
+        text=_intervals_overview_text(
+            updated_intervals,
+            required_min=await _get_required_interval_min(specialist_id),
+            note=overlap_note,
+        ),
+        reply_markup=_schedule_intervals_keyboard(),
+    )
 
 
 @router.message(ScheduleEditStates.waiting_start_time)

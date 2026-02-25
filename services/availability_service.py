@@ -6,12 +6,13 @@ from typing import Callable
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 
-from database import SpecialistCalendarSettings, SpecialistProfile, WeeklyAvailability, async_session_factory
+from database import SpecialistCalendarSettings, SpecialistProfile, SpecialistWorkingInterval, async_session_factory
 from services.schedule_utils import merge_intervals
 from services.slot_ranking import rank_slots_for_interval
 from services.slot_step import iter_slot_starts
+from services.working_intervals import ensure_default_working_intervals
 
 
 @dataclass(slots=True)
@@ -34,31 +35,36 @@ class AvailabilityRepository:
             return profile.specialist_timezone
 
     async def get_context_for_date(self, specialist_id: UUID, target_date_local_specialist: date) -> SpecialistAvailabilityContext:
+        await ensure_default_working_intervals(specialist_id)
+
         async with async_session_factory() as session:
             profile = await session.get(SpecialistProfile, specialist_id)
             if profile is None:
                 raise ValueError("Specialist profile not found")
 
-            weekly_stmt = select(WeeklyAvailability).where(
-                and_(
-                    WeeklyAvailability.specialist_id == specialist_id,
-                    WeeklyAvailability.weekday == target_date_local_specialist.weekday(),
+            interval_rows = (
+                await session.execute(
+                    select(
+                        SpecialistWorkingInterval.start_min,
+                        SpecialistWorkingInterval.end_min,
+                    )
+                    .where(SpecialistWorkingInterval.specialist_id == specialist_id)
+                    .order_by(SpecialistWorkingInterval.idx.asc())
                 )
-            )
-            weekly_row = (await session.execute(weekly_stmt)).scalar_one_or_none()
+            ).all()
 
         intervals: list[tuple[time, time]] = []
-        if weekly_row is not None and weekly_row.is_working:
-            for start, end in (
-                (weekly_row.interval_1_start, weekly_row.interval_1_end),
-                (weekly_row.interval_2_start, weekly_row.interval_2_end),
-                (weekly_row.interval_3_start, weekly_row.interval_3_end),
-            ):
-                if start is None or end is None:
-                    continue
-                if start >= end:
-                    continue
-                intervals.append((start, end))
+        required_min = profile.session_duration_min
+        for start_min, end_min in interval_rows:
+            if start_min is None or end_min is None:
+                continue
+            if start_min >= end_min:
+                continue
+            if (end_min - start_min) < required_min:
+                continue
+            intervals.append((_minutes_to_time(start_min), _minutes_to_time(end_min)))
+
+        intervals = merge_intervals(intervals)
 
         return SpecialistAvailabilityContext(
             specialist_tz=profile.specialist_timezone,
@@ -69,6 +75,11 @@ class AvailabilityRepository:
             intervals=intervals,
             cancel_window_hours=(profile.cancel_window_hours or 12),
         )
+
+
+def _minutes_to_time(value: int) -> time:
+    hours, minutes = divmod(value, 60)
+    return time(hours % 24, minutes)
 
 
 class GoogleBusyProvider:

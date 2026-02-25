@@ -224,3 +224,60 @@ def test_split_by_part_of_day_uses_new_boundaries() -> None:
         "day": [datetime(2026, 2, 12, 13, 0), datetime(2026, 2, 12, 16, 30)],
         "evening": [datetime(2026, 2, 12, 17, 0)],
     }
+
+@pytest.mark.asyncio
+async def test_get_context_for_date_reads_working_intervals_merges_and_filters(monkeypatch):
+    import uuid
+
+    import services.availability_service as availability_service
+
+    specialist_id = uuid.uuid4()
+
+    class _Session:
+        async def get(self, model, _sid):
+            if model is availability_service.SpecialistProfile:
+                return type(
+                    "Profile",
+                    (),
+                    {
+                        "specialist_timezone": "UTC",
+                        "session_duration_min": 60,
+                        "session_buffer_min": 10,
+                        "max_sessions_per_day": 4,
+                        "slot_step_min": 30,
+                        "cancel_window_hours": 12,
+                    },
+                )()
+            return None
+
+        async def execute(self, _stmt):
+            class _Result:
+                def all(self):
+                    # 1) short interval should be filtered out (20 min < 60)
+                    # 2) stitched intervals should merge into one 11:00-15:00
+                    return [
+                        (540, 560),
+                        (660, 780),
+                        (780, 900),
+                    ]
+
+            return _Result()
+
+    class _SessionCtx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _ensure(_specialist_id):
+        assert _specialist_id == specialist_id
+        return False
+
+    monkeypatch.setattr(availability_service, "async_session_factory", lambda: _SessionCtx())
+    monkeypatch.setattr(availability_service, "ensure_default_working_intervals", _ensure)
+
+    repo = availability_service.AvailabilityRepository()
+    context = await repo.get_context_for_date(specialist_id, date(2026, 2, 12))
+
+    assert context.intervals == [(time(11, 0), time(15, 0))]
