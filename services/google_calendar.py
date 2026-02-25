@@ -53,7 +53,7 @@ async def _notify_google_calendar_exception(where: str, exc: Exception, speciali
 
 def required_scopes() -> list[str]:
     return [
-        "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+        "https://www.googleapis.com/auth/calendar.readonly",
         "https://www.googleapis.com/auth/calendar.events",
     ]
 
