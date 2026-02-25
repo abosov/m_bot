@@ -47,19 +47,6 @@ async def test_personal_start_specialist_with_incomplete_onboarding_shows_defaul
     async def fake_load(_specialist_id):
         return specialist, profile
 
-    async def fake_load_rows(_specialist_id):
-        row = types.SimpleNamespace(
-            weekday=0,
-            is_working=True,
-            interval_1_start=None,
-            interval_1_end=None,
-            interval_2_start=None,
-            interval_2_end=None,
-            interval_3_start=None,
-            interval_3_end=None,
-        )
-        return profile, [row]
-
     async def fake_ensure(_specialist_id):
         return None
 
@@ -69,7 +56,15 @@ async def test_personal_start_specialist_with_incomplete_onboarding_shows_defaul
     monkeypatch.setattr(start_router, "_load_specialist_and_profile", fake_load)
     monkeypatch.setattr(start_router, "_ensure_defaults_exist", fake_ensure)
     monkeypatch.setattr(start_router, "_complete_personal_onboarding_if_needed", fake_complete)
-    monkeypatch.setattr(start_router, "_load_profile_and_rows", fake_load_rows)
+    captured = {}
+
+    async def fake_send_owner_panel(message, specialist_id, public_name, owner_tg_user_id=None):
+        captured["specialist_id"] = specialist_id
+        captured["public_name"] = public_name
+        captured["owner_tg_user_id"] = owner_tg_user_id
+        message.answers.append(("owner panel", {"reply_markup": types.SimpleNamespace(inline_keyboard=[[types.SimpleNamespace(callback_data="owner_panel:apply_defaults")]])}))
+
+    monkeypatch.setattr(start_router, "send_owner_panel", fake_send_owner_panel)
 
     await start_router.personal_start(
         message=message,
@@ -80,9 +75,14 @@ async def test_personal_start_specialist_with_incomplete_onboarding_shows_defaul
         owner_tg_user_id=None,
     )
 
-    assert any("Календарь:" in msg[0] for msg in message.answers)
-    assert any("• Название: не выбран" in msg[0] for msg in message.answers)
-    assert any("Часовой пояс специалиста:" in msg[0] for msg in message.answers)
+    assert captured == {
+        "specialist_id": "sp-id",
+        "public_name": "Dr Gregory House",
+        "owner_tg_user_id": None,
+    }
+    reply_markup = message.answers[0][1]["reply_markup"]
+    callback_data = [button.callback_data for row in reply_markup.inline_keyboard for button in row if button.callback_data]
+    assert "owner_panel:apply_defaults" in callback_data
     assert not any("Доступно сейчас" in msg[0] for msg in message.answers)
 
 
@@ -281,25 +281,11 @@ def test_specialist_quick_menu_keyboard_contains_required_actions():
 
 
 @pytest.mark.asyncio
-async def test_render_onboarding_screen_has_expected_headings_and_no_ambiguous_timezone_label(monkeypatch):
+async def test_render_onboarding_screen_uses_owner_panel_view_with_apply_defaults(monkeypatch):
     message = DummyMessage(from_user=types.SimpleNamespace(id=123, full_name="Dr House", first_name="Gregory", last_name="House"))
 
-    specialist = types.SimpleNamespace(
-        calendar_settings=types.SimpleNamespace(
-            calendar_id="cal-1",
-            calendar_summary="Основной календарь",
-            calendar_time_zone="Europe/Moscow",
-            last_smoke_test_status="ok",
-        )
-    )
-    profile = types.SimpleNamespace(
-        session_duration_min=60,
-        session_buffer_min=10,
-        slot_step_min=15,
-        max_sessions_per_day=4,
-        cancel_window_hours=12,
-        specialist_timezone="Europe/Moscow",
-    )
+    specialist = types.SimpleNamespace(calendar_settings=None)
+    profile = types.SimpleNamespace(owner_tg_user_id=123, public_name="Dr House")
 
     async def fake_ensure(_specialist_id):
         return None
@@ -310,42 +296,32 @@ async def test_render_onboarding_screen_has_expected_headings_and_no_ambiguous_t
     async def fake_load(_specialist_id):
         return specialist, profile
 
-    async def fake_load_rows(_specialist_id):
-        row = types.SimpleNamespace(
-            weekday=0,
-            is_working=True,
-            interval_1_start=None,
-            interval_1_end=None,
-            interval_2_start=None,
-            interval_2_end=None,
-            interval_3_start=None,
-            interval_3_end=None,
-        )
-        return profile, [row]
+    captured = {}
+
+    async def fake_send_owner_panel(message, specialist_id, public_name, owner_tg_user_id=None):
+        captured["specialist_id"] = specialist_id
+        captured["public_name"] = public_name
+        captured["owner_tg_user_id"] = owner_tg_user_id
+        message.answers.append((
+            "owner panel",
+            {"reply_markup": types.SimpleNamespace(inline_keyboard=[[types.SimpleNamespace(callback_data="owner_panel:apply_defaults")]])},
+        ))
 
     monkeypatch.setattr(start_router, "_ensure_defaults_exist", fake_ensure)
     monkeypatch.setattr(start_router, "_complete_personal_onboarding_if_needed", fake_complete)
     monkeypatch.setattr(start_router, "_load_specialist_and_profile", fake_load)
-    monkeypatch.setattr(start_router, "_load_profile_and_rows", fake_load_rows)
+    monkeypatch.setattr(start_router, "send_owner_panel", fake_send_owner_panel)
 
     await start_router._render_onboarding_screen(message=message, specialist_id="sp-id")
 
-    assert len(message.answers) == 1
-    text, kwargs = message.answers[0]
-    assert "Календарь:" in text
-    assert "Параметры записи:" in text
-    assert "Часовой пояс:" not in text
-    assert "Часовой пояс календаря (Google):" in text
-    assert "Часовой пояс специалиста:" in text
-
-    callback_data = [button.callback_data for row in kwargs["reply_markup"].inline_keyboard for button in row]
-    assert callback_data == [
-        "owner_panel:calendar_menu",
-        "owner_panel:change_duration_buffer",
-        "owner_panel:slot_params_menu",
-        "owner_panel:change_timezone",
-        "owner_panel:change_schedule",
+    assert captured == {"specialist_id": "sp-id", "public_name": "Dr House", "owner_tg_user_id": 123}
+    callback_data = [
+        button.callback_data
+        for row in message.answers[0][1]["reply_markup"].inline_keyboard
+        for button in row
+        if button.callback_data
     ]
+    assert "owner_panel:apply_defaults" in callback_data
 
 
 @pytest.mark.asyncio
@@ -404,7 +380,7 @@ async def test_personal_start_specialist_with_incomplete_basic_setup_shows_setti
 
 @pytest.mark.asyncio
 async def test_render_onboarding_screen_marks_onboarding_completed_idempotently(monkeypatch):
-    message = DummyMessage(from_user=types.SimpleNamespace(id=123))
+    message = DummyMessage(from_user=types.SimpleNamespace(id=123, full_name="Dr House", first_name="Gregory", last_name="House"))
 
     specialist = types.SimpleNamespace(
         onboarding_personal_completed_at=None,
@@ -451,22 +427,12 @@ async def test_render_onboarding_screen_marks_onboarding_completed_idempotently(
     async def fake_load(_specialist_id):
         return specialist, profile
 
-    async def fake_load_rows(_specialist_id):
-        row = types.SimpleNamespace(
-            weekday=0,
-            is_working=True,
-            interval_1_start=None,
-            interval_1_end=None,
-            interval_2_start=None,
-            interval_2_end=None,
-            interval_3_start=None,
-            interval_3_end=None,
-        )
-        return profile, [row]
+    async def fake_send_owner_panel(*_args, **_kwargs):
+        return None
 
     monkeypatch.setattr(start_router, "_ensure_defaults_exist", fake_ensure)
     monkeypatch.setattr(start_router, "_load_specialist_and_profile", fake_load)
-    monkeypatch.setattr(start_router, "_load_profile_and_rows", fake_load_rows)
+    monkeypatch.setattr(start_router, "send_owner_panel", fake_send_owner_panel)
     monkeypatch.setattr(start_router, "async_session_factory", lambda: _Ctx())
 
     await start_router._render_onboarding_screen(message=message, specialist_id="sp-id")

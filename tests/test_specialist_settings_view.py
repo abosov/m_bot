@@ -33,11 +33,10 @@ def test_build_specialist_settings_view_has_unified_block_order() -> None:
         profile=_Profile(),
         rows=[_Row()],
         calendar_settings=_Calendar(),
-        keep_button_text="✅ Оставить как есть",
-        keep_callback_data="onboarding:keep",
-        include_reset_button=False,
+        keep_button_text=None,
+        keep_callback_data=None,
+        include_reset_button=True,
         working_intervals_by_idx={1: (540, 720), 2: (780, 1020), 3: (1020, 1260)},
-        later_button=("⏳ Позже", "onboarding:later"),
     )
 
     assert text.index("Календарь:") < text.index("Параметры записи:")
@@ -60,8 +59,7 @@ def test_build_specialist_settings_view_has_unified_block_order() -> None:
         "owner_panel:slot_params_menu",
         "owner_panel:change_timezone",
         "owner_panel:change_schedule",
-        "onboarding:keep",
-        "onboarding:later",
+        "owner_panel:apply_defaults",
     ]
 
 
@@ -72,7 +70,7 @@ def test_build_specialist_settings_view_omits_disabled_first_interval() -> None:
         calendar_settings=_Calendar(),
         keep_button_text=None,
         keep_callback_data=None,
-        include_reset_button=False,
+        include_reset_button=True,
         working_intervals_by_idx={1: (None, None), 2: (780, 1020), 3: (1020, 1260)},
     )
 
@@ -86,7 +84,7 @@ def test_build_specialist_settings_view_when_all_intervals_disabled_shows_dash()
         calendar_settings=_Calendar(),
         keep_button_text=None,
         keep_callback_data=None,
-        include_reset_button=False,
+        include_reset_button=True,
         working_intervals_by_idx={1: (None, None), 2: (None, None), 3: (None, None)},
     )
 

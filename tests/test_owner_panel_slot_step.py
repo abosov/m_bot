@@ -117,12 +117,12 @@ async def test_apply_defaults_confirm_calls_reset_service_and_returns_to_owner_p
             "schedule": {weekday: [] for weekday in range(7)},
         }
 
-    async def fake_send_owner_panel(*args, **kwargs):
+    async def fake_render_owner_panel_inplace(message, specialist_id, public_name, owner_tg_user_id=None):
         captured["owner_panel"] += 1
-        assert kwargs["specialist_id"] == "sp-id"
+        assert specialist_id == "sp-id"
 
     monkeypatch.setattr(owner_panel, "reset_specialist_settings_to_default", fake_reset)
-    monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
+    monkeypatch.setattr(owner_panel, "_render_owner_panel_inplace", fake_render_owner_panel_inplace)
 
     callback = DummyCallback()
 
@@ -141,10 +141,10 @@ async def test_apply_defaults_cancel_sends_cancel_message(monkeypatch) -> None:
     callback = DummyCallback()
     captured = {"owner_panel": 0}
 
-    async def fake_send_owner_panel(*args, **kwargs):
+    async def fake_render_owner_panel_inplace(*args, **kwargs):
         captured["owner_panel"] += 1
 
-    monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
+    monkeypatch.setattr(owner_panel, "_render_owner_panel_inplace", fake_render_owner_panel_inplace)
 
     await owner_panel.owner_panel_apply_defaults_cancel(
         callback=callback,
@@ -200,13 +200,12 @@ async def test_owner_cal_create_returns_soft_refusal_and_calendar_menu() -> None
         public_name="Dr. Test",
     )
 
-    assert len(callback.message.answers) == 2
-    assert callback.message.answers[0][0] == (
-        "ℹ️ Сейчас Zumbot подключается только к уже существующему календарю Google.\n"
-        "Если нужен отдельный календарь — создайте его вручную в Google Calendar, затем выберите в боте."
-    )
-    assert callback.message.answers[1][0] == "Выберите действие с календарём:"
-    keyboard = callback.message.answers[1][1]["reply_markup"]
+    assert not callback.message.answers
+    assert len(callback.message.edits) == 1
+    text = callback.message.edits[0][0]
+    assert "Сейчас Zumbot подключается только к уже существующему календарю Google." in text
+    assert "Выберите действие с календарём:" in text
+    keyboard = callback.message.edits[0][1]["reply_markup"]
     callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
     assert callbacks == ["owner_cal:select", "owner_cal:smoke", "owner_cal:back"]
 
@@ -431,11 +430,11 @@ async def test_timezone_set_callback_saves_and_returns_to_owner_panel(monkeypatc
 
     captured = {"owner_panel": 0}
 
-    async def fake_send_owner_panel(*args, **kwargs):
+    async def fake_render_owner_panel_inplace(*args, **kwargs):
         captured["owner_panel"] += 1
 
     monkeypatch.setattr(owner_panel, "update_specialist_timezone", fake_update_specialist_timezone)
-    monkeypatch.setattr(owner_panel, "send_owner_panel", fake_send_owner_panel)
+    monkeypatch.setattr(owner_panel, "_render_owner_panel_inplace", fake_render_owner_panel_inplace)
 
     await owner_panel.owner_panel_timezone_set(
         callback=callback,
@@ -446,7 +445,7 @@ async def test_timezone_set_callback_saves_and_returns_to_owner_panel(monkeypatc
     )
 
     assert state.current_state is None
-    assert "✅ Часовой пояс специалиста сохранён" in callback.message.answers[-1][0]
+    assert callback.answers[-1][0] == "✅ Часовой пояс специалиста сохранён"
     assert captured == {"owner_panel": 1}
 
 
@@ -517,3 +516,132 @@ async def test_timezone_fsm_keeps_state_on_validation_error(monkeypatch) -> None
 
     assert state.current_state == owner_panel.TimezoneSettingsStates.waiting_manual_timezone
     assert "Не удалось сохранить timezone" in message.answers[-1][0]
+
+
+@pytest.mark.asyncio
+async def test_build_owner_panel_view_has_reset_and_stable_primary_button_order(monkeypatch) -> None:
+    profile = type(
+        "Profile",
+        (),
+        {
+            "public_name": "Dr. House",
+            "specialist_timezone": "UTC",
+            "session_duration_min": 60,
+            "session_buffer_min": 10,
+            "slot_step_min": 15,
+            "max_sessions_per_day": 4,
+            "cancel_window_hours": 12,
+        },
+    )()
+
+    async def fake_load_profile_and_rows(_specialist_id):
+        return profile, []
+
+    async def fake_load_calendar_settings(_specialist_id):
+        return None
+
+    class _Repo:
+        async def get_working_intervals(self, _specialist_id):
+            return {}
+
+    monkeypatch.setattr(owner_panel, "_load_profile_and_rows", fake_load_profile_and_rows)
+    monkeypatch.setattr(owner_panel, "_load_calendar_settings", fake_load_calendar_settings)
+    monkeypatch.setattr(owner_panel, "WorkingIntervalsRepository", _Repo)
+
+    panel_view = await owner_panel._build_owner_panel_view(specialist_id="sp-id", public_name=None)
+
+    assert panel_view is not None
+    _text, keyboard = panel_view
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row if button.callback_data]
+    assert "owner_panel:apply_defaults" in callbacks
+    assert callbacks[:5] == [
+        "owner_panel:calendar_menu",
+        "owner_panel:change_duration_buffer",
+        "owner_panel:slot_params_menu",
+        "owner_panel:change_timezone",
+        "owner_panel:change_schedule",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_owner_panel_always_sends_single_unified_main_screen_message(monkeypatch) -> None:
+    message = DummyMessage()
+
+    async def fake_ensure_defaults(*, specialist_id, owner_tg_user_id, public_name):
+        return True
+
+    async def fake_build_view(*, specialist_id, public_name):
+        keyboard = owner_panel.InlineKeyboardMarkup(
+            inline_keyboard=[[owner_panel.InlineKeyboardButton(text="reset", callback_data="owner_panel:apply_defaults")]]
+        )
+        return "✅ Базовые настройки уже применены автоматически после онбординга, Dr. Test.\nХотите изменить их сейчас?", keyboard
+
+    monkeypatch.setattr(owner_panel, "_ensure_owner_panel_defaults", fake_ensure_defaults)
+    monkeypatch.setattr(owner_panel, "_build_owner_panel_view", fake_build_view)
+
+    await owner_panel.send_owner_panel(
+        message=message,
+        specialist_id="sp-id",
+        public_name="Dr. Test",
+        owner_tg_user_id=123,
+    )
+
+    assert len(message.answers) == 1
+    text, kwargs = message.answers[0]
+    assert "Базовые настройки уже применены автоматически после онбординга" in text
+    callback_data = [button.callback_data for row in kwargs["reply_markup"].inline_keyboard for button in row if button.callback_data]
+    assert callback_data == ["owner_panel:apply_defaults"]
+
+
+@pytest.mark.asyncio
+async def test_first_open_and_back_render_identical_main_screen_callbacks(monkeypatch) -> None:
+    first_open_message = DummyMessage()
+    back_message = DummyMessage()
+
+    async def fake_ensure_defaults(*, specialist_id, owner_tg_user_id, public_name):
+        return False
+
+    async def fake_build_view(*, specialist_id, public_name):
+        keyboard = owner_panel.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [owner_panel.InlineKeyboardButton(text="📅", callback_data="owner_panel:calendar_menu")],
+                [owner_panel.InlineKeyboardButton(text="⏱️", callback_data="owner_panel:change_duration_buffer")],
+                [owner_panel.InlineKeyboardButton(text="⚙️", callback_data="owner_panel:slot_params_menu")],
+                [owner_panel.InlineKeyboardButton(text="🌍", callback_data="owner_panel:change_timezone")],
+                [owner_panel.InlineKeyboardButton(text="📅", callback_data="owner_panel:change_schedule")],
+                [owner_panel.InlineKeyboardButton(text="♻️", callback_data="owner_panel:apply_defaults")],
+            ]
+        )
+        return "owner panel", keyboard
+
+    monkeypatch.setattr(owner_panel, "_ensure_owner_panel_defaults", fake_ensure_defaults)
+    monkeypatch.setattr(owner_panel, "_build_owner_panel_view", fake_build_view)
+
+    await owner_panel.send_owner_panel(
+        message=first_open_message,
+        specialist_id="sp-id",
+        public_name="Dr. Test",
+        owner_tg_user_id=123,
+    )
+    await owner_panel._render_owner_panel_inplace(
+        message=back_message,
+        specialist_id="sp-id",
+        public_name="Dr. Test",
+        owner_tg_user_id=123,
+    )
+
+    first_callbacks = [
+        button.callback_data
+        for row in first_open_message.answers[-1][1]["reply_markup"].inline_keyboard
+        for button in row
+        if button.callback_data
+    ]
+    back_callbacks = [
+        button.callback_data
+        for row in back_message.edits[-1][1]["reply_markup"].inline_keyboard
+        for button in row
+        if button.callback_data
+    ]
+
+    assert first_callbacks == back_callbacks
+    assert "owner_panel:apply_defaults" in first_callbacks
