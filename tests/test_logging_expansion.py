@@ -86,3 +86,25 @@ def test_google_oauth_scope_change_warning_is_ignored(monkeypatch):
     assert refresh_token == "r1"
     assert access_token == "a1"
     assert credentials.scopes == ["scope-a"]
+
+
+def test_google_oauth_scope_change_warning_without_details_is_ignored(monkeypatch):
+    class _FakeFlow:
+        def __init__(self):
+            self.credentials = types.SimpleNamespace(refresh_token="r2", token="a2", scopes=["scope-b"])
+
+        def fetch_token(self, code):
+            warnings.warn("Scope has changed", Warning)
+
+    monkeypatch.setattr(google_oauth, "_ensure_google_oauth_config", lambda: None)
+    monkeypatch.setattr(
+        google_oauth.Flow,
+        "from_client_config",
+        lambda *args, **kwargs: _FakeFlow(),
+    )
+
+    refresh_token, access_token, credentials = google_oauth.exchange_code_for_token("dummy-code")
+
+    assert refresh_token == "r2"
+    assert access_token == "a2"
+    assert credentials.scopes == ["scope-b"]
