@@ -70,6 +70,15 @@ def _is_appointment_active_for_reverse_sync(booking_state: BookingState) -> bool
     return booking_state in {BookingState.confirmed, BookingState.awaiting_specialist_confirmation}
 
 
+def _is_zumbot_managed_event(event: dict[str, Any]) -> bool:
+    marker = (
+        event.get("extendedProperties", {})
+        .get("private", {})
+        .get("zumbot_managed")
+    )
+    return str(marker) == "1"
+
+
 def _extract_appointment_id(event: dict[str, Any]) -> uuid.UUID | None:
     appointment_id_raw = (
         event.get("extendedProperties", {})
@@ -143,6 +152,13 @@ async def reconcile_event_to_appointment(
     async with async_session_factory() as session:
         appointment = await session.get(Appointment, appointment_id)
         if appointment is None:
+            logger.info(
+                "event=google_calendar_reverse_sync_appointment_not_found specialist_id=%s calendar_id=%s appointment_id=%s google_event_id=%s",
+                specialist_id,
+                calendar_id,
+                appointment_id,
+                event.get("id"),
+            )
             return ReconcileResult(result=ReconcileOutcome.REJECTED, reason="appointment_not_found", appointment_id=appointment_id)
         if appointment.specialist_id != specialist_id:
             return ReconcileResult(result=ReconcileOutcome.REJECTED, reason="specialist_mismatch", appointment_id=appointment_id)
@@ -274,15 +290,23 @@ async def run_calendar_reverse_sync(specialist_id: uuid.UUID, calendar_id: str) 
 
             now = datetime.now(timezone.utc)
             for event in events:
-                appointment_id = _extract_appointment_id(event)
                 google_event_id = event.get("id")
-                if not appointment_id:
+                if not _is_zumbot_managed_event(event):
                     logger.info(
-                        "event=google_calendar_reverse_sync_ignore_event_without_appointment specialist_id=%s calendar_id=%s google_event_id=%s appointment_id=%s",
+                        "event=google_calendar_reverse_sync_ignore_unmanaged_event specialist_id=%s calendar_id=%s google_event_id=%s",
                         specialist_id,
                         calendar_id,
                         google_event_id,
-                        None,
+                    )
+                    continue
+
+                appointment_id = _extract_appointment_id(event)
+                if not appointment_id:
+                    logger.info(
+                        "event=google_calendar_reverse_sync_ignore_marked_event_without_appointment specialist_id=%s calendar_id=%s google_event_id=%s",
+                        specialist_id,
+                        calendar_id,
+                        google_event_id,
                     )
                     continue
 

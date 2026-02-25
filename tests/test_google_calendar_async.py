@@ -1,6 +1,6 @@
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -406,6 +406,7 @@ async def test_create_appointment_event_includes_private_extended_properties(mon
         client_display_name="Клиент",
     )
 
+    assert captured_payload["extendedProperties"]["private"]["zumbot_managed"] == "1"
     assert captured_payload["extendedProperties"]["private"]["zumbot_appointment_id"] == str(appointment_id)
     assert captured_payload["extendedProperties"]["private"]["zumbot_specialist_id"] == str(specialist_id)
 
@@ -427,6 +428,7 @@ def test_merge_private_extended_properties_preserves_existing_keys():
     )
 
     assert payload["extendedProperties"]["private"]["existing_key"] == "existing_value"
+    assert payload["extendedProperties"]["private"]["zumbot_managed"] == "1"
     assert payload["extendedProperties"]["private"]["zumbot_appointment_id"] == str(appointment_id)
     assert payload["extendedProperties"]["private"]["zumbot_specialist_id"] == str(specialist_id)
     assert payload["extendedProperties"]["shared"] == {"k": "v"}
@@ -448,3 +450,69 @@ def test_scopes_as_string_contains_required_scopes():
 def test_google_oauth_scopes_match_calendar_required_scopes():
     assert google_oauth.SCOPES == google_calendar.required_scopes()
     assert "https://www.googleapis.com/auth/calendar" not in google_oauth.SCOPES
+
+
+@pytest.mark.asyncio
+async def test_ensure_calendar_watch_stops_previous_channel_before_new_watch(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class SyncState:
+        def __init__(self):
+            self.channel_id = "old-channel"
+            self.resource_id = "old-resource"
+            self.channel_expiration = datetime.now(timezone.utc) - timedelta(minutes=1)
+            self.sync_token = "stale"
+            self.last_success_at = datetime.now(timezone.utc)
+            self.last_error_at = None
+            self.error_count = 2
+
+    class Session:
+        def __init__(self):
+            self.sync_state = SyncState()
+            self.committed = 0
+
+        async def get(self, model, key):
+            return self.sync_state
+
+        def add(self, obj):
+            self.sync_state = obj
+
+        async def commit(self):
+            self.committed += 1
+
+    class _StopResponse:
+        status_code = 204
+
+        def json(self):
+            return {}
+
+    class _WatchResponse:
+        status_code = 200
+
+        def json(self):
+            return {"resourceId": "new-resource", "expiration": "4102444800000"}
+
+    calls = []
+    session = Session()
+
+    async def fake_headers(_specialist_id):
+        return {"Authorization": "Bearer token", "Content-Type": "application/json"}
+
+    async def fake_request(_request_callable, url, *, method_name, timeout=10, **kwargs):
+        calls.append((method_name, url, kwargs.get("json")))
+        if url.endswith("/channels/stop"):
+            return _StopResponse()
+        return _WatchResponse()
+
+    monkeypatch.setattr(google_calendar, "async_session_factory", lambda: _DummySessionCtx(session))
+    monkeypatch.setattr(google_calendar, "_build_headers", fake_headers)
+    monkeypatch.setattr(google_calendar, "_calendar_request_with_retry", fake_request)
+
+    await google_calendar.ensure_calendar_watch(specialist_id, "cal-1")
+
+    assert session.committed == 1
+    assert calls[0][1].endswith("/channels/stop")
+    assert calls[0][2] == {"id": "old-channel", "resourceId": "old-resource"}
+    assert calls[1][1].endswith("/events/watch")
+    assert session.sync_state.resource_id == "new-resource"
+    assert session.sync_state.sync_token is None

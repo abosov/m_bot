@@ -53,6 +53,20 @@ from admin_api import router as admin_router
 
 logger = logging.getLogger(__name__)
 
+_UNKNOWN_CHANNEL_LOG_WINDOW_SECONDS = 600
+_unknown_channel_log_state: dict[str, tuple[float, int]] = {}
+
+
+def _should_log_unknown_channel(channel_id: str) -> tuple[bool, int]:
+    now_monotonic = time.monotonic()
+    next_allowed_at, suppressed_count = _unknown_channel_log_state.get(channel_id, (0.0, 0))
+    if now_monotonic >= next_allowed_at:
+        _unknown_channel_log_state[channel_id] = (now_monotonic + _UNKNOWN_CHANNEL_LOG_WINDOW_SECONDS, 0)
+        return True, suppressed_count
+
+    _unknown_channel_log_state[channel_id] = (next_allowed_at, suppressed_count + 1)
+    return False, suppressed_count + 1
+
 BASE_DIR = Path(__file__).resolve().parent
 WEB_DIR = BASE_DIR / "web"
 ASSETS_DIR = WEB_DIR / "assets"
@@ -329,14 +343,17 @@ async def google_calendar_webhook(request: Request, background_tasks: Background
         ).first()
 
         if sync_state is None:
-            logger.warning(
-                "event=google_calendar_webhook_unknown_channel request_id=%s channel_id=%s resource_id=%s resource_state=%s message_number=%s",
-                _request_id_from_request(request),
-                channel_id,
-                resource_id,
-                resource_state,
-                message_number,
-            )
+            should_log, suppressed_count = _should_log_unknown_channel(channel_id)
+            if should_log:
+                logger.info(
+                    "event=google_calendar_webhook_unknown_channel request_id=%s channel_id=%s resource_id=%s resource_state=%s message_number=%s suppressed_in_window=%s",
+                    _request_id_from_request(request),
+                    channel_id,
+                    resource_id,
+                    resource_state,
+                    message_number,
+                    suppressed_count,
+                )
             return Response(status_code=200)
 
         specialist_id, calendar_id, last_enqueued_at = sync_state

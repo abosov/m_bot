@@ -264,7 +264,7 @@ def test_google_calendar_webhook_returns_200_without_required_headers(monkeypatc
     monkeypatch.setattr(web_server, "run_calendar_reverse_sync", fake_reverse_sync)
 
     client = TestClient(web_server.app)
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO):
         response = client.post("/integrations/google-calendar/webhook")
 
     assert response.status_code == 200
@@ -290,7 +290,7 @@ def test_google_calendar_webhook_returns_200_for_unknown_channel(monkeypatch, ca
     monkeypatch.setattr(web_server, "run_calendar_reverse_sync", fake_reverse_sync)
 
     client = TestClient(web_server.app)
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO):
         response = client.post(
             "/integrations/google-calendar/webhook",
             headers={
@@ -303,3 +303,37 @@ def test_google_calendar_webhook_returns_200_for_unknown_channel(monkeypatch, ca
     assert response.status_code == 200
     assert called["value"] is False
     assert any("google_calendar_webhook_unknown_channel" in record.getMessage() for record in caplog.records)
+
+
+def test_google_calendar_webhook_unknown_channel_logs_once_per_window(monkeypatch, caplog):
+    class Session:
+        async def execute(self, stmt):
+            class SyncResult:
+                def first(self_nonlocal):
+                    return None
+
+            return SyncResult()
+
+    monkeypatch.setattr(web_server, "async_session_factory", lambda: DummySessionCtx(Session()))
+
+    client = TestClient(web_server.app)
+    web_server._unknown_channel_log_state.clear()
+
+    with caplog.at_level(logging.INFO):
+        for _ in range(2):
+            response = client.post(
+                "/integrations/google-calendar/webhook",
+                headers={
+                    "X-Goog-Channel-Id": "missing-channel-agg",
+                    "X-Goog-Resource-Id": "resource-1",
+                    "X-Goog-Resource-State": "exists",
+                },
+            )
+            assert response.status_code == 200
+
+    unknown_logs = [
+        record.getMessage()
+        for record in caplog.records
+        if "google_calendar_webhook_unknown_channel" in record.getMessage()
+    ]
+    assert len(unknown_logs) == 1

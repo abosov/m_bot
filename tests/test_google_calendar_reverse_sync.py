@@ -209,6 +209,7 @@ async def test_reverse_sync_rejected_appointment_not_found_does_not_create_link(
                         "updated": datetime.now(timezone.utc).isoformat(),
                         "extendedProperties": {
                             "private": {
+                                "zumbot_managed": "1",
                                 "zumbot_appointment_id": str(missing_appointment_id),
                             }
                         },
@@ -279,7 +280,7 @@ async def test_reconcile_event_reschedules_when_notice_is_enough(monkeypatch):
 
     event = {
         'id': 'evt-1',
-        'extendedProperties': {'private': {'zumbot_appointment_id': str(appointment_id)}},
+        'extendedProperties': {'private': {'zumbot_managed': '1', 'zumbot_appointment_id': str(appointment_id)}},
         'start': {'dateTime': (now + timedelta(hours=40)).isoformat(), 'timeZone': 'UTC'},
         'end': {'dateTime': (now + timedelta(hours=41)).isoformat(), 'timeZone': 'UTC'},
     }
@@ -345,7 +346,7 @@ async def test_reconcile_event_rejected_when_notice_too_short(monkeypatch):
 
     event = {
         'id': 'evt-2',
-        'extendedProperties': {'private': {'zumbot_appointment_id': str(appointment_id)}},
+        'extendedProperties': {'private': {'zumbot_managed': '1', 'zumbot_appointment_id': str(appointment_id)}},
         'start': {'dateTime': (now + timedelta(hours=20)).isoformat(), 'timeZone': 'UTC'},
         'end': {'dateTime': (now + timedelta(hours=21)).isoformat(), 'timeZone': 'UTC'},
     }
@@ -403,7 +404,7 @@ async def test_reconcile_event_rejected_on_time_conflict(monkeypatch):
 
     event = {
         'id': 'evt-3',
-        'extendedProperties': {'private': {'zumbot_appointment_id': str(appointment_id)}},
+        'extendedProperties': {'private': {'zumbot_managed': '1', 'zumbot_appointment_id': str(appointment_id)}},
         'start': {'dateTime': (now + timedelta(hours=40)).isoformat(), 'timeZone': 'UTC'},
         'end': {'dateTime': (now + timedelta(hours=41)).isoformat(), 'timeZone': 'UTC'},
     }
@@ -460,7 +461,7 @@ async def test_reconcile_event_cancels_appointment_when_google_event_cancelled(m
     event = {
         'id': 'evt-cancel-1',
         'status': 'cancelled',
-        'extendedProperties': {'private': {'zumbot_appointment_id': str(appointment_id)}},
+        'extendedProperties': {'private': {'zumbot_managed': '1', 'zumbot_appointment_id': str(appointment_id)}},
     }
 
     result = await google_calendar_reverse_sync.reconcile_event_to_appointment(event, specialist_id, 'primary')
@@ -521,7 +522,7 @@ async def test_reconcile_event_cancelled_noop_when_appointment_already_cancelled
     event = {
         'id': 'evt-cancel-2',
         'status': 'cancelled',
-        'extendedProperties': {'private': {'zumbot_appointment_id': str(appointment_id)}},
+        'extendedProperties': {'private': {'zumbot_managed': '1', 'zumbot_appointment_id': str(appointment_id)}},
     }
 
     result = await google_calendar_reverse_sync.reconcile_event_to_appointment(event, specialist_id, 'primary')
@@ -569,7 +570,7 @@ async def test_reconcile_event_rejected_for_rejected_appointment_state(monkeypat
 
     event = {
         'id': 'evt-rejected',
-        'extendedProperties': {'private': {'zumbot_appointment_id': str(appointment_id)}},
+        'extendedProperties': {'private': {'zumbot_managed': '1', 'zumbot_appointment_id': str(appointment_id)}},
         'start': {'dateTime': (now + timedelta(hours=40)).isoformat(), 'timeZone': 'UTC'},
         'end': {'dateTime': (now + timedelta(hours=41)).isoformat(), 'timeZone': 'UTC'},
     }
@@ -578,3 +579,70 @@ async def test_reconcile_event_rejected_for_rejected_appointment_state(monkeypat
 
     assert result.result == google_calendar_reverse_sync.ReconcileOutcome.REJECTED
     assert result.reason == 'inactive_booking_state'
+
+
+@pytest.mark.asyncio
+async def test_reverse_sync_ignores_marked_events_without_appointment_id(monkeypatch):
+    specialist_id = uuid.uuid4()
+    calendar_id = "primary"
+
+    class Session:
+        def __init__(self):
+            self.sync_state = CalendarSyncState(
+                specialist_id=specialist_id,
+                calendar_id=calendar_id,
+                sync_token=None,
+                error_count=0,
+            )
+            self.links = {}
+            self.committed = False
+
+        async def get(self, model, key):
+            if model.__name__ == "CalendarSyncState":
+                return self.sync_state
+            if model.__name__ == "AppointmentCalendarLink":
+                return self.links.get(key)
+            return None
+
+        def add(self, obj):
+            return None
+
+        async def commit(self):
+            self.committed = True
+
+    session = Session()
+    reconcile_called = {"count": 0}
+
+    async def fake_headers(_specialist_id):
+        return {"Authorization": "Bearer x"}
+
+    async def fake_request(_request_callable, _url, *, method_name, timeout=10, **kwargs):
+        assert method_name == "GET"
+        return _Response(
+            200,
+            {
+                "items": [
+                    {
+                        "id": "evt-marked-without-appointment",
+                        "etag": '"etag-1"',
+                        "updated": datetime.now(timezone.utc).isoformat(),
+                        "extendedProperties": {"private": {"zumbot_managed": "1"}},
+                    }
+                ],
+                "nextSyncToken": "sync-2",
+            },
+        )
+
+    async def fake_reconcile(event, _specialist_id, _calendar_id):
+        reconcile_called["count"] += 1
+
+    monkeypatch.setattr(google_calendar, "_build_headers", fake_headers)
+    monkeypatch.setattr(google_calendar, "_calendar_request_with_retry", fake_request)
+    monkeypatch.setattr(google_calendar_reverse_sync, "reconcile_event_to_appointment", fake_reconcile)
+    monkeypatch.setattr(google_calendar_reverse_sync, "async_session_factory", lambda: _DummySessionCtx(session))
+
+    await google_calendar_reverse_sync.run_calendar_reverse_sync(specialist_id, calendar_id)
+
+    assert reconcile_called["count"] == 0
+    assert session.sync_state.sync_token == "sync-2"
+    assert session.committed is True
