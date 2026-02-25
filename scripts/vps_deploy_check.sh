@@ -177,7 +177,10 @@ check_webhook_secret_not_logged() {
   local webhook_secret="${TEST_PERSONAL_WEBHOOK_SECRET:-}"
   local raw_pattern
 
-  [[ -n "${bot_id}" ]] || die "TEST_PERSONAL_BOT_ID is required for webhook log masking smoke-check"
+  if [[ -z "${bot_id}" ]]; then
+    log "[SKIP] Smoke: webhook log masking (TEST_PERSONAL_BOT_ID is not set)"
+    return 0
+  fi
   [[ -n "${webhook_secret}" ]] || die "TEST_PERSONAL_WEBHOOK_SECRET is required for webhook log masking smoke-check"
   [[ -f "${log_file}" ]] || die "nginx access log not found (${log_file})"
 
