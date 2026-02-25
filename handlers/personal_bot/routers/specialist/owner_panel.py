@@ -1582,6 +1582,7 @@ def _schedule_weekday_keyboard(working_days: set[int]) -> InlineKeyboardMarkup:
             [_day_button(2), _day_button(3)],
             [_day_button(4), _day_button(5)],
             [_day_button(6)],
+            [InlineKeyboardButton(text="🕒 Интервалы", callback_data="schedule:intervals_menu")],
             [InlineKeyboardButton(text="🕒 Интервалы дня", callback_data="schedule:intervals_pick_day")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="schedule:back_owner")],
         ]
@@ -1609,6 +1610,14 @@ async def _edit_or_send_schedule_picker(
     reply_markup: InlineKeyboardMarkup,
 ) -> Message:
     return await callback.message.edit_text(text, reply_markup=reply_markup)
+
+
+async def _render_weekday_picker(callback: CallbackQuery, *, specialist_id) -> None:
+    await _edit_or_send_schedule_picker(
+        callback,
+        text="📅 Настройка расписания\n\nВыберите рабочие дни недели:",
+        reply_markup=_schedule_weekday_keyboard(await get_working_days(specialist_id)),
+    )
 
 
 def _schedule_menu_keyboard(weekday: int, intervals: list[dict[str, str]]) -> InlineKeyboardMarkup:
@@ -1670,7 +1679,7 @@ def _schedule_intervals_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Интервал 1", callback_data="schedule:interval:1")],
             [InlineKeyboardButton(text="Интервал 2", callback_data="schedule:interval:2")],
             [InlineKeyboardButton(text="Интервал 3", callback_data="schedule:interval:3")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="schedule:back_owner")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="schedule:back_to_weekdays")],
         ]
     )
 
@@ -1781,14 +1790,14 @@ def _build_overlap_note(
 
 @router.callback_query(F.data == "owner_panel:change_schedule")
 async def owner_panel_change_schedule(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
-    await state.set_state(ScheduleEditStates.menu)
+    await state.set_state(ScheduleEditStates.choosing_weekday)
     await _remember_nav_message(state, callback.message)
     await callback.answer()
-    await _render_intervals_menu(callback.message, specialist_id)
+    await _render_weekday_picker(callback, specialist_id=specialist_id)
 
 
 @router.callback_query(F.data.startswith("schedule:interval:"))
-async def schedule_interval_select(callback: CallbackQuery, state: FSMContext) -> None:
+async def schedule_interval_select(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
     raw_idx = (callback.data or "").split(":")[-1]
     try:
         idx = int(raw_idx)
@@ -1877,13 +1886,8 @@ async def schedule_interval_end_prompt(callback: CallbackQuery, state: FSMContex
 @router.callback_query(F.data == "schedule:pick_day")
 async def schedule_pick_day(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
     await state.set_state(ScheduleEditStates.choosing_weekday)
-    working_days = await get_working_days(specialist_id)
     await callback.answer()
-    await _edit_or_send_schedule_picker(
-        callback,
-        text="📅 Настройка расписания\n\nВыберите день недели:",
-        reply_markup=_schedule_weekday_keyboard(working_days),
-    )
+    await _render_weekday_picker(callback, specialist_id=specialist_id)
 
 
 @router.callback_query(F.data == "schedule:intervals_pick_day")
@@ -1911,6 +1915,13 @@ async def schedule_toggle_day(callback: CallbackQuery, specialist_id) -> None:
         reply_markup=_schedule_weekday_keyboard(working_days),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data == "schedule:back_to_weekdays")
+async def schedule_back_to_weekdays(callback: CallbackQuery, state: FSMContext, specialist_id) -> None:
+    await state.set_state(ScheduleEditStates.choosing_weekday)
+    await callback.answer()
+    await _render_weekday_picker(callback, specialist_id=specialist_id)
 
 
 @router.callback_query(F.data == "schedule:back_owner")
