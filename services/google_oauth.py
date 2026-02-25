@@ -27,7 +27,7 @@ GOOGLE_CLIENT_CONFIG = {
 }
 
 SCOPES = [
-    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
     'https://www.googleapis.com/auth/calendar.events',
 ]
 REDIRECT_URI = config.GOOGLE_REDIRECT_URI
