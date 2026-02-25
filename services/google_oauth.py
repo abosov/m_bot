@@ -2,6 +2,7 @@ import logging
 import secrets
 import asyncio
 import time
+import warnings
 from datetime import datetime, timedelta, timezone
 from typing import Tuple, Any
 import uuid
@@ -13,6 +14,7 @@ import config
 from database import OAuthState, OAuthStateType
 from services.alerting import notify_exception
 from services.log_context import log_event
+from services.google_calendar import required_scopes
 
 # Конфигурация клиента Google из переменных окружения
 # В продакшене лучше использовать файл client_secrets.json, но для MVP соберем словарь вручную
@@ -26,10 +28,7 @@ GOOGLE_CLIENT_CONFIG = {
     }
 }
 
-SCOPES = [
-    'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
-    'https://www.googleapis.com/auth/calendar.events',
-]
+SCOPES = required_scopes()
 REDIRECT_URI = config.GOOGLE_REDIRECT_URI
 
 logger = logging.getLogger(__name__)
@@ -97,7 +96,9 @@ def exchange_code_for_token(code: str) -> Tuple[str, str, Any]:
         redirect_uri=REDIRECT_URI
     )
     
-    flow.fetch_token(code=code)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=r"^Scope has changed from", category=Warning)
+        flow.fetch_token(code=code)
     creds = flow.credentials
     
     return creds.refresh_token, creds.token, creds
