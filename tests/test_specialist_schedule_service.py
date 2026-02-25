@@ -267,6 +267,7 @@ async def test_update_specialist_timezone_updates_profile_invalidates_cache_and_
 
     monkeypatch.setattr(specialist_schedule, "async_session_factory", lambda: DummySessionCtx(Session()))
 
+
     calls = {"invalidate": 0}
 
     async def fake_invalidate(sid):
@@ -544,7 +545,13 @@ async def test_reset_specialist_settings_to_default_resets_profile_schedule_and_
     session = Session()
     monkeypatch.setattr(specialist_schedule, "async_session_factory", lambda: DummySessionCtx(session))
 
-    calls = {"invalidate": 0}
+    calls = {"invalidate": 0, "upsert": 0}
+
+    class Repo:
+        async def upsert_working_intervals(self, sid, intervals_dict):
+            calls["upsert"] += 1
+            assert sid == specialist_id
+            assert intervals_dict == specialist_schedule.DEFAULT_WORKING_INTERVALS_MIN
 
     async def fake_invalidate(sid):
         calls["invalidate"] += 1
@@ -556,6 +563,7 @@ async def test_reset_specialist_settings_to_default_resets_profile_schedule_and_
         assert sid == specialist_id
         return expected_schedule
 
+    monkeypatch.setattr(specialist_schedule, "WorkingIntervalsRepository", lambda: Repo())
     monkeypatch.setattr(specialist_schedule, "invalidate_availability_cache", fake_invalidate)
     monkeypatch.setattr(specialist_schedule, "get_specialist_schedule", fake_get_schedule)
 
@@ -567,7 +575,7 @@ async def test_reset_specialist_settings_to_default_resets_profile_schedule_and_
     assert profile.max_sessions_per_day == specialist_schedule.DEFAULT_MAX_SESSIONS_PER_DAY
     assert len(session.deleted) == 2
     assert len(session.added) == len(specialist_schedule.DEFAULT_WORKING_DAYS) * len(specialist_schedule.DEFAULT_WORKING_INTERVALS)
-    assert calls == {"invalidate": 1}
+    assert calls == {"invalidate": 1, "upsert": 1}
     assert actual == {
         "session_duration_min": specialist_schedule.DEFAULT_DURATION_MIN,
         "session_buffer_min": specialist_schedule.DEFAULT_BUFFER_MIN,

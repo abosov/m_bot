@@ -613,6 +613,7 @@ async def send_owner_panel(
 
     profile, rows = await _load_profile_and_rows(specialist_id)
     calendar_settings = await _load_calendar_settings(specialist_id)
+    working_intervals_by_idx = await WorkingIntervalsRepository().get_working_intervals(specialist_id)
     if profile is None:
         logger.error("send_owner_panel: SpecialistProfile not found for specialist_id=%s", specialist_id)
         await message.answer(
@@ -627,6 +628,7 @@ async def send_owner_panel(
         keep_button_text=None,
         keep_callback_data=None,
         include_reset_button=True,
+        working_intervals_by_idx=working_intervals_by_idx,
     )
     text = (
         f"✅ Базовые настройки уже применены автоматически после онбординга, {display_name}.\n"
@@ -665,6 +667,7 @@ async def _render_owner_panel_inplace(
 
     profile, rows = await _load_profile_and_rows(specialist_id)
     calendar_settings = await _load_calendar_settings(specialist_id)
+    working_intervals_by_idx = await WorkingIntervalsRepository().get_working_intervals(specialist_id)
     if profile is None:
         logger.error("_render_owner_panel_inplace: SpecialistProfile not found for specialist_id=%s", specialist_id)
         await message.edit_text(
@@ -680,6 +683,7 @@ async def _render_owner_panel_inplace(
         keep_button_text=None,
         keep_callback_data=None,
         include_reset_button=True,
+        working_intervals_by_idx=working_intervals_by_idx,
     )
     text = (
         f"✅ Базовые настройки уже применены автоматически после онбординга, {display_name}.\n"

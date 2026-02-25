@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from datetime import time
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -17,8 +16,10 @@ _WEEKDAY_LABELS = {
 }
 
 
-def _format_time(value: time | None) -> str:
-    return value.strftime("%H:%M") if value else "—"
+
+def _format_minutes(value: int) -> str:
+    hours, minutes = divmod(value, 60)
+    return f"{hours:02d}:{minutes:02d}"
 
 
 def _working_days(rows: Sequence) -> str:
@@ -26,21 +27,20 @@ def _working_days(rows: Sequence) -> str:
     return ", ".join(days) if days else "не заданы"
 
 
-def _format_intervals_for_ui(row) -> str:
-    if row is None:
-        return "не заданы"
+def _format_intervals_for_ui(intervals_by_idx: Mapping[int, tuple[int | None, int | None]] | None) -> str:
+    if not intervals_by_idx:
+        return "—"
 
     intervals = []
-    for start, end in (
-        (row.interval_1_start, row.interval_1_end),
-        (row.interval_2_start, row.interval_2_end),
-        (row.interval_3_start, row.interval_3_end),
-    ):
-        if start is not None and end is not None and start < end:
+    for idx in (1, 2, 3):
+        start, end = intervals_by_idx.get(idx, (None, None))
+        if start is not None and end is not None and 0 <= start < end <= 1440:
             intervals.append((start, end))
+
     if not intervals:
-        return "не заданы"
-    return ", ".join(f"{_format_time(start)}–{_format_time(end)}" for start, end in intervals)
+        return "—"
+
+    return ", ".join(f"{_format_minutes(start)}–{_format_minutes(end)}" for start, end in intervals)
 
 
 def build_specialist_settings_view(
@@ -51,6 +51,7 @@ def build_specialist_settings_view(
     keep_button_text: str | None,
     keep_callback_data: str | None,
     include_reset_button: bool,
+    working_intervals_by_idx: Mapping[int, tuple[int | None, int | None]] | None = None,
     later_button: tuple[str, str] | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
     calendar_summary = "не выбран"
@@ -62,7 +63,6 @@ def build_specialist_settings_view(
         smoke_status = getattr(calendar_settings, "last_smoke_test_status", None) or "unknown"
 
     specialist_timezone = (profile.specialist_timezone or "UTC")
-    sample_day = next((row for row in rows if row.is_working), None)
     text = (
         "Календарь:\n"
         f"• Название: {calendar_summary}\n"
@@ -77,7 +77,7 @@ def build_specialist_settings_view(
         f"Часовой пояс специалиста:\n• {specialist_timezone}\n\n"
         "Расписание:\n"
         f"• Рабочие дни: {_working_days(rows)}\n"
-        f"• Интервалы: {_format_intervals_for_ui(sample_day)}"
+        f"• Интервалы: {_format_intervals_for_ui(working_intervals_by_idx)}"
     )
 
     keyboard_rows = [

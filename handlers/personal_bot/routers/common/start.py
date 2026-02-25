@@ -11,6 +11,7 @@ from config import SUPPORT_TG_URL
 from database import Client, ClientTimezoneSource, Specialist, SpecialistProfile, WeeklyAvailability, async_session_factory
 from handlers.personal_bot.routers.specialist.owner_panel import send_owner_panel
 from handlers.personal_bot.routers.specialist.settings_view import build_specialist_settings_view
+from services.working_intervals_repository import WorkingIntervalsRepository
 from services.specialist_defaults import apply_specialist_defaults_if_missing
 from services.log_context import log_event
 
@@ -243,6 +244,7 @@ async def _render_onboarding_screen(message: Message, specialist_id) -> None:
 
     calendar_settings = getattr(specialist, "calendar_settings", None)
     _, rows = await _load_profile_and_rows(specialist_id)
+    working_intervals_by_idx = await WorkingIntervalsRepository().get_working_intervals(specialist_id)
     text, keyboard = build_specialist_settings_view(
         profile=profile,
         rows=rows,
@@ -250,6 +252,7 @@ async def _render_onboarding_screen(message: Message, specialist_id) -> None:
         keep_button_text=None,
         keep_callback_data=None,
         include_reset_button=False,
+        working_intervals_by_idx=working_intervals_by_idx,
         later_button=None,
     )
     text = "🧩 Продолжим онбординг в персональном боте.\n\n" + text + "\n\nПроверьте настройки. При необходимости измените их."
