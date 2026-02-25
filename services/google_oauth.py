@@ -74,10 +74,11 @@ def get_auth_url(state: str) -> str:
     )
     
     # access_type='offline' обязателен для получения refresh_token
-    # prompt/include_granted_scopes нужны для апгрейда scope при переподключении
+    # prompt нужен для гарантированного получения refresh_token при переподключении
+    # include_granted_scopes=False не подтягивает ранее выданные scope из других флоу
     authorization_url, _ = flow.authorization_url(
         access_type='offline',
-        include_granted_scopes='true',
+        include_granted_scopes='false',
         prompt='consent',
         state=state
     )
@@ -90,15 +91,22 @@ def exchange_code_for_token(code: str) -> Tuple[str, str, Any]:
     Возвращает (refresh_token, access_token, credentials_object)
     """
     _ensure_google_oauth_config()
-    flow = Flow.from_client_config(
-        GOOGLE_CLIENT_CONFIG,
-        scopes=SCOPES,
-        redirect_uri=REDIRECT_URI
-    )
-    
+
     with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message=r".*Scope has changed from.*", category=Warning)
+        warnings.filterwarnings("ignore", message=r".*Scope has changed.*", category=Warning)
+        warnings.filterwarnings(
+            "ignore",
+            message=r".*Scope has changed.*",
+            category=Warning,
+            module=r"google_auth_oauthlib\..*",
+        )
+        flow = Flow.from_client_config(
+            GOOGLE_CLIENT_CONFIG,
+            scopes=SCOPES,
+            redirect_uri=REDIRECT_URI
+        )
         flow.fetch_token(code=code)
+
     creds = flow.credentials
     logger.info(
         "event=google_oauth_scopes_granted scopes=%s",
