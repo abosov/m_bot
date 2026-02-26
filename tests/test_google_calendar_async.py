@@ -516,3 +516,165 @@ async def test_ensure_calendar_watch_stops_previous_channel_before_new_watch(mon
     assert calls[1][1].endswith("/events/watch")
     assert session.sync_state.resource_id == "new-resource"
     assert session.sync_state.sync_token is None
+
+
+@pytest.mark.asyncio
+async def test_get_busy_intervals_for_day_uses_events_list_and_filters_cancelled_and_transparent(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class _Response:
+        status_code = 200
+
+        def json(self):
+            return {
+                "items": [
+                    {
+                        "start": {"dateTime": "2026-01-10T09:00:00Z"},
+                        "end": {"dateTime": "2026-01-10T10:00:00Z"},
+                    },
+                    {
+                        "status": "cancelled",
+                        "start": {"dateTime": "2026-01-10T11:00:00Z"},
+                        "end": {"dateTime": "2026-01-10T12:00:00Z"},
+                    },
+                    {
+                        "transparency": "transparent",
+                        "start": {"dateTime": "2026-01-10T13:00:00Z"},
+                        "end": {"dateTime": "2026-01-10T14:00:00Z"},
+                    },
+                ]
+            }
+
+    captured = {}
+
+    async def fake_headers(_specialist_id):
+        return {"Authorization": "Bearer token", "Content-Type": "application/json"}
+
+    async def fake_request(request_callable, url, *, method_name, timeout=10, **kwargs):
+        captured["request_callable"] = request_callable
+        captured["url"] = url
+        captured["method_name"] = method_name
+        captured["params"] = kwargs.get("params")
+        return _Response()
+
+    monkeypatch.setattr(google_calendar, "_build_headers", fake_headers)
+    monkeypatch.setattr(google_calendar, "_calendar_request_with_retry", fake_request)
+
+    result = await google_calendar.get_busy_intervals_for_day(
+        specialist_id=specialist_id,
+        calendar_id="cal-1",
+        specialist_tz="UTC",
+        target_date_local_specialist=datetime(2026, 1, 10).date(),
+    )
+
+    assert captured["request_callable"] is google_calendar.requests.get
+    assert captured["method_name"] == "GET"
+    assert captured["url"].endswith("/calendars/cal-1/events")
+    assert captured["params"]["singleEvents"] == "true"
+    assert captured["params"]["orderBy"] == "startTime"
+    assert captured["params"]["fields"] == "items(start,end,status,transparency)"
+    assert result == [(datetime(2026, 1, 10, 9, 0), datetime(2026, 1, 10, 10, 0))]
+
+
+@pytest.mark.asyncio
+async def test_get_busy_intervals_for_day_supports_all_day_items(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class _Response:
+        status_code = 200
+
+        def json(self):
+            return {
+                "items": [
+                    {
+                        "start": {"date": "2026-01-10"},
+                        "end": {"date": "2026-01-11"},
+                    }
+                ]
+            }
+
+    async def fake_headers(_specialist_id):
+        return {"Authorization": "Bearer token", "Content-Type": "application/json"}
+
+    async def fake_request(_request_callable, _url, *, method_name, timeout=10, **kwargs):
+        assert method_name == "GET"
+        return _Response()
+
+    monkeypatch.setattr(google_calendar, "_build_headers", fake_headers)
+    monkeypatch.setattr(google_calendar, "_calendar_request_with_retry", fake_request)
+
+    result = await google_calendar.get_busy_intervals_for_day(
+        specialist_id=specialist_id,
+        calendar_id="cal-1",
+        specialist_tz="Europe/Moscow",
+        target_date_local_specialist=datetime(2026, 1, 10).date(),
+    )
+
+    assert result == [(datetime(2026, 1, 10, 0, 0), datetime(2026, 1, 11, 0, 0))]
+
+@pytest.mark.asyncio
+async def test_google_oauth_get_granted_scopes_parses_space_and_comma(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class Session:
+        async def get(self, model, key):
+            assert key == specialist_id
+            return type("OAuth", (), {"scopes": "scope.a, scope.b scope.c"})()
+
+    class _Ctx:
+        async def __aenter__(self):
+            return Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(google_oauth, "async_session_factory", lambda: _Ctx())
+
+    scopes = await google_oauth.get_granted_scopes(specialist_id)
+
+    assert scopes == {"scope.a", "scope.b", "scope.c"}
+
+
+@pytest.mark.asyncio
+async def test_google_oauth_assert_calendar_ready_for_booking_requires_connected_and_scopes(monkeypatch):
+    specialist_id = uuid.uuid4()
+
+    class SessionMissing:
+        async def get(self, model, key):
+            return None
+
+    class SessionBadScopes:
+        async def get(self, model, key):
+            return type("OAuth", (), {"status": google_oauth.GoogleOAuthStatus.connected, "scopes": "only.one.scope"})()
+
+    class SessionOk:
+        async def get(self, model, key):
+            return type(
+                "OAuth",
+                (),
+                {
+                    "status": google_oauth.GoogleOAuthStatus.connected,
+                    "scopes": " ".join(google_calendar.required_scopes()),
+                },
+            )()
+
+    class _Ctx:
+        def __init__(self, session):
+            self._session = session
+
+        async def __aenter__(self):
+            return self._session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(google_oauth, "async_session_factory", lambda: _Ctx(SessionMissing()))
+    with pytest.raises(google_oauth.GoogleCalendarNotConnectedError):
+        await google_oauth.assert_calendar_ready_for_booking(specialist_id)
+
+    monkeypatch.setattr(google_oauth, "async_session_factory", lambda: _Ctx(SessionBadScopes()))
+    with pytest.raises(google_oauth.GoogleCalendarReconnectRequiredError):
+        await google_oauth.assert_calendar_ready_for_booking(specialist_id)
+
+    monkeypatch.setattr(google_oauth, "async_session_factory", lambda: _Ctx(SessionOk()))
+    await google_oauth.assert_calendar_ready_for_booking(specialist_id)

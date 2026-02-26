@@ -8,6 +8,15 @@ import pytest
 from database import OutboxEvent
 from handlers.personal_bot.routers.client import commands as client_commands
 from handlers.personal_bot.ui.timezones import TZ_PAGES, build_timezone_keyboard
+import services.google_oauth as google_oauth
+
+
+@pytest.fixture(autouse=True)
+def _stub_calendar_precheck(monkeypatch):
+    async def _ok(_specialist_id):
+        return None
+
+    monkeypatch.setattr(client_commands, "assert_calendar_ready_for_booking", _ok)
 
 
 class DummyMessage:
@@ -245,24 +254,31 @@ async def test_client_timezone_manual_change_updates_client_and_clears_state(mon
 
 
 @pytest.mark.asyncio
-async def test_client_unexpected_text_without_start_shows_hint_and_menu():
+async def test_client_unexpected_text_without_start_routes_to_recover_entrypoint(monkeypatch):
     message = DummyMessage("Записаться", from_user=types.SimpleNamespace(id=99))
+    captured = {}
+
+    async def _recover(msg, *, specialist_id, where, bot_user_id=None):
+        captured["message"] = msg
+        captured["specialist_id"] = specialist_id
+        captured["where"] = where
+
+    monkeypatch.setattr(client_commands.start_router, "recover_client_entrypoint", _recover)
 
     await client_commands.client_unexpected_text_fallback(
         message,
         actor="client",
+        specialist_id="sp-id",
         event_update=types.SimpleNamespace(update_id=12345),
     )
 
-    assert len(message.answers) == 2
-    assert "Похоже, Вы начали не с /start" in message.answers[0][0]
-    assert message.answers[0][1].get("reply_markup") is not None
-    assert message.answers[1][0] == "Меню клиента:"
-    assert message.answers[1][1].get("reply_markup") is not None
+    assert captured["message"] is message
+    assert captured["specialist_id"] == "sp-id"
+    assert captured["where"] == "client_unexpected_text_fallback"
 
 
 @pytest.mark.asyncio
-async def test_client_unknown_callback_answers_and_shows_menu():
+async def test_client_unknown_callback_answers_and_routes_to_recover_entrypoint(monkeypatch):
     callback_message = DummyCallbackMessage()
     answered = {"called": False}
 
@@ -275,11 +291,21 @@ async def test_client_unknown_callback_answers_and_shows_menu():
         answer=_answer,
     )
 
-    await client_commands.client_unknown_callback_fallback(callback, actor="client")
+    captured = {}
+
+    async def _recover(msg, *, specialist_id, where, bot_user_id=None):
+        captured["message"] = msg
+        captured["specialist_id"] = specialist_id
+        captured["where"] = where
+
+    monkeypatch.setattr(client_commands.start_router, "recover_client_entrypoint", _recover)
+
+    await client_commands.client_unknown_callback_fallback(callback, actor="client", specialist_id="sp-id")
 
     assert answered["called"] is True
-    assert len(callback_message.answers) == 1
-    assert callback_message.answers[0][0] == "Меню клиента:"
+    assert captured["message"] is callback_message
+    assert captured["specialist_id"] == "sp-id"
+    assert captured["where"] == "client_unknown_callback_fallback"
 
 
 def test_first_available_day_respects_min_hours_window():
@@ -709,6 +735,32 @@ async def test_client_pick_interval_converts_slots_to_client_tz(monkeypatch):
     buttons = [button for row in markup.inline_keyboard for button in row]
     assert [button.text for button in buttons] == ["10:00", "10:15"]
     assert all("+00:00" in button.callback_data for button in buttons)
+
+
+@pytest.mark.asyncio
+async def test_client_book_button_without_registration_recovers_entrypoint(monkeypatch):
+    book_msg = DummyMessage("Записаться", from_user=types.SimpleNamespace(id=42))
+    state = DummyState()
+    state.state = client_commands.ClientBookingState.waiting_for_day
+    captured = {}
+
+    async def _registered(**_kwargs):
+        return False
+
+    async def _recover(msg, *, specialist_id, where, bot_user_id=None):
+        captured["message"] = msg
+        captured["specialist_id"] = specialist_id
+        captured["where"] = where
+
+    monkeypatch.setattr(client_commands, "_has_registered_client_name", _registered)
+    monkeypatch.setattr(client_commands.start_router, "recover_client_entrypoint", _recover)
+
+    await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
+
+    assert state.state is None
+    assert captured["message"] is book_msg
+    assert captured["specialist_id"] == "sp-id"
+    assert captured["where"] == "client_book_button:recover_unregistered"
 
 
 @pytest.mark.asyncio
@@ -1296,7 +1348,7 @@ async def test_client_pick_slot_creates_pending_appointment_and_returns_menu(mon
     assert appointment.end_at_utc == datetime(2026, 2, 21, 12, 45, tzinfo=timezone.utc)
     assert appointment.gcal_event_id is None
     assert message.answers[0][0] == "Заявка отправлена специалисту, ожидает подтверждения\n\n2026-02-21 Сб [12:00]"
-    assert message.answers[0][1].get("reply_markup") is not None
+    assert any(answer_text == "Меню клиента:" and answer_kwargs.get("reply_markup") is not None for answer_text, answer_kwargs in message.answers)
     assert len(callback.answers) == 1
 
 
@@ -1378,7 +1430,7 @@ async def test_client_pick_slot_does_not_create_duplicate_for_rejected_slot(monk
         "Специалист ранее отклонил этот запрос.\n"
         "Пожалуйста, выберите другое время."
     )
-    assert message.answers[0][1].get("reply_markup") is not None
+    assert any(answer_text == "Меню клиента:" and answer_kwargs.get("reply_markup") is not None for answer_text, answer_kwargs in message.answers)
     assert len(callback.answers) == 1
 
 
@@ -1656,7 +1708,7 @@ async def test_client_capture_display_name_saves_name_and_shows_menu(monkeypatch
     assert client.display_name == "Анна"
     assert session.committed is True
     assert "Приятно познакомиться" in message.answers[0][0]
-    assert message.answers[0][1].get("reply_markup") is not None
+    assert any(answer_text == "Меню клиента:" and answer_kwargs.get("reply_markup") is not None for answer_text, answer_kwargs in message.answers)
 
 
 @pytest.mark.asyncio
@@ -2135,3 +2187,49 @@ async def test_client_cancel_confirm_idempotent_when_already_cancelled(monkeypat
 
     assert message.answers[0][0] == "Запись уже отменена."
     assert len(render_calls) == 1
+
+@pytest.mark.asyncio
+async def test_client_book_button_precheck_stops_before_slot_build(monkeypatch):
+    book_msg = DummyMessage("Записаться", from_user=types.SimpleNamespace(id=42))
+    state = DummyState()
+
+    async def _precheck(specialist_id):
+        raise google_oauth.GoogleCalendarReconnectRequiredError("calendar_reconnect_required")
+
+    async def _should_not_call(*_args, **_kwargs):
+        raise AssertionError("slot building should not be called when precheck fails")
+
+    monkeypatch.setattr(client_commands, "assert_calendar_ready_for_booking", _precheck)
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _should_not_call)
+
+    with pytest.raises(google_oauth.GoogleCalendarReconnectRequiredError):
+        await client_commands.client_book_button(book_msg, actor="client", state=state, specialist_id="sp-id")
+
+
+@pytest.mark.asyncio
+async def test_client_pick_slot_precheck_stops_before_google_calls(monkeypatch):
+    state = DummyState()
+    message = DummyMessage("")
+    callback = types.SimpleNamespace(
+        data="client_book_slot:2026-02-21T12:00:00",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    async def _precheck(specialist_id):
+        raise google_oauth.GoogleCalendarNotConnectedError("calendar_not_connected")
+
+    async def _create_event_stub(**kwargs):
+        raise AssertionError("create_appointment_event should not be called when precheck fails")
+
+    monkeypatch.setattr(client_commands, "assert_calendar_ready_for_booking", _precheck)
+    monkeypatch.setattr(client_commands, "create_appointment_event", _create_event_stub)
+
+    with pytest.raises(google_oauth.GoogleCalendarNotConnectedError):
+        await client_commands.client_pick_slot(callback, state=state, specialist_id="sp-id")

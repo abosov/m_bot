@@ -8,10 +8,12 @@ from aiogram.types import TelegramObject, Update
 from sqlalchemy import select
 
 from config import SUPPORT_TG_URL
-from database import SpecialistAuthTelegram, SpecialistProfile, TelegramBot, async_session_factory
+from database import GoogleOAuth, SpecialistAuthTelegram, SpecialistCalendarSettings, SpecialistProfile, TelegramBot, TelegramBotStatus, async_session_factory
 from handlers.personal_bot import router as personal_router
 from handlers.personal_bot.routers.common import start as start_router
 from services.alerting import notify_exception
+from services.google_calendar import GoogleCalendarInsufficientPermissionsError
+from services.google_oauth import GoogleCalendarNotConnectedError, GoogleCalendarReconnectRequiredError, required_scopes
 from services.telegram.bot_factory import get_personal_bot
 
 logger = logging.getLogger(__name__)
@@ -20,6 +22,63 @@ _personal_dispatcher: Dispatcher | None = None
 _profile_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _PROFILE_TTL_SEC = 10.0
 _profile_cache_lock = asyncio.Lock()
+
+
+async def _load_google_oauth_error_context(specialist_id) -> dict[str, Any]:
+    context: dict[str, Any] = {
+        "specialist_id": str(specialist_id) if specialist_id is not None else None,
+        "calendar_id": None,
+        "required_scopes": " ".join(sorted(required_scopes())),
+        "current_scopes": None,
+    }
+    if specialist_id is None:
+        return context
+
+    async with async_session_factory() as session:
+        oauth_entry = await session.get(GoogleOAuth, specialist_id)
+        settings = await session.get(SpecialistCalendarSettings, specialist_id)
+
+    if oauth_entry is not None:
+        context["current_scopes"] = getattr(oauth_entry, "scopes", None)
+    if settings is not None:
+        context["calendar_id"] = getattr(settings, "calendar_id", None)
+    return context
+
+
+async def _send_google_reconnect_instructions(specialist_id) -> None:
+    if specialist_id is None:
+        return
+
+    reconnect_message = (
+        "Требуется переподключение Google Calendar (нехватка прав). "
+        "Откройте master bot и переподключите Google."
+    )
+
+    try:
+        async with async_session_factory() as session:
+            profile = await session.get(SpecialistProfile, specialist_id)
+            if profile is None or profile.owner_tg_user_id is None:
+                return
+
+            bot_stmt = (
+                select(TelegramBot)
+                .where(TelegramBot.specialist_id == specialist_id)
+                .where(TelegramBot.status == TelegramBotStatus.active)
+                .order_by(TelegramBot.updated_at.desc(), TelegramBot.created_at.desc())
+                .limit(1)
+            )
+            bot_row = (await session.execute(bot_stmt)).scalar_one_or_none()
+            if bot_row is None:
+                return
+
+        personal_bot = await get_personal_bot(bot_row)
+        await personal_bot.send_message(chat_id=profile.owner_tg_user_id, text=reconnect_message)
+    except Exception:
+        logger.warning(
+            "Failed to send oauth reconnect instructions specialist_id=%s",
+            specialist_id,
+            exc_info=True,
+        )
 
 
 def _get_sender_id(update: Update) -> int | None:
@@ -137,6 +196,10 @@ class PersonalGlobalErrorMiddleware(BaseMiddleware):
             update = event if isinstance(event, Update) else None
             await self._handle_expected_ux_error(update=update, data=data, exc=exc)
             return None
+        except (GoogleCalendarInsufficientPermissionsError, GoogleCalendarNotConnectedError, GoogleCalendarReconnectRequiredError) as exc:
+            update = event if isinstance(event, Update) else None
+            await self._handle_google_insufficient_permissions(update=update, data=data, exc=exc)
+            return None
         except Exception as exc:
             update = event if isinstance(event, Update) else None
             await self._handle_unexpected_error(update=update, data=data, exc=exc)
@@ -160,6 +223,54 @@ class PersonalGlobalErrorMiddleware(BaseMiddleware):
             actor=str(data.get("actor") or "client"),
             specialist_id=data.get("specialist_id"),
         )
+
+    async def _handle_google_insufficient_permissions(
+        self,
+        *,
+        update: Update | None,
+        data: dict[str, Any],
+        exc: Exception,
+    ) -> None:
+        tg_bot: TelegramBot | None = data.get("telegram_bot")
+        handler_name = _extract_handler_name(data)
+        fsm_state = await _extract_fsm_state_name(data)
+        specialist_id = data.get("specialist_id") or getattr(tg_bot, "specialist_id", None)
+        oauth_context = await _load_google_oauth_error_context(specialist_id)
+
+        logger.warning(
+            "personal bot google insufficient permissions update_id=%s bot_id=%s specialist_id=%s calendar_id=%s handler=%s fsm_state=%s",
+            update.update_id if update else None,
+            getattr(tg_bot, "bot_user_id", None),
+            oauth_context.get("specialist_id"),
+            oauth_context.get("calendar_id"),
+            handler_name,
+            fsm_state,
+        )
+
+        await notify_exception(
+            "services.telegram.personal_dispatcher.PersonalGlobalErrorMiddleware.google_insufficient_permissions",
+            exc,
+            {
+                "update_id": update.update_id if update else None,
+                "bot_username": getattr(tg_bot, "bot_username", None),
+                "bot_id": getattr(tg_bot, "bot_user_id", None),
+                "handler": handler_name,
+                "fsm_state": fsm_state,
+                "reason_code": getattr(exc, "code", "google_insufficient_permissions"),
+                **oauth_context,
+            },
+            stage="runtime",
+        )
+
+        await self._reply_google_insufficient_permissions(update=update)
+        try:
+            await _send_google_reconnect_instructions(specialist_id)
+        except Exception:
+            logger.warning(
+                "Failed to send oauth reconnect instructions specialist_id=%s",
+                specialist_id,
+                exc_info=True,
+            )
 
     async def _handle_unexpected_error(self, *, update: Update | None, data: dict[str, Any], exc: Exception) -> None:
         tg_bot: TelegramBot | None = data.get("telegram_bot")
@@ -212,14 +323,33 @@ class PersonalGlobalErrorMiddleware(BaseMiddleware):
                     reply_markup=start_router._specialist_quick_menu_keyboard(has_selected_calendar=True),
                 )
             else:
-                await start_router.render_client_menu(
+                await start_router.recover_client_entrypoint(
                     message,
-                    where="personal_global_error_middleware:expected_ux",
                     specialist_id=specialist_id,
+                    where="personal_global_error_middleware:expected_ux",
                     bot_user_id=getattr(getattr(message, "bot", None), "id", None),
                 )
         except Exception:
             logger.exception("personal bot failed to send expected UX recovery reply")
+
+    async def _reply_google_insufficient_permissions(self, *, update: Update | None) -> None:
+        if update is None:
+            return
+        message = update.message or (update.callback_query.message if update.callback_query else None)
+        if message is None or message.chat.type != "private":
+            return
+        if update.callback_query is not None:
+            try:
+                await update.callback_query.answer()
+            except Exception:
+                logger.exception("failed to answer callback in google insufficient permissions")
+        try:
+            await message.answer(
+                "Сейчас запись временно недоступна: у специалиста не подключён календарь "
+                "или нужно переподключение. Попробуйте позже."
+            )
+        except Exception:
+            logger.exception("personal bot failed to send google insufficient permissions reply")
 
     async def _reply_unexpected_error(self, *, update: Update | None) -> None:
         if update is None:
