@@ -20,6 +20,14 @@ class DummyMessage:
         self.answers.append((text, kwargs))
 
 
+class DummyCallbackMessage:
+    def __init__(self):
+        self.answers = []
+
+    async def answer(self, text, **kwargs):
+        self.answers.append((text, kwargs))
+
+
 class DummyState:
     def __init__(self):
         self.state = None
@@ -234,6 +242,44 @@ async def test_client_timezone_manual_change_updates_client_and_clears_state(mon
     assert client.client_timezone == "Europe/Berlin"
     assert committed["value"] is True
     assert state.state is None
+
+
+@pytest.mark.asyncio
+async def test_client_unexpected_text_without_start_shows_hint_and_menu():
+    message = DummyMessage("Записаться", from_user=types.SimpleNamespace(id=99))
+
+    await client_commands.client_unexpected_text_fallback(
+        message,
+        actor="client",
+        event_update=types.SimpleNamespace(update_id=12345),
+    )
+
+    assert len(message.answers) == 2
+    assert "Похоже, Вы начали не с /start" in message.answers[0][0]
+    assert message.answers[0][1].get("reply_markup") is not None
+    assert message.answers[1][0] == "Меню клиента:"
+    assert message.answers[1][1].get("reply_markup") is not None
+
+
+@pytest.mark.asyncio
+async def test_client_unknown_callback_answers_and_shows_menu():
+    callback_message = DummyCallbackMessage()
+    answered = {"called": False}
+
+    async def _answer(*_args, **_kwargs):
+        answered["called"] = True
+
+    callback = types.SimpleNamespace(
+        data="totally_unknown_callback",
+        message=callback_message,
+        answer=_answer,
+    )
+
+    await client_commands.client_unknown_callback_fallback(callback, actor="client")
+
+    assert answered["called"] is True
+    assert len(callback_message.answers) == 1
+    assert callback_message.answers[0][0] == "Меню клиента:"
 
 
 def test_first_available_day_respects_min_hours_window():

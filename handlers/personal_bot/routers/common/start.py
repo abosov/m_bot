@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from config import SUPPORT_TG_URL
 from database import Client, ClientTimezoneSource, Specialist, SpecialistProfile, WeeklyAvailability, async_session_factory
 from handlers.personal_bot.routers.specialist.owner_panel import send_owner_panel
+from services.alerting import notify_exception
 from services.specialist_defaults import apply_specialist_defaults_if_missing
 from services.log_context import log_event
 
@@ -125,6 +126,30 @@ def _client_menu_keyboard() -> ReplyKeyboardMarkup:
         ],
         resize_keyboard=True,
     )
+
+
+async def render_client_menu(message: Message, *, where: str, specialist_id=None, bot_user_id=None) -> None:
+    try:
+        await message.answer("Меню клиента:", reply_markup=_client_menu_keyboard())
+    except Exception as exc:
+        await notify_exception(
+            "render_client_menu",
+            exc,
+            {
+                "where": where,
+                "specialist_id": str(specialist_id) if specialist_id is not None else None,
+                "bot_user_id": bot_user_id,
+                "tg_user_id": message.from_user.id if message.from_user else None,
+            },
+            stage="runtime",
+        )
+        try:
+            await message.answer(
+                "⚠️ Меню временно недоступно, используйте /start или обратитесь в поддержку: "
+                f"{SUPPORT_TG_URL}"
+            )
+        except Exception:
+            logger.exception("render_client_menu failed to send fallback text where=%s", where)
 
 
 async def _ensure_client_exists(*, specialist_id, tg_user_id: int, tg_username: str | None) -> Client | None:
@@ -374,7 +399,12 @@ async def personal_start(
             await message.answer("👋 Добро пожаловать! Как к вам обращаться?")
             return
 
-        await message.answer("Меню клиента:", reply_markup=_client_menu_keyboard())
+        await render_client_menu(
+            message,
+            where="personal_start",
+            specialist_id=specialist_id,
+            bot_user_id=getattr(getattr(message, "bot", None), "id", None),
+        )
     except Exception:
         logger.exception("personal_start: failed to render client menu")
 

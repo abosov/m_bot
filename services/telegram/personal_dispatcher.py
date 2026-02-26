@@ -7,8 +7,11 @@ from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.types import TelegramObject, Update
 from sqlalchemy import select
 
+from config import SUPPORT_TG_URL
 from database import SpecialistAuthTelegram, SpecialistProfile, TelegramBot, async_session_factory
 from handlers.personal_bot import router as personal_router
+from handlers.personal_bot.routers.common import start as start_router
+from services.alerting import notify_exception
 from services.telegram.bot_factory import get_personal_bot
 
 logger = logging.getLogger(__name__)
@@ -130,36 +133,128 @@ class PersonalGlobalErrorMiddleware(BaseMiddleware):
     ) -> Any:
         try:
             return await handler(event, data)
-        except Exception:
+        except PersonalExpectedUXError as exc:
             update = event if isinstance(event, Update) else None
-            tg_bot: TelegramBot | None = data.get("telegram_bot")
-            bot_username = getattr(tg_bot, "bot_username", None)
-            bot_user_id = getattr(tg_bot, "bot_user_id", None)
-            specialist_id = getattr(tg_bot, "specialist_id", None)
-            handler_name = _extract_handler_name(data)
-            fsm_state = await _extract_fsm_state_name(data)
-            logger.error(
-                "personal bot unhandled exception update_id=%s bot_username=%s bot_id=%s specialist_id=%s handler=%s fsm_state=%s",
-                update.update_id if update else None,
-                bot_username,
-                bot_user_id,
-                specialist_id,
-                handler_name,
-                fsm_state,
-                exc_info=True,
-            )
-            if update and update.message and update.message.chat and update.message.chat.type == "private":
-                try:
-                    await update.message.answer(
-                        "⚠️ Возникла ошибка при обработке команды. Попробуйте еще раз или напишите в поддержку."
-                    )
-                except Exception:
-                    logger.exception(
-                        "personal bot failed to send generic error reply update_id=%s bot_id=%s",
-                        update.update_id,
-                        bot_user_id,
-                    )
+            await self._handle_expected_ux_error(update=update, data=data, exc=exc)
             return None
+        except Exception as exc:
+            update = event if isinstance(event, Update) else None
+            await self._handle_unexpected_error(update=update, data=data, exc=exc)
+            return None
+
+    async def _handle_expected_ux_error(self, *, update: Update | None, data: dict[str, Any], exc: Exception) -> None:
+        tg_bot: TelegramBot | None = data.get("telegram_bot")
+        handler_name = _extract_handler_name(data)
+        fsm_state = await _extract_fsm_state_name(data)
+        logger.info(
+            "personal bot expected ux error update_id=%s bot_id=%s specialist_id=%s handler=%s fsm_state=%s error=%s",
+            update.update_id if update else None,
+            getattr(tg_bot, "bot_user_id", None),
+            getattr(tg_bot, "specialist_id", None),
+            handler_name,
+            fsm_state,
+            exc.__class__.__name__,
+        )
+        await self._reply_expected_ux_error(
+            update=update,
+            actor=str(data.get("actor") or "client"),
+            specialist_id=data.get("specialist_id"),
+        )
+
+    async def _handle_unexpected_error(self, *, update: Update | None, data: dict[str, Any], exc: Exception) -> None:
+        tg_bot: TelegramBot | None = data.get("telegram_bot")
+        bot_username = getattr(tg_bot, "bot_username", None)
+        bot_user_id = getattr(tg_bot, "bot_user_id", None)
+        specialist_id = getattr(tg_bot, "specialist_id", None)
+        handler_name = _extract_handler_name(data)
+        fsm_state = await _extract_fsm_state_name(data)
+        logger.error(
+            "personal bot unhandled exception update_id=%s bot_username=%s bot_id=%s specialist_id=%s handler=%s fsm_state=%s",
+            update.update_id if update else None,
+            bot_username,
+            bot_user_id,
+            specialist_id,
+            handler_name,
+            fsm_state,
+            exc_info=True,
+        )
+        await notify_exception(
+            "services.telegram.personal_dispatcher.PersonalGlobalErrorMiddleware",
+            exc,
+            {
+                "update_id": update.update_id if update else None,
+                "bot_username": bot_username,
+                "bot_id": bot_user_id,
+                "specialist_id": str(specialist_id) if specialist_id is not None else None,
+                "handler": handler_name,
+                "fsm_state": fsm_state,
+            },
+            stage="runtime",
+        )
+        await self._reply_unexpected_error(update=update)
+
+    async def _reply_expected_ux_error(self, *, update: Update | None, actor: str, specialist_id=None) -> None:
+        if update is None:
+            return
+        message = update.message or (update.callback_query.message if update.callback_query else None)
+        if message is None or message.chat.type != "private":
+            return
+        if update.callback_query is not None:
+            try:
+                await update.callback_query.answer()
+            except Exception:
+                logger.exception("failed to answer callback in expected ux error")
+        try:
+            await message.answer("Похоже, Вы начали не с /start. Нажмите /start или ‘🏠 В меню’.")
+            if actor == "specialist":
+                await message.answer(
+                    "Меню специалиста:",
+                    reply_markup=start_router._specialist_quick_menu_keyboard(has_selected_calendar=True),
+                )
+            else:
+                await start_router.render_client_menu(
+                    message,
+                    where="personal_global_error_middleware:expected_ux",
+                    specialist_id=specialist_id,
+                    bot_user_id=getattr(getattr(message, "bot", None), "id", None),
+                )
+        except Exception:
+            logger.exception("personal bot failed to send expected UX recovery reply")
+
+    async def _reply_unexpected_error(self, *, update: Update | None) -> None:
+        if update is None:
+            return
+        message = update.message or (update.callback_query.message if update.callback_query else None)
+        if message is None or message.chat.type != "private":
+            return
+        if update.callback_query is not None:
+            try:
+                await update.callback_query.answer()
+            except Exception:
+                logger.exception("failed to answer callback in unexpected error")
+        try:
+            await message.answer(
+                "⚠️ Произошла ошибка при обработке команды. Попробуйте еще раз или обратитесь в поддержку: "
+                f"{SUPPORT_TG_URL}"
+            )
+        except Exception:
+            logger.exception("personal bot failed to send generic error reply update_id=%s", update.update_id)
+
+
+class PersonalExpectedUXError(Exception):
+    """Base class for expected personal-bot UX flow exceptions."""
+
+
+class UnknownIntentError(PersonalExpectedUXError):
+    """Raised when text/command is outside current known intent."""
+
+
+class InvalidCallbackError(PersonalExpectedUXError):
+    """Raised when callback payload is invalid for current flow."""
+
+
+class StateMismatchError(PersonalExpectedUXError):
+    """Raised when FSM state does not match the requested action."""
 
 
 def get_personal_dispatcher() -> Dispatcher:
