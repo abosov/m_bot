@@ -193,6 +193,41 @@ async def _ensure_client_exists(*, specialist_id, tg_user_id: int, tg_username: 
         return client
 
 
+async def recover_client_entrypoint(message: Message, *, specialist_id, where: str, bot_user_id=None) -> None:
+    if message.from_user is None:
+        await message.answer("⚠️ Не удалось определить пользователя Telegram. Попробуйте ещё раз.")
+        return
+
+    if specialist_id is None:
+        await render_client_menu(
+            message,
+            where=where,
+            specialist_id=specialist_id,
+            bot_user_id=bot_user_id,
+        )
+        return
+
+    client = await _ensure_client_exists(
+        specialist_id=specialist_id,
+        tg_user_id=message.from_user.id,
+        tg_username=getattr(message.from_user, "username", None),
+    )
+    if client is None:
+        await message.answer("⚠️ Не удалось определить специалиста для этого бота.")
+        return
+
+    if not (client.display_name and client.display_name.strip()):
+        await message.answer("👋 Добро пожаловать! Как к вам обращаться?")
+        return
+
+    await render_client_menu(
+        message,
+        where=where,
+        specialist_id=specialist_id,
+        bot_user_id=bot_user_id,
+    )
+
+
 async def _load_specialist_and_profile(specialist_id):
     async with async_session_factory() as session:
         specialist = (
@@ -386,23 +421,10 @@ async def personal_start(
         return
 
     try:
-        client = await _ensure_client_exists(
-            specialist_id=specialist_id,
-            tg_user_id=message.from_user.id,
-            tg_username=message.from_user.username,
-        )
-        if client is None:
-            await message.answer("⚠️ Не удалось определить специалиста для этого бота.")
-            return
-
-        if not (client.display_name and client.display_name.strip()):
-            await message.answer("👋 Добро пожаловать! Как к вам обращаться?")
-            return
-
-        await render_client_menu(
+        await recover_client_entrypoint(
             message,
-            where="personal_start",
             specialist_id=specialist_id,
+            where="personal_start",
             bot_user_id=getattr(getattr(message, "bot", None), "id", None),
         )
     except Exception:

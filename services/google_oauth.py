@@ -11,10 +11,10 @@ from google_auth_oauthlib.flow import Flow
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import config
-from database import OAuthState, OAuthStateType
+from database import GoogleOAuth, GoogleOAuthStatus, OAuthState, OAuthStateType, async_session_factory
 from services.alerting import notify_exception
 from services.log_context import log_event
-from services.google_calendar import required_scopes
+from services.google_calendar import required_scopes as calendar_required_scopes
 
 # Конфигурация клиента Google из переменных окружения
 # В продакшене лучше использовать файл client_secrets.json, но для MVP соберем словарь вручную
@@ -28,10 +28,57 @@ GOOGLE_CLIENT_CONFIG = {
     }
 }
 
-SCOPES = required_scopes()
+SCOPES = calendar_required_scopes()
 REDIRECT_URI = config.GOOGLE_REDIRECT_URI
 
 logger = logging.getLogger(__name__)
+
+
+
+class GoogleCalendarPrecheckError(Exception):
+    code = "calendar_precheck_error"
+
+
+class GoogleCalendarNotConnectedError(GoogleCalendarPrecheckError):
+    code = "calendar_not_connected"
+
+
+class GoogleCalendarReconnectRequiredError(GoogleCalendarPrecheckError):
+    code = "calendar_reconnect_required"
+
+
+def required_scopes() -> set[str]:
+    return set(calendar_required_scopes())
+
+
+def _parse_scopes(raw_scopes: str | None) -> set[str]:
+    if not raw_scopes:
+        return set()
+    normalized = raw_scopes.replace(",", " ")
+    return {item.strip() for item in normalized.split() if item.strip()}
+
+
+async def get_granted_scopes(specialist_id: uuid.UUID) -> set[str]:
+    async with async_session_factory() as session:
+        oauth_entry = await session.get(GoogleOAuth, specialist_id)
+    if oauth_entry is None:
+        return set()
+    return _parse_scopes(getattr(oauth_entry, "scopes", None))
+
+
+async def assert_calendar_ready_for_booking(specialist_id: uuid.UUID) -> None:
+    async with async_session_factory() as session:
+        oauth_entry = await session.get(GoogleOAuth, specialist_id)
+
+    if oauth_entry is None or getattr(oauth_entry, "status", None) != GoogleOAuthStatus.connected:
+        raise GoogleCalendarNotConnectedError("calendar_not_connected")
+
+    granted_scopes = _parse_scopes(getattr(oauth_entry, "scopes", None))
+    missing_scopes = required_scopes() - granted_scopes
+    if missing_scopes:
+        raise GoogleCalendarReconnectRequiredError(
+            "calendar_reconnect_required: missing scopes " + ",".join(sorted(missing_scopes))
+        )
 
 
 def _ensure_google_oauth_config() -> None:

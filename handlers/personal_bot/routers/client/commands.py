@@ -38,6 +38,7 @@ from services.booking_policy import validate_min_hours_before_start
 from services.google_calendar import create_appointment_event
 from services.google_calendar import delete_appointment_event
 from services.google_calendar import update_appointment_event
+from services.google_oauth import assert_calendar_ready_for_booking
 from services.appointment_state_guard import (
     InvalidAppointmentTransitionError,
     mark_google_create_failed,
@@ -282,6 +283,23 @@ async def _ensure_client_exists(*, session, specialist_id, tg_user) -> Client:
     return client
 
 
+async def _has_registered_client_name(*, specialist_id, tg_user_id: int) -> bool:
+    async with async_session_factory() as session:
+        client = (
+            await session.execute(
+                select(Client)
+                .where(Client.specialist_id == specialist_id)
+                .where(Client.tg_user_id == tg_user_id)
+            )
+        ).scalar_one_or_none()
+    if client is None:
+        return False
+    display_name = getattr(client, "display_name", None)
+    if display_name is None:
+        return True
+    return bool(str(display_name).strip())
+
+
 def _format_gmt_offset_label(tz: ZoneInfo, *, on_date: date | None = None) -> str:
     if on_date is None:
         local_dt = datetime.now(tz)
@@ -522,9 +540,19 @@ async def client_book_button(message: Message, actor: str, state: FSMContext, sp
     if actor != "client":
         return
 
+    await assert_calendar_ready_for_booking(specialist_id)
+
     if message.from_user is not None:
-        async with async_session_factory() as session:
-            await _ensure_client_exists(session=session, specialist_id=specialist_id, tg_user=message.from_user)
+        is_registered = await _has_registered_client_name(specialist_id=specialist_id, tg_user_id=message.from_user.id)
+        if not is_registered:
+            await state.clear()
+            await start_router.recover_client_entrypoint(
+                message,
+                specialist_id=specialist_id,
+                where="client_book_button:recover_unregistered",
+                bot_user_id=getattr(getattr(message, "bot", None), "id", None),
+            )
+            return
 
     specialist_tz = await _get_specialist_tz(specialist_id)
     min_hours = await _resolve_cancel_window_hours(specialist_id=specialist_id)
@@ -744,6 +772,8 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
         await callback.answer("Не удалось определить пользователя", show_alert=True)
         return
 
+    await assert_calendar_ready_for_booking(specialist_id)
+
     slot_raw = (callback.data or "").removeprefix("client_book_slot:")
     try:
         slot_start_local = datetime.fromisoformat(slot_raw)
@@ -774,7 +804,7 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
                 .limit(1)
             )
         ).scalar_one_or_none()
-        if existing_rejected_appointment is not None:
+        if existing_rejected_appointment is not None and getattr(existing_rejected_appointment, "booking_state", None) == BookingState.rejected_by_specialist:
             await state.clear()
             blocked_slot_text = _format_session_datetime_without_brackets(slot_start_utc, client_tz)
             await callback.message.answer(
@@ -1479,12 +1509,13 @@ async def client_tz_text_input(message: Message, actor: str, specialist_id, stat
 
 
 @router.message(F.text == "🏠 В меню")
-async def client_back_to_menu(message: Message, actor: str, state: FSMContext) -> None:
+async def client_back_to_menu(message: Message, actor: str, state: FSMContext, specialist_id) -> None:
     if actor != "client":
         return
     await state.clear()
-    await start_router.render_client_menu(
+    await start_router.recover_client_entrypoint(
         message,
+        specialist_id=specialist_id,
         where="client_back_to_menu",
         bot_user_id=getattr(getattr(message, "bot", None), "id", None),
     )
@@ -1526,7 +1557,12 @@ async def client_capture_display_name(message: Message, actor: str, specialist_i
 
 
 @router.message(F.text)
-async def client_unexpected_text_fallback(message: Message, actor: str, event_update: Update | None = None) -> None:
+async def client_unexpected_text_fallback(
+    message: Message,
+    actor: str,
+    specialist_id,
+    event_update: Update | None = None,
+) -> None:
     if actor != "client":
         return
     text = message.text or ""
@@ -1540,26 +1576,23 @@ async def client_unexpected_text_fallback(message: Message, actor: str, event_up
         message.from_user.id if message.from_user else None,
         text,
     )
-    await message.answer(
-        "Похоже, Вы начали не с /start или открыли бот заново. "
-        "Нажмите /start или выберите действие в меню.",
-        reply_markup=_client_fallback_keyboard(),
-    )
-    await start_router.render_client_menu(
+    await start_router.recover_client_entrypoint(
         message,
+        specialist_id=specialist_id,
         where="client_unexpected_text_fallback",
         bot_user_id=getattr(getattr(message, "bot", None), "id", None),
     )
 
 
 @router.callback_query()
-async def client_unknown_callback_fallback(callback: CallbackQuery, actor: str) -> None:
+async def client_unknown_callback_fallback(callback: CallbackQuery, actor: str, specialist_id) -> None:
     if actor != "client":
         return
     await callback.answer()
     if callback.message is not None:
-        await start_router.render_client_menu(
+        await start_router.recover_client_entrypoint(
             callback.message,
+            specialist_id=specialist_id,
             where="client_unknown_callback_fallback",
             bot_user_id=getattr(getattr(callback, "bot", None), "id", None),
         )

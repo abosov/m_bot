@@ -738,37 +738,78 @@ async def get_busy_intervals_for_day(
     specialist_tz: str,
     target_date_local_specialist: date,
 ) -> list[tuple[datetime, datetime]]:
+    started = time.monotonic()
     try:
         headers = await _build_headers(specialist_id)
         specialist_zone = ZoneInfo(specialist_tz)
         day_start_local = datetime.combine(target_date_local_specialist, datetime.min.time(), tzinfo=specialist_zone)
         day_end_local = day_start_local + timedelta(days=1)
 
-        payload = {
+        params = {
             "timeMin": day_start_local.astimezone(timezone.utc).isoformat(),
             "timeMax": day_end_local.astimezone(timezone.utc).isoformat(),
-            "items": [{"id": calendar_id}],
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "maxResults": 2500,
+            "fields": "items(start,end,status,transparency)",
         }
         response = await _calendar_request_with_retry(
-            requests.post,
-            f"{GOOGLE_CALENDAR_BASE_URL}/freeBusy",
-            method_name="POST",
+            requests.get,
+            f"{GOOGLE_CALENDAR_BASE_URL}/calendars/{calendar_id}/events",
+            method_name="GET",
             headers=headers,
-            json=payload,
+            params=params,
         )
         if response.status_code != 200:
             _raise_calendar_error(response)
 
-        busy_items = response.json().get("calendars", {}).get(calendar_id, {}).get("busy", [])
+        items = response.json().get("items", [])
         result: list[tuple[datetime, datetime]] = []
-        for item in busy_items:
-            busy_start_raw = item.get("start")
-            busy_end_raw = item.get("end")
-            if not busy_start_raw or not busy_end_raw:
+        for item in items:
+            if item.get("status") == "cancelled":
                 continue
-            busy_start = datetime.fromisoformat(busy_start_raw.replace("Z", "+00:00")).astimezone(specialist_zone)
-            busy_end = datetime.fromisoformat(busy_end_raw.replace("Z", "+00:00")).astimezone(specialist_zone)
-            result.append((busy_start.replace(tzinfo=None), busy_end.replace(tzinfo=None)))
+            if item.get("transparency") == "transparent":
+                continue
+
+            start_payload = item.get("start") or {}
+            end_payload = item.get("end") or {}
+
+            busy_start: datetime | None = None
+            busy_end: datetime | None = None
+
+            busy_start_raw = start_payload.get("dateTime")
+            busy_end_raw = end_payload.get("dateTime")
+            if busy_start_raw and busy_end_raw:
+                busy_start = datetime.fromisoformat(busy_start_raw.replace("Z", "+00:00")).astimezone(specialist_zone)
+                busy_end = datetime.fromisoformat(busy_end_raw.replace("Z", "+00:00")).astimezone(specialist_zone)
+            else:
+                all_day_start_raw = start_payload.get("date")
+                all_day_end_raw = end_payload.get("date")
+                if all_day_start_raw and all_day_end_raw:
+                    busy_start = datetime.combine(date.fromisoformat(all_day_start_raw), datetime.min.time(), tzinfo=specialist_zone)
+                    busy_end = datetime.combine(date.fromisoformat(all_day_end_raw), datetime.min.time(), tzinfo=specialist_zone)
+
+            if not busy_start or not busy_end:
+                continue
+
+            clipped_start = max(busy_start, day_start_local)
+            clipped_end = min(busy_end, day_end_local)
+            if clipped_start >= clipped_end:
+                continue
+
+            result.append((clipped_start.replace(tzinfo=None), clipped_end.replace(tzinfo=None)))
+
+        log_event(
+            logger,
+            logging.INFO,
+            event="google_api_call",
+            alias="list_events_for_day_busy",
+            duration_ms=int((time.monotonic() - started) * 1000),
+            outcome="ok",
+            http_status=response.status_code,
+            events_count=len(result),
+            specialist_id=specialist_id,
+        )
 
         return result
     except Exception as exc:

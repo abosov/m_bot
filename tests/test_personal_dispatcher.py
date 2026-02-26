@@ -508,3 +508,184 @@ async def test_personal_global_error_middleware_runtime_notifies_and_support_mes
 
     assert len(notify_calls) == 1
     assert any("Произошла ошибка при обработке команды" in text for text in replies)
+
+@pytest.mark.asyncio
+async def test_personal_global_error_middleware_google_insufficient_permissions_shows_friendly_message_and_notifies(monkeypatch):
+    replies = []
+    notify_calls = []
+    reconnect_calls = []
+
+    async def fake_answer(self, text, *args, **kwargs):
+        replies.append(text)
+        return None
+
+    async def fake_notify(*args, **kwargs):
+        notify_calls.append((args, kwargs))
+
+    async def fake_oauth_context(_specialist_id):
+        return {
+            "specialist_id": "sp-1",
+            "calendar_id": "cal-1",
+            "required_scopes": "scope-a scope-b",
+            "current_scopes": "scope-a",
+        }
+
+    async def fake_reconnect(_specialist_id):
+        reconnect_calls.append(_specialist_id)
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+    monkeypatch.setattr(personal_dispatcher, "notify_exception", fake_notify)
+    monkeypatch.setattr(personal_dispatcher, "_load_google_oauth_error_context", fake_oauth_context)
+    monkeypatch.setattr(personal_dispatcher, "_send_google_reconnect_instructions", fake_reconnect)
+
+    middleware = personal_dispatcher.PersonalGlobalErrorMiddleware()
+    update = Update.model_validate(
+        {
+            "update_id": 90,
+            "message": {
+                "message_id": 13,
+                "date": 1,
+                "chat": {"id": 777, "type": "private"},
+                "from": {"id": 777, "is_bot": False, "first_name": "Owner"},
+                "text": "Записаться",
+            },
+        }
+    )
+
+    async def broken_handler(event, data):
+        raise personal_dispatcher.GoogleCalendarInsufficientPermissionsError("insufficient scopes")
+
+    await middleware(
+        broken_handler,
+        update,
+        {
+            "actor": "client",
+            "specialist_id": "sp-1",
+            "telegram_bot": type("TgBot", (), {"bot_user_id": 123, "bot_username": "x_bot", "specialist_id": "sp-1"})(),
+        },
+    )
+
+    assert any("Сейчас запись временно недоступна" in text for text in replies)
+    assert len(notify_calls) == 1
+    assert notify_calls[0][0][0].endswith("google_insufficient_permissions")
+    context = notify_calls[0][0][2]
+    assert context["specialist_id"] == "sp-1"
+    assert context["calendar_id"] == "cal-1"
+    assert context["required_scopes"] == "scope-a scope-b"
+    assert context["current_scopes"] == "scope-a"
+    assert reconnect_calls == ["sp-1"]
+
+
+@pytest.mark.asyncio
+async def test_personal_global_error_middleware_google_insufficient_permissions_reconnect_failure_is_suppressed(monkeypatch):
+    replies = []
+
+    async def fake_answer(self, text, *args, **kwargs):
+        replies.append(text)
+        return None
+
+    async def fake_notify(*args, **kwargs):
+        return None
+
+    async def fake_oauth_context(_specialist_id):
+        return {
+            "specialist_id": "sp-2",
+            "calendar_id": None,
+            "required_scopes": "scope-a",
+            "current_scopes": None,
+        }
+
+    async def broken_reconnect(_specialist_id):
+        raise RuntimeError("telegram send failed")
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+    monkeypatch.setattr(personal_dispatcher, "notify_exception", fake_notify)
+    monkeypatch.setattr(personal_dispatcher, "_load_google_oauth_error_context", fake_oauth_context)
+    monkeypatch.setattr(personal_dispatcher, "_send_google_reconnect_instructions", broken_reconnect)
+
+    middleware = personal_dispatcher.PersonalGlobalErrorMiddleware()
+    update = Update.model_validate(
+        {
+            "update_id": 91,
+            "message": {
+                "message_id": 13,
+                "date": 1,
+                "chat": {"id": 777, "type": "private"},
+                "from": {"id": 777, "is_bot": False, "first_name": "Owner"},
+                "text": "Записаться",
+            },
+        }
+    )
+
+    async def broken_handler(event, data):
+        raise personal_dispatcher.GoogleCalendarInsufficientPermissionsError("insufficient scopes")
+
+    await middleware(broken_handler, update, {"actor": "client", "specialist_id": "sp-2", "telegram_bot": object()})
+
+    assert any("Сейчас запись временно недоступна" in text for text in replies)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "exc",
+    [
+        personal_dispatcher.GoogleCalendarNotConnectedError("calendar_not_connected"),
+        personal_dispatcher.GoogleCalendarReconnectRequiredError("calendar_reconnect_required"),
+    ],
+)
+async def test_personal_global_error_middleware_calendar_precheck_errors_use_friendly_path(monkeypatch, exc):
+    replies = []
+    notify_calls = []
+    reconnect_calls = []
+
+    async def fake_answer(self, text, *args, **kwargs):
+        replies.append(text)
+        return None
+
+    async def fake_notify(*args, **kwargs):
+        notify_calls.append((args, kwargs))
+
+    async def fake_oauth_context(_specialist_id):
+        return {
+            "specialist_id": "sp-3",
+            "calendar_id": "cal-3",
+            "required_scopes": "scope-a scope-b",
+            "current_scopes": "scope-a",
+        }
+
+    async def fake_reconnect(_specialist_id):
+        reconnect_calls.append(_specialist_id)
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+    monkeypatch.setattr(personal_dispatcher, "notify_exception", fake_notify)
+    monkeypatch.setattr(personal_dispatcher, "_load_google_oauth_error_context", fake_oauth_context)
+    monkeypatch.setattr(personal_dispatcher, "_send_google_reconnect_instructions", fake_reconnect)
+
+    middleware = personal_dispatcher.PersonalGlobalErrorMiddleware()
+    update = Update.model_validate(
+        {
+            "update_id": 92,
+            "message": {
+                "message_id": 13,
+                "date": 1,
+                "chat": {"id": 777, "type": "private"},
+                "from": {"id": 777, "is_bot": False, "first_name": "Owner"},
+                "text": "Записаться",
+            },
+        }
+    )
+
+    async def broken_handler(event, data):
+        raise exc
+
+    await middleware(
+        broken_handler,
+        update,
+        {"actor": "client", "specialist_id": "sp-3", "telegram_bot": object()},
+    )
+
+    assert any("Сейчас запись временно недоступна" in text for text in replies)
+    assert len(notify_calls) == 1
+    context = notify_calls[0][0][2]
+    assert context["reason_code"] in {"calendar_not_connected", "calendar_reconnect_required"}
+    assert reconnect_calls == ["sp-3"]
