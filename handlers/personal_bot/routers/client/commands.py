@@ -14,10 +14,12 @@ from aiogram.types import (
     KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
+    Update,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from handlers.personal_bot.ui.timezones import MAX_TZ_PAGE, build_timezone_keyboard
+from handlers.personal_bot.routers.common import start as start_router
 from sqlalchemy import func, select
 
 from database import (
@@ -43,6 +45,7 @@ from services.appointment_state_guard import (
 )
 from services.outbox import emit_domain_event as emit_outbox_domain_event
 from services.session_datetime import format_session_datetime
+from services.request_context import get_request_id
 
 router = Router(name="personal_bot_client_commands")
 logger = logging.getLogger(__name__)
@@ -131,6 +134,17 @@ def _client_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="Записаться")],
             [KeyboardButton(text="Мои записи")],
             [KeyboardButton(text="Сменить часовой пояс")],
+            [KeyboardButton(text="🏠 В меню")],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def _client_fallback_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🏠 В меню")],
+            [KeyboardButton(text="/start")],
         ],
         resize_keyboard=True,
     )
@@ -768,7 +782,12 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
                 f"Дата и время: {blocked_slot_text}\n\n"
                 "Специалист ранее отклонил этот запрос.\n"
                 "Пожалуйста, выберите другое время.",
-                reply_markup=_client_menu_keyboard(),
+            )
+            await start_router.render_client_menu(
+                callback.message,
+                where="client_pick_slot:rejected_slot",
+                specialist_id=specialist_id,
+                bot_user_id=getattr(getattr(callback, "bot", None), "id", None),
             )
             await callback.answer()
             return
@@ -880,7 +899,13 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
     )
 
     await state.clear()
-    await callback.message.answer(confirmation_text, reply_markup=_client_menu_keyboard())
+    await callback.message.answer(confirmation_text)
+    await start_router.render_client_menu(
+        callback.message,
+        where="client_pick_slot:confirmation",
+        specialist_id=specialist_id,
+        bot_user_id=getattr(getattr(callback, "bot", None), "id", None),
+    )
     await callback.answer()
 
 
@@ -940,7 +965,13 @@ async def client_my_appointments_retry_last(callback, specialist_id) -> None:
         if not calendar_id:
             if callback.message is not None:
                 await callback.message.answer("Запись временно недоступна: календарь не подключён.")
-                await callback.message.answer("Возвращаю в меню.", reply_markup=_client_menu_keyboard())
+                await callback.message.answer("Возвращаю в меню.")
+                await start_router.render_client_menu(
+                    callback.message,
+                    where="client_retry_last_appointment:menu",
+                    specialist_id=specialist_id,
+                    bot_user_id=getattr(getattr(callback, "bot", None), "id", None),
+                )
             await callback.answer()
             return
 
@@ -1289,7 +1320,12 @@ async def client_my_appointments_to_menu(callback) -> None:
     await callback.answer()
     if callback.message is None:
         return
-    await callback.message.answer("Возвращаю в меню.", reply_markup=_client_menu_keyboard())
+    await callback.message.answer("Возвращаю в меню.")
+    await start_router.render_client_menu(
+        callback.message,
+        where="client_my_appointments_to_menu",
+        bot_user_id=getattr(getattr(callback, "bot", None), "id", None),
+    )
 
 
 @router.message(F.text == "Сменить часовой пояс")
@@ -1385,7 +1421,12 @@ async def client_tz_set_callback(callback: CallbackQuery, state: FSMContext, act
     await state.clear()
     if callback.message is not None:
         await callback.message.answer(f"Готово. Теперь время будет показано в {tz_name}.")
-        await callback.message.answer("Меню:", reply_markup=_client_menu_keyboard())
+        await start_router.render_client_menu(
+            callback.message,
+            where="client_tz_set_callback",
+            specialist_id=specialist_id,
+            bot_user_id=getattr(getattr(callback, "bot", None), "id", None),
+        )
     await callback.answer()
 
 
@@ -1393,7 +1434,12 @@ async def client_tz_set_callback(callback: CallbackQuery, state: FSMContext, act
 async def client_tz_cancel_callback(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     if callback.message is not None:
-        await callback.message.answer("Отменено.", reply_markup=_client_menu_keyboard())
+        await callback.message.answer("Отменено.")
+        await start_router.render_client_menu(
+            callback.message,
+            where="client_tz_cancel_callback",
+            bot_user_id=getattr(getattr(callback, "bot", None), "id", None),
+        )
     await callback.answer()
 
 
@@ -1424,7 +1470,24 @@ async def client_tz_text_input(message: Message, actor: str, specialist_id, stat
 
     await state.clear()
     await message.answer(f"Готово. Теперь время будет показано в {tz_name}.")
-    await message.answer("Меню:", reply_markup=_client_menu_keyboard())
+    await start_router.render_client_menu(
+        message,
+        where="client_tz_text_input",
+        specialist_id=specialist_id,
+        bot_user_id=getattr(getattr(message, "bot", None), "id", None),
+    )
+
+
+@router.message(F.text == "🏠 В меню")
+async def client_back_to_menu(message: Message, actor: str, state: FSMContext) -> None:
+    if actor != "client":
+        return
+    await state.clear()
+    await start_router.render_client_menu(
+        message,
+        where="client_back_to_menu",
+        bot_user_id=getattr(getattr(message, "bot", None), "id", None),
+    )
 
 
 @router.message(F.text)
@@ -1453,8 +1516,53 @@ async def client_capture_display_name(message: Message, actor: str, specialist_i
 
     await message.answer(
         f"Приятно познакомиться, {message.text.strip()}!",
-        reply_markup=_client_menu_keyboard(),
     )
+    await start_router.render_client_menu(
+        message,
+        where="client_capture_display_name",
+        specialist_id=specialist_id,
+        bot_user_id=getattr(getattr(message, "bot", None), "id", None),
+    )
+
+
+@router.message(F.text)
+async def client_unexpected_text_fallback(message: Message, actor: str, event_update: Update | None = None) -> None:
+    if actor != "client":
+        return
+    text = message.text or ""
+    if text.startswith("/"):
+        return
+
+    logger.info(
+        "client_fallback_unexpected_text request_id=%s update_id=%s user_id=%s text=%r",
+        get_request_id(),
+        event_update.update_id if event_update else None,
+        message.from_user.id if message.from_user else None,
+        text,
+    )
+    await message.answer(
+        "Похоже, Вы начали не с /start или открыли бот заново. "
+        "Нажмите /start или выберите действие в меню.",
+        reply_markup=_client_fallback_keyboard(),
+    )
+    await start_router.render_client_menu(
+        message,
+        where="client_unexpected_text_fallback",
+        bot_user_id=getattr(getattr(message, "bot", None), "id", None),
+    )
+
+
+@router.callback_query()
+async def client_unknown_callback_fallback(callback: CallbackQuery, actor: str) -> None:
+    if actor != "client":
+        return
+    await callback.answer()
+    if callback.message is not None:
+        await start_router.render_client_menu(
+            callback.message,
+            where="client_unknown_callback_fallback",
+            bot_user_id=getattr(getattr(callback, "bot", None), "id", None),
+        )
 
 
 @router.message(Command("book_stub"))

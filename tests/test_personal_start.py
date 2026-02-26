@@ -255,6 +255,29 @@ async def test_personal_start_client_creates_client_and_requests_display_name(mo
     assert len(session.added) == 1
     assert session.added[0].tg_user_id == 1
 
+
+@pytest.mark.asyncio
+async def test_render_client_menu_falls_back_and_notifies_when_keyboard_build_fails(monkeypatch):
+    message = DummyMessage(from_user=types.SimpleNamespace(id=777))
+    notified = []
+
+    def broken_keyboard():
+        raise RuntimeError("keyboard failed")
+
+    async def fake_notify(where, exc, context, stage=None, **_kwargs):
+        notified.append({"where": where, "exc": exc, "context": context, "stage": stage})
+
+    monkeypatch.setattr(start_router, "_client_menu_keyboard", broken_keyboard)
+    monkeypatch.setattr(start_router, "notify_exception", fake_notify)
+
+    await start_router.render_client_menu(message, where="test_render_client_menu", specialist_id="sp-id", bot_user_id=42)
+
+    assert len(notified) == 1
+    assert notified[0]["where"] == "render_client_menu"
+    assert notified[0]["stage"] == "runtime"
+    assert notified[0]["context"]["where"] == "test_render_client_menu"
+    assert any("Меню временно недоступно" in text for text, _ in message.answers)
+
 def test_onboarding_keyboard_with_calendar_contains_calendar_and_existing_actions():
     keyboard = start_router._onboarding_keyboard_with_calendar()
     callback_data = [button.callback_data for row in keyboard.inline_keyboard for button in row]

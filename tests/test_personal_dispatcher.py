@@ -335,7 +335,7 @@ async def test_personal_global_error_middleware_replies_in_private_chat(monkeypa
     tg_bot = type("TgBot", (), {"bot_username": "x_bot", "bot_user_id": 123})()
     await middleware(broken_handler, update, {"telegram_bot": tg_bot})
 
-    assert any("Возникла ошибка при обработке команды" in text for text in replies)
+    assert any("Произошла ошибка при обработке команды" in text for text in replies)
 
 
 @pytest.mark.asyncio
@@ -430,3 +430,81 @@ async def test_personal_global_error_middleware_logs_context(monkeypatch, caplog
     assert "personal bot unhandled exception" in logs
     assert str(specialist_id) in logs
     assert "update_id=77" in logs
+
+
+@pytest.mark.asyncio
+async def test_personal_global_error_middleware_state_mismatch_no_notify_and_shows_menu(monkeypatch):
+    replies = []
+    notify_calls = []
+
+    async def fake_answer(self, text, *args, **kwargs):
+        replies.append((text, kwargs))
+        return None
+
+    async def fake_notify(*args, **kwargs):
+        notify_calls.append((args, kwargs))
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+    monkeypatch.setattr(personal_dispatcher, "notify_exception", fake_notify)
+
+    middleware = personal_dispatcher.PersonalGlobalErrorMiddleware()
+    update = Update.model_validate(
+        {
+            "update_id": 88,
+            "message": {
+                "message_id": 13,
+                "date": 1,
+                "chat": {"id": 777, "type": "private"},
+                "from": {"id": 777, "is_bot": False, "first_name": "Owner"},
+                "text": "Записаться",
+            },
+        }
+    )
+
+    async def broken_handler(event, data):
+        raise personal_dispatcher.StateMismatchError("state mismatch")
+
+    await middleware(broken_handler, update, {"actor": "client", "telegram_bot": object()})
+
+    assert notify_calls == []
+    assert any("Похоже, Вы начали не с /start" in text for text, _ in replies)
+    assert any(text == "Меню клиента:" for text, _ in replies)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exc", [RuntimeError("boom"), KeyError("x")])
+async def test_personal_global_error_middleware_runtime_notifies_and_support_message(monkeypatch, exc):
+    replies = []
+    notify_calls = []
+
+    async def fake_answer(self, text, *args, **kwargs):
+        replies.append(text)
+        return None
+
+    async def fake_notify(*args, **kwargs):
+        notify_calls.append((args, kwargs))
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+    monkeypatch.setattr(personal_dispatcher, "notify_exception", fake_notify)
+
+    middleware = personal_dispatcher.PersonalGlobalErrorMiddleware()
+    update = Update.model_validate(
+        {
+            "update_id": 89,
+            "message": {
+                "message_id": 13,
+                "date": 1,
+                "chat": {"id": 777, "type": "private"},
+                "from": {"id": 777, "is_bot": False, "first_name": "Owner"},
+                "text": "/start",
+            },
+        }
+    )
+
+    async def broken_handler(event, data):
+        raise exc
+
+    await middleware(broken_handler, update, {"actor": "client", "telegram_bot": object()})
+
+    assert len(notify_calls) == 1
+    assert any("Произошла ошибка при обработке команды" in text for text in replies)
