@@ -239,7 +239,7 @@
 ### 2. `insufficientPermissions` в Google OAuth или Calendar API
 **Симптомы:** OAuth завершён, но операции с календарём не работают.  
 **Что проверить:**
-- OAuth scopes включают ровно `https://www.googleapis.com/auth/calendar.readonly` (для `calendarList.list`) и `https://www.googleapis.com/auth/calendar.events` (для `events.insert/events.delete` интеграции);
+- OAuth scopes включают ровно `https://www.googleapis.com/auth/calendar.calendarlist.readonly` (для `calendarList.list`) и `https://www.googleapis.com/auth/calendar.events` (для `events.insert/events.delete` интеграции);
 - consent screen и публикация OAuth app корректны;
 - пользователь подтвердил актуальный набор разрешений.
 
