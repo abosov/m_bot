@@ -127,6 +127,7 @@ def _resolve_encryption_key() -> str | None:
     return None
 
 MASTER_BOT_TOKEN = _require_in_prod("MASTER_BOT_TOKEN", os.getenv("MASTER_BOT_TOKEN"))
+MASTER_ONBOARDING_VIDEO_FILE_ID: str | None = os.getenv("MASTER_ONBOARDING_VIDEO_FILE_ID") or None
 ENCRYPTION_KEY = _require_in_prod("ENCRYPTION_KEY", _resolve_encryption_key())
 GOOGLE_CLIENT_ID = _require_in_prod("GOOGLE_CLIENT_ID", os.getenv("GOOGLE_CLIENT_ID"))
 GOOGLE_CLIENT_SECRET = _require_in_prod(

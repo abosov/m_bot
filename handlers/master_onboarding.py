@@ -58,7 +58,7 @@ from services.google_calendar import (
 )
 from services.onboarding import finalize_specialist_if_ready
 from services.specialist_defaults import apply_specialist_defaults_if_missing
-from config import BACKEND_BASE_URL, PUBLIC_SITE_URL
+from config import BACKEND_BASE_URL, PUBLIC_SITE_URL, MASTER_ONBOARDING_VIDEO_FILE_ID
 from services.specialist_onboarding import get_specialist_by_tg_user_id, set_master_onboarding_completed
 from services.alerting import notify_exception
 from services.referrals import attach_referrer_by_code, extract_referral_code
@@ -103,6 +103,46 @@ def _build_personal_deep_link(bot_username: str | None) -> str:
 
 def _build_connect_page_url(raw_token: str) -> str:
     return f"{PUBLIC_SITE_URL}/connect#token={raw_token}"
+
+
+def _video_continue_keyboard() -> types.InlineKeyboardMarkup:
+    return types.InlineKeyboardMarkup(
+        inline_keyboard=[[types.InlineKeyboardButton(text="Продолжить настройку", callback_data="video:continue")]]
+    )
+
+
+async def _send_onboarding_screen_for_state(
+    callback: types.CallbackQuery,
+    state: FSMContext,
+    current_state: str | None,
+) -> str | None:
+    if current_state == OnboardingStates.waiting_for_public_name.state:
+        text_out = (
+            "📝 **Шаг 1 из 4. Публичное имя**\n\n"
+            "Посмотреть видео-инструкцию: /video\n\n"
+            "Введите имя, которое будут видеть ваши клиенты.\n"
+            "Например: *Психолог Анна* или *Иван Иванов*."
+        )
+        await callback.message.answer(text_out, reply_markup=types.ReplyKeyboardRemove())
+        return text_out
+
+    if current_state == OnboardingStates.waiting_for_bot_token.state:
+        text_out = (
+            "🤖 **Шаг 2 из 4. Личный бот**\n\n"
+            "1. Откройте @BotFather\n"
+            "2. Создайте нового бота командой /newbot\n"
+            "3. Скопируйте **API Token** и пришлите его сюда."
+        )
+        await callback.message.answer(text_out)
+        return text_out
+
+    if current_state == OnboardingStates.waiting_for_calendar_action.state:
+        await _calendar_select(callback, state)
+        return None
+
+    text_out = "Отправьте /start чтобы начать настройку."
+    await callback.message.answer(text_out)
+    return text_out
 
 
 def _full_onboarding_guard_keyboard(deep_link: str) -> types.InlineKeyboardMarkup:
@@ -752,6 +792,58 @@ async def cmd_start(message: types.Message, state: FSMContext, command: CommandO
         await message.answer("⚠️ Произошла внутренняя ошибка при загрузке профиля. Администратор уведомлен.")
 
 
+
+
+@router.message(Command("video"))
+async def cmd_video(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    user_handle = _get_handle(message.from_user)
+
+    if not MASTER_ONBOARDING_VIDEO_FILE_ID:
+        text_out = "Видео-инструкция пока недоступна."
+        await message.answer(text_out)
+        await log_outbound_message(
+            message.bot,
+            message.from_user.id,
+            text_out,
+            fsm_state=current_state,
+            user_handle=user_handle,
+        )
+        return
+
+    caption = "Видео-инструкция по подключению."
+    await message.answer_video(
+        video=MASTER_ONBOARDING_VIDEO_FILE_ID,
+        caption=caption,
+        reply_markup=_video_continue_keyboard(),
+    )
+    await log_outbound_message(
+        message.bot,
+        message.from_user.id,
+        f"[video:{MASTER_ONBOARDING_VIDEO_FILE_ID}] {caption}",
+        fsm_state=current_state,
+        user_handle=user_handle,
+    )
+
+
+@router.callback_query(F.data == "video:continue")
+async def video_continue(callback: types.CallbackQuery, state: FSMContext):
+    current_state = await state.get_state()
+    user_handle = _get_handle(callback.from_user)
+
+    try:
+        text_out = await _send_onboarding_screen_for_state(callback, state, current_state)
+        if text_out is not None:
+            await log_outbound_message(
+                callback.message.bot,
+                callback.from_user.id,
+                text_out,
+                fsm_state=current_state,
+                user_handle=user_handle,
+            )
+    finally:
+        await callback.answer()
+
 @router.message(F.text == "🚀 Стать специалистом")
 async def start_flow(message: types.Message, state: FSMContext):
     prev_state = await state.get_state()
@@ -771,6 +863,7 @@ async def start_flow(message: types.Message, state: FSMContext):
     
     text_out = (
         "📝 **Шаг 1 из 4. Публичное имя**\n\n"
+        "Посмотреть видео-инструкцию: /video\n\n"
         "Введите имя, которое будут видеть ваши клиенты.\n"
         "Например: *Психолог Анна* или *Иван Иванов*."
     )
