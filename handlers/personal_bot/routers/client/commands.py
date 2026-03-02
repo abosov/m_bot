@@ -30,6 +30,7 @@ from database import (
     ClientTimezoneSource,
     SpecialistCalendarSettings,
     SpecialistProfile,
+    TariffPlan,
     WeeklyAvailability,
     async_session_factory,
 )
@@ -47,6 +48,13 @@ from services.appointment_state_guard import (
 from services.outbox import emit_domain_event as emit_outbox_domain_event
 from services.session_datetime import format_session_datetime
 from services.request_context import get_request_id
+from services.plan_limits import PlanLimitError, enforce_booking_plan_limit
+from services.upsell import (
+    maybe_mark_analytics_upsell_needed,
+    upsell_button_text,
+    upsell_message_text,
+    upsell_pricing_url,
+)
 
 router = Router(name="personal_bot_client_commands")
 logger = logging.getLogger(__name__)
@@ -824,9 +832,17 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
 
         try:
             await _validate_min_hours_policy(specialist_id=specialist_id, target_start_utc=slot_start_utc)
-        except ValueError as exc:
+            await enforce_booking_plan_limit(
+                session=session,
+                profile=profile,
+                specialist_id=specialist_id,
+                slot_start_utc=slot_start_utc,
+            )
+        except (ValueError, PlanLimitError) as exc:
             await callback.answer(str(exc), show_alert=True)
             return
+
+        tariff_plan = getattr(profile, "tariff_plan", TariffPlan.start)
 
         appointment = Appointment(
             specialist_id=specialist_id,
@@ -838,6 +854,32 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
         )
         session.add(appointment)
         await session.commit()
+
+        should_send_upsell = await maybe_mark_analytics_upsell_needed(
+            session=session,
+            profile=profile,
+            specialist_id=specialist_id,
+        )
+        if should_send_upsell:
+            await session.commit()
+            owner_tg_user_id = getattr(profile, "owner_tg_user_id", None)
+            bot_instance = getattr(callback, "bot", None)
+            if owner_tg_user_id is not None and bot_instance is not None:
+                try:
+                    await bot_instance.send_message(
+                        chat_id=owner_tg_user_id,
+                        text=upsell_message_text(),
+                        reply_markup=InlineKeyboardMarkup(
+                            inline_keyboard=[[InlineKeyboardButton(text=upsell_button_text(), url=upsell_pricing_url())]]
+                        ),
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to send analytics upsell message specialist_id=%s owner_tg_user_id=%s",
+                        specialist_id,
+                        owner_tg_user_id,
+                        exc_info=True,
+                    )
 
         settings = await session.get(SpecialistCalendarSettings, specialist_id)
         calendar_id = settings.calendar_id if settings is not None else None
@@ -900,6 +942,7 @@ async def client_pick_slot(callback, state: FSMContext, specialist_id) -> None:
                         "client_id": str(appointment.client_id),
                         "start_at_utc": appointment.start_at_utc.isoformat(),
                         "end_at_utc": appointment.end_at_utc.isoformat(),
+                        "tariff_plan": tariff_plan.value if isinstance(tariff_plan, TariffPlan) else str(tariff_plan),
                     },
                 )
                 try:

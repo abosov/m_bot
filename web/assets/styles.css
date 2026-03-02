@@ -109,6 +109,12 @@ body {
   background: var(--blue-soft);
   color: var(--blue) !important;
 }
+.button.outline {
+  background: transparent;
+  color: var(--blue) !important;
+  border: 1px solid var(--border);
+}
+
 
 .hero {
   display: grid;
@@ -193,8 +199,43 @@ section { padding: 34px 0; }
   padding: 18px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+.pricing-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
 .pricing-grid .price { font-size: 1.9rem; margin: 8px 0 16px; }
+.plan-micro {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: -8px 0 12px;
+}
+.pricing-grid .price-period {
+  color: var(--muted);
+  margin: -10px 0 16px;
+  font-size: 0.95rem;
+}
 .pricing-grid ul { padding-left: 18px; color: var(--muted); }
+.pricing-referral-block {
+  margin-top: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+}
+.pricing-referral-block h2 {
+  margin: 0 0 8px;
+  font-size: 1.25rem;
+}
+.pricing-referral-block p {
+  margin: 0;
+  color: var(--muted);
+}
+.pricing-referral-block p + p {
+  margin-top: 6px;
+}
+.card-lite {
+  background: #fbfcff;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.03);
+}
 .featured { border-color: #c8d7ff; box-shadow: 0 14px 28px rgba(47, 107, 255, 0.14); }
 .contact-form { display: grid; gap: 12px; }
 .contact-form label { display: grid; gap: 6px; color: var(--muted); }
@@ -242,6 +283,12 @@ input, textarea {
 .logo-footer .logo-text {
   color: #9ca3af;
   font-size: 18px;
+}
+
+@media (max-width: 1200px) {
+  .pricing-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1024px) {

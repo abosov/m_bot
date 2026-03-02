@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+
+from config import PUBLIC_SITE_URL
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -14,6 +16,7 @@ from database import (
     GoogleOAuthStatus,
     Specialist,
     SpecialistProfile,
+    TariffPlan,
     TelegramBot,
     TelegramBotStatus,
     async_session_factory,
@@ -21,6 +24,7 @@ from database import (
 from services.telegram.markdown_utils import escape_markdown_v2
 from services.client_display import format_client_display
 from services.session_datetime import format_session_datetime
+from services.tariff_access import AnalyticsAccessError, ensure_analytics_access
 
 router = Router(name="personal_bot_specialist_commands")
 
@@ -125,6 +129,7 @@ async def personal_help(message: Message) -> None:
         "• /start — панель специалиста\n"
         "• /status — статус профиля и интеграций\n"
         "• /appointments — мои записи\n"
+        "• /analytics — статистика и аналитика\n"
         "• /help — эта справка\n\n"
         "В разработке: управление расписанием, клиентские записи и напоминания."
     )
@@ -191,3 +196,32 @@ async def personal_status(message: Message, specialist_id) -> None:
         f"• Onboarding (master): {onboarding_master}\n"
         f"• Onboarding (personal): {onboarding_personal}"
     )
+
+
+async def _load_specialist_tariff_plan(specialist_id):
+    async with async_session_factory() as session:
+        profile = await session.get(SpecialistProfile, specialist_id)
+    return getattr(profile, "tariff_plan", TariffPlan.start)
+
+
+@router.message(Command("analytics"))
+@router.message(F.text == "Аналитика")
+async def specialist_analytics(message: Message, specialist_id, actor: str) -> None:
+    if actor != "specialist":
+        return
+
+    tariff_plan = await _load_specialist_tariff_plan(specialist_id)
+    try:
+        ensure_analytics_access(tariff_plan)
+    except AnalyticsAccessError:
+        pricing_url = f"{PUBLIC_SITE_URL}/pricing"
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="Перейти к тарифам", url=pricing_url)]]
+        )
+        await message.answer(
+            "📊 Аналитика доступна на тарифе Pro. Обновите тариф для доступа к статистике.",
+            reply_markup=kb,
+        )
+        return
+
+    await message.answer("📊 Раздел аналитики доступен на вашем тарифе. Скоро здесь появится статистика.")

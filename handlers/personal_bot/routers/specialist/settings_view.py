@@ -15,6 +15,12 @@ _WEEKDAY_LABELS = {
     6: "Вс",
 }
 
+_TARIFF_PLAN_LABELS = {
+    "free": "Free",
+    "start": "Start",
+    "pro": "Pro",
+    "team": "Team",
+}
 
 
 def _format_minutes(value: int) -> str:
@@ -25,6 +31,12 @@ def _format_minutes(value: int) -> str:
 def _working_days(rows: Sequence) -> str:
     days = [_WEEKDAY_LABELS.get(row.weekday, str(row.weekday)) for row in rows if row.is_working]
     return ", ".join(days) if days else "не заданы"
+
+
+def _format_tariff_plan(profile) -> str:
+    plan_raw = getattr(profile, "tariff_plan", "start")
+    plan_value = getattr(plan_raw, "value", plan_raw)
+    return _TARIFF_PLAN_LABELS.get(str(plan_value), str(plan_value).upper())
 
 
 def _format_intervals_for_ui(intervals_by_idx: Mapping[int, tuple[int | None, int | None]] | None) -> str:
@@ -53,6 +65,8 @@ def build_specialist_settings_view(
     include_reset_button: bool,
     working_intervals_by_idx: Mapping[int, tuple[int | None, int | None]] | None = None,
     later_button: tuple[str, str] | None = None,
+    referral_link: str | None = None,
+    referrals_count: int = 0,
 ) -> tuple[str, InlineKeyboardMarkup]:
     calendar_summary = "не выбран"
     calendar_time_zone = "—"
@@ -73,7 +87,8 @@ def build_specialist_settings_view(
         f"• Буфер: {profile.session_buffer_min} мин\n"
         f"• Шаг слота: {profile.slot_step_min} мин\n"
         f"• Макс. сессий в день: {profile.max_sessions_per_day}\n"
-        f"• Окно отмены: {profile.cancel_window_hours} ч\n\n"
+        f"• Окно отмены: {profile.cancel_window_hours} ч\n"
+        f"• Тариф: {_format_tariff_plan(profile)}\n\n"
         f"Часовой пояс специалиста:\n• {specialist_timezone}\n\n"
         "Расписание:\n"
         f"• Рабочие дни: {_working_days(rows)}\n"

@@ -2,6 +2,7 @@ from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
 from typing import Sequence
+from uuid import UUID
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -42,6 +43,7 @@ from services.working_intervals import (
     ensure_default_working_intervals,
 )
 from services.working_intervals_repository import WorkingIntervalsRepository
+from services.referrals import build_referral_link, count_active_referrals
 from services.telegram.calendar_keyboard import format_calendar_button_text
 from services.log_context import log_event
 from services.specialist_defaults import (
@@ -580,6 +582,21 @@ async def _ensure_owner_panel_defaults(
 
 
 
+async def _load_referral_program_stats(specialist_id) -> tuple[str, int]:
+    try:
+        specialist_uuid = specialist_id if isinstance(specialist_id, UUID) else UUID(str(specialist_id))
+    except (ValueError, TypeError):
+        return "—", 0
+
+    async with async_session_factory() as session:
+        specialist = await session.get(Specialist, specialist_uuid)
+        if specialist is None:
+            return "—", 0
+        referral_link = build_referral_link(specialist.referral_code)
+        invited_count = await count_active_referrals(session, specialist_uuid)
+        return referral_link, invited_count
+
+
 async def _build_owner_panel_view(
     *,
     specialist_id,
@@ -592,6 +609,7 @@ async def _build_owner_panel_view(
         return None
 
     display_name = public_name or profile.public_name or "специалист"
+    referral_link, invited_count = await _load_referral_program_stats(specialist_id)
     text, keyboard = build_specialist_settings_view(
         profile=profile,
         rows=rows,
@@ -600,6 +618,8 @@ async def _build_owner_panel_view(
         keep_callback_data=None,
         include_reset_button=True,
         working_intervals_by_idx=working_intervals_by_idx,
+        referral_link=referral_link,
+        referrals_count=invited_count,
     )
     text = (
         f"✅ Базовые настройки уже применены автоматически после онбординга, {display_name}.\n"

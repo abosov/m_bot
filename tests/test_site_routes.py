@@ -239,3 +239,63 @@ def test_google_oauth_start_with_cookie_redirects_to_auth_url(monkeypatch):
     assert response.status_code == 302
     assert response.headers.get("location") == patched_auth_url
     assert response.headers.get("cache-control") == "no-store"
+
+
+class _AnalyticsSession:
+    def __init__(self, tariff_plan):
+        self._tariff_plan = tariff_plan
+
+    async def get(self, model, _pk):
+        if model.__name__ == "SpecialistProfile":
+            return type("Profile", (), {"tariff_plan": self._tariff_plan})()
+        return None
+
+    async def scalar(self, _stmt):
+        return 0
+
+
+class _AnalyticsSessionContext:
+    def __init__(self, tariff_plan):
+        self._tariff_plan = tariff_plan
+
+    async def __aenter__(self):
+        return _AnalyticsSession(self._tariff_plan)
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+def test_analytics_summary_requires_pro_or_higher(monkeypatch):
+    monkeypatch.setattr(
+        web_server.web_session,
+        "verify_session_cookie",
+        lambda _: ("44444444-4444-4444-8444-444444444444", 777),
+    )
+    monkeypatch.setattr(
+        web_server,
+        "async_session_factory",
+        lambda: _AnalyticsSessionContext("start"),
+    )
+
+    response = client.get("/analytics/summary")
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Аналитика доступна на тарифе Pro и выше."}
+
+
+def test_analytics_summary_allows_team(monkeypatch):
+    monkeypatch.setattr(
+        web_server.web_session,
+        "verify_session_cookie",
+        lambda _: ("44444444-4444-4444-8444-444444444444", 777),
+    )
+    monkeypatch.setattr(
+        web_server,
+        "async_session_factory",
+        lambda: _AnalyticsSessionContext("team"),
+    )
+
+    response = client.get("/analytics/summary")
+
+    assert response.status_code == 200
+    assert response.json() == {"total_bookings": 0, "confirmed": 0, "canceled": 0}
