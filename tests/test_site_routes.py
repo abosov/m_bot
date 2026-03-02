@@ -192,6 +192,99 @@ def test_connect_status_requires_valid_cookie(monkeypatch):
     assert valid_response.json() == {"ok": True}
 
 
+def test_public_contact_honeypot_returns_ok_without_sending(monkeypatch):
+    called = {"smtp": False}
+
+    def _smtp_stub(**kwargs):
+        called["smtp"] = True
+
+    monkeypatch.setattr(web_server, "_send_contact_email_smtp", _smtp_stub)
+
+    response = client.post(
+        "/public/contact",
+        json={
+            "name": "Alice",
+            "email": "alice@example.com",
+            "message": "Hello",
+            "hp": "bot-filled",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert called["smtp"] is False
+
+
+def test_public_contact_returns_smtp_not_configured_and_alerts(monkeypatch):
+    alerts: list[dict] = []
+
+    async def _notify_stub(where, exc, context=None, **kwargs):
+        alerts.append({"where": where, "exc": exc, "context": context or {}})
+
+    for key in (
+        "CONTACT_SMTP_HOST",
+        "CONTACT_SMTP_PORT",
+        "CONTACT_SMTP_USER",
+        "CONTACT_SMTP_PASSWORD",
+        "CONTACT_SMTP_FROM",
+        "CONTACT_SMTP_TO",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(web_server, "notify_exception", _notify_stub)
+
+    response = client.post(
+        "/public/contact",
+        json={"name": "Alice", "email": "alice@example.com", "message": "Hello"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": False, "error": "smtp_not_configured"}
+    assert len(alerts) == 1
+    assert alerts[0]["where"] == "web.contact_form"
+
+
+def test_public_contact_sends_email(monkeypatch):
+    captured: dict = {}
+
+    def _smtp_stub(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setenv("CONTACT_SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("CONTACT_SMTP_PORT", "587")
+    monkeypatch.setenv("CONTACT_SMTP_USER", "mailer")
+    monkeypatch.setenv("CONTACT_SMTP_PASSWORD", "secret")
+    monkeypatch.setenv("CONTACT_SMTP_FROM", "from@example.com")
+    monkeypatch.setenv("CONTACT_SMTP_TO", "to@example.com")
+    monkeypatch.setattr(web_server, "_send_contact_email_smtp", _smtp_stub)
+
+    response = client.post(
+        "/public/contact",
+        json={"name": "Alice", "email": "alice@example.com", "message": "Hello from form"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert captured["smtp_host"] == "smtp.example.com"
+    assert captured["smtp_port"] == 587
+    assert captured["smtp_user"] == "mailer"
+    assert captured["smtp_password"] == "secret"
+    assert captured["smtp_from"] == "from@example.com"
+    assert captured["smtp_to"] == "to@example.com"
+    assert captured["subject"] == "Zumbot contact form: Alice alice@example.com"
+    assert "message:\nHello from form" in captured["body"]
+    assert "request_id:" in captured["body"]
+
+
+def test_public_contact_returns_validation_error_for_invalid_email():
+    response = client.post(
+        "/public/contact",
+        json={"name": "Alice", "email": "bad", "message": "Hello"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": False, "error": "validation_error"}
+
+
 def test_google_oauth_start_without_cookie_does_not_redirect(monkeypatch):
     monkeypatch.setattr(web_server.web_session, "verify_session_cookie", lambda _: None)
 

@@ -1,8 +1,12 @@
 import json
 import asyncio
 import logging
+import os
+import re
+import smtplib
 import time
 import uuid
+from email.message import EmailMessage
 from pathlib import Path
 import requests
 from contextlib import asynccontextmanager
@@ -11,7 +15,7 @@ from fastapi import BackgroundTasks, FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, select, update
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
@@ -406,6 +410,129 @@ async def site_health() -> PlainTextResponse:
 
 class TelegramConsumeRequest(BaseModel):
     token: str
+
+
+class ContactFormRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    email: str = Field(min_length=3, max_length=254)
+    message: str = Field(min_length=1, max_length=4000)
+    hp: str | None = None
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        email = value.strip()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            raise ValueError("invalid email")
+        return email
+
+
+def _send_contact_email_smtp(
+    *,
+    smtp_host: str,
+    smtp_port: int,
+    smtp_user: str,
+    smtp_password: str,
+    smtp_from: str,
+    smtp_to: str,
+    subject: str,
+    body: str,
+) -> None:
+    message = EmailMessage()
+    message["From"] = smtp_from
+    message["To"] = smtp_to
+    message["Subject"] = subject
+    message.set_content(body)
+
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as smtp:
+        smtp.ehlo()
+        smtp.starttls()
+        smtp.ehlo()
+        smtp.login(smtp_user, smtp_password)
+        smtp.sendmail(smtp_from, [smtp_to], message.as_string())
+
+
+@app.post("/public/contact")
+async def public_contact(request: Request) -> JSONResponse:
+    request_id = _request_id_from_request(request)
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse(status_code=200, content={"ok": False, "error": "invalid_json"})
+
+    try:
+        form = ContactFormRequest.model_validate(payload)
+    except ValidationError:
+        return JSONResponse(status_code=200, content={"ok": False, "error": "validation_error"})
+
+    logger.info(
+        "event=contact_form_received request_id=%s name_len=%s email_len=%s message_len=%s",
+        request_id,
+        len(form.name),
+        len(str(form.email)),
+        len(form.message),
+    )
+
+    if form.hp and form.hp.strip():
+        return JSONResponse(status_code=200, content={"ok": True})
+
+    smtp_host = os.getenv("CONTACT_SMTP_HOST", "").strip()
+    smtp_port_raw = os.getenv("CONTACT_SMTP_PORT", "587").strip()
+    smtp_user = os.getenv("CONTACT_SMTP_USER", "").strip()
+    smtp_password = os.getenv("CONTACT_SMTP_PASSWORD", "").strip()
+    smtp_from = os.getenv("CONTACT_SMTP_FROM", smtp_user).strip()
+    smtp_to = os.getenv("CONTACT_SMTP_TO", "info@zumbot.ru").strip()
+
+    try:
+        smtp_port = int(smtp_port_raw)
+    except ValueError:
+        await notify_exception(
+            where="web.contact_form",
+            exc=RuntimeError("smtp_invalid_port"),
+            context={"request_id": request_id},
+        )
+        return JSONResponse(status_code=200, content={"ok": False, "error": "smtp_not_configured"})
+
+    if not smtp_host or not smtp_user or not smtp_password:
+        await notify_exception(
+            where="web.contact_form",
+            exc=RuntimeError("smtp_not_configured"),
+            context={"request_id": request_id},
+        )
+        return JSONResponse(status_code=200, content={"ok": False, "error": "smtp_not_configured"})
+
+    subject = f"Zumbot contact form: {form.name} {form.email}"
+    timestamp_utc = datetime.now(timezone.utc).isoformat()
+    body = (
+        f"name: {form.name}\n"
+        f"email: {form.email}\n"
+        f"message:\n{form.message}\n\n"
+        f"timestamp_utc: {timestamp_utc}\n"
+        f"request_id: {request_id}\n"
+    )
+
+    try:
+        await asyncio.to_thread(
+            _send_contact_email_smtp,
+            smtp_host=smtp_host,
+            smtp_port=smtp_port,
+            smtp_user=smtp_user,
+            smtp_password=smtp_password,
+            smtp_from=smtp_from,
+            smtp_to=smtp_to,
+            subject=subject,
+            body=body,
+        )
+    except Exception as exc:
+        await notify_exception(
+            where="web.contact_form",
+            exc=exc,
+            context={"request_id": request_id, "error": type(exc).__name__},
+        )
+        return JSONResponse(status_code=200, content={"ok": False, "error": "smtp_send_failed"})
+
+    return JSONResponse(status_code=200, content={"ok": True})
 
 
 @app.post("/auth/telegram/consume")
