@@ -26,3 +26,7 @@
 
 - `/assets/*` раздаётся из `web/assets` через `StaticFiles`.
 - Если `web/` или `web/index.html` отсутствуют, сайт не монтируется, но API продолжает работать.
+
+## Runbook'и по публичному сайту
+
+- Contact form (`/contacts`): `docs/runbook/contact-form.md`
