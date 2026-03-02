@@ -1237,3 +1237,95 @@ async def test_master_calendar_switch_stub_starts_selection(monkeypatch):
     await onboarding.calendar_switch_stub(callback=_Callback(), state=_State())
 
     assert called["select"] is True
+
+
+@pytest.mark.asyncio
+async def test_cmd_video_does_not_change_fsm_state(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("MASTER_BOT_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
+    monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+
+    import handlers.master_onboarding as onboarding
+
+    async def _noop_async(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(onboarding, "MASTER_ONBOARDING_VIDEO_FILE_ID", "stub-video-file-id")
+    monkeypatch.setattr(onboarding, "log_outbound_message", _noop_async)
+
+    class _State:
+        def __init__(self):
+            self._state = onboarding.OnboardingStates.waiting_for_public_name.state
+
+        async def get_state(self):
+            return self._state
+
+    class _Message:
+        def __init__(self):
+            self.from_user = SimpleNamespace(id=777, username="spec", first_name="Spec", last_name=None)
+            self.bot = object()
+            self.videos = []
+
+        async def answer(self, text, **kwargs):
+            return None
+
+        async def answer_video(self, video, caption=None, reply_markup=None, **kwargs):
+            self.videos.append((video, caption, reply_markup, kwargs))
+            return None
+
+    state = _State()
+    message = _Message()
+
+    before_state = await state.get_state()
+    await onboarding.cmd_video(message, state)
+    after_state = await state.get_state()
+
+    assert before_state == onboarding.OnboardingStates.waiting_for_public_name.state
+    assert after_state == onboarding.OnboardingStates.waiting_for_public_name.state
+    assert message.videos
+
+
+@pytest.mark.asyncio
+async def test_video_continue_returns_step_one_text(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("MASTER_BOT_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
+    monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+
+    import handlers.master_onboarding as onboarding
+
+    async def _noop_async(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(onboarding, "log_outbound_message", _noop_async)
+
+    class _State:
+        async def get_state(self):
+            return onboarding.OnboardingStates.waiting_for_public_name.state
+
+    class _Message:
+        def __init__(self):
+            self.bot = object()
+            self.sent = []
+
+        async def answer(self, text, **kwargs):
+            self.sent.append((text, kwargs))
+            return None
+
+    class _Callback:
+        def __init__(self):
+            self.from_user = SimpleNamespace(id=777, username="spec", first_name="Spec", last_name=None)
+            self.message = _Message()
+            self.answered = 0
+
+        async def answer(self):
+            self.answered += 1
+            return None
+
+    callback = _Callback()
+    await onboarding.video_continue(callback, _State())
+
+    assert callback.answered == 1
+    assert callback.message.sent
+    text, _ = callback.message.sent[-1]
+    assert "Шаг 1 из 4" in text
+    assert "Посмотреть видео-инструкцию: /video" in text
