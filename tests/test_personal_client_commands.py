@@ -1624,6 +1624,7 @@ async def test_client_pick_slot_passes_client_tg_user_id_and_client_code_to_goog
         "client_id": "cl-1",
         "start_at_utc": "2026-02-21T12:00:00+00:00",
         "end_at_utc": "2026-02-21T12:45:00+00:00",
+        "tariff_plan": "start",
     }
 
 
@@ -2233,3 +2234,89 @@ async def test_client_pick_slot_precheck_stops_before_google_calls(monkeypatch):
 
     with pytest.raises(google_oauth.GoogleCalendarNotConnectedError):
         await client_commands.client_pick_slot(callback, state=state, specialist_id="sp-id")
+
+
+@pytest.mark.asyncio
+async def test_client_pick_slot_returns_free_plan_limit_error(monkeypatch):
+    state = DummyState()
+    message = DummyMessage("")
+
+    callback = types.SimpleNamespace(
+        data="client_book_slot:2026-02-21T12:00:00",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    class _Result:
+        def __init__(self, value):
+            self._value = value
+
+        def scalar_one_or_none(self):
+            return self._value
+
+    class _Session:
+        def __init__(self):
+            self.added = []
+            self.commits = 0
+            self._execute_calls = 0
+
+        async def execute(self, _stmt):
+            self._execute_calls += 1
+            if self._execute_calls <= 2:
+                return _Result(types.SimpleNamespace(client_id="cl-1", client_timezone="UTC"))
+            return _Result(None)
+
+        async def scalar(self, _stmt):
+            return 16
+
+        async def get(self, model, _pk):
+            if model is client_commands.SpecialistProfile:
+                return types.SimpleNamespace(
+                    session_duration_min=45,
+                    specialist_timezone="UTC",
+                    tariff_plan=client_commands.TariffPlan.free,
+                )
+            if model is client_commands.SpecialistCalendarSettings:
+                return None
+            return None
+
+        def add(self, obj):
+            self.added.append(obj)
+
+        async def commit(self):
+            self.commits += 1
+
+    session = _Session()
+
+    class _Ctx:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _tz(_specialist_id):
+        return ZoneInfo("UTC")
+
+    async def _validate_ok(**_kwargs):
+        return None
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+    monkeypatch.setattr(client_commands, "_get_specialist_tz", _tz)
+    monkeypatch.setattr(client_commands, "_validate_min_hours_policy", _validate_ok)
+
+    await client_commands.client_pick_slot(callback, state=state, specialist_id="sp-id")
+
+    assert session.added == []
+    assert session.commits == 0
+    assert callback.answers[-1][0][0] == (
+        "Вы достигли лимита бесплатного тарифа (16 записей в месяц). "
+        "Обновите тариф для продолжения."
+    )
+    assert callback.answers[-1][1]["show_alert"] is True

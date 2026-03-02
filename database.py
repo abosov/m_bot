@@ -1,6 +1,7 @@
 import uuid
 import enum
 import logging
+import secrets
 from datetime import datetime, time
 from typing import Optional, List
 
@@ -82,6 +83,12 @@ class BotHealthCheckStatus(str, enum.Enum):
     unauthorized = "unauthorized"
     temp_error = "temp_error"
 
+class TariffPlan(str, enum.Enum):
+    free = "free"
+    start = "start"
+    pro = "pro"
+    team = "team"
+
 # --- MODELS ---
 
 class Specialist(Base):
@@ -93,6 +100,9 @@ class Specialist(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     onboarding_master_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     onboarding_personal_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    referral_code: Mapped[str] = mapped_column(String(16), unique=True, nullable=False, default=lambda: secrets.token_hex(4).upper())
+    referrer_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=True, index=True)
+    referral_bonus_awarded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     auth_telegram: Mapped["SpecialistAuthTelegram"] = relationship(back_populates="specialist", uselist=False)
@@ -152,6 +162,15 @@ class SpecialistProfile(Base):
     max_sessions_per_day: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
     slot_step_min: int = Column(Integer, nullable=False, server_default="15", default=15)
     cancel_window_hours: Mapped[int] = mapped_column(Integer, default=12, nullable=False)
+    tariff_plan: Mapped[TariffPlan] = mapped_column(
+        SAEnum(TariffPlan),
+        nullable=False,
+        default=TariffPlan.start,
+        server_default=TariffPlan.start.value,
+    )
+    start_bonus_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    referral_bonus_months: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    analytics_upsell_prompted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

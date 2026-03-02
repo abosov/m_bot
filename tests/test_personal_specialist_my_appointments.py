@@ -83,3 +83,39 @@ async def test_specialist_my_appointments_returns_for_non_specialist(monkeypatch
 
     assert called is False
     assert message.answers == []
+
+
+@pytest.mark.asyncio
+async def test_specialist_analytics_blocks_start_and_shows_pricing_button(monkeypatch):
+    message = DummyMessage(from_user=types.SimpleNamespace(id=5003))
+
+    async def _load_plan(_specialist_id):
+        return specialist_commands.TariffPlan.start
+
+    monkeypatch.setattr(specialist_commands, "_load_specialist_tariff_plan", _load_plan)
+
+    await specialist_commands.specialist_analytics(message, specialist_id="sp-id", actor="specialist")
+
+    assert len(message.answers) == 1
+    text, kwargs = message.answers[0]
+    assert text == "📊 Аналитика доступна на тарифе Pro. Обновите тариф для доступа к статистике."
+    markup = kwargs["reply_markup"]
+    button = markup.inline_keyboard[0][0]
+    assert button.text == "Перейти к тарифам"
+
+
+@pytest.mark.asyncio
+async def test_specialist_analytics_allows_team(monkeypatch):
+    message = DummyMessage(from_user=types.SimpleNamespace(id=5004))
+
+    async def _load_plan(_specialist_id):
+        return specialist_commands.TariffPlan.team
+
+    monkeypatch.setattr(specialist_commands, "_load_specialist_tariff_plan", _load_plan)
+
+    await specialist_commands.specialist_analytics(message, specialist_id="sp-id", actor="specialist")
+
+    assert len(message.answers) == 1
+    text, kwargs = message.answers[0]
+    assert text == "📊 Раздел аналитики доступен на вашем тарифе. Скоро здесь появится статистика."
+    assert kwargs == {}

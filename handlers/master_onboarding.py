@@ -12,7 +12,7 @@ from typing import Literal
 from aiogram import Router, F, types, Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart, Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.exceptions import (
@@ -61,6 +61,7 @@ from services.specialist_defaults import apply_specialist_defaults_if_missing
 from config import BACKEND_BASE_URL, PUBLIC_SITE_URL
 from services.specialist_onboarding import get_specialist_by_tg_user_id, set_master_onboarding_completed
 from services.alerting import notify_exception
+from services.referrals import attach_referrer_by_code, extract_referral_code
 from services.log_context import log_event
 from services.telegram.markdown_utils import escape_markdown_v2
 from services.telegram.calendar_keyboard import build_calendar_selection_keyboard
@@ -517,7 +518,7 @@ async def cmd_status(message: types.Message):
         await message.answer("⚠️ Произошла внутренняя ошибка при проверке бота.")
 
 @router.message(CommandStart())
-async def cmd_start(message: types.Message, state: FSMContext):
+async def cmd_start(message: types.Message, state: FSMContext, command: CommandObject | None = None):
     """
     Умный старт: проверяет текущий статус специалиста и показывает чек-лист.
     Восстанавливает контекст FSM в зависимости от того, чего не хватает.
@@ -543,6 +544,9 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 new_specialist = Specialist(status=SpecialistStatus.onboarding)
                 session.add(new_specialist)
                 await session.flush()
+
+                referral_code = extract_referral_code(command.args if command else None)
+                await attach_referrer_by_code(session, new_specialist, referral_code)
 
                 new_auth = SpecialistAuthTelegram(
                     specialist_id=new_specialist.specialist_id,

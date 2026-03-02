@@ -12,13 +12,15 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from database import (
+    Appointment,
+    BookingState,
     async_session_factory, 
     GoogleOAuth, 
     GoogleOAuthStatus, 
@@ -32,6 +34,8 @@ from database import (
     TelegramBotStatus,
 )
 from services.google_oauth import create_oauth_state, exchange_code_for_token_async, get_auth_url
+from services.referrals import process_referral_activation
+from services.tariff_access import AnalyticsAccessError, ensure_analytics_access, ANALYTICS_PRO_REQUIRED_ERROR
 from services.google_calendar import (
     GoogleCalendarInsufficientPermissionsError,
     list_calendars,
@@ -573,6 +577,54 @@ async def connect_status(request: Request) -> JSONResponse:
     return JSONResponse(content={"ok": session is not None})
 
 
+
+
+@app.get("/analytics/summary")
+async def analytics_summary(request: Request) -> JSONResponse:
+    cookie_value = request.cookies.get(config.WEB_CONNECT_COOKIE_NAME, "")
+    verified_session = web_session.verify_session_cookie(cookie_value)
+    if not verified_session:
+        return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+
+    specialist_id, _tg_user_id = verified_session
+
+    async with async_session_factory() as session:
+        profile = await session.get(SpecialistProfile, specialist_id)
+        if profile is None:
+            return JSONResponse(status_code=404, content={"detail": "specialist_not_found"})
+
+        try:
+            ensure_analytics_access(getattr(profile, "tariff_plan", None))
+        except AnalyticsAccessError:
+            return JSONResponse(status_code=403, content={"detail": ANALYTICS_PRO_REQUIRED_ERROR})
+
+        total = await session.scalar(
+            select(func.count())
+            .select_from(Appointment)
+            .where(Appointment.specialist_id == specialist_id)
+        )
+        confirmed = await session.scalar(
+            select(func.count())
+            .select_from(Appointment)
+            .where(Appointment.specialist_id == specialist_id)
+            .where(Appointment.booking_state == BookingState.confirmed)
+        )
+        canceled = await session.scalar(
+            select(func.count())
+            .select_from(Appointment)
+            .where(Appointment.specialist_id == specialist_id)
+            .where(Appointment.booking_state.in_((BookingState.canceled_by_client, BookingState.canceled_by_specialist)))
+        )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "total_bookings": int(total or 0),
+            "confirmed": int(confirmed or 0),
+            "canceled": int(canceled or 0),
+        },
+    )
+
 @app.post("/google/oauth/start")
 async def google_oauth_start(request: Request) -> Response:
     cookie_value = request.cookies.get(config.WEB_CONNECT_COOKIE_NAME, "")
@@ -992,6 +1044,7 @@ async def google_oauth_callback(request: Request):
             if state_entry is not None:
                 await session.delete(state_entry)
 
+            await process_referral_activation(session, specialist_id)
             await session.commit()
 
             permissions_ok = True

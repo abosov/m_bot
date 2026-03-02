@@ -8,6 +8,7 @@ class _Profile:
     slot_step_min = 15
     max_sessions_per_day = 4
     cancel_window_hours = 12
+    tariff_plan = "start"
 
 
 class _Row:
@@ -42,6 +43,7 @@ def test_build_specialist_settings_view_has_unified_block_order() -> None:
     assert text.index("Календарь:") < text.index("Параметры записи:")
     assert text.index("Параметры записи:") < text.index("Часовой пояс специалиста:")
     assert text.index("Часовой пояс специалиста:") < text.index("Расписание:")
+    assert "• Тариф: Start" in text
 
     button_texts = [button.text for row in keyboard.inline_keyboard for button in row]
     assert button_texts[:5] == [
