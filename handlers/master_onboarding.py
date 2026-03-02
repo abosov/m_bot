@@ -116,6 +116,9 @@ async def _send_onboarding_screen_for_state(
     state: FSMContext,
     current_state: str | None,
 ) -> str | None:
+    if current_state is None:
+        return await _infer_and_send_onboarding_step(callback, state)
+
     if current_state == OnboardingStates.waiting_for_public_name.state:
         text_out = (
             "📝 **Шаг 1 из 4. Публичное имя**\n\n"
@@ -145,6 +148,108 @@ async def _send_onboarding_screen_for_state(
     return text_out
 
 
+async def _infer_and_send_onboarding_step(
+    callback: types.CallbackQuery,
+    state: FSMContext,
+) -> str | None:
+    specialist = await get_specialist_by_tg_user_id(callback.from_user.id)
+    if specialist is None:
+        text_out = "Отправьте /start чтобы начать настройку."
+        await callback.message.answer(text_out)
+        return text_out
+
+    async with async_session_factory() as session:
+        spec_stmt = (
+            select(Specialist)
+            .options(
+                selectinload(Specialist.profile),
+                selectinload(Specialist.telegram_bots),
+                selectinload(Specialist.google_oauth),
+                selectinload(Specialist.calendar_settings),
+            )
+            .where(Specialist.specialist_id == specialist.specialist_id)
+        )
+        specialist = (await session.execute(spec_stmt)).scalar_one_or_none()
+
+        if specialist is None:
+            text_out = "Отправьте /start чтобы начать настройку."
+            await callback.message.answer(text_out)
+            return text_out
+
+        has_profile = (
+            specialist.profile is not None
+            and bool((specialist.profile.public_name or "").strip())
+        )
+        has_bot = _pick_latest_active_bot(specialist.telegram_bots or []) is not None
+        has_oauth = (
+            specialist.google_oauth is not None
+            and specialist.google_oauth.status == GoogleOAuthStatus.connected
+        )
+        has_calendar = (
+            specialist.calendar_settings is not None
+            and bool(specialist.calendar_settings.calendar_id)
+        )
+
+        if not has_profile:
+            await state.set_state(OnboardingStates.waiting_for_public_name)
+            text_out = (
+                "📝 **Шаг 1 из 4. Публичное имя**\n\n"
+                "Посмотреть видео-инструкцию: /video\n\n"
+                "Введите имя, которое будут видеть ваши клиенты.\n"
+                "Например: *Психолог Анна* или *Иван Иванов*."
+            )
+            await callback.message.answer(text_out, reply_markup=types.ReplyKeyboardRemove())
+            return text_out
+
+        if not has_bot:
+            await state.set_state(OnboardingStates.waiting_for_bot_token)
+            text_out = (
+                "🤖 **Шаг 2 из 4. Личный бот**\n\n"
+                "1. Откройте @BotFather\n"
+                "2. Создайте нового бота командой /newbot\n"
+                "3. Скопируйте **API Token** и пришлите его сюда."
+            )
+            await callback.message.answer(text_out)
+            return text_out
+
+        if not has_oauth:
+            raw_token = await web_connect.create_connect_token(
+                session,
+                specialist.specialist_id,
+                callback.from_user.id,
+                ttl_minutes=15,
+            )
+            await session.commit()
+            connect_url = _build_connect_page_url(raw_token)
+
+            text_out = (
+                "📅 <b>Шаг 3 из 4:</b> Подключите Google аккаунт, затем выберите рабочий календарь бота.\n\n"
+                "Откроется страница сайта. Подключение Google пройдет в браузере."
+            )
+            keyboard = types.InlineKeyboardMarkup(
+                inline_keyboard=[[
+                    types.InlineKeyboardButton(text="Подключить Google Календарь", url=connect_url)
+                ]]
+            )
+            await state.clear()
+            await _send_safe_html_message(
+                callback.message,
+                text_out,
+                reply_markup=keyboard,
+                disable_web_page_preview=True,
+            )
+            return text_out
+
+    if not has_calendar:
+        await state.set_state(OnboardingStates.waiting_for_calendar_action)
+        await _calendar_select(callback, state)
+        return None
+
+    text_out = "Настройка уже завершена. Используйте /start для статуса."
+    await callback.message.answer(text_out)
+    return text_out
+
+
 def _full_onboarding_guard_keyboard(deep_link: str) -> types.InlineKeyboardMarkup:
     rows = []
     if deep_link:
@@ -165,9 +270,13 @@ async def _send_safe_html_message(
     text: str,
     *,
     reply_markup=None,
+    disable_web_page_preview: bool | None = None,
 ) -> types.Message:
+    kwargs = {"parse_mode": ParseMode.HTML, "reply_markup": reply_markup}
+    if disable_web_page_preview is not None:
+        kwargs["disable_web_page_preview"] = disable_web_page_preview
     try:
-        return await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+        return await message.answer(text, **kwargs)
     except TelegramBadRequest as exc:
         preview = text.replace("\n", " ")[:280]
         logger.warning("Telegram HTML parse failed in master_onboarding; fallback to plain text. preview=%r error=%s", preview, exc)

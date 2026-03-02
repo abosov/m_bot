@@ -1329,3 +1329,216 @@ async def test_video_continue_returns_step_one_text(monkeypatch):
     text, _ = callback.message.sent[-1]
     assert "Шаг 1 из 4" in text
     assert "Посмотреть видео-инструкцию: /video" in text
+
+
+@pytest.mark.asyncio
+async def test_video_continue_with_empty_fsm_infers_step_three_oauth(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("MASTER_BOT_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
+    monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+
+    import handlers.master_onboarding as onboarding
+
+    async def _noop_async(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(onboarding, "log_outbound_message", _noop_async)
+    monkeypatch.setattr(onboarding, "PUBLIC_SITE_URL", "https://example.test")
+
+    specialist_id = uuid.uuid4()
+    specialist = SimpleNamespace(
+        specialist_id=specialist_id,
+        profile=SimpleNamespace(public_name="Spec Name"),
+        telegram_bots=[SimpleNamespace(status=onboarding.TelegramBotStatus.active, updated_at=None, created_at=datetime.now(timezone.utc))],
+        google_oauth=None,
+        calendar_settings=None,
+    )
+
+    async def _fake_get_specialist(_tg_user_id):
+        return SimpleNamespace(specialist_id=specialist_id)
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return specialist
+
+    class _Session:
+        def __init__(self):
+            self.commits = 0
+
+        async def execute(self, _stmt):
+            return _Result()
+
+        async def commit(self):
+            self.commits += 1
+
+    session = _Session()
+
+    class _SessionFactory:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _fake_create_connect_token(_session, _specialist_id, _tg_user_id, ttl_minutes=15):
+        assert _session is session
+        assert _specialist_id == specialist_id
+        assert _tg_user_id == 777
+        assert ttl_minutes == 15
+        return "tok123"
+
+    monkeypatch.setattr(onboarding, "get_specialist_by_tg_user_id", _fake_get_specialist)
+    monkeypatch.setattr(onboarding, "async_session_factory", _SessionFactory)
+    monkeypatch.setattr(onboarding.web_connect, "create_connect_token", _fake_create_connect_token)
+
+    class _State:
+        def __init__(self):
+            self.cleared = 0
+            self.states = []
+
+        async def get_state(self):
+            return None
+
+        async def clear(self):
+            self.cleared += 1
+
+        async def set_state(self, new_state):
+            self.states.append(new_state)
+
+    class _Message:
+        def __init__(self):
+            self.bot = object()
+            self.sent = []
+
+        async def answer(self, text, **kwargs):
+            self.sent.append((text, kwargs))
+            return None
+
+    class _Callback:
+        def __init__(self):
+            self.from_user = SimpleNamespace(id=777, username="spec", first_name="Spec", last_name=None)
+            self.message = _Message()
+            self.answered = 0
+
+        async def answer(self):
+            self.answered += 1
+            return None
+
+    state = _State()
+    callback = _Callback()
+
+    await onboarding.video_continue(callback, state)
+
+    assert callback.answered == 1
+    assert session.commits == 1
+    assert state.cleared == 1
+    assert state.states == []
+    texts = [item[0] for item in callback.message.sent]
+    assert "Отправьте /start чтобы начать настройку." not in texts
+    assert any("Шаг 3 из 4" in text and "Подключите Google аккаунт" in text for text in texts)
+
+    _, kwargs = callback.message.sent[-1]
+    assert kwargs.get("parse_mode") == onboarding.ParseMode.HTML
+    assert kwargs.get("disable_web_page_preview") is True
+    reply_markup = kwargs.get("reply_markup")
+    assert reply_markup is not None
+    assert len(reply_markup.inline_keyboard) == 1
+    assert len(reply_markup.inline_keyboard[0]) == 1
+    button = reply_markup.inline_keyboard[0][0]
+    assert button.text == "Подключить Google Календарь"
+    assert button.url == "https://example.test/connect#token=tok123"
+
+
+@pytest.mark.asyncio
+async def test_video_continue_with_empty_fsm_calls_calendar_select_when_oauth_connected(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("MASTER_BOT_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
+    monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+
+    import handlers.master_onboarding as onboarding
+
+    async def _noop_async(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(onboarding, "log_outbound_message", _noop_async)
+
+    specialist_id = uuid.uuid4()
+    specialist = SimpleNamespace(
+        specialist_id=specialist_id,
+        profile=SimpleNamespace(public_name="Spec Name"),
+        telegram_bots=[SimpleNamespace(status=onboarding.TelegramBotStatus.active, updated_at=None, created_at=datetime.now(timezone.utc))],
+        google_oauth=SimpleNamespace(status=onboarding.GoogleOAuthStatus.connected),
+        calendar_settings=SimpleNamespace(calendar_id=None),
+    )
+
+    async def _fake_get_specialist(_tg_user_id):
+        return SimpleNamespace(specialist_id=specialist_id)
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return specialist
+
+    class _Session:
+        async def execute(self, _stmt):
+            return _Result()
+
+        async def commit(self):
+            return None
+
+    class _SessionFactory:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    called = {"calendar_select": 0}
+
+    async def _calendar_select_stub(callback, state):
+        called["calendar_select"] += 1
+
+    monkeypatch.setattr(onboarding, "get_specialist_by_tg_user_id", _fake_get_specialist)
+    monkeypatch.setattr(onboarding, "async_session_factory", _SessionFactory)
+    monkeypatch.setattr(onboarding, "_calendar_select", _calendar_select_stub)
+
+    class _State:
+        def __init__(self):
+            self.states = []
+
+        async def get_state(self):
+            return None
+
+        async def clear(self):
+            return None
+
+        async def set_state(self, new_state):
+            self.states.append(new_state)
+
+    class _Message:
+        def __init__(self):
+            self.bot = object()
+            self.sent = []
+
+        async def answer(self, text, **kwargs):
+            self.sent.append((text, kwargs))
+            return None
+
+    class _Callback:
+        def __init__(self):
+            self.from_user = SimpleNamespace(id=777, username="spec", first_name="Spec", last_name=None)
+            self.message = _Message()
+            self.answered = 0
+
+        async def answer(self):
+            self.answered += 1
+            return None
+
+    state = _State()
+    callback = _Callback()
+
+    await onboarding.video_continue(callback, state)
+
+    assert callback.answered == 1
+    assert called["calendar_select"] == 1
+    assert state.states == [onboarding.OnboardingStates.waiting_for_calendar_action]
+    assert callback.message.sent == []
