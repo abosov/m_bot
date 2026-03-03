@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import Text, cast, func, select
 
 import config
 from database import (
@@ -16,6 +16,7 @@ from database import (
     MessageLog,
     ServiceHeartbeat,
     Specialist,
+    SpecialistAuthTelegram,
     SpecialistProfile,
     SpecialistStatus,
     async_session_factory,
@@ -94,17 +95,30 @@ async def build_admin_specialists_payload(
     )
 
     async with async_session_factory() as session:
+        total_stmt = select(func.count()).select_from(Specialist)
+        if status is not None:
+            total_stmt = total_stmt.where(Specialist.status == status)
+
         stmt = (
             select(
                 Specialist.specialist_id,
-                SpecialistProfile.public_name,
+                func.coalesce(
+                    SpecialistProfile.public_name,
+                    SpecialistAuthTelegram.tg_username,
+                    SpecialistAuthTelegram.tg_first_name,
+                    cast(Specialist.specialist_id, Text),
+                ).label("public_name"),
                 Specialist.status,
                 Specialist.created_at,
                 SpecialistProfile.tariff_plan,
                 func.coalesce(clients_count_subquery.c.clients_count, 0).label("clients_count"),
                 last_activity_subquery.c.last_activity_at,
             )
-            .join(SpecialistProfile, SpecialistProfile.specialist_id == Specialist.specialist_id)
+            .outerjoin(SpecialistProfile, SpecialistProfile.specialist_id == Specialist.specialist_id)
+            .outerjoin(
+                SpecialistAuthTelegram,
+                SpecialistAuthTelegram.specialist_id == Specialist.specialist_id,
+            )
             .outerjoin(clients_count_subquery, clients_count_subquery.c.specialist_id == Specialist.specialist_id)
             .outerjoin(last_activity_subquery, last_activity_subquery.c.specialist_id == Specialist.specialist_id)
         )
@@ -113,6 +127,7 @@ async def build_admin_specialists_payload(
 
         stmt = stmt.order_by(Specialist.created_at.desc()).limit(limit_value).offset(offset)
         rows = (await session.execute(stmt)).all()
+        total = int((await session.execute(total_stmt)).scalar_one())
 
     items = [
         {
@@ -127,7 +142,7 @@ async def build_admin_specialists_payload(
         for row in rows
     ]
 
-    return {"items": items, "limit": limit_value, "offset": offset}
+    return {"items": items, "limit": limit_value, "offset": offset, "total": total}
 
 
 async def compute_admin_overview(session) -> dict[str, object]:
