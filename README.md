@@ -236,6 +236,7 @@ Nginx security snippet: `docs/snippets/nginx_security.conf`.
 
 Для воспроизводимого деплоя и диагностики на VPS используйте runbook:
 - `docs/runbook_vps.md`
+- `docs/runbook/contact-form.md` (форма `/contacts` и SMTP-настройка)
 - скрипт `scripts/vps_deploy_check.sh`
 
 Основные команды:
