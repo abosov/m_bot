@@ -41,6 +41,7 @@ Status: Implemented
 
 - `GET /admin` — уже существует (страница).
 - `GET /admin/ui/overview` — обязателен в рамках US-AD-3.
+  - По умолчанию system accounts исключены; используйте `include_system=1`.
   - Auth: cookie `admin_session`.
   - Unauthorized: `404`.
   - Response (200, JSON):

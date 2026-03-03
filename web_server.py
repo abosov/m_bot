@@ -446,6 +446,7 @@ async def admin_ui_specialists(
     limit: int | None = Query(default=100),
     offset: int = Query(default=0),
     status: SpecialistStatus | None = Query(default=None),
+    include_system: bool = Query(default=False),
 ):
     if not _admin_ui_enabled():
         _raise_not_found()
@@ -454,13 +455,21 @@ async def admin_ui_specialists(
     if not admin_ui_session.verify_admin_session_cookie(cookie_value):
         _raise_not_found()
 
-    return await build_admin_specialists_payload(limit=limit, offset=offset, status=status)
+    return await build_admin_specialists_payload(
+        limit=limit,
+        offset=offset,
+        status=status,
+        include_system=include_system,
+    )
 
 
 
 
 @app.get("/admin/ui/overview")
-async def admin_ui_overview(request: Request):
+async def admin_ui_overview(
+    request: Request,
+    include_system: bool = Query(default=False),
+):
     if not _admin_ui_enabled():
         _raise_not_found()
 
@@ -478,7 +487,7 @@ async def admin_ui_overview(request: Request):
     )
 
     async with async_session_factory() as session:
-        payload = await compute_admin_overview(session)
+        payload = await compute_admin_overview(session, include_system=include_system)
 
     payload["env"] = env_name
     payload["version"] = version
@@ -523,6 +532,8 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
             "<option value='active'>active</option>"
             "<option value='suspended'>suspended</option>"
             "</select>"
+            "<label style='margin-left:12px;' for='include-system-filter'>Показывать системные</label>"
+            "<input id='include-system-filter' type='checkbox' />"
             "<button id='apply-filter' type='button'>Применить</button>"
             "<p id='specialists-state'>Загрузка...</p>"
             "<table id='specialists-table' border='1' cellpadding='6' style='border-collapse: collapse; display:none;'>"
@@ -538,6 +549,7 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
             "const tbodyEl=tableEl.querySelector('tbody');"
             "const statusEl=document.getElementById('status-filter');"
             "const buttonEl=document.getElementById('apply-filter');"
+            "const includeSystemEl=document.getElementById('include-system-filter');"
             "function setOverviewLoading(){overviewEl.textContent='Loading overview…';}"
             "function setOverviewError(){overviewEl.textContent='Failed to load overview';}"
             "function renderOverview(payload){overviewEl.innerHTML='<ul>'"
@@ -547,8 +559,10 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
             "+'<li>errors_24h: '+String(payload.errors_24h??0)+'</li>'"
             "+'</ul>';"
             "}"
-            "async function loadOverview(){setOverviewLoading();"
-            "try{const res=await fetch('/admin/ui/overview',{credentials:'same-origin'});if(!res.ok){throw new Error('HTTP '+res.status);}"
+            "function getIncludeSystemParam(){return includeSystemEl.checked?'1':'0';}"
+            "async function loadOverview(){setOverviewLoading();const params=new URLSearchParams({include_system:getIncludeSystemParam()});"
+            "const url='/admin/ui/overview?'+params.toString();"
+            "try{const res=await fetch(url,{credentials:'same-origin'});if(!res.ok){throw new Error('HTTP '+res.status);}"
             "const payload=await res.json();renderOverview(payload);}"
             "catch(_err){setOverviewError();}}"
             "function setState(state,msg){if(state==='loading'){stateEl.textContent='Загрузка...';stateEl.style.display='block';tableEl.style.display='none';}"
@@ -559,12 +573,13 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
             "row.innerHTML='<td>'+((item.public_name||''))+'</td><td>'+((item.status||''))+'</td><td>'+String(item.clients_count??0)+'</td><td>'+((item.tariff_plan||''))+'</td><td>'+((item.last_activity_at||''))+'</td>' ;"
             "tbodyEl.appendChild(row);});}"
             "async function loadSpecialists(){setState('loading');const status=statusEl.value;"
-            "const params=new URLSearchParams({limit:'100',offset:'0'});if(status){params.set('status',status);}"
+            "const params=new URLSearchParams({limit:'100',offset:'0',include_system:getIncludeSystemParam()});if(status){params.set('status',status);}"
             "try{const res=await fetch('/admin/ui/specialists?'+params.toString(),{credentials:'same-origin'});"
             "if(!res.ok){throw new Error('HTTP '+res.status);}"
             "const payload=await res.json();const items=payload.items||[];if(items.length===0){setState('empty');return;}renderRows(items);setState('ready');}"
             "catch(_err){setState('error','Не удалось загрузить список специалистов');}}"
-            "buttonEl.addEventListener('click',loadSpecialists);"
+            "buttonEl.addEventListener('click',()=>{loadOverview();loadSpecialists();});"
+            "includeSystemEl.addEventListener('change',()=>{loadOverview();loadSpecialists();});"
             "loadOverview();"
             "loadSpecialists();"
             "</script>"
