@@ -44,6 +44,52 @@ async def test_admin_logs_requires_key(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_admin_page_returns_404_when_admin_key_not_set(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None)
+    client = TestClient(app)
+
+    response = client.get("/admin")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_page_returns_404_without_header_when_admin_key_set(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key="secret")
+    client = TestClient(app)
+
+    response = client.get("/admin")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_returns_404_with_wrong_key(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key="secret")
+    client = TestClient(app)
+
+    response = client.get("/admin", headers={"X-API-Key": "wrong"})
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_page_returns_200_with_correct_header(tmp_path, monkeypatch):
+    monkeypatch.setenv("BUILD_VERSION", "build-123")
+    app, _database = load_app(tmp_path, monkeypatch, admin_key="secret")
+    client = TestClient(app)
+
+    response = client.get("/admin", headers={"X-API-Key": "secret"})
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "<h1>Zumbot Admin Console</h1>" in response.text
+    assert "<p>Environment: local</p>" in response.text
+    assert "<p>Server time (UTC):" in response.text
+    assert "<p>Version: build-123</p>" in response.text
+
+
+@pytest.mark.asyncio
 async def test_admin_logs_success_and_limit(tmp_path, monkeypatch):
     app, database = load_app(tmp_path, monkeypatch, admin_key="secret")
 

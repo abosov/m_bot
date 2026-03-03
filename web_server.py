@@ -11,7 +11,7 @@ from pathlib import Path
 import requests
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from fastapi import BackgroundTasks, FastAPI, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
@@ -307,6 +307,36 @@ else:
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok", "service": "backend", **get_build_info()}
+
+
+def require_admin_key_hidden_404(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
+    if not config.ADMIN_API_KEY or x_api_key != config.ADMIN_API_KEY:
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_console_entry(request: Request, _auth: None = Depends(require_admin_key_hidden_404)) -> HTMLResponse:
+    version = os.getenv("BUILD_VERSION") or os.getenv("GIT_SHA") or "unknown"
+    env_name = config.APP_ENV or os.getenv("ENV") or "unknown"
+    server_time_utc = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+
+    logger.info(
+        "event=admin_console_access request_id=%s path=/admin env=%s",
+        _request_id_from_request(request),
+        env_name,
+    )
+
+    return HTMLResponse(
+        content=(
+            "<html><body>"
+            "<h1>Zumbot Admin Console</h1>"
+            f"<p>Environment: {env_name}</p>"
+            f"<p>Server time (UTC): {server_time_utc}</p>"
+            f"<p>Version: {version}</p>"
+            "</body></html>"
+        ),
+        status_code=200,
+    )
 
 
 async def readyz():

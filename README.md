@@ -342,6 +342,8 @@ pytest -q
 
 
 ### Smoke-checklist перед prod-релизом
+- `GET /admin` без `X-API-Key` должен возвращать `404` (даже если `ADMIN_API_KEY` задан).
+- `GET /admin` с корректным `X-API-Key` возвращает `200` и `Content-Type: text/html`.
 - `/admin/logs` по умолчанию возвращает redacted-контент; в `APP_ENV=prod` запрос с `redact=false` должен вернуть `403`.
 - `GET /google/oauth/callback` отклоняет повторно использованный или истёкший `state`.
 - webhook-запрос c body больше `MAX_WEBHOOK_BODY_BYTES` получает `413 Payload Too Large`.
