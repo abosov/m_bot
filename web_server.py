@@ -184,9 +184,60 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
             '</header>'
         )
 
+    def _site_footer_html(page: str) -> str:
+        ru_pages = {
+            "/",
+            "/features",
+            "/pricing",
+            "/specialists",
+            "/contacts",
+            "/privacy-ru",
+            "/terms-ru",
+            "/legal",
+            "/revoke-access-ru",
+        }
+        is_ru_page = page in ru_pages
+
+        if is_ru_page:
+            nav_links = (
+                ("Политика конфиденциальности", "/privacy-ru"),
+                ("Пользовательское соглашение", "/terms-ru"),
+                ("Реквизиты и правовая информация", "/legal"),
+            )
+        else:
+            nav_links = (
+                ("Privacy Policy", "/privacy"),
+                ("Terms of Service", "/terms"),
+                ("Legal details", "/legal"),
+            )
+
+        nav_html = "".join(f'<a href="{href}">{title}</a>' for title, href in nav_links)
+
+        return (
+            '<footer class="site-footer">'
+            '<div class="container footer-inner">'
+            '<a class="logo logo-footer" href="/">'
+            '<img src="/assets/zumbot_logo.png" srcset="/assets/zumbot_logo.png 1x, '
+            '/assets/zumbot_logo@2x.png 2x" alt="Zumbot logo" />'
+            '<span class="logo-text">Zumbot — Calendar Booking Automation</span>'
+            '</a>'
+            f'<nav>{nav_html}</nav>'
+            '<p class="footer-copy">© 2026</p>'
+            '<div id="legal-info-footer">'
+            'Самозанятый: Босов Александр Михайлович<br />'
+            'ИНН: 772644000871<br />'
+            'НПД (налог на проф. доход)<br />'
+            'Email: info@zumbot.ru<br />'
+            'Тел.: +7 (977) 777-26-02'
+            '</div>'
+            '</div>'
+            '</footer>'
+        )
+
     def _render_site_page(page: str) -> HTMLResponse:
         html = _site_file(page).read_text(encoding="utf-8")
         html = html.replace("{{SITE_HEADER}}", _site_header_html(page))
+        html = html.replace("{{SITE_FOOTER}}", _site_footer_html(page))
         return HTMLResponse(content=html)
 
     @app.get("/")

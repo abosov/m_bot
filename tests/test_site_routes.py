@@ -50,6 +50,8 @@ def test_terms_page_contains_required_clauses():
     assert response.headers["content-type"].startswith("text/html")
     assert "charset=utf-8" in response.headers["content-type"].lower()
     assert "Limitation of Liability" in response.text
+    assert "laws of the Russian Federation" in response.text
+    assert "laws of Germany" not in response.text
     assert "info@zumbot.ru" in response.text
 
 
