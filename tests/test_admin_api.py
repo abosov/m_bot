@@ -204,3 +204,110 @@ async def test_admin_logs_redacted_by_default(tmp_path, monkeypatch):
     payload = response.json()
     assert len(payload["items"]) == 1
     assert payload["items"][0]["content"] == "[REDACTED]"
+
+
+@pytest.mark.asyncio
+async def test_admin_specialists_returns_404_when_admin_key_not_set(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None)
+    client = TestClient(app)
+
+    response = client.get("/admin/specialists")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_specialists_returns_403_with_wrong_key(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key="secret")
+    client = TestClient(app)
+
+    response = client.get("/admin/specialists", headers={"X-API-Key": "wrong"})
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_specialists_returns_dashboard_metrics(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_a = uuid.uuid4()
+    specialist_b = uuid.uuid4()
+    now = datetime(2024, 1, 4, 12, 0, tzinfo=timezone.utc)
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(
+                    specialist_id=specialist_a,
+                    status=database.SpecialistStatus.active,
+                ),
+                database.SpecialistProfile(
+                    specialist_id=specialist_a,
+                    public_name="Anna",
+                    owner_tg_user_id=1001,
+                    owner_tg_username="anna",
+                    specialist_timezone="UTC",
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_a, tg_user_id=1001),
+                database.Specialist(
+                    specialist_id=specialist_b,
+                    status=database.SpecialistStatus.onboarding,
+                ),
+                database.SpecialistProfile(
+                    specialist_id=specialist_b,
+                    public_name="Bob",
+                    owner_tg_user_id=1002,
+                    owner_tg_username="bob",
+                    specialist_timezone="UTC",
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_b, tg_user_id=1002),
+                database.Client(
+                    specialist_id=specialist_a,
+                    tg_user_id=2001,
+                    tg_username="client1",
+                    display_name="Client One",
+                    client_code="C1",
+                    client_timezone="UTC",
+                    timezone_source=database.ClientTimezoneSource.default_from_specialist,
+                ),
+                database.Client(
+                    specialist_id=specialist_a,
+                    tg_user_id=2002,
+                    tg_username="client2",
+                    display_name="Client Two",
+                    client_code="C2",
+                    client_timezone="UTC",
+                    timezone_source=database.ClientTimezoneSource.default_from_specialist,
+                ),
+                database.MessageLog(
+                    specialist_id=specialist_a,
+                    created_at=now,
+                    bot_id=111,
+                    tg_user_id=2001,
+                    direction=database.LogDirection.IN,
+                    message_type="message",
+                    content="ping",
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    response = client.get("/admin/specialists", headers={"X-API-Key": "secret"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 2
+
+    items_by_id = {item["specialist_id"]: item for item in payload["items"]}
+    item_a = items_by_id[str(specialist_a)]
+    item_b = items_by_id[str(specialist_b)]
+
+    assert item_a["clients_count"] == 2
+    assert item_a["last_activity_at"] is not None
+
+    assert item_b["clients_count"] == 0
+    assert item_b["last_activity_at"] is None
