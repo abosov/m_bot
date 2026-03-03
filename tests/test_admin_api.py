@@ -110,7 +110,7 @@ async def test_admin_page_returns_200_with_valid_cookie(tmp_path, monkeypatch):
     assert "<p>Server time (UTC):" in response.text
     assert "<p>Version: build-123</p>" in response.text
     assert "<div id='admin-overview'>Loading overview…</div>" in response.text
-    assert "fetch('/admin/ui/overview',{credentials:'same-origin'})" in response.text
+    assert "const url='/admin/ui/overview?'+params.toString();" in response.text
     assert "id='specialists-table'" in response.text
 
 
@@ -589,3 +589,216 @@ async def test_admin_ui_overview_returns_metrics(tmp_path, monkeypatch):
     assert payload["computed_at_utc"] == "2026-01-20T12:00:00+00:00"
     assert payload["env"] == "local"
     assert payload["version"] == "build-xyz"
+
+
+@pytest.mark.asyncio
+async def test_admin_specialists_excludes_system_by_default_and_includes_by_param(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_regular = uuid.uuid4()
+    specialist_system = uuid.uuid4()
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(specialist_id=specialist_regular, status=database.SpecialistStatus.active, is_system=False),
+                database.SpecialistAuthTelegram(specialist_id=specialist_regular, tg_user_id=3001, tg_username="regular"),
+                database.Specialist(specialist_id=specialist_system, status=database.SpecialistStatus.active, is_system=True),
+                database.SpecialistAuthTelegram(specialist_id=specialist_system, tg_user_id=3002, tg_username="zumhelper_bot"),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+
+    response_default = client.get("/admin/specialists", headers={"X-API-Key": "secret"})
+    assert response_default.status_code == 200
+    payload_default = response_default.json()
+    assert payload_default["total"] == 1
+    assert len(payload_default["items"]) == 1
+
+    response_with_system = client.get(
+        "/admin/specialists?include_system=true",
+        headers={"X-API-Key": "secret"},
+    )
+    assert response_with_system.status_code == 200
+    payload_with_system = response_with_system.json()
+    assert payload_with_system["total"] == 2
+    assert len(payload_with_system["items"]) == 2
+
+
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_specialists_excludes_system_by_default_and_includes_by_param(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_regular = uuid.uuid4()
+    specialist_system = uuid.uuid4()
+
+    now_utc = datetime(2026, 1, 20, 12, 0, tzinfo=timezone.utc)
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(specialist_id=specialist_regular, status=database.SpecialistStatus.active, is_system=False),
+                database.SpecialistAuthTelegram(specialist_id=specialist_regular, tg_user_id=3101, tg_username="regular"),
+                database.Specialist(specialist_id=specialist_system, status=database.SpecialistStatus.active, is_system=True),
+                database.SpecialistAuthTelegram(specialist_id=specialist_system, tg_user_id=3102, tg_username="zumhelper_bot"),
+                database.Client(
+                    specialist_id=specialist_regular,
+                    tg_user_id=5101,
+                    tg_username="client_regular",
+                    display_name="Client Regular",
+                    client_code="CR1",
+                    client_timezone="UTC",
+                    timezone_source=database.ClientTimezoneSource.default_from_specialist,
+                ),
+                database.Client(
+                    specialist_id=specialist_system,
+                    tg_user_id=5102,
+                    tg_username="client_system",
+                    display_name="Client System",
+                    client_code="CS1",
+                    client_timezone="UTC",
+                    timezone_source=database.ClientTimezoneSource.default_from_specialist,
+                ),
+                database.MessageLog(
+                    specialist_id=specialist_regular,
+                    created_at=now_utc - timedelta(days=1),
+                    bot_id=311,
+                    tg_user_id=5101,
+                    direction=database.LogDirection.IN,
+                    message_type="message",
+                    content="regular",
+                ),
+                database.MessageLog(
+                    specialist_id=specialist_system,
+                    created_at=now_utc - timedelta(days=1),
+                    bot_id=312,
+                    tg_user_id=5102,
+                    direction=database.LogDirection.IN,
+                    message_type="message",
+                    content="system",
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response_default = client.get("/admin/ui/specialists", cookies={"admin_session": session_cookie})
+    assert response_default.status_code == 200
+    payload_default = response_default.json()
+    assert payload_default["total"] == 1
+    assert len(payload_default["items"]) == 1
+
+    response_with_system = client.get(
+        "/admin/ui/specialists?include_system=1",
+        cookies={"admin_session": session_cookie},
+    )
+    assert response_with_system.status_code == 200
+    payload_with_system = response_with_system.json()
+    assert payload_with_system["total"] == 2
+    assert len(payload_with_system["items"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_overview_excludes_system_by_default_and_includes_by_param(tmp_path, monkeypatch):
+    monkeypatch.setenv("BUILD_VERSION", "build-xyz")
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    import admin_api
+
+    class FixedDateTime:
+        @classmethod
+        def now(cls, tz=None):
+            fixed = datetime(2026, 1, 20, 12, 0, tzinfo=timezone.utc)
+            if tz is None:
+                return fixed.replace(tzinfo=None)
+            return fixed.astimezone(tz)
+
+    monkeypatch.setattr(admin_api, "datetime", FixedDateTime)
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_regular = uuid.uuid4()
+    specialist_system = uuid.uuid4()
+    now_utc = datetime(2026, 1, 20, 12, 0, tzinfo=timezone.utc)
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(specialist_id=specialist_regular, status=database.SpecialistStatus.active, is_system=False),
+                database.SpecialistAuthTelegram(specialist_id=specialist_regular, tg_user_id=401, tg_username="regular"),
+                database.Specialist(specialist_id=specialist_system, status=database.SpecialistStatus.active, is_system=True),
+                database.SpecialistAuthTelegram(specialist_id=specialist_system, tg_user_id=402, tg_username="zumhelper_bot"),
+                database.Client(
+                    specialist_id=specialist_regular,
+                    tg_user_id=501,
+                    tg_username="c_regular",
+                    display_name="Regular Client",
+                    client_code="CR",
+                    client_timezone="UTC",
+                    timezone_source=database.ClientTimezoneSource.default_from_specialist,
+                ),
+                database.Client(
+                    specialist_id=specialist_system,
+                    tg_user_id=502,
+                    tg_username="c_system",
+                    display_name="System Client",
+                    client_code="CS",
+                    client_timezone="UTC",
+                    timezone_source=database.ClientTimezoneSource.default_from_specialist,
+                ),
+                database.MessageLog(
+                    specialist_id=specialist_regular,
+                    created_at=now_utc - timedelta(days=1),
+                    bot_id=111,
+                    tg_user_id=501,
+                    direction=database.LogDirection.IN,
+                    message_type="message",
+                    content="regular",
+                ),
+                database.MessageLog(
+                    specialist_id=specialist_system,
+                    created_at=now_utc - timedelta(days=1),
+                    bot_id=112,
+                    tg_user_id=502,
+                    direction=database.LogDirection.IN,
+                    message_type="message",
+                    content="system",
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response_default = client.get("/admin/ui/overview", cookies={"admin_session": session_cookie})
+    assert response_default.status_code == 200
+    payload_default = response_default.json()
+    assert payload_default["specialists_total"] == 1
+    assert payload_default["clients_total"] == 1
+    assert payload_default["specialists_active_7d"] == 1
+
+    response_with_system = client.get(
+        "/admin/ui/overview?include_system=1",
+        cookies={"admin_session": session_cookie},
+    )
+    assert response_with_system.status_code == 200
+    payload_with_system = response_with_system.json()
+    assert payload_with_system["specialists_total"] == 2
+    assert payload_with_system["clients_total"] == 2
+    assert payload_with_system["specialists_active_7d"] == 2

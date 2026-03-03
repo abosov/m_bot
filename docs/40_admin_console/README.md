@@ -152,6 +152,10 @@ Doc: [US-AD-2 specification](./us_ad_2_specialists_list.md)
 Status: Implemented
 Doc: [US-AD-3 specification](./us_ad_3_overview.md)
 
+### US-AD-4.1 — System specialists filtering
+Status: Implemented
+Doc: [US-AD-4.1 specification](./us_ad_4_1_system_accounts.md)
+
 ---
 
 ## 9. Endpoints
@@ -159,6 +163,11 @@ Doc: [US-AD-3 specification](./us_ad_3_overview.md)
 Все endpoint-ы Admin Console являются внутренними (`/admin/*`) и требуют заголовок `X-API-Key`.
 
 - `GET /admin/ui/overview` (UI cookie auth)
+  - Query param: `include_system` (`0|1`, optional, default `0`).
+  - По умолчанию системные аккаунты исключаются; для включения используйте `include_system=1`.
+
+- `GET /admin/ui/specialists` (UI cookie auth)
+  - Query params: `limit`, `offset`, `status`, `include_system=0|1` (default `0`).
 
 ### GET /admin/specialists
 
@@ -168,6 +177,9 @@ Query params:
 - `limit` (optional, default `100`, clamp `1..500`)
 - `offset` (optional, default `0`)
 - `status` (optional, exact match)
+- `include_system` (optional, default `0`):
+  - по умолчанию системные аккаунты исключаются;
+  - при `include_system=1` системные аккаунты включаются в список.
 
 Response:
 - `items`: список специалистов с полями:

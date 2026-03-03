@@ -44,6 +44,8 @@
 
 **Endpoint (API):** `GET /admin/specialists`
 **Auth:** `X-API-Key`
+
+Примечание: по умолчанию system accounts исключены; используйте `include_system=1`.
 **Query params:**
 - `limit` (int, optional)
 - `offset` (int, optional)

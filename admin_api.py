@@ -72,6 +72,7 @@ async def build_admin_specialists_payload(
     limit: int | None = 100,
     offset: int = 0,
     status: SpecialistStatus | None = None,
+    include_system: bool = False,
 ) -> dict[str, object]:
     limit_value = clamp_limit(limit)
 
@@ -98,6 +99,8 @@ async def build_admin_specialists_payload(
         total_stmt = select(func.count()).select_from(Specialist)
         if status is not None:
             total_stmt = total_stmt.where(Specialist.status == status)
+        if not include_system:
+            total_stmt = total_stmt.where(Specialist.is_system.is_(False))
 
         stmt = (
             select(
@@ -124,6 +127,8 @@ async def build_admin_specialists_payload(
         )
         if status is not None:
             stmt = stmt.where(Specialist.status == status)
+        if not include_system:
+            stmt = stmt.where(Specialist.is_system.is_(False))
 
         stmt = stmt.order_by(Specialist.created_at.desc()).limit(limit_value).offset(offset)
         rows = (await session.execute(stmt)).all()
@@ -145,12 +150,21 @@ async def build_admin_specialists_payload(
     return {"items": items, "limit": limit_value, "offset": offset, "total": total}
 
 
-async def compute_admin_overview(session) -> dict[str, object]:
+async def compute_admin_overview(session, include_system: bool = False) -> dict[str, object]:
     now_utc = datetime.now(timezone.utc)
     active_since_utc = now_utc - timedelta(days=7)
 
-    specialists_total = int((await session.execute(select(func.count()).select_from(Specialist))).scalar_one())
-    clients_total = int((await session.execute(select(func.count()).select_from(Client))).scalar_one())
+    specialists_total_stmt = select(func.count()).select_from(Specialist)
+    if not include_system:
+        specialists_total_stmt = specialists_total_stmt.where(Specialist.is_system.is_(False))
+    specialists_total = int((await session.execute(specialists_total_stmt)).scalar_one())
+
+    clients_total_stmt = select(func.count()).select_from(Client)
+    if not include_system:
+        clients_total_stmt = clients_total_stmt.join(Specialist, Specialist.specialist_id == Client.specialist_id).where(
+            Specialist.is_system.is_(False)
+        )
+    clients_total = int((await session.execute(clients_total_stmt)).scalar_one())
 
     last_activity_subquery = (
         select(
@@ -161,15 +175,16 @@ async def compute_admin_overview(session) -> dict[str, object]:
         .group_by(MessageLog.specialist_id)
         .subquery()
     )
-    specialists_active_7d = int(
-        (
-            await session.execute(
-                select(func.count())
-                .select_from(last_activity_subquery)
-                .where(last_activity_subquery.c.last_activity_at >= active_since_utc)
-            )
-        ).scalar_one()
+    specialists_active_stmt = (
+        select(func.count())
+        .select_from(last_activity_subquery)
+        .join(Specialist, Specialist.specialist_id == last_activity_subquery.c.specialist_id)
+        .where(last_activity_subquery.c.last_activity_at >= active_since_utc)
     )
+    if not include_system:
+        specialists_active_stmt = specialists_active_stmt.where(Specialist.is_system.is_(False))
+
+    specialists_active_7d = int((await session.execute(specialists_active_stmt)).scalar_one())
 
     return {
         "specialists_total": specialists_total,
@@ -185,9 +200,15 @@ async def admin_specialists(
     limit: int | None = Query(default=100),
     offset: int = Query(default=0),
     status: SpecialistStatus | None = Query(default=None),
+    include_system: bool = Query(default=False),
     _auth: None = Depends(require_admin_key),
 ):
-    return await build_admin_specialists_payload(limit=limit, offset=offset, status=status)
+    return await build_admin_specialists_payload(
+        limit=limit,
+        offset=offset,
+        status=status,
+        include_system=include_system,
+    )
 
 
 @router.get("/logs")
