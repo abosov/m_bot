@@ -169,6 +169,470 @@ async def test_admin_ui_specialists_returns_items_with_valid_cookie(tmp_path, mo
     assert payload["items"][0]["public_name"] == "UI Specialist"
 
 
+
+
+@pytest.mark.asyncio
+async def test_admin_specialist_detail_page_returns_404_without_cookie(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    response = client.get(f"/admin/specialists/{uuid.uuid4()}", headers={"accept": "text/html"})
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_specialist_detail_page_renders_html_with_valid_cookie(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(f"/admin/specialists/{specialist_id}", cookies={"admin_session": session_cookie}, headers={"accept": "text/html"})
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "← Back to specialists" in response.text
+    assert "Loading specialist…" in response.text
+    assert "Failed to load" in response.text
+    assert f"const specialistId='{specialist_id}'" in response.text
+    assert f"fetch('/admin/ui/specialists/'+specialistId,{{credentials:'same-origin'}})" in response.text
+    assert "<h2>Basic</h2>" in response.text
+    assert "<h2>Integration</h2>" in response.text
+    assert "<h2>Activity</h2>" in response.text
+    assert "<h2>Errors</h2>" in response.text
+
+
+
+
+async def _seed_specialist_detail_fixture(database):
+    specialist_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(
+                    specialist_id=specialist_id,
+                    status=database.SpecialistStatus.active,
+                    created_at=now,
+                    is_system=False,
+                    onboarding_master_completed_at=now,
+                    onboarding_personal_completed_at=now,
+                ),
+                database.SpecialistProfile(
+                    specialist_id=specialist_id,
+                    public_name="Specialist A",
+                    owner_tg_user_id=7010,
+                    owner_tg_username="owner_a",
+                    specialist_timezone="Europe/Berlin",
+                    slot_step_min=20,
+                    max_sessions_per_day=6,
+                    tariff_plan=database.TariffPlan.pro,
+                ),
+                database.SpecialistAuthTelegram(
+                    specialist_id=specialist_id,
+                    tg_user_id=7010,
+                    tg_username="spec_a",
+                    tg_first_name="Anna",
+                ),
+                database.GoogleOAuth(
+                    specialist_id=specialist_id,
+                    refresh_token_encrypted="encrypted-refresh-token",
+                    scopes="scope",
+                    status=database.GoogleOAuthStatus.connected,
+                    token_updated_at=now,
+                ),
+                database.SpecialistCalendarSettings(
+                    specialist_id=specialist_id,
+                    calendar_id="primary",
+                    source=database.SpecialistCalendarSource.selected,
+                ),
+                database.Client(
+                    specialist_id=specialist_id,
+                    tg_user_id=8101,
+                    tg_username="client_one",
+                    display_name="Client One",
+                    client_code="CA001",
+                    client_timezone="Europe/Berlin",
+                    timezone_source=database.ClientTimezoneSource.default_from_specialist,
+                ),
+                database.Client(
+                    specialist_id=specialist_id,
+                    tg_user_id=8102,
+                    tg_username="client_two",
+                    display_name="Client Two",
+                    client_code="CA002",
+                    client_timezone="Europe/Berlin",
+                    timezone_source=database.ClientTimezoneSource.default_from_specialist,
+                ),
+                database.MessageLog(
+                    specialist_id=specialist_id,
+                    bot_id=100,
+                    tg_user_id=7010,
+                    direction=database.LogDirection.IN,
+                    message_type="text",
+                    content="message body one",
+                    handler_name="handler_one",
+                    created_at=now - timedelta(hours=2),
+                ),
+                database.MessageLog(
+                    specialist_id=specialist_id,
+                    bot_id=100,
+                    tg_user_id=7010,
+                    direction=database.LogDirection.OUT,
+                    message_type="text",
+                    content="message body two",
+                    handler_name="handler_two",
+                    created_at=now - timedelta(hours=1),
+                    is_error=True,
+                    error_details="sample error",
+                ),
+            ]
+        )
+        await session.commit()
+
+    return specialist_id
+
+
+@pytest.mark.asyncio
+async def test_specialist_detail_ui_endpoint_security_payload(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = await _seed_specialist_detail_fixture(database)
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(f"/admin/ui/specialists/{specialist_id}", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert "basic" in payload
+    assert "integration" in payload
+    assert "activity" in payload
+    assert payload["activity"]["clients_count"] == 2
+    assert len(payload["activity"]["recent_events"]) >= 2
+
+    response_text = response.text
+    assert "refresh_token" not in response_text
+    assert "access_token" not in response_text
+    assert "message body one" not in response_text
+    assert "message body two" not in response_text
+    assert "client_email" not in response_text
+    assert "client_phone" not in response_text
+
+
+@pytest.mark.asyncio
+async def test_specialist_detail_ui_endpoint_without_cookie_returns_404(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = await _seed_specialist_detail_fixture(database)
+
+    client = TestClient(app)
+    response = client.get(f"/admin/ui/specialists/{specialist_id}")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_specialist_detail_unknown_specialist_returns_404(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(f"/admin/ui/specialists/{uuid.uuid4()}", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_specialist_detail_api_key_endpoint_auth(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = await _seed_specialist_detail_fixture(database)
+
+    client = TestClient(app)
+
+    ok_response = client.get(f"/admin/specialists/{specialist_id}", headers={"X-API-Key": "secret"})
+    wrong_response = client.get(f"/admin/specialists/{specialist_id}", headers={"X-API-Key": "wrong"})
+
+    assert ok_response.status_code == 200
+    assert wrong_response.status_code == 403
+
+@pytest.mark.asyncio
+async def test_admin_ui_specialist_detail_returns_404_without_cookie(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    response = client.get(f"/admin/ui/specialists/{uuid.uuid4()}")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_specialist_detail_returns_404_for_missing_specialist(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(f"/admin/ui/specialists/{uuid.uuid4()}", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_specialist_detail_returns_payload_and_safe_fields(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    now = datetime(2024, 1, 10, 12, 0, tzinfo=timezone.utc)
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(
+                    specialist_id=specialist_id,
+                    status=database.SpecialistStatus.active,
+                    created_at=now,
+                    onboarding_master_completed_at=now,
+                    onboarding_personal_completed_at=now,
+                ),
+                database.SpecialistProfile(
+                    specialist_id=specialist_id,
+                    public_name="Detail Spec",
+                    owner_tg_user_id=4444,
+                    owner_tg_username="detail_owner",
+                    specialist_timezone="Europe/Berlin",
+                    slot_step_min=20,
+                    max_sessions_per_day=5,
+                    tariff_plan=database.TariffPlan.pro,
+                ),
+                database.SpecialistAuthTelegram(
+                    specialist_id=specialist_id,
+                    tg_user_id=4444,
+                    tg_username="detail_spec",
+                    tg_first_name="Dina",
+                ),
+                database.GoogleOAuth(
+                    specialist_id=specialist_id,
+                    refresh_token_encrypted="encrypted",
+                    scopes="scope",
+                    status=database.GoogleOAuthStatus.connected,
+                    token_updated_at=now,
+                ),
+                database.SpecialistCalendarSettings(
+                    specialist_id=specialist_id,
+                    calendar_id="primary",
+                    source=database.SpecialistCalendarSource.selected,
+                ),
+                database.Client(
+                    specialist_id=specialist_id,
+                    tg_user_id=5555,
+                    tg_username="client1",
+                    display_name="Client",
+                    client_code="C001",
+                    client_timezone="Europe/Berlin",
+                    timezone_source=database.ClientTimezoneSource.default_from_specialist,
+                ),
+                database.MessageLog(
+                    specialist_id=specialist_id,
+                    bot_id=100,
+                    tg_user_id=4444,
+                    direction=database.LogDirection.IN,
+                    message_type="text",
+                    content="private message body",
+                    handler_name="handler",
+                    created_at=now,
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        f"/admin/ui/specialists/{specialist_id}",
+        cookies={"admin_session": session_cookie},
+        headers={"X-Request-ID": "req-123"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["basic"]["specialist_id"] == str(specialist_id)
+    assert payload["basic"]["public_name"] == "Detail Spec"
+    assert payload["basic"]["status"] == "active"
+    assert payload["basic"]["is_system"] is False
+    assert payload["basic"]["telegram_username"] == "detail_spec"
+    assert payload["basic"]["telegram_first_name"] == "Dina"
+
+    assert payload["integration"]["oauth_connected"] is True
+    assert payload["integration"]["calendar_selected"] is True
+    assert payload["integration"]["selected_calendar_id"] == "primary"
+    assert payload["integration"]["timezone"] == "Europe/Berlin"
+    assert payload["integration"]["slot_step"] == 20
+    assert payload["integration"]["max_sessions_per_day"] == 5
+    assert payload["integration"]["onboarding_master_done"] is True
+    assert payload["integration"]["onboarding_personal_done"] is True
+
+    assert payload["activity"]["clients_count"] == 1
+    assert payload["activity"]["last_activity_at"] is not None
+    assert payload["activity"]["active_7d"] is False
+    assert payload["activity"]["recent_events"]
+    assert payload["activity"]["recent_events"][0]["event_type"] == "IN:text"
+
+    assert payload["errors"] == []
+
+    response_text = response.text
+    assert "refresh_token_encrypted" not in response_text
+    assert "private message body" not in response_text
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_specialist_detail_logs_access_event(tmp_path, monkeypatch, caplog):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    with caplog.at_level("INFO"):
+        response = client.get(
+            f"/admin/ui/specialists/{specialist_id}",
+            cookies={"admin_session": session_cookie},
+            headers={"X-Request-ID": "req-log-1"},
+        )
+
+    assert response.status_code == 200
+    assert "event=admin_ui_specialist_detail_access request_id=req-log-1" in caplog.text
+    assert str(specialist_id) in caplog.text
+
+@pytest.mark.asyncio
+async def test_admin_specialist_detail_requires_api_key(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        await session.commit()
+
+    client = TestClient(app)
+
+    missing_key_response = client.get(f"/admin/specialists/{specialist_id}")
+    wrong_key_response = client.get(f"/admin/specialists/{specialist_id}", headers={"X-API-Key": "wrong"})
+
+    assert missing_key_response.status_code == 403
+    assert wrong_key_response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_specialist_detail_returns_404_for_missing_specialist(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    client = TestClient(app)
+    response = client.get(f"/admin/specialists/{uuid.uuid4()}", headers={"X-API-Key": "secret"})
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_specialist_detail_returns_payload_with_api_key(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(
+                    specialist_id=specialist_id,
+                    status=database.SpecialistStatus.active,
+                    created_at=now,
+                ),
+                database.SpecialistProfile(
+                    specialist_id=specialist_id,
+                    public_name="API Detail",
+                    owner_tg_user_id=9123,
+                    owner_tg_username="api_owner",
+                    specialist_timezone="UTC",
+                    slot_step_min=15,
+                    max_sessions_per_day=4,
+                ),
+                database.SpecialistAuthTelegram(
+                    specialist_id=specialist_id,
+                    tg_user_id=9123,
+                    tg_username="api_spec",
+                    tg_first_name="Api",
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    response = client.get(f"/admin/specialists/{specialist_id}", headers={"X-API-Key": "secret"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["basic"]["specialist_id"] == str(specialist_id)
+    assert payload["basic"]["public_name"] == "API Detail"
+    assert payload["integration"]["timezone"] == "UTC"
+    assert payload["activity"]["clients_count"] == 0
+    assert payload["errors"] == []
+
 @pytest.mark.asyncio
 async def test_admin_specialists_includes_specialists_without_profile_and_total(tmp_path, monkeypatch):
     app, database = load_app(tmp_path, monkeypatch, admin_key="secret")
