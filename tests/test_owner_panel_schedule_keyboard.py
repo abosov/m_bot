@@ -32,7 +32,7 @@ def test_schedule_weekday_keyboard_has_intervals_shortcut():
     keyboard = owner_panel._schedule_weekday_keyboard({0, 2, 4})
     rows = keyboard.inline_keyboard
 
-    assert rows[4][0].text == "🕒 Интервалы"
+    assert rows[4][0].text == "⏰ Интервалы"
     assert rows[4][0].callback_data == "schedule:intervals_menu"
 
 

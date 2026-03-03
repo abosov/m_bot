@@ -438,11 +438,14 @@ def _send_contact_email_smtp(
     smtp_timeout_seconds: int,
     subject: str,
     body: str,
+    reply_to: str | None = None,
 ) -> None:
     message = EmailMessage()
     message["From"] = smtp_from
     message["To"] = smtp_to
     message["Subject"] = subject
+    if reply_to:
+        message["Reply-To"] = reply_to
     message.set_content(body)
 
     if smtp_port == 465:
@@ -493,8 +496,8 @@ async def public_contact(request: Request) -> JSONResponse:
     smtp_port_raw = os.getenv("CONTACT_SMTP_PORT", "587").strip()
     smtp_user = os.getenv("CONTACT_SMTP_USER", "").strip()
     smtp_password = os.getenv("CONTACT_SMTP_PASSWORD", "").strip()
-    smtp_from = os.getenv("CONTACT_SMTP_FROM", smtp_user).strip()
-    smtp_to = os.getenv("CONTACT_SMTP_TO", "info@zumbot.ru").strip()
+    smtp_from = os.getenv("CONTACT_FROM_EMAIL", os.getenv("CONTACT_SMTP_FROM", smtp_user)).strip()
+    smtp_to = os.getenv("CONTACT_TO_EMAIL", os.getenv("CONTACT_SMTP_TO", "info@zumbot.ru")).strip()
     smtp_timeout_raw = os.getenv("CONTACT_SMTP_TIMEOUT_SECONDS", "10").strip()
 
     required_env = {
@@ -580,6 +583,49 @@ async def public_contact(request: Request) -> JSONResponse:
             },
         )
         return JSONResponse(status_code=200, content={"ok": False, "error": "smtp_send_failed"})
+
+    contact_autoreply_enabled = os.getenv("CONTACT_AUTOREPLY_ENABLED", "true").strip().lower() != "false"
+
+    if contact_autoreply_enabled and "@" in form.email:
+        autoreply_subject = "Мы получили ваше сообщение — Zumbot"
+        autoreply_body = (
+            f"Здравствуйте, {form.name}!\n\n"
+            "Мы получили ваше сообщение:\n\n"
+            "-----------------------\n"
+            f"{form.message}\n"
+            "-----------------------\n\n"
+            f"Номер обращения: {request_id}\n\n"
+            "Мы свяжемся с вами в ближайшее время.\n\n"
+            "С уважением,\n"
+            "Команда Zumbot\n"
+            "https://zumbot.ru\n"
+        )
+        try:
+            await asyncio.to_thread(
+                _send_contact_email_smtp,
+                smtp_host=smtp_host,
+                smtp_port=smtp_port,
+                smtp_user=smtp_user,
+                smtp_password=smtp_password,
+                smtp_from=smtp_from,
+                smtp_to=form.email,
+                smtp_timeout_seconds=smtp_timeout_seconds,
+                subject=autoreply_subject,
+                body=autoreply_body,
+                reply_to=smtp_from,
+            )
+        except Exception as exc:
+            await notify_exception(
+                where="web.contact_form_autoreply",
+                exc=RuntimeError("smtp_send_failed"),
+                context={
+                    "request_id": request_id,
+                    "error": type(exc).__name__,
+                    "smtp_host": smtp_host,
+                    "smtp_port": smtp_port,
+                    "timeout": smtp_timeout_seconds,
+                },
+            )
 
     return JSONResponse(status_code=200, content={"ok": True})
 

@@ -77,7 +77,7 @@ def test_site_assets_are_served():
     assert css.status_code == 200
     assert "hero" in css.text
     assert js.status_code == 200
-    assert "Zumbot landing page loaded" in js.text
+    assert "contact-form" in js.text
 
 
 def test_success_page_contains_expected_text():
@@ -170,8 +170,8 @@ def test_connect_page_contains_google_form_and_legal_links():
 
     assert response.status_code == 200
     assert 'form action="/google/oauth/start"' in response.text
-    assert 'href="/privacy"' in response.text
-    assert 'href="/terms"' in response.text
+    assert 'href="https://zumbot.ru/privacy-ru"' in response.text
+    assert 'href="https://zumbot.ru/terms-ru"' in response.text
 
 
 def test_connect_status_requires_valid_cookie(monkeypatch):
@@ -244,10 +244,10 @@ def test_public_contact_returns_smtp_not_configured_and_alerts(monkeypatch):
 
 
 def test_public_contact_sends_email(monkeypatch):
-    captured: dict = {}
+    sent: list[dict] = []
 
     def _smtp_stub(**kwargs):
-        captured.update(kwargs)
+        sent.append(kwargs)
 
     monkeypatch.setenv("CONTACT_SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("CONTACT_SMTP_PORT", "587")
@@ -265,6 +265,9 @@ def test_public_contact_sends_email(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+    assert len(sent) == 2
+
+    captured = sent[0]
     assert captured["smtp_host"] == "smtp.example.com"
     assert captured["smtp_port"] == 587
     assert captured["smtp_user"] == "mailer"
@@ -275,6 +278,10 @@ def test_public_contact_sends_email(monkeypatch):
     assert captured["subject"] == "Zumbot contact form: Alice alice@example.com"
     assert "message:\nHello from form" in captured["body"]
     assert "request_id:" in captured["body"]
+
+    autoreply = sent[1]
+    assert autoreply["smtp_to"] == "alice@example.com"
+    assert autoreply["reply_to"] == "from@example.com"
 
 
 def test_public_contact_returns_validation_error_for_invalid_email():
