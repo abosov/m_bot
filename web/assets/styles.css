@@ -272,9 +272,23 @@ input, textarea {
 }
 
 .site-footer .logo-footer,
-.site-footer p {
+.site-footer .footer-copy {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+#legal-info-footer {
+  flex: 1 1 100%;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+#legal-info-footer p {
+  margin: 0;
+  white-space: normal;
 }
 .logo-footer img {
   height: 28px;
@@ -302,6 +316,23 @@ input, textarea {
   .cards-grid,
   .cards-grid-2 { grid-template-columns: 1fr; }
   .main-nav { gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+}
+
+
+@media (max-width: 640px) {
+  .site-footer .logo-footer,
+  .site-footer .footer-copy {
+    white-space: normal;
+  }
+
+  .site-footer .logo-footer {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  .site-footer .logo-footer .logo-text {
+    overflow-wrap: anywhere;
+  }
 }
 
 @media (max-width: 640px) {
