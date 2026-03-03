@@ -76,6 +76,11 @@
 
 `last_activity_at` может быть `null`, если у специалиста нет записей активности в `MessageLog`.
 
+Список формируется от таблицы `specialist`; запись в `specialist_profile` опциональна и не исключает специалиста из ответа.
+Значение `public_name` вычисляется по fallback-цепочке:
+`specialist_profile.public_name -> specialist_auth_telegram.tg_username -> specialist_auth_telegram.tg_first_name -> specialist.specialist_id`.
+Поле `total` возвращает общее количество специалистов с учётом применённого фильтра `status` (без влияния `limit/offset`).
+
 **Endpoint (UI):** `GET /admin/ui/specialists`
 - Query params: `limit`, `offset`, `status`
 - Auth: cookie `admin_session` (browser login)
@@ -86,6 +91,7 @@
 - Новые таблицы не требуются.
 - `clients_count` вычисляется агрегированием по таблице `Client` (количество клиентов на специалиста).
 - `last_activity_at` вычисляется как `MAX(created_at)`/аналогичный timestamp из таблицы `MessageLog` по специалисту.
+- Источник списка — таблица `specialist`; `specialist_profile` и `specialist_auth_telegram` подключаются через optional join для отображаемых полей.
 - Для MVP допускается runtime-агрегация; оптимизации (материализованные представления/кэш) вне scope этой US.
 
 ---

@@ -158,8 +158,101 @@ async def test_admin_ui_specialists_returns_items_with_valid_cookie(tmp_path, mo
     payload = response.json()
     assert payload["limit"] == 100
     assert payload["offset"] == 0
+    assert payload["total"] == 1
     assert len(payload["items"]) == 1
     assert payload["items"][0]["public_name"] == "UI Specialist"
+
+
+@pytest.mark.asyncio
+async def test_admin_specialists_includes_specialists_without_profile_and_total(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_a = uuid.uuid4()
+    specialist_b = uuid.uuid4()
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(specialist_id=specialist_a, status=database.SpecialistStatus.active),
+                database.SpecialistProfile(
+                    specialist_id=specialist_a,
+                    public_name="A",
+                    owner_tg_user_id=1001,
+                    owner_tg_username="a",
+                    specialist_timezone="UTC",
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_a, tg_user_id=1001),
+                database.Specialist(specialist_id=specialist_b, status=database.SpecialistStatus.active),
+                database.SpecialistAuthTelegram(
+                    specialist_id=specialist_b,
+                    tg_user_id=1002,
+                    tg_username="b_user",
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    response = client.get("/admin/specialists", headers={"X-API-Key": "secret"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    assert len(payload["items"]) == 2
+
+    items_by_id = {item["specialist_id"]: item for item in payload["items"]}
+    assert items_by_id[str(specialist_a)]["public_name"] == "A"
+    assert items_by_id[str(specialist_b)]["public_name"] == "b_user"
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_specialists_includes_total_and_name_fallback(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_a = uuid.uuid4()
+    specialist_b = uuid.uuid4()
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(specialist_id=specialist_a, status=database.SpecialistStatus.active),
+                database.SpecialistProfile(
+                    specialist_id=specialist_a,
+                    public_name="A",
+                    owner_tg_user_id=2001,
+                    owner_tg_username="a",
+                    specialist_timezone="UTC",
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_a, tg_user_id=2001),
+                database.Specialist(specialist_id=specialist_b, status=database.SpecialistStatus.active),
+                database.SpecialistAuthTelegram(
+                    specialist_id=specialist_b,
+                    tg_user_id=2002,
+                    tg_first_name="BName",
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get("/admin/ui/specialists", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    assert len(payload["items"]) == 2
+
+    items_by_id = {item["specialist_id"]: item for item in payload["items"]}
+    assert items_by_id[str(specialist_b)]["public_name"] == "BName"
 
 
 @pytest.mark.asyncio
