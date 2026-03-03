@@ -8,7 +8,7 @@ import pytest
 pytest.importorskip("aiosqlite")
 
 
-def load_app(tmp_path, monkeypatch, admin_key: str | None):
+def load_app(tmp_path, monkeypatch, admin_key: str | None, admin_ui_password: str | None = None):
     db_path = tmp_path / "admin_api.db"
     monkeypatch.setenv("APP_ENV", "local")
     monkeypatch.setenv("DB_URL", f"sqlite+aiosqlite:///{db_path}")
@@ -22,6 +22,11 @@ def load_app(tmp_path, monkeypatch, admin_key: str | None):
         monkeypatch.setenv("ADMIN_API_KEY", admin_key)
     else:
         monkeypatch.delenv("ADMIN_API_KEY", raising=False)
+
+    if admin_ui_password:
+        monkeypatch.setenv("ADMIN_UI_PASSWORD", admin_ui_password)
+    else:
+        monkeypatch.delenv("ADMIN_UI_PASSWORD", raising=False)
 
     import config
     import database
@@ -44,42 +49,59 @@ async def test_admin_logs_requires_key(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_admin_page_returns_404_when_admin_key_not_set(tmp_path, monkeypatch):
+async def test_admin_login_page_returns_404_when_admin_ui_disabled(tmp_path, monkeypatch):
     app, _database = load_app(tmp_path, monkeypatch, admin_key=None)
     client = TestClient(app)
 
-    response = client.get("/admin")
+    response = client.get("/admin/login")
 
     assert response.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_admin_page_returns_404_without_header_when_admin_key_set(tmp_path, monkeypatch):
-    app, _database = load_app(tmp_path, monkeypatch, admin_key="secret")
+async def test_admin_login_page_returns_200_html_when_admin_ui_enabled(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
     client = TestClient(app)
 
-    response = client.get("/admin")
+    response = client.get("/admin/login")
 
-    assert response.status_code == 404
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "<h1>Zumbot Admin Login</h1>" in response.text
 
 
 @pytest.mark.asyncio
-async def test_admin_returns_404_with_wrong_key(tmp_path, monkeypatch):
-    app, _database = load_app(tmp_path, monkeypatch, admin_key="secret")
+async def test_admin_login_returns_404_for_wrong_password(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
     client = TestClient(app)
 
-    response = client.get("/admin", headers={"X-API-Key": "wrong"})
+    response = client.post("/admin/login", data={"password": "wrong"}, follow_redirects=False)
 
     assert response.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_admin_page_returns_200_with_correct_header(tmp_path, monkeypatch):
+async def test_admin_login_sets_cookie_for_correct_password(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin"
+    assert "admin_session=" in response.headers["set-cookie"]
+
+
+@pytest.mark.asyncio
+async def test_admin_page_returns_200_with_valid_cookie(tmp_path, monkeypatch):
     monkeypatch.setenv("BUILD_VERSION", "build-123")
-    app, _database = load_app(tmp_path, monkeypatch, admin_key="secret")
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
     client = TestClient(app)
 
-    response = client.get("/admin", headers={"X-API-Key": "secret"})
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get("/admin", cookies={"admin_session": session_cookie})
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
@@ -87,6 +109,55 @@ async def test_admin_page_returns_200_with_correct_header(tmp_path, monkeypatch)
     assert "<p>Environment: local</p>" in response.text
     assert "<p>Server time (UTC):" in response.text
     assert "<p>Version: build-123</p>" in response.text
+    assert "id='specialists-table'" in response.text
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_specialists_returns_404_without_cookie(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    response = client.get("/admin/ui/specialists")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_specialists_returns_items_with_valid_cookie(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active),
+                database.SpecialistProfile(
+                    specialist_id=specialist_id,
+                    public_name="UI Specialist",
+                    owner_tg_user_id=3333,
+                    owner_tg_username="ui_spec",
+                    specialist_timezone="UTC",
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_id, tg_user_id=3333),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get("/admin/ui/specialists", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["limit"] == 100
+    assert payload["offset"] == 0
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["public_name"] == "UI Specialist"
 
 
 @pytest.mark.asyncio

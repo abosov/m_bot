@@ -194,6 +194,7 @@ DATABASE_URL = _require_in_prod("DB_URL", DATABASE_URL)
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "backend")
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
+ADMIN_UI_PASSWORD = os.getenv("ADMIN_UI_PASSWORD") or ADMIN_API_KEY
 MAX_WEBHOOK_BODY_BYTES = _parse_int_env_or_default(
     "MAX_WEBHOOK_BODY_BYTES",
     default=1_000_000,

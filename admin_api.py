@@ -65,13 +65,12 @@ def parse_uuid(value: str | None) -> uuid.UUID | None:
 
 
 
-@router.get("/specialists")
-async def admin_specialists(
-    limit: int | None = Query(default=100),
-    offset: int = Query(default=0),
-    status: SpecialistStatus | None = Query(default=None),
-    _auth: None = Depends(require_admin_key),
-):
+async def build_admin_specialists_payload(
+    *,
+    limit: int | None = 100,
+    offset: int = 0,
+    status: SpecialistStatus | None = None,
+) -> dict[str, object]:
     limit_value = clamp_limit(limit)
 
     clients_count_subquery = (
@@ -128,6 +127,16 @@ async def admin_specialists(
     ]
 
     return {"items": items, "limit": limit_value, "offset": offset}
+
+
+@router.get("/specialists")
+async def admin_specialists(
+    limit: int | None = Query(default=100),
+    offset: int = Query(default=0),
+    status: SpecialistStatus | None = Query(default=None),
+    _auth: None = Depends(require_admin_key),
+):
+    return await build_admin_specialists_payload(limit=limit, offset=offset, status=status)
 
 
 @router.get("/logs")
