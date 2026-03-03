@@ -161,6 +161,10 @@ Doc: [US-AD-4.1 specification](./us_ad_4_1_system_accounts.md)
 Status: Implemented
 Doc: [US-AD-4 specification](./us_ad_4_specialists_operational_table.md)
 
+### US-AD-5 — Specialist Detail Page
+Status: Implemented
+Doc: [US-AD-5 specification](./us_ad_5_specialist_detail_page.md)
+
 ---
 
 ## 9. Endpoints
@@ -173,6 +177,14 @@ Doc: [US-AD-4 specification](./us_ad_4_specialists_operational_table.md)
 
 - `GET /admin/ui/specialists` (UI cookie auth)
   - Query params: `limit`, `offset`, `status`, `include_system=0|1` (default `0`), `oauth_missing=0|1` (default `0`), `calendar_missing=0|1` (default `0`), `inactive_days_gt` (`>=1`, optional).
+
+- `GET /admin/ui/specialists/{specialist_id}` (UI cookie auth)
+  - Детальная JSON карточка специалиста (`basic`, `integration`, `activity`, `errors`).
+  - При невалидной/отсутствующей cookie возвращает `404` (anti-enumeration).
+
+- `GET /admin/specialists/{specialist_id}`
+  - API режим: JSON detail payload при валидном `X-API-Key` (`403` при неверном/отсутствующем ключе).
+  - Browser HTML режим: detail page при `Accept: text/html` и валидной cookie `admin_session` (`404` без cookie).
 
 ### GET /admin/specialists
 

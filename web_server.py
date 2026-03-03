@@ -59,7 +59,12 @@ from services.request_context import get_request_id, reset_request_id, set_reque
 from services.alerting import close_alerting, notify_exception
 from services import admin_ui_session, web_connect, web_session
 import config
-from admin_api import build_admin_specialists_payload, compute_admin_overview, router as admin_router
+from admin_api import (
+    build_admin_specialist_detail_payload,
+    build_admin_specialists_payload,
+    compute_admin_overview,
+    router as admin_router,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -469,6 +474,40 @@ async def admin_ui_specialists(
     )
 
 
+
+
+@app.get("/admin/ui/specialists/{specialist_id}")
+async def admin_ui_specialist_detail(
+    specialist_id: str,
+    request: Request,
+    include_system: bool = Query(default=False),
+):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    try:
+        specialist_uuid = uuid.UUID(specialist_id)
+    except ValueError:
+        _raise_not_found()
+
+    logger.info(
+        "event=admin_ui_specialist_detail_access request_id=%s specialist_id=%s",
+        _request_id_from_request(request),
+        specialist_id,
+    )
+
+    payload = await build_admin_specialist_detail_payload(
+        specialist_uuid,
+        include_system=include_system,
+    )
+    if payload is None:
+        _raise_not_found()
+
+    return payload
 
 
 @app.get("/admin/ui/overview")
