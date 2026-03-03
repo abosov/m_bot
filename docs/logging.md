@@ -266,6 +266,7 @@ bash scripts/db_snapshot.sh --db-url postgresql+asyncpg://user@localhost:5432/zu
 
 ## Закрытый admin API (опционально)
 Если задан `ADMIN_API_KEY`, включаются эндпоинты:
+- `GET /admin` (HTML entrypoint)
 - `GET /admin/logs`
 - `GET /admin/heartbeats`
 - `GET /admin/bot-health-checks`
@@ -283,6 +284,12 @@ ssh -L 18000:127.0.0.1:8000 user@vps-host
 ```bash
 curl -H "X-API-Key: <ADMIN_API_KEY>" \
   "http://127.0.0.1:18000/admin/logs?limit=100&since=2024-01-01T00:00:00Z"
+```
+
+Пример запроса к HTML entrypoint через tunnel:
+```bash
+curl -i -H "X-API-Key: <ADMIN_API_KEY>" \
+  "http://127.0.0.1:18000/admin"
 ```
 
 ## Примеры доступа к БД (через SSH tunnel)
