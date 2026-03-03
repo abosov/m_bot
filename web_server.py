@@ -156,81 +156,114 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
     def _site_file(page: str) -> Path:
         return WEB_DIR / SITE_PAGES[page]
 
+    SITE_NAV_LINKS = (
+        ("Возможности", "/features"),
+        ("Тарифы", "/pricing"),
+        ("Для специалистов", "/specialists"),
+        ("Контакты", "/contacts"),
+    )
+
+    def _site_header_html(page: str) -> str:
+        nav_links = []
+        for title, href in SITE_NAV_LINKS:
+            active_class = ' class="active"' if page == href else ""
+            nav_links.append(f'<a href="{href}"{active_class}>{title}</a>')
+
+        nav_html = "".join(nav_links)
+        return (
+            '<header class="site-header">'
+            '<div class="container header-inner">'
+            '<a class="logo" href="/">'
+            '<img src="/assets/zumbot_logo.png" srcset="/assets/zumbot_logo.png 1x, '
+            '/assets/zumbot_logo@2x.png 2x" alt="Zumbot logo" />'
+            '<span class="logo-text">Zumbot — Calendar Booking Automation</span>'
+            '</a>'
+            f'<nav class="main-nav">{nav_html}</nav>'
+            '<a href="/connect" class="btn-primary">Подключить</a>'
+            '</div>'
+            '</header>'
+        )
+
+    def _render_site_page(page: str) -> HTMLResponse:
+        html = _site_file(page).read_text(encoding="utf-8")
+        html = html.replace("{{SITE_HEADER}}", _site_header_html(page))
+        return HTMLResponse(content=html)
+
     @app.get("/")
-    async def site_index() -> FileResponse:
-        return FileResponse(_site_file("/"))
+    async def site_index() -> HTMLResponse:
+        return _render_site_page("/")
 
     @app.head("/")
     async def site_index_head() -> Response:
         return Response(status_code=200)
 
     @app.get("/features")
-    async def site_features() -> FileResponse:
-        return FileResponse(_site_file("/features"))
+    async def site_features() -> HTMLResponse:
+        return _render_site_page("/features")
 
     @app.get("/pricing")
-    async def site_pricing() -> FileResponse:
-        return FileResponse(_site_file("/pricing"))
+    async def site_pricing() -> HTMLResponse:
+        return _render_site_page("/pricing")
 
     @app.get("/specialists")
-    async def site_specialists() -> FileResponse:
-        return FileResponse(_site_file("/specialists"))
+    async def site_specialists() -> HTMLResponse:
+        return _render_site_page("/specialists")
 
     @app.get("/contacts")
-    async def site_contacts() -> FileResponse:
-        return FileResponse(_site_file("/contacts"))
+    async def site_contacts() -> HTMLResponse:
+        return _render_site_page("/contacts")
 
     @app.get("/privacy")
-    async def site_privacy() -> FileResponse:
-        return FileResponse(_site_file("/privacy"))
+    async def site_privacy() -> HTMLResponse:
+        return _render_site_page("/privacy")
 
     @app.head("/privacy")
     async def site_privacy_head() -> Response:
         return Response(status_code=200)
 
     @app.get("/terms")
-    async def site_terms() -> FileResponse:
-        return FileResponse(_site_file("/terms"))
+    async def site_terms() -> HTMLResponse:
+        return _render_site_page("/terms")
 
     @app.head("/terms")
     async def site_terms_head() -> Response:
         return Response(status_code=200)
 
     @app.get("/revoke-access")
-    async def site_revoke_access() -> FileResponse:
-        return FileResponse(_site_file("/revoke-access"))
+    async def site_revoke_access() -> HTMLResponse:
+        return _render_site_page("/revoke-access")
 
     @app.head("/revoke-access")
     async def site_revoke_access_head() -> Response:
         return Response(status_code=200)
 
     @app.get("/legal")
-    async def site_legal() -> FileResponse:
-        return FileResponse(_site_file("/legal"))
+    async def site_legal() -> HTMLResponse:
+        return _render_site_page("/legal")
 
     @app.head("/legal")
     async def site_legal_head() -> Response:
         return Response(status_code=200)
 
     @app.get("/privacy-ru")
-    async def site_privacy_ru() -> FileResponse:
-        return FileResponse(_site_file("/privacy-ru"))
+    async def site_privacy_ru() -> HTMLResponse:
+        return _render_site_page("/privacy-ru")
 
     @app.head("/privacy-ru")
     async def site_privacy_ru_head() -> Response:
         return Response(status_code=200)
 
     @app.get("/terms-ru")
-    async def site_terms_ru() -> FileResponse:
-        return FileResponse(_site_file("/terms-ru"))
+    async def site_terms_ru() -> HTMLResponse:
+        return _render_site_page("/terms-ru")
 
     @app.head("/terms-ru")
     async def site_terms_ru_head() -> Response:
         return Response(status_code=200)
 
     @app.get("/revoke-access-ru")
-    async def site_revoke_access_ru() -> FileResponse:
-        return FileResponse(_site_file("/revoke-access-ru"))
+    async def site_revoke_access_ru() -> HTMLResponse:
+        return _render_site_page("/revoke-access-ru")
 
     @app.head("/revoke-access-ru")
     async def site_revoke_access_ru_head() -> Response:
