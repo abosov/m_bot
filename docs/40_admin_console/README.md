@@ -136,11 +136,41 @@ Status: Implemented
 Access: X-API-Key header
 Security model: return 404 if unauthorized
 
+### US-AD-2 — Specialists list dashboard (MVP)
+Status: Implemented (backend endpoint)
+Doc: [US-AD-2 specification](./us_ad_2_specialists_list.md)
+
 ---
 
-## 9. Access
+## 9. Endpoints
+
+Все endpoint-ы Admin Console являются внутренними (`/admin/*`) и требуют заголовок `X-API-Key`.
+
+### GET /admin/specialists
+
+Назначение: список специалистов для MVP dashboard с базовыми метриками.
+
+Query params:
+- `limit` (optional, default `100`, clamp `1..500`)
+- `offset` (optional, default `0`)
+- `status` (optional, exact match)
+
+Response:
+- `items`: список специалистов с полями:
+  - `specialist_id`
+  - `public_name`
+  - `status`
+  - `created_at`
+  - `tariff_plan`
+  - `clients_count`
+  - `last_activity_at` (nullable)
+- `limit`
+- `offset`
+
+---
+
+## 10. Access
 
 Подробный runbook по доступу к Admin Console (SSH tunnel и примеры `curl`):
 
 - [Access Runbook](./access.md)
-

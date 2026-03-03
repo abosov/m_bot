@@ -5,14 +5,18 @@ import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 import config
 from database import (
     BotHealthCheck,
+    Client,
     LogDirection,
     MessageLog,
     ServiceHeartbeat,
+    Specialist,
+    SpecialistProfile,
+    SpecialistStatus,
     async_session_factory,
 )
 from services.log_exporter import (
@@ -57,6 +61,73 @@ def parse_uuid(value: str | None) -> uuid.UUID | None:
         return uuid.UUID(value)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid UUID format") from exc
+
+
+
+
+@router.get("/specialists")
+async def admin_specialists(
+    limit: int | None = Query(default=100),
+    offset: int = Query(default=0),
+    status: SpecialistStatus | None = Query(default=None),
+    _auth: None = Depends(require_admin_key),
+):
+    limit_value = clamp_limit(limit)
+
+    clients_count_subquery = (
+        select(
+            Client.specialist_id.label("specialist_id"),
+            func.count(Client.client_id).label("clients_count"),
+        )
+        .group_by(Client.specialist_id)
+        .subquery()
+    )
+
+    last_activity_subquery = (
+        select(
+            MessageLog.specialist_id.label("specialist_id"),
+            func.max(MessageLog.created_at).label("last_activity_at"),
+        )
+        .where(MessageLog.specialist_id.is_not(None))
+        .group_by(MessageLog.specialist_id)
+        .subquery()
+    )
+
+    async with async_session_factory() as session:
+        stmt = (
+            select(
+                Specialist.specialist_id,
+                SpecialistProfile.public_name,
+                Specialist.status,
+                Specialist.created_at,
+                SpecialistProfile.tariff_plan,
+                func.coalesce(clients_count_subquery.c.clients_count, 0).label("clients_count"),
+                last_activity_subquery.c.last_activity_at,
+            )
+            .join(SpecialistProfile, SpecialistProfile.specialist_id == Specialist.specialist_id)
+            .outerjoin(clients_count_subquery, clients_count_subquery.c.specialist_id == Specialist.specialist_id)
+            .outerjoin(last_activity_subquery, last_activity_subquery.c.specialist_id == Specialist.specialist_id)
+        )
+        if status is not None:
+            stmt = stmt.where(Specialist.status == status)
+
+        stmt = stmt.order_by(Specialist.created_at.desc()).limit(limit_value).offset(offset)
+        rows = (await session.execute(stmt)).all()
+
+    items = [
+        {
+            "specialist_id": str(row.specialist_id),
+            "public_name": row.public_name,
+            "status": row.status.value if row.status is not None else None,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "tariff_plan": row.tariff_plan.value if row.tariff_plan is not None else None,
+            "clients_count": int(row.clients_count or 0),
+            "last_activity_at": row.last_activity_at.isoformat() if row.last_activity_at else None,
+        }
+        for row in rows
+    ]
+
+    return {"items": items, "limit": limit_value, "offset": offset}
 
 
 @router.get("/logs")
