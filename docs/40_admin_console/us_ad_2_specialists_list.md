@@ -10,7 +10,8 @@
 
 ## Acceptance Criteria
 
-- [ ] Доступен endpoint `GET /admin/specialists?limit=&offset=&status=&tariff_plan=&active_since_hours=`.
+- [x] Доступен endpoint `GET /admin/specialists?limit=&offset=&status=` (API, `X-API-Key`).
+- [x] Доступен endpoint `GET /admin/ui/specialists?limit=&offset=&status=` (UI, cookie `admin_session`).
 - [ ] Endpoint возвращает список специалистов с полями:
   - `specialist_id`
   - `public_name`
@@ -23,7 +24,7 @@
   - `last_activity_at` (nullable)
 - [ ] Поддерживается фильтрация по `status`, `tariff_plan`, `active_since_hours`.
 - [ ] Поддерживается пагинация через `limit` и `offset`.
-- [ ] В Admin Console реализован табличный вывод с отдельными состояниями loading / empty / error.
+- [x] В Admin Console реализован табличный вывод с отдельными состояниями loading / empty / error.
 
 ---
 
@@ -31,7 +32,8 @@
 
 ### Components involved
 
-- Backend Admin API (`/admin/specialists`) для выдачи агрегированных данных по специалистам.
+- Backend Admin API (`/admin/specialists`) для выдачи агрегированных данных по специалистам по `X-API-Key`.
+- Admin UI endpoint (`/admin/ui/specialists`) для same-origin запросов из браузерного `/admin` по cookie-сессии.
 - Admin Console UI: экран со списком специалистов (таблица + фильтры).
 - Источники данных:
   - таблица специалистов (базовые данные и статус);
@@ -40,7 +42,8 @@
 
 ### API changes
 
-**Endpoint:** `GET /admin/specialists`
+**Endpoint (API):** `GET /admin/specialists`
+**Auth:** `X-API-Key`
 **Query params:**
 - `limit` (int, optional)
 - `offset` (int, optional)
@@ -73,6 +76,11 @@
 
 `last_activity_at` может быть `null`, если у специалиста нет записей активности в `MessageLog`.
 
+**Endpoint (UI):** `GET /admin/ui/specialists`
+- Query params: `limit`, `offset`, `status`
+- Auth: cookie `admin_session` (browser login)
+- Возвращает тот же payload, что и `GET /admin/specialists`, используя ту же backend-агрегацию.
+
 ### Data model impact
 
 - Новые таблицы не требуются.
@@ -87,7 +95,7 @@
 ### Screen structure
 
 - Заголовок: «Специалисты».
-- Панель фильтров: `status`, `tariff_plan`, `active_since_hours`.
+- Панель фильтров: `status` (MVP).
 - Таблица со столбцами:
   - Specialist ID
   - Public Name
@@ -98,12 +106,12 @@
   - Onboarding Master Completed At
   - Onboarding Personal Completed At
   - Last Activity At
-- Пагинация на основе `limit`/`offset`.
+- Пагинация на основе `limit`/`offset` (сейчас фиксированный запрос `limit=100, offset=0` в UI-скрипте).
 
 ### States (loading / empty / error)
 
 - **Loading:** скелетон/индикатор загрузки таблицы и блокировка повторных запросов.
-- **Empty:** сообщение «Специалисты не найдены» и подсказка сбросить фильтры.
+- **Empty:** сообщение «Данных нет».
 - **Error:** сообщение об ошибке загрузки + кнопка «Повторить».
 
 ---
@@ -112,8 +120,8 @@
 
 ### Access control
 
-- Доступ только с заголовком `X-API-Key`.
-- Иные механизмы авторизации для этой US не добавляются.
+- Для API endpoint `/admin/specialists`: доступ только с заголовком `X-API-Key`.
+- Для UI endpoint `/admin/ui/specialists`: доступ только с валидной cookie `admin_session`.
 
 ### Sensitive data
 
@@ -124,7 +132,7 @@
 ### Threat model
 
 - Основной риск: утечка персональных/контактных данных через admin endpoint.
-- Митигируется ограниченным набором полей ответа и доступом только через `X-API-Key`.
+- Митигируется ограниченным набором полей ответа и разделением доступа: `X-API-Key` для API, cookie-сессия для UI.
 - Rate-limiting для endpoint находится вне scope US-AD-2.
 
 ---

@@ -8,10 +8,11 @@ import time
 import uuid
 from email.message import EmailMessage
 from pathlib import Path
+from urllib.parse import parse_qs
 import requests
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
@@ -25,6 +26,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from database import (
     Appointment,
     BookingState,
+    SpecialistStatus,
     async_session_factory, 
     GoogleOAuth, 
     GoogleOAuthStatus, 
@@ -55,9 +57,9 @@ from services.telegram.personal_dispatcher import process_update
 from services.build_info import get_build_info
 from services.request_context import get_request_id, reset_request_id, set_request_id
 from services.alerting import close_alerting, notify_exception
-from services import web_connect, web_session
+from services import admin_ui_session, web_connect, web_session
 import config
-from admin_api import router as admin_router
+from admin_api import build_admin_specialists_payload, router as admin_router
 
 logger = logging.getLogger(__name__)
 
@@ -365,8 +367,105 @@ def require_admin_key_hidden_404(x_api_key: str | None = Header(default=None, al
         raise HTTPException(status_code=404, detail="Not found")
 
 
+ADMIN_UI_COOKIE_NAME = "admin_session"
+ADMIN_UI_SESSION_TTL_HOURS = 12
+
+
+def _admin_ui_enabled() -> bool:
+    return bool(config.ADMIN_UI_PASSWORD)
+
+
+def _admin_ui_cookie_secure() -> bool:
+    return config.APP_ENV == "prod"
+
+
+def _raise_not_found() -> None:
+    raise HTTPException(status_code=404, detail="Not found")
+
+
+@app.get("/admin/login", response_class=HTMLResponse)
+async def admin_login_page() -> HTMLResponse:
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    return HTMLResponse(
+        content=(
+            "<html><body>"
+            "<h1>Zumbot Admin Login</h1>"
+            '<form method="post" action="/admin/login">'
+            '<label for="password">Password</label>'
+            '<input id="password" type="password" name="password" autocomplete="current-password" required />'
+            '<button type="submit">Login</button>'
+            "</form>"
+            "</body></html>"
+        ),
+        status_code=200,
+    )
+
+
+@app.post("/admin/login")
+async def admin_login(request: Request) -> Response:
+    form_data = parse_qs((await request.body()).decode("utf-8"))
+    password = form_data.get("password", [""])[0]
+    if not _admin_ui_enabled() or password != config.ADMIN_UI_PASSWORD:
+        _raise_not_found()
+
+    session_cookie = admin_ui_session.sign_admin_session_cookie(ttl_hours=ADMIN_UI_SESSION_TTL_HOURS)
+    response = RedirectResponse(url="/admin", status_code=303)
+    response.set_cookie(
+        key=ADMIN_UI_COOKIE_NAME,
+        value=session_cookie,
+        max_age=ADMIN_UI_SESSION_TTL_HOURS * 3600,
+        httponly=True,
+        secure=_admin_ui_cookie_secure(),
+        samesite="strict",
+        path="/admin",
+    )
+    return response
+
+
+@app.post("/admin/logout")
+async def admin_logout() -> Response:
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    response = RedirectResponse(url="/admin/login", status_code=303)
+    response.delete_cookie(
+        key=ADMIN_UI_COOKIE_NAME,
+        path="/admin",
+        httponly=True,
+        secure=_admin_ui_cookie_secure(),
+        samesite="strict",
+    )
+    return response
+
+
+@app.get("/admin/ui/specialists")
+async def admin_ui_specialists(
+    request: Request,
+    limit: int | None = Query(default=100),
+    offset: int = Query(default=0),
+    status: SpecialistStatus | None = Query(default=None),
+):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    return await build_admin_specialists_payload(limit=limit, offset=offset, status=status)
+
+
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_console_entry(request: Request, _auth: None = Depends(require_admin_key_hidden_404)) -> HTMLResponse:
+async def admin_console_entry(request: Request) -> HTMLResponse:
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
     version = os.getenv("BUILD_VERSION") or os.getenv("GIT_SHA") or "unknown"
     env_name = config.APP_ENV or os.getenv("ENV") or "unknown"
     server_time_utc = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
@@ -384,6 +483,46 @@ async def admin_console_entry(request: Request, _auth: None = Depends(require_ad
             f"<p>Environment: {env_name}</p>"
             f"<p>Server time (UTC): {server_time_utc}</p>"
             f"<p>Version: {version}</p>"
+            "<nav><strong>Навигация:</strong> <a href='#specialists'>Специалисты</a></nav>"
+            "<section id='specialists'>"
+            "<h2>Специалисты</h2>"
+            "<label for='status-filter'>Статус:</label>"
+            "<select id='status-filter'>"
+            "<option value=''>Все</option>"
+            "<option value='onboarding'>onboarding</option>"
+            "<option value='active'>active</option>"
+            "<option value='suspended'>suspended</option>"
+            "</select>"
+            "<button id='apply-filter' type='button'>Применить</button>"
+            "<p id='specialists-state'>Загрузка...</p>"
+            "<table id='specialists-table' border='1' cellpadding='6' style='border-collapse: collapse; display:none;'>"
+            "<thead><tr><th>Имя</th><th>Статус</th><th>Клиенты</th><th>Тариф</th><th>Последняя активность</th></tr></thead>"
+            "<tbody></tbody>"
+            "</table>"
+            "</section>"
+            '<form method="post" action="/admin/logout"><button type="submit">Logout</button></form>'
+            "<script>"
+            "const stateEl=document.getElementById('specialists-state');"
+            "const tableEl=document.getElementById('specialists-table');"
+            "const tbodyEl=tableEl.querySelector('tbody');"
+            "const statusEl=document.getElementById('status-filter');"
+            "const buttonEl=document.getElementById('apply-filter');"
+            "function setState(state,msg){if(state==='loading'){stateEl.textContent='Загрузка...';stateEl.style.display='block';tableEl.style.display='none';}"
+            "else if(state==='empty'){stateEl.textContent='Данных нет';stateEl.style.display='block';tableEl.style.display='none';}"
+            "else if(state==='error'){stateEl.textContent=msg||'Ошибка загрузки';stateEl.style.display='block';tableEl.style.display='none';}"
+            "else{stateEl.style.display='none';tableEl.style.display='table';}}"
+            "function renderRows(items){tbodyEl.innerHTML='';items.forEach((item)=>{const row=document.createElement('tr');"
+            "row.innerHTML='<td>'+((item.public_name||''))+'</td><td>'+((item.status||''))+'</td><td>'+String(item.clients_count??0)+'</td><td>'+((item.tariff_plan||''))+'</td><td>'+((item.last_activity_at||''))+'</td>' ;"
+            "tbodyEl.appendChild(row);});}"
+            "async function loadSpecialists(){setState('loading');const status=statusEl.value;"
+            "const params=new URLSearchParams({limit:'100',offset:'0'});if(status){params.set('status',status);}"
+            "try{const res=await fetch('/admin/ui/specialists?'+params.toString(),{credentials:'same-origin'});"
+            "if(!res.ok){throw new Error('HTTP '+res.status);}"
+            "const payload=await res.json();const items=payload.items||[];if(items.length===0){setState('empty');return;}renderRows(items);setState('ready');}"
+            "catch(_err){setState('error','Не удалось загрузить список специалистов');}}"
+            "buttonEl.addEventListener('click',loadSpecialists);"
+            "loadSpecialists();"
+            "</script>"
             "</body></html>"
         ),
         status_code=200,
