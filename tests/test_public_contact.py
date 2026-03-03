@@ -20,7 +20,7 @@ def test_public_contact_smtp_not_configured(monkeypatch):
             "name": "Alice",
             "email": "alice@example.com",
             "message": "Hello",
-            "hp": None,
+            "hp": "",
         },
     )
 
@@ -28,7 +28,7 @@ def test_public_contact_smtp_not_configured(monkeypatch):
     assert response.json() == {"ok": False, "error": "smtp_not_configured"}
 
 
-def test_public_contact_honeypot_bypass_skips_smtp(monkeypatch):
+def test_public_contact_honeypot_skips_smtp_without_env(monkeypatch):
     calls = {"count": 0}
 
     def _smtp_stub(**kwargs):
@@ -58,7 +58,7 @@ def test_public_contact_honeypot_bypass_skips_smtp(monkeypatch):
     assert calls["count"] == 0
 
 
-def test_public_contact_success_with_mocked_smtp(monkeypatch):
+def test_public_contact_success_uses_mocked_smtp(monkeypatch):
     captured = {"count": 0, "kwargs": {}}
 
     def _smtp_stub(**kwargs):

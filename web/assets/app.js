@@ -1,14 +1,14 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const form = document.querySelector("#contact-form") || document.querySelector(".contact-form");
+  const form = document.querySelector(".contact-form");
   if (!form) {
     return;
   }
 
-  const nameInput = form.querySelector("#contact-name, [name='name']");
-  const emailInput = form.querySelector("#contact-email, [name='email']");
-  const messageInput = form.querySelector("#contact-message, [name='message']");
-  const hpInput = form.querySelector("#contact-hp, [name='hp']");
-  const statusNode = form.querySelector("#contact-status");
+  const statusEl = document.getElementById("contact-status");
+  const nameInput = document.getElementById("contact-name");
+  const emailInput = document.getElementById("contact-email");
+  const messageInput = document.getElementById("contact-message");
+  const hpInput = document.getElementById("contact-hp");
   const submitButton = form.querySelector("button[type='submit']");
 
   if (!nameInput || !emailInput || !messageInput || !submitButton) {
@@ -22,12 +22,12 @@ document.addEventListener("DOMContentLoaded", () => {
       name: nameInput.value,
       email: emailInput.value,
       message: messageInput.value,
-      hp: hpInput ? hpInput.value : null,
+      hp: hpInput ? hpInput.value : "",
     };
 
     submitButton.disabled = true;
-    if (statusNode) {
-      statusNode.textContent = "";
+    if (statusEl) {
+      statusEl.textContent = "Отправляем...";
     }
 
     try {
@@ -41,16 +41,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const data = await response.json();
       if (data && data.ok === true) {
-        if (statusNode) {
-          statusNode.textContent = "Сообщение отправлено";
+        if (statusEl) {
+          statusEl.textContent = "Сообщение отправлено.";
         }
         messageInput.value = "";
-      } else if (statusNode) {
-        statusNode.textContent = "Не удалось отправить. Попробуйте позже.";
+      } else if (statusEl) {
+        statusEl.textContent = "Не удалось отправить. Попробуйте позже.";
       }
     } catch (_) {
-      if (statusNode) {
-        statusNode.textContent = "Не удалось отправить. Попробуйте позже.";
+      if (statusEl) {
+        statusEl.textContent = "Не удалось отправить. Попробуйте позже.";
       }
     } finally {
       submitButton.disabled = false;

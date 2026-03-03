@@ -467,11 +467,12 @@ async def public_contact(request: Request) -> JSONResponse:
         return JSONResponse(status_code=200, content={"ok": False, "error": "validation_error"})
 
     logger.info(
-        "event=contact_form_received request_id=%s name_len=%s email_len=%s message_len=%s",
+        "event=contact_form_received request_id=%s name_len=%s email_len=%s message_len=%s hp_len=%s",
         request_id,
         len(form.name),
         len(str(form.email)),
         len(form.message),
+        len(form.hp or ""),
     )
 
     if form.hp and form.hp.strip():
@@ -484,20 +485,32 @@ async def public_contact(request: Request) -> JSONResponse:
     smtp_from = os.getenv("CONTACT_SMTP_FROM", smtp_user).strip()
     smtp_to = os.getenv("CONTACT_SMTP_TO", "info@zumbot.ru").strip()
 
+    required_env = {
+        "CONTACT_SMTP_HOST": smtp_host,
+        "CONTACT_SMTP_USER": smtp_user,
+        "CONTACT_SMTP_PASSWORD": smtp_password,
+    }
+    missing_required_env = [key for key, value in required_env.items() if not value]
+    if missing_required_env:
+        await notify_exception(
+            where="web.contact_form",
+            exc=RuntimeError("smtp_not_configured"),
+            context={
+                "request_id": request_id,
+                "missing_required_env": ",".join(missing_required_env),
+                "name_len": len(form.name),
+                "email_len": len(str(form.email)),
+                "message_len": len(form.message),
+            },
+        )
+        return JSONResponse(status_code=200, content={"ok": False, "error": "smtp_not_configured"})
+
     try:
         smtp_port = int(smtp_port_raw)
     except ValueError:
         await notify_exception(
             where="web.contact_form",
             exc=RuntimeError("smtp_invalid_port"),
-            context={"request_id": request_id},
-        )
-        return JSONResponse(status_code=200, content={"ok": False, "error": "smtp_not_configured"})
-
-    if not smtp_host or not smtp_user or not smtp_password:
-        await notify_exception(
-            where="web.contact_form",
-            exc=RuntimeError("smtp_not_configured"),
             context={"request_id": request_id},
         )
         return JSONResponse(status_code=200, content={"ok": False, "error": "smtp_not_configured"})

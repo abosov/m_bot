@@ -1,18 +1,17 @@
 # Runbook: contact form (`/contacts` → `/public/contact`)
 
-## Назначение
+## 1) Что делает форма и какой endpoint вызывает
 
-Форма на странице `https://zumbot.ru/contacts` отправляет заявку пользователя на backend endpoint `POST /public/contact`, после чего backend пересылает сообщение на email через SMTP.
-
-## Endpoint
+Страница `/contacts` отправляет контактную заявку пользователя в backend на публичный endpoint:
 
 - Method: `POST`
 - URL: `/public/contact`
-- Auth: не требуется (публичный endpoint)
+- `Content-Type: application/json`
+- Auth: не требуется
 
-## Формат запроса
+### JSON schema запроса
 
-`Content-Type: application/json`
+Пример:
 
 ```json
 {
@@ -25,11 +24,11 @@
 
 Поля:
 - `name` — строка 1..80
-- `email` — строка 3..254, базовая проверка email-формата
+- `email` — строка 3..254, базовая валидация email
 - `message` — строка 1..4000
-- `hp` — honeypot (опционально; для реальных пользователей должно быть пустым)
+- `hp` — honeypot (для реального пользователя должно быть пустым)
 
-## Формат ответа
+### JSON schema ответа
 
 Успех:
 
@@ -39,7 +38,7 @@
 }
 ```
 
-Ошибка (единый формат с коротким кодом):
+Ошибка:
 
 ```json
 {
@@ -48,60 +47,62 @@
 }
 ```
 
-Примеры `error`:
-- `validation_error`
+Типичные `error`:
 - `invalid_json`
+- `validation_error`
 - `smtp_not_configured`
 - `smtp_send_failed`
 
-## Anti-spam (honeypot)
+### Honeypot `hp`
 
-Поле `hp` используется как honeypot:
-- если `hp` непустой, backend возвращает `{"ok": true}`
-- SMTP-отправка в этом случае **не выполняется**
+Anti-spam поведение:
+- если `hp` непустой (например, `"spam"`), backend сразу возвращает `{"ok": true}`;
+- SMTP-отправка в этом случае не выполняется.
 
-## SMTP env-переменные
+## 2) Какие env нужны на VPS (systemd)
 
-Обязательные:
-- `CONTACT_SMTP_HOST`
-- `CONTACT_SMTP_USER`
-- `CONTACT_SMTP_PASSWORD`
+Ниже пример для `EnvironmentFile` (например, `/etc/zumbot/backend.env`):
 
-Опциональные:
-- `CONTACT_SMTP_PORT` (по умолчанию `587`)
-- `CONTACT_SMTP_FROM` (по умолчанию значение `CONTACT_SMTP_USER`)
-- `CONTACT_SMTP_TO` (по умолчанию `info@zumbot.ru`)
-
-## Поведение при отсутствии SMTP-конфига
-
-Если обязательные SMTP env не заданы, endpoint возвращает:
-
-```json
-{
-  "ok": false,
-  "error": "smtp_not_configured"
-}
+```env
+CONTACT_SMTP_HOST=smtp.beget.com
+CONTACT_SMTP_PORT=587
+CONTACT_SMTP_USER=info@zumbot.ru
+CONTACT_SMTP_PASSWORD=...
+CONTACT_SMTP_FROM=info@zumbot.ru
+CONTACT_SMTP_TO=info@zumbot.ru
 ```
 
-И дополнительно отправляет alert через `notify_exception(where="web.contact_form", ...)` для оператора.
+Важно:
+- обязательные: `CONTACT_SMTP_HOST`, `CONTACT_SMTP_USER`, `CONTACT_SMTP_PASSWORD`;
+- `CONTACT_SMTP_PORT` — обычно `587`;
+- `CONTACT_SMTP_FROM` — опционально (по умолчанию берётся `CONTACT_SMTP_USER`);
+- `CONTACT_SMTP_TO` — по умолчанию `info@zumbot.ru`.
 
-## Логирование и приватность
+Пример в unit-файле systemd:
 
-- Логируется событие `contact_form_received` с `request_id` и длинами полей.
-- Полный текст `message` в логи и alert-контекст **не пишется**.
-- SMTP-секреты (`CONTACT_SMTP_PASSWORD` и т.п.) не должны попадать в логи.
+```ini
+[Service]
+EnvironmentFile=/etc/zumbot/backend.env
+```
 
-## Проверка
+После изменения env:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart zumbot-backend
+```
+
+## 3) Как проверить
 
 ### [ЛОКАЛЬНО]
 
-Запуск unit-тестов (в корне репозитория):
+Быстрая проверка тестов контракта contact endpoint:
 
 ```bash
 pytest -q tests/test_public_contact.py
 ```
 
-При необходимости — полный набор тестов:
+Можно также прогнать весь набор:
 
 ```bash
 pytest -q
@@ -109,14 +110,31 @@ pytest -q
 
 ### [VPS]
 
-Проверка endpoint с прод-хоста:
+Пример ручной проверки endpoint:
 
 ```bash
 curl -sS -X POST https://zumbot.ru/public/contact \
   -H 'Content-Type: application/json' \
-  -d '{"name":"Test","email":"test@example.com","message":"Hello"}'
+  -d '{"name":"Test","email":"test@example.com","message":"Hello from VPS","hp":""}'
 ```
 
-Ожидаемо:
-- `{"ok":true}` при корректном SMTP-конфиге;
-- `{"ok":false,"error":"smtp_not_configured"}` если SMTP не настроен.
+Ожидаемые ответы:
+- `{"ok":true}` — SMTP настроен, отправка прошла;
+- `{"ok":false,"error":"smtp_not_configured"}` — не хватает SMTP env;
+- `{"ok":false,"error":"smtp_send_failed"}` — SMTP настроен, но отправка не удалась.
+
+Проверка honeypot на VPS:
+
+```bash
+curl -sS -X POST https://zumbot.ru/public/contact \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Bot","email":"bot@example.com","message":"spam","hp":"spam"}'
+```
+
+Ожидаемо: `{"ok":true}` (без SMTP-отправки).
+
+## 4) Безопасность и логирование
+
+- Логируется событие `contact_form_received` с `request_id` и длинами полей (`name_len`, `email_len`, `message_len`, `hp_len`).
+- Полный текст `message` не логируется (используются только длины).
+- SMTP-секреты (`CONTACT_SMTP_PASSWORD`) не должны попадать в логи/алерты.
