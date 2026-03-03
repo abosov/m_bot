@@ -135,3 +135,12 @@ User Story считается завершённой только если:
 Status: Implemented
 Access: X-API-Key header
 Security model: return 404 if unauthorized
+
+---
+
+## 9. Access
+
+Подробный runbook по доступу к Admin Console (SSH tunnel и примеры `curl`):
+
+- [Access Runbook](./access.md)
+
