@@ -137,6 +137,7 @@ User Story считается завершённой только если:
 Status: Planned / In progress
 Doc: [US-AD-2 specification](./us_ad_2_specialists_list.md)
 
+
 ---
 
 ### US-AD-1 — Admin Console Entry Point
@@ -156,6 +157,10 @@ Doc: [US-AD-3 specification](./us_ad_3_overview.md)
 Status: Implemented
 Doc: [US-AD-4.1 specification](./us_ad_4_1_system_accounts.md)
 
+### US-AD-4 — Specialists Operational Table
+Status: Implemented
+Doc: [US-AD-4 specification](./us_ad_4_specialists_operational_table.md)
+
 ---
 
 ## 9. Endpoints
@@ -167,7 +172,7 @@ Doc: [US-AD-4.1 specification](./us_ad_4_1_system_accounts.md)
   - По умолчанию системные аккаунты исключаются; для включения используйте `include_system=1`.
 
 - `GET /admin/ui/specialists` (UI cookie auth)
-  - Query params: `limit`, `offset`, `status`, `include_system=0|1` (default `0`).
+  - Query params: `limit`, `offset`, `status`, `include_system=0|1` (default `0`), `oauth_missing=0|1` (default `0`), `calendar_missing=0|1` (default `0`), `inactive_days_gt` (`>=1`, optional).
 
 ### GET /admin/specialists
 
