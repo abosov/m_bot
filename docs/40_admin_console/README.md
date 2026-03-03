@@ -131,6 +131,14 @@ User Story считается завершённой только если:
 
 ## Implemented
 
+## Planned
+
+### US-AD-2 — Specialists list dashboard (MVP)
+Status: Planned / In progress
+Doc: [US-AD-2 specification](./us_ad_2_specialists_list.md)
+
+---
+
 ### US-AD-1 — Admin Console Entry Point
 Status: Implemented
 Access: X-API-Key header
@@ -140,11 +148,17 @@ Security model: return 404 if unauthorized
 Status: Implemented (backend endpoint)
 Doc: [US-AD-2 specification](./us_ad_2_specialists_list.md)
 
+### US-AD-3 — Admin Overview (MVP)
+Status: Implemented
+Doc: [US-AD-3 specification](./us_ad_3_overview.md)
+
 ---
 
 ## 9. Endpoints
 
 Все endpoint-ы Admin Console являются внутренними (`/admin/*`) и требуют заголовок `X-API-Key`.
+
+- `GET /admin/ui/overview` (UI cookie auth)
 
 ### GET /admin/specialists
 

@@ -1,5 +1,5 @@
 import importlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import uuid
 
 from fastapi.testclient import TestClient
@@ -109,6 +109,8 @@ async def test_admin_page_returns_200_with_valid_cookie(tmp_path, monkeypatch):
     assert "<p>Environment: local</p>" in response.text
     assert "<p>Server time (UTC):" in response.text
     assert "<p>Version: build-123</p>" in response.text
+    assert "<div id='admin-overview'>Loading overview…</div>" in response.text
+    assert "fetch('/admin/ui/overview',{credentials:'same-origin'})" in response.text
     assert "id='specialists-table'" in response.text
 
 
@@ -382,3 +384,115 @@ async def test_admin_specialists_returns_dashboard_metrics(tmp_path, monkeypatch
 
     assert item_b["clients_count"] == 0
     assert item_b["last_activity_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_overview_requires_cookie(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    response = client.get("/admin/ui/overview")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_overview_returns_metrics(tmp_path, monkeypatch):
+    monkeypatch.setenv("BUILD_VERSION", "build-xyz")
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    import admin_api
+
+    class FixedDateTime:
+        @classmethod
+        def now(cls, tz=None):
+            fixed = datetime(2026, 1, 20, 12, 0, tzinfo=timezone.utc)
+            if tz is None:
+                return fixed.replace(tzinfo=None)
+            return fixed.astimezone(tz)
+
+    monkeypatch.setattr(admin_api, "datetime", FixedDateTime)
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_a = uuid.uuid4()
+    specialist_b = uuid.uuid4()
+    now_utc = datetime(2026, 1, 20, 12, 0, tzinfo=timezone.utc)
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(specialist_id=specialist_a, status=database.SpecialistStatus.active),
+                database.SpecialistProfile(
+                    specialist_id=specialist_a,
+                    public_name="A",
+                    owner_tg_user_id=101,
+                    owner_tg_username="a",
+                    specialist_timezone="UTC",
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_a, tg_user_id=101),
+                database.Specialist(specialist_id=specialist_b, status=database.SpecialistStatus.active),
+                database.SpecialistProfile(
+                    specialist_id=specialist_b,
+                    public_name="B",
+                    owner_tg_user_id=102,
+                    owner_tg_username="b",
+                    specialist_timezone="UTC",
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_b, tg_user_id=102),
+                database.Client(
+                    specialist_id=specialist_a,
+                    tg_user_id=201,
+                    tg_username="c1",
+                    display_name="C1",
+                    client_code="C1",
+                    client_timezone="UTC",
+                    timezone_source=database.ClientTimezoneSource.default_from_specialist,
+                ),
+                database.Client(
+                    specialist_id=specialist_a,
+                    tg_user_id=202,
+                    tg_username="c2",
+                    display_name="C2",
+                    client_code="C2",
+                    client_timezone="UTC",
+                    timezone_source=database.ClientTimezoneSource.default_from_specialist,
+                ),
+                database.Client(
+                    specialist_id=specialist_b,
+                    tg_user_id=203,
+                    tg_username="c3",
+                    display_name="C3",
+                    client_code="C3",
+                    client_timezone="UTC",
+                    timezone_source=database.ClientTimezoneSource.default_from_specialist,
+                ),
+                database.MessageLog(
+                    specialist_id=specialist_a,
+                    created_at=now_utc - timedelta(days=1),
+                    bot_id=111,
+                    tg_user_id=201,
+                    direction=database.LogDirection.IN,
+                    message_type="message",
+                    content="ping",
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get("/admin/ui/overview", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["specialists_total"] == 2
+    assert payload["clients_total"] == 3
+    assert payload["specialists_active_7d"] == 1
+    assert payload["errors_24h"] == 0
+    assert payload["computed_at_utc"] == "2026-01-20T12:00:00+00:00"
+    assert payload["env"] == "local"
+    assert payload["version"] == "build-xyz"
