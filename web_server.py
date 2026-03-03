@@ -447,6 +447,9 @@ async def admin_ui_specialists(
     offset: int = Query(default=0),
     status: SpecialistStatus | None = Query(default=None),
     include_system: bool = Query(default=False),
+    oauth_missing: bool = Query(default=False),
+    calendar_missing: bool = Query(default=False),
+    inactive_days_gt: int | None = Query(default=None, ge=1),
 ):
     if not _admin_ui_enabled():
         _raise_not_found()
@@ -460,6 +463,9 @@ async def admin_ui_specialists(
         offset=offset,
         status=status,
         include_system=include_system,
+        oauth_missing=oauth_missing,
+        calendar_missing=calendar_missing,
+        inactive_days_gt=inactive_days_gt,
     )
 
 
@@ -534,10 +540,16 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
             "</select>"
             "<label style='margin-left:12px;' for='include-system-filter'>Показывать системные</label>"
             "<input id='include-system-filter' type='checkbox' />"
+            "<label style='margin-left:12px;' for='oauth-missing-filter'>Нет OAuth</label>"
+            "<input id='oauth-missing-filter' type='checkbox' />"
+            "<label style='margin-left:12px;' for='calendar-missing-filter'>Нет календаря</label>"
+            "<input id='calendar-missing-filter' type='checkbox' />"
+            "<label style='margin-left:12px;' for='inactive-days-filter'>Неактивен дней ></label>"
+            "<input id='inactive-days-filter' type='number' min='1' step='1' style='width:90px;' />"
             "<button id='apply-filter' type='button'>Применить</button>"
             "<p id='specialists-state'>Загрузка...</p>"
             "<table id='specialists-table' border='1' cellpadding='6' style='border-collapse: collapse; display:none;'>"
-            "<thead><tr><th>Имя</th><th>Статус</th><th>Клиенты</th><th>Тариф</th><th>Последняя активность</th></tr></thead>"
+            "<thead><tr><th>Имя</th><th>Статус</th><th>Timezone</th><th>Onboarding</th><th>OAuth</th><th>Calendar</th><th>Active_7d</th><th>Клиенты</th><th>Тариф</th><th>Последняя активность</th></tr></thead>"
             "<tbody></tbody>"
             "</table>"
             "</section>"
@@ -549,7 +561,7 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
             "const tbodyEl=tableEl.querySelector('tbody');"
             "const statusEl=document.getElementById('status-filter');"
             "const buttonEl=document.getElementById('apply-filter');"
-            "const includeSystemEl=document.getElementById('include-system-filter');"
+            "const includeSystemEl=document.getElementById('include-system-filter');const oauthMissingEl=document.getElementById('oauth-missing-filter');const calendarMissingEl=document.getElementById('calendar-missing-filter');const inactiveDaysEl=document.getElementById('inactive-days-filter');"
             "function setOverviewLoading(){overviewEl.textContent='Loading overview…';}"
             "function setOverviewError(){overviewEl.textContent='Failed to load overview';}"
             "function renderOverview(payload){overviewEl.innerHTML='<ul>'"
@@ -570,10 +582,19 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
             "else if(state==='error'){stateEl.textContent=msg||'Ошибка загрузки';stateEl.style.display='block';tableEl.style.display='none';}"
             "else{stateEl.style.display='none';tableEl.style.display='table';}}"
             "function renderRows(items){tbodyEl.innerHTML='';items.forEach((item)=>{const row=document.createElement('tr');"
-            "row.innerHTML='<td>'+((item.public_name||''))+'</td><td>'+((item.status||''))+'</td><td>'+String(item.clients_count??0)+'</td><td>'+((item.tariff_plan||''))+'</td><td>'+((item.last_activity_at||''))+'</td>' ;"
+            "const onboarding=(item.onboarding_master_done?'M✓':'M—')+' '+(item.onboarding_personal_done?'P✓':'P—');"
+            "const oauth=item.oauth_connected?'connected':'missing';"
+            "const calendar=item.calendar_selected?'selected':'missing';"
+            "const active=item.active_7d?'yes':'no';"
+            "const timezone=item.timezone||'—';"
+            "const lastActivity=item.last_activity_at||'—';"
+            "row.innerHTML='<td>'+((item.public_name||''))+'</td><td>'+((item.status||''))+'</td><td>'+timezone+'</td><td>'+onboarding+'</td><td>'+oauth+'</td><td>'+calendar+'</td><td>'+active+'</td><td>'+String(item.clients_count??0)+'</td><td>'+((item.tariff_plan||''))+'</td><td>'+lastActivity+'</td>' ;"
             "tbodyEl.appendChild(row);});}"
             "async function loadSpecialists(){setState('loading');const status=statusEl.value;"
             "const params=new URLSearchParams({limit:'100',offset:'0',include_system:getIncludeSystemParam()});if(status){params.set('status',status);}"
+            "if(oauthMissingEl.checked){params.set('oauth_missing','1');}"
+            "if(calendarMissingEl.checked){params.set('calendar_missing','1');}"
+            "const inactiveDaysRaw=(inactiveDaysEl.value||'').trim();if(inactiveDaysRaw){params.set('inactive_days_gt',inactiveDaysRaw);}"
             "try{const res=await fetch('/admin/ui/specialists?'+params.toString(),{credentials:'same-origin'});"
             "if(!res.ok){throw new Error('HTTP '+res.status);}"
             "const payload=await res.json();const items=payload.items||[];if(items.length===0){setState('empty');return;}renderRows(items);setState('ready');}"

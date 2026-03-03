@@ -112,6 +112,12 @@ async def test_admin_page_returns_200_with_valid_cookie(tmp_path, monkeypatch):
     assert "<div id='admin-overview'>Loading overview…</div>" in response.text
     assert "const url='/admin/ui/overview?'+params.toString();" in response.text
     assert "id='specialists-table'" in response.text
+    assert "id='oauth-missing-filter'" in response.text
+    assert "id='calendar-missing-filter'" in response.text
+    assert "id='inactive-days-filter'" in response.text
+    assert "params.set('oauth_missing','1')" in response.text
+    assert "params.set('calendar_missing','1')" in response.text
+    assert "params.set('inactive_days_gt',inactiveDaysRaw)" in response.text
 
 
 @pytest.mark.asyncio
@@ -802,3 +808,342 @@ async def test_admin_ui_overview_excludes_system_by_default_and_includes_by_para
     assert payload_with_system["specialists_total"] == 2
     assert payload_with_system["clients_total"] == 2
     assert payload_with_system["specialists_active_7d"] == 2
+
+
+@pytest.mark.asyncio
+async def test_admin_specialists_operational_fields_and_filters(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret")
+
+    import admin_api
+
+    class FixedDateTime:
+        @classmethod
+        def now(cls, tz=None):
+            fixed = datetime(2026, 1, 20, 12, 0, tzinfo=timezone.utc)
+            if tz is None:
+                return fixed.replace(tzinfo=None)
+            return fixed.astimezone(tz)
+
+    monkeypatch.setattr(admin_api, "datetime", FixedDateTime)
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    now_utc = datetime(2026, 1, 20, 12, 0, tzinfo=timezone.utc)
+    specialist_a = uuid.uuid4()
+    specialist_b = uuid.uuid4()
+    specialist_c = uuid.uuid4()
+    specialist_system = uuid.uuid4()
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(
+                    specialist_id=specialist_a,
+                    status=database.SpecialistStatus.active,
+                    onboarding_master_completed_at=now_utc - timedelta(days=20),
+                    onboarding_personal_completed_at=now_utc - timedelta(days=19),
+                    is_system=False,
+                ),
+                database.SpecialistProfile(
+                    specialist_id=specialist_a,
+                    public_name="A",
+                    owner_tg_user_id=8101,
+                    owner_tg_username="a",
+                    specialist_timezone="Europe/Berlin",
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_a, tg_user_id=8101, tg_username="a"),
+                database.GoogleOAuth(
+                    specialist_id=specialist_a,
+                    refresh_token_encrypted="enc-token-a",
+                    scopes="calendar",
+                    status=database.GoogleOAuthStatus.connected,
+                    token_updated_at=now_utc - timedelta(days=2),
+                ),
+                database.SpecialistCalendarSettings(
+                    specialist_id=specialist_a,
+                    calendar_id="cal_a",
+                    calendar_summary="A",
+                    calendar_time_zone="Europe/Berlin",
+                    source=database.SpecialistCalendarSource.selected,
+                ),
+                database.MessageLog(
+                    specialist_id=specialist_a,
+                    created_at=now_utc - timedelta(days=1),
+                    bot_id=9001,
+                    tg_user_id=8101,
+                    direction=database.LogDirection.IN,
+                    message_type="message",
+                    content="recent",
+                ),
+                database.Specialist(
+                    specialist_id=specialist_b,
+                    status=database.SpecialistStatus.onboarding,
+                    is_system=False,
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_b, tg_user_id=8102, tg_username="b"),
+                database.Specialist(
+                    specialist_id=specialist_c,
+                    status=database.SpecialistStatus.active,
+                    is_system=False,
+                ),
+                database.SpecialistProfile(
+                    specialist_id=specialist_c,
+                    public_name="C",
+                    owner_tg_user_id=8103,
+                    owner_tg_username="c",
+                    specialist_timezone="UTC",
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_c, tg_user_id=8103, tg_username="c"),
+                database.GoogleOAuth(
+                    specialist_id=specialist_c,
+                    refresh_token_encrypted="enc-token-c",
+                    scopes="calendar",
+                    status=database.GoogleOAuthStatus.revoked,
+                    token_updated_at=now_utc - timedelta(days=10),
+                ),
+                database.SpecialistCalendarSettings(
+                    specialist_id=specialist_c,
+                    calendar_id="cal_c",
+                    calendar_summary="C",
+                    calendar_time_zone="UTC",
+                    source=database.SpecialistCalendarSource.selected,
+                ),
+                database.MessageLog(
+                    specialist_id=specialist_c,
+                    created_at=now_utc - timedelta(days=10),
+                    bot_id=9003,
+                    tg_user_id=8103,
+                    direction=database.LogDirection.IN,
+                    message_type="message",
+                    content="old",
+                ),
+                database.Specialist(
+                    specialist_id=specialist_system,
+                    status=database.SpecialistStatus.active,
+                    is_system=True,
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_system, tg_user_id=8104, tg_username="sys"),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+
+    response_default = client.get("/admin/specialists", headers={"X-API-Key": "secret"})
+    assert response_default.status_code == 200
+    payload_default = response_default.json()
+    assert payload_default["total"] == 3
+
+    items_by_id = {item["specialist_id"]: item for item in payload_default["items"]}
+    item_a = items_by_id[str(specialist_a)]
+    item_b = items_by_id[str(specialist_b)]
+
+    assert item_a["timezone"] == "Europe/Berlin"
+    assert item_a["onboarding_master_done"] is True
+    assert item_a["onboarding_personal_done"] is True
+    assert item_a["oauth_connected"] is True
+    assert item_a["calendar_selected"] is True
+    assert item_a["active_7d"] is True
+
+    assert item_b["timezone"] is None
+    assert item_b["onboarding_master_done"] is False
+    assert item_b["onboarding_personal_done"] is False
+    assert item_b["oauth_connected"] is False
+    assert item_b["calendar_selected"] is False
+    assert item_b["active_7d"] is False
+
+    response_oauth_missing = client.get("/admin/specialists?oauth_missing=1", headers={"X-API-Key": "secret"})
+    assert response_oauth_missing.status_code == 200
+    payload_oauth_missing = response_oauth_missing.json()
+    assert payload_oauth_missing["total"] == 2
+    oauth_missing_ids = {item["specialist_id"] for item in payload_oauth_missing["items"]}
+    assert oauth_missing_ids == {str(specialist_b), str(specialist_c)}
+
+    response_calendar_missing = client.get("/admin/specialists?calendar_missing=true", headers={"X-API-Key": "secret"})
+    assert response_calendar_missing.status_code == 200
+    payload_calendar_missing = response_calendar_missing.json()
+    assert payload_calendar_missing["total"] == 1
+    assert {item["specialist_id"] for item in payload_calendar_missing["items"]} == {str(specialist_b)}
+
+    response_inactive = client.get("/admin/specialists?inactive_days_gt=7", headers={"X-API-Key": "secret"})
+    assert response_inactive.status_code == 200
+    payload_inactive = response_inactive.json()
+    assert payload_inactive["total"] == 2
+    assert {item["specialist_id"] for item in payload_inactive["items"]} == {str(specialist_b), str(specialist_c)}
+
+    response_combined = client.get(
+        "/admin/specialists?include_system=1&oauth_missing=1&inactive_days_gt=7",
+        headers={"X-API-Key": "secret"},
+    )
+    assert response_combined.status_code == 200
+    payload_combined = response_combined.json()
+    assert payload_combined["total"] == 3
+    assert {item["specialist_id"] for item in payload_combined["items"]} == {
+        str(specialist_b),
+        str(specialist_c),
+        str(specialist_system),
+    }
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_specialists_operational_payload_and_filters(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    import admin_api
+
+    class FixedDateTime:
+        @classmethod
+        def now(cls, tz=None):
+            fixed = datetime(2026, 1, 20, 12, 0, tzinfo=timezone.utc)
+            if tz is None:
+                return fixed.replace(tzinfo=None)
+            return fixed.astimezone(tz)
+
+    monkeypatch.setattr(admin_api, "datetime", FixedDateTime)
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    now_utc = datetime(2026, 1, 20, 12, 0, tzinfo=timezone.utc)
+    specialist_a = uuid.uuid4()
+    specialist_b = uuid.uuid4()
+    specialist_c = uuid.uuid4()
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(
+                    specialist_id=specialist_a,
+                    status=database.SpecialistStatus.active,
+                    onboarding_master_completed_at=now_utc - timedelta(days=10),
+                    onboarding_personal_completed_at=now_utc - timedelta(days=9),
+                    is_system=False,
+                ),
+                database.SpecialistProfile(
+                    specialist_id=specialist_a,
+                    public_name="A",
+                    owner_tg_user_id=9101,
+                    owner_tg_username="a",
+                    specialist_timezone="Europe/Berlin",
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_a, tg_user_id=9101, tg_username="a"),
+                database.GoogleOAuth(
+                    specialist_id=specialist_a,
+                    refresh_token_encrypted="enc-token-a",
+                    scopes="calendar",
+                    status=database.GoogleOAuthStatus.connected,
+                    token_updated_at=now_utc - timedelta(days=2),
+                ),
+                database.SpecialistCalendarSettings(
+                    specialist_id=specialist_a,
+                    calendar_id="cal_a",
+                    calendar_summary="A",
+                    calendar_time_zone="Europe/Berlin",
+                    source=database.SpecialistCalendarSource.selected,
+                ),
+                database.MessageLog(
+                    specialist_id=specialist_a,
+                    created_at=now_utc - timedelta(days=1),
+                    bot_id=9911,
+                    tg_user_id=9101,
+                    direction=database.LogDirection.IN,
+                    message_type="message",
+                    content="recent",
+                ),
+                database.Specialist(
+                    specialist_id=specialist_b,
+                    status=database.SpecialistStatus.onboarding,
+                    is_system=False,
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_b, tg_user_id=9102, tg_username="b"),
+                database.Specialist(
+                    specialist_id=specialist_c,
+                    status=database.SpecialistStatus.active,
+                    is_system=True,
+                ),
+                database.SpecialistAuthTelegram(specialist_id=specialist_c, tg_user_id=9103, tg_username="sys"),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response_default = client.get("/admin/ui/specialists", cookies={"admin_session": session_cookie})
+    assert response_default.status_code == 200
+    payload_default = response_default.json()
+    assert payload_default["total"] == 2
+
+    items_by_id = {item["specialist_id"]: item for item in payload_default["items"]}
+    assert str(specialist_a) in items_by_id
+    assert str(specialist_b) in items_by_id
+
+    for item in payload_default["items"]:
+        assert "timezone" in item
+        assert "onboarding_master_done" in item
+        assert "onboarding_personal_done" in item
+        assert "oauth_connected" in item
+        assert "calendar_selected" in item
+        assert "active_7d" in item
+
+    item_a = items_by_id[str(specialist_a)]
+    item_b = items_by_id[str(specialist_b)]
+
+    assert item_a["oauth_connected"] is True
+    assert item_a["calendar_selected"] is True
+    assert item_a["timezone"] == "Europe/Berlin"
+    assert item_a["active_7d"] is True
+
+    assert item_b["oauth_connected"] is False
+    assert item_b["calendar_selected"] is False
+    assert item_b["timezone"] is None
+    assert item_b["active_7d"] is False
+
+    response_oauth_missing = client.get(
+        "/admin/ui/specialists?oauth_missing=1",
+        cookies={"admin_session": session_cookie},
+    )
+    assert response_oauth_missing.status_code == 200
+    payload_oauth_missing = response_oauth_missing.json()
+    assert payload_oauth_missing["total"] == 1
+    assert {item["specialist_id"] for item in payload_oauth_missing["items"]} == {str(specialist_b)}
+
+    response_calendar_missing = client.get(
+        "/admin/ui/specialists?calendar_missing=1",
+        cookies={"admin_session": session_cookie},
+    )
+    assert response_calendar_missing.status_code == 200
+    payload_calendar_missing = response_calendar_missing.json()
+    assert payload_calendar_missing["total"] == 1
+    assert {item["specialist_id"] for item in payload_calendar_missing["items"]} == {str(specialist_b)}
+
+    response_calendar_missing_with_system = client.get(
+        "/admin/ui/specialists?include_system=1&calendar_missing=1",
+        cookies={"admin_session": session_cookie},
+    )
+    assert response_calendar_missing_with_system.status_code == 200
+    payload_calendar_missing_with_system = response_calendar_missing_with_system.json()
+    assert payload_calendar_missing_with_system["total"] == 2
+    assert {item["specialist_id"] for item in payload_calendar_missing_with_system["items"]} == {
+        str(specialist_b),
+        str(specialist_c),
+    }
+
+    response_inactive = client.get(
+        "/admin/ui/specialists?inactive_days_gt=1",
+        cookies={"admin_session": session_cookie},
+    )
+    assert response_inactive.status_code == 200
+    payload_inactive = response_inactive.json()
+    assert payload_inactive["total"] == 1
+    assert {item["specialist_id"] for item in payload_inactive["items"]} == {str(specialist_b)}
+
+    response_include_system = client.get(
+        "/admin/ui/specialists?include_system=1",
+        cookies={"admin_session": session_cookie},
+    )
+    assert response_include_system.status_code == 200
+    payload_include_system = response_include_system.json()
+    assert payload_include_system["total"] == 3

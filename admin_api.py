@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import Text, cast, func, select
+from sqlalchemy import Text, and_, cast, exists, func, select
 
 import config
 from database import (
@@ -16,7 +16,10 @@ from database import (
     MessageLog,
     ServiceHeartbeat,
     Specialist,
+    GoogleOAuth,
+    GoogleOAuthStatus,
     SpecialistAuthTelegram,
+    SpecialistCalendarSettings,
     SpecialistProfile,
     SpecialistStatus,
     async_session_factory,
@@ -73,8 +76,13 @@ async def build_admin_specialists_payload(
     offset: int = 0,
     status: SpecialistStatus | None = None,
     include_system: bool = False,
+    oauth_missing: bool = False,
+    calendar_missing: bool = False,
+    inactive_days_gt: int | None = None,
 ) -> dict[str, object]:
     limit_value = clamp_limit(limit)
+    now_utc = datetime.now(timezone.utc)
+    active_since_utc = now_utc - timedelta(days=7)
 
     clients_count_subquery = (
         select(
@@ -95,12 +103,57 @@ async def build_admin_specialists_payload(
         .subquery()
     )
 
+    oauth_connected_exists = exists(
+        select(1)
+        .select_from(GoogleOAuth)
+        .where(
+            and_(
+                GoogleOAuth.specialist_id == Specialist.specialist_id,
+                GoogleOAuth.refresh_token_encrypted != "",
+                GoogleOAuth.status == GoogleOAuthStatus.connected,
+            )
+        )
+    )
+
+    calendar_selected_exists = exists(
+        select(1)
+        .select_from(SpecialistCalendarSettings)
+        .where(
+            and_(
+                SpecialistCalendarSettings.specialist_id == Specialist.specialist_id,
+                SpecialistCalendarSettings.calendar_id != "",
+            )
+        )
+    )
+
+    conditions = []
+    if status is not None:
+        conditions.append(Specialist.status == status)
+    if not include_system:
+        conditions.append(Specialist.is_system.is_(False))
+    if oauth_missing:
+        conditions.append(~oauth_connected_exists)
+    if calendar_missing:
+        conditions.append(~calendar_selected_exists)
+    if inactive_days_gt is not None:
+        inactive_threshold_utc = now_utc - timedelta(days=inactive_days_gt)
+        conditions.append(
+            ~exists(
+                select(1)
+                .select_from(MessageLog)
+                .where(
+                    and_(
+                        MessageLog.specialist_id == Specialist.specialist_id,
+                        MessageLog.created_at >= inactive_threshold_utc,
+                    )
+                )
+            )
+        )
+
     async with async_session_factory() as session:
         total_stmt = select(func.count()).select_from(Specialist)
-        if status is not None:
-            total_stmt = total_stmt.where(Specialist.status == status)
-        if not include_system:
-            total_stmt = total_stmt.where(Specialist.is_system.is_(False))
+        if conditions:
+            total_stmt = total_stmt.where(*conditions)
 
         stmt = (
             select(
@@ -114,6 +167,11 @@ async def build_admin_specialists_payload(
                 Specialist.status,
                 Specialist.created_at,
                 SpecialistProfile.tariff_plan,
+                SpecialistProfile.specialist_timezone.label("timezone"),
+                Specialist.onboarding_master_completed_at,
+                Specialist.onboarding_personal_completed_at,
+                oauth_connected_exists.label("oauth_connected"),
+                calendar_selected_exists.label("calendar_selected"),
                 func.coalesce(clients_count_subquery.c.clients_count, 0).label("clients_count"),
                 last_activity_subquery.c.last_activity_at,
             )
@@ -125,14 +183,19 @@ async def build_admin_specialists_payload(
             .outerjoin(clients_count_subquery, clients_count_subquery.c.specialist_id == Specialist.specialist_id)
             .outerjoin(last_activity_subquery, last_activity_subquery.c.specialist_id == Specialist.specialist_id)
         )
-        if status is not None:
-            stmt = stmt.where(Specialist.status == status)
-        if not include_system:
-            stmt = stmt.where(Specialist.is_system.is_(False))
+        if conditions:
+            stmt = stmt.where(*conditions)
 
         stmt = stmt.order_by(Specialist.created_at.desc()).limit(limit_value).offset(offset)
         rows = (await session.execute(stmt)).all()
         total = int((await session.execute(total_stmt)).scalar_one())
+
+    def _is_active_7d(last_activity_at: datetime | None) -> bool:
+        if last_activity_at is None:
+            return False
+        if last_activity_at.tzinfo is None:
+            last_activity_at = last_activity_at.replace(tzinfo=timezone.utc)
+        return last_activity_at >= active_since_utc
 
     items = [
         {
@@ -141,8 +204,14 @@ async def build_admin_specialists_payload(
             "status": row.status.value if row.status is not None else None,
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "tariff_plan": row.tariff_plan.value if row.tariff_plan is not None else None,
+            "timezone": row.timezone,
+            "onboarding_master_done": bool(row.onboarding_master_completed_at) if row.onboarding_master_completed_at is not None else False,
+            "onboarding_personal_done": bool(row.onboarding_personal_completed_at) if row.onboarding_personal_completed_at is not None else False,
+            "oauth_connected": bool(row.oauth_connected),
+            "calendar_selected": bool(row.calendar_selected),
             "clients_count": int(row.clients_count or 0),
             "last_activity_at": row.last_activity_at.isoformat() if row.last_activity_at else None,
+            "active_7d": _is_active_7d(row.last_activity_at),
         }
         for row in rows
     ]
@@ -201,6 +270,9 @@ async def admin_specialists(
     offset: int = Query(default=0),
     status: SpecialistStatus | None = Query(default=None),
     include_system: bool = Query(default=False),
+    oauth_missing: bool = Query(default=False),
+    calendar_missing: bool = Query(default=False),
+    inactive_days_gt: int | None = Query(default=None, ge=1),
     _auth: None = Depends(require_admin_key),
 ):
     return await build_admin_specialists_payload(
@@ -208,6 +280,9 @@ async def admin_specialists(
         offset=offset,
         status=status,
         include_system=include_system,
+        oauth_missing=oauth_missing,
+        calendar_missing=calendar_missing,
+        inactive_days_gt=inactive_days_gt,
     )
 
 
