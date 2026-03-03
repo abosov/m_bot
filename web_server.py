@@ -435,6 +435,7 @@ def _send_contact_email_smtp(
     smtp_password: str,
     smtp_from: str,
     smtp_to: str,
+    smtp_timeout_seconds: int,
     subject: str,
     body: str,
 ) -> None:
@@ -444,10 +445,20 @@ def _send_contact_email_smtp(
     message["Subject"] = subject
     message.set_content(body)
 
-    with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as smtp:
+    if smtp_port == 465:
+        smtp_client = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=smtp_timeout_seconds)
+    else:
+        smtp_client = smtplib.SMTP(smtp_host, smtp_port, timeout=smtp_timeout_seconds)
+
+    with smtp_client as smtp:
         smtp.ehlo()
-        smtp.starttls()
-        smtp.ehlo()
+        if smtp_port != 465:
+            try:
+                smtp.starttls()
+            except smtplib.SMTPNotSupportedError:
+                pass
+            else:
+                smtp.ehlo()
         smtp.login(smtp_user, smtp_password)
         smtp.sendmail(smtp_from, [smtp_to], message.as_string())
 
@@ -484,6 +495,7 @@ async def public_contact(request: Request) -> JSONResponse:
     smtp_password = os.getenv("CONTACT_SMTP_PASSWORD", "").strip()
     smtp_from = os.getenv("CONTACT_SMTP_FROM", smtp_user).strip()
     smtp_to = os.getenv("CONTACT_SMTP_TO", "info@zumbot.ru").strip()
+    smtp_timeout_raw = os.getenv("CONTACT_SMTP_TIMEOUT_SECONDS", "10").strip()
 
     required_env = {
         "CONTACT_SMTP_HOST": smtp_host,
@@ -515,6 +527,22 @@ async def public_contact(request: Request) -> JSONResponse:
         )
         return JSONResponse(status_code=200, content={"ok": False, "error": "smtp_not_configured"})
 
+    try:
+        smtp_timeout_seconds = int(smtp_timeout_raw)
+    except ValueError:
+        smtp_timeout_seconds = 10
+
+    if smtp_timeout_seconds <= 0:
+        smtp_timeout_seconds = 10
+
+    logger.info(
+        "event=contact_form_smtp_attempt request_id=%s host=%s port=%s timeout=%s",
+        request_id,
+        smtp_host,
+        smtp_port,
+        smtp_timeout_seconds,
+    )
+
     subject = f"Zumbot contact form: {form.name} {form.email}"
     timestamp_utc = datetime.now(timezone.utc).isoformat()
     body = (
@@ -534,14 +562,22 @@ async def public_contact(request: Request) -> JSONResponse:
             smtp_password=smtp_password,
             smtp_from=smtp_from,
             smtp_to=smtp_to,
+            smtp_timeout_seconds=smtp_timeout_seconds,
             subject=subject,
             body=body,
         )
     except Exception as exc:
         await notify_exception(
             where="web.contact_form",
-            exc=exc,
-            context={"request_id": request_id, "error": type(exc).__name__},
+            exc=RuntimeError("smtp_send_failed"),
+            context={
+                "request_id": request_id,
+                "error": type(exc).__name__,
+                "message": str(exc),
+                "smtp_host": smtp_host,
+                "smtp_port": smtp_port,
+                "timeout": smtp_timeout_seconds,
+            },
         )
         return JSONResponse(status_code=200, content={"ok": False, "error": "smtp_send_failed"})
 
