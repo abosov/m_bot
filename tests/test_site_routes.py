@@ -255,6 +255,7 @@ def test_public_contact_sends_email(monkeypatch):
     monkeypatch.setenv("CONTACT_SMTP_PASSWORD", "secret")
     monkeypatch.setenv("CONTACT_SMTP_FROM", "from@example.com")
     monkeypatch.setenv("CONTACT_SMTP_TO", "to@example.com")
+    monkeypatch.setenv("CONTACT_SMTP_TIMEOUT_SECONDS", "11")
     monkeypatch.setattr(web_server, "_send_contact_email_smtp", _smtp_stub)
 
     response = client.post(
@@ -270,6 +271,7 @@ def test_public_contact_sends_email(monkeypatch):
     assert captured["smtp_password"] == "secret"
     assert captured["smtp_from"] == "from@example.com"
     assert captured["smtp_to"] == "to@example.com"
+    assert captured["smtp_timeout_seconds"] == 11
     assert captured["subject"] == "Zumbot contact form: Alice alice@example.com"
     assert "message:\nHello from form" in captured["body"]
     assert "request_id:" in captured["body"]

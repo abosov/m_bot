@@ -65,7 +65,7 @@ Anti-spam поведение:
 
 ```env
 CONTACT_SMTP_HOST=smtp.beget.com
-CONTACT_SMTP_PORT=587
+CONTACT_SMTP_PORT=2525
 CONTACT_SMTP_USER=info@zumbot.ru
 CONTACT_SMTP_PASSWORD=...
 CONTACT_SMTP_FROM=info@zumbot.ru
@@ -74,9 +74,11 @@ CONTACT_SMTP_TO=info@zumbot.ru
 
 Важно:
 - обязательные: `CONTACT_SMTP_HOST`, `CONTACT_SMTP_USER`, `CONTACT_SMTP_PASSWORD`;
-- `CONTACT_SMTP_PORT` — обычно `587`;
+- на VPS часто блокируют 25/587; для Beget используйте `smtp.beget.com:2525`;
+- `CONTACT_SMTP_PORT` — рекомендован `2525`;
 - `CONTACT_SMTP_FROM` — опционально (по умолчанию берётся `CONTACT_SMTP_USER`);
-- `CONTACT_SMTP_TO` — по умолчанию `info@zumbot.ru`.
+- `CONTACT_SMTP_TO` — по умолчанию `info@zumbot.ru`;
+- `CONTACT_SMTP_TIMEOUT_SECONDS` — опционально, по умолчанию `10`.
 
 Пример в unit-файле systemd:
 
@@ -86,6 +88,17 @@ EnvironmentFile=/etc/zumbot/backend.env
 ```
 
 После изменения env:
+
+Пример connect-check до SMTP (с VPS):
+
+```bash
+python - <<'PY'
+import socket
+with socket.create_connection(("smtp.beget.com", 2525), timeout=10) as sock:
+    print("connected", sock.getpeername())
+PY
+```
+
 
 ```bash
 sudo systemctl daemon-reload
@@ -136,5 +149,6 @@ curl -sS -X POST https://zumbot.ru/public/contact \
 ## 4) Безопасность и логирование
 
 - Логируется событие `contact_form_received` с `request_id` и длинами полей (`name_len`, `email_len`, `message_len`, `hp_len`).
+- Перед отправкой логируется `contact_form_smtp_attempt` с `request_id`, `host`, `port`, `timeout` (без секретов).
 - Полный текст `message` не логируется (используются только длины).
 - SMTP-секреты (`CONTACT_SMTP_PASSWORD`) не должны попадать в логи/алерты.
