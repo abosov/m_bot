@@ -59,7 +59,7 @@ from services.request_context import get_request_id, reset_request_id, set_reque
 from services.alerting import close_alerting, notify_exception
 from services import admin_ui_session, web_connect, web_session
 import config
-from admin_api import build_admin_specialists_payload, router as admin_router
+from admin_api import build_admin_specialists_payload, compute_admin_overview, router as admin_router
 
 logger = logging.getLogger(__name__)
 
@@ -457,6 +457,34 @@ async def admin_ui_specialists(
     return await build_admin_specialists_payload(limit=limit, offset=offset, status=status)
 
 
+
+
+@app.get("/admin/ui/overview")
+async def admin_ui_overview(request: Request):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    env_name = config.APP_ENV or os.getenv("ENV") or "unknown"
+    version = os.getenv("BUILD_VERSION") or os.getenv("GIT_SHA") or "unknown"
+
+    logger.info(
+        "event=admin_ui_overview_access request_id=%s path=/admin/ui/overview env=%s",
+        _request_id_from_request(request),
+        env_name,
+    )
+
+    async with async_session_factory() as session:
+        payload = await compute_admin_overview(session)
+
+    payload["env"] = env_name
+    payload["version"] = version
+    return payload
+
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_console_entry(request: Request) -> HTMLResponse:
     if not _admin_ui_enabled():
@@ -483,6 +511,8 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
             f"<p>Environment: {env_name}</p>"
             f"<p>Server time (UTC): {server_time_utc}</p>"
             f"<p>Version: {version}</p>"
+            "<h2>Overview</h2>"
+            "<div id='admin-overview'>Loading overview…</div>"
             "<nav><strong>Навигация:</strong> <a href='#specialists'>Специалисты</a></nav>"
             "<section id='specialists'>"
             "<h2>Специалисты</h2>"
@@ -502,11 +532,25 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
             "</section>"
             '<form method="post" action="/admin/logout"><button type="submit">Logout</button></form>'
             "<script>"
+            "const overviewEl=document.getElementById('admin-overview');"
             "const stateEl=document.getElementById('specialists-state');"
             "const tableEl=document.getElementById('specialists-table');"
             "const tbodyEl=tableEl.querySelector('tbody');"
             "const statusEl=document.getElementById('status-filter');"
             "const buttonEl=document.getElementById('apply-filter');"
+            "function setOverviewLoading(){overviewEl.textContent='Loading overview…';}"
+            "function setOverviewError(){overviewEl.textContent='Failed to load overview';}"
+            "function renderOverview(payload){overviewEl.innerHTML='<ul>'"
+            "+'<li>specialists_total: '+String(payload.specialists_total??0)+'</li>'"
+            "+'<li>specialists_active_7d: '+String(payload.specialists_active_7d??0)+'</li>'"
+            "+'<li>clients_total: '+String(payload.clients_total??0)+'</li>'"
+            "+'<li>errors_24h: '+String(payload.errors_24h??0)+'</li>'"
+            "+'</ul>';"
+            "}"
+            "async function loadOverview(){setOverviewLoading();"
+            "try{const res=await fetch('/admin/ui/overview',{credentials:'same-origin'});if(!res.ok){throw new Error('HTTP '+res.status);}"
+            "const payload=await res.json();renderOverview(payload);}"
+            "catch(_err){setOverviewError();}}"
             "function setState(state,msg){if(state==='loading'){stateEl.textContent='Загрузка...';stateEl.style.display='block';tableEl.style.display='none';}"
             "else if(state==='empty'){stateEl.textContent='Данных нет';stateEl.style.display='block';tableEl.style.display='none';}"
             "else if(state==='error'){stateEl.textContent=msg||'Ошибка загрузки';stateEl.style.display='block';tableEl.style.display='none';}"
@@ -521,6 +565,7 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
             "const payload=await res.json();const items=payload.items||[];if(items.length===0){setState('empty');return;}renderRows(items);setState('ready');}"
             "catch(_err){setState('error','Не удалось загрузить список специалистов');}}"
             "buttonEl.addEventListener('click',loadSpecialists);"
+            "loadOverview();"
             "loadSpecialists();"
             "</script>"
             "</body></html>"

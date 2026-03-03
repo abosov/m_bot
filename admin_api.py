@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -127,6 +128,41 @@ async def build_admin_specialists_payload(
     ]
 
     return {"items": items, "limit": limit_value, "offset": offset}
+
+
+async def compute_admin_overview(session) -> dict[str, object]:
+    now_utc = datetime.now(timezone.utc)
+    active_since_utc = now_utc - timedelta(days=7)
+
+    specialists_total = int((await session.execute(select(func.count()).select_from(Specialist))).scalar_one())
+    clients_total = int((await session.execute(select(func.count()).select_from(Client))).scalar_one())
+
+    last_activity_subquery = (
+        select(
+            MessageLog.specialist_id.label("specialist_id"),
+            func.max(MessageLog.created_at).label("last_activity_at"),
+        )
+        .where(MessageLog.specialist_id.is_not(None))
+        .group_by(MessageLog.specialist_id)
+        .subquery()
+    )
+    specialists_active_7d = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(last_activity_subquery)
+                .where(last_activity_subquery.c.last_activity_at >= active_since_utc)
+            )
+        ).scalar_one()
+    )
+
+    return {
+        "specialists_total": specialists_total,
+        "clients_total": clients_total,
+        "specialists_active_7d": specialists_active_7d,
+        "errors_24h": 0,
+        "computed_at_utc": now_utc.isoformat(),
+    }
 
 
 @router.get("/specialists")
