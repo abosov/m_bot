@@ -147,6 +147,7 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
         "/privacy": "privacy.html",
         "/terms": "terms.html",
         "/revoke-access": "revoke-access.html",
+        "/legal": "legal.html",
         "/privacy-ru": "privacy-ru.html",
         "/terms-ru": "terms-ru.html",
         "/revoke-access-ru": "revoke-access-ru.html",
@@ -201,6 +202,14 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
 
     @app.head("/revoke-access")
     async def site_revoke_access_head() -> Response:
+        return Response(status_code=200)
+
+    @app.get("/legal")
+    async def site_legal() -> FileResponse:
+        return FileResponse(_site_file("/legal"))
+
+    @app.head("/legal")
+    async def site_legal_head() -> Response:
         return Response(status_code=200)
 
     @app.get("/privacy-ru")
@@ -688,16 +697,21 @@ async def connect_page() -> HTMLResponse:
     <h1>Подключение Google Календаря</h1>
     <p>Авторизация Google откроется в обычной странице браузера (не во встроенном скрытом iframe).</p>
     <div id="webview-warning" class="warn" hidden>Откройте в браузере (Safari/Chrome), иначе Google может блокировать вход.</div>
-    <p class="hint">Продолжая, вы соглашаетесь с <a href="https://zumbot.ru/privacy-ru">Политикой конфиденциальности</a> и <a href="https://zumbot.ru/terms-ru">Условиями использования</a>.</p>
     <form action="/google/oauth/start" method="post">
+      <label class="hint" style="display:block; margin: 0 0 12px;">
+        <input id="payment-consent-checkbox" type="checkbox" required style="margin-right: 8px;" />
+        Нажимая кнопку оплаты, вы подтверждаете согласие с <a href="https://zumbot.ru/terms-ru" target="_blank" rel="noopener noreferrer">Публичной офертой</a> и <a href="https://zumbot.ru/privacy-ru" target="_blank" rel="noopener noreferrer">Политикой конфиденциальности</a>.
+      </label>
       <button id="google-connect-btn" type="submit" disabled>Подключить Google</button>
     </form>
   </main>
   <script>
     (function () {
       const button = document.getElementById('google-connect-btn');
+      const consentCheckbox = document.getElementById('payment-consent-checkbox');
       const warning = document.getElementById('webview-warning');
       const ua = navigator.userAgent || '';
+      let isAuthorized = false;
       if (ua.includes('Telegram') || ua.includes('WebView')) {
         warning.hidden = false;
       }
@@ -706,8 +720,8 @@ async def connect_page() -> HTMLResponse:
       const params = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash);
       const token = params.get('token') || params.get('t');
 
-      function enableButton() {
-        button.disabled = false;
+      function updateButtonState() {
+        button.disabled = !(isAuthorized && consentCheckbox.checked);
       }
 
       function clearHash() {
@@ -748,17 +762,21 @@ async def connect_page() -> HTMLResponse:
           const consumed = await consumeConnectToken(token);
           if (consumed) {
             clearHash();
-            enableButton();
+            isAuthorized = true;
+            updateButtonState();
             return;
           }
         }
 
         const sessionOk = await checkStatus();
         if (sessionOk) {
-          enableButton();
+          isAuthorized = true;
+          updateButtonState();
         }
       }
 
+      consentCheckbox.addEventListener('change', updateButtonState);
+      updateButtonState();
       init();
     })();
   </script>
