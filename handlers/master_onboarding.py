@@ -61,6 +61,7 @@ from services.onboarding import finalize_specialist_if_ready
 from services.specialist_defaults import apply_specialist_defaults_if_missing
 from config import BACKEND_BASE_URL, PUBLIC_SITE_URL, MASTER_ONBOARDING_VIDEO_FILE_ID
 from services.specialist_onboarding import get_specialist_by_tg_user_id, set_master_onboarding_completed
+from services.specialists import ensure_specialist_with_profile_for_tg_user
 from services.alerting import notify_exception
 from services.referrals import attach_referrer_by_code, extract_referral_code
 from services.log_context import log_event
@@ -139,13 +140,12 @@ def _parse_plan_start_payload(raw_args: str | None) -> tuple[TariffPlan, str] | 
 
 def _plan_choice_keyboard(plan: TariffPlan, period: str) -> types.InlineKeyboardMarkup:
     pricing_url = f"{PUBLIC_SITE_URL}/pricing"
-    return types.InlineKeyboardMarkup(
-        inline_keyboard=[
-            [types.InlineKeyboardButton(text="Продолжить → Оплатить", callback_data=f"plan:pay_stub:{plan.value}:{period}")],
-            [types.InlineKeyboardButton(text="Открыть тарифы на сайте", url=pricing_url)],
-            [types.InlineKeyboardButton(text="Назад", callback_data="plan:back_start")],
-        ]
-    )
+    rows: list[list[types.InlineKeyboardButton]] = []
+    if plan != TariffPlan.free:
+        rows.append([types.InlineKeyboardButton(text="Перейти к оплате", callback_data=f"plan:pay_stub:{plan.value}:{period}")])
+    rows.append([types.InlineKeyboardButton(text="Продолжить настройку", callback_data="onboarding:start")])
+    rows.append([types.InlineKeyboardButton(text="Открыть тарифы на сайте", url=pricing_url)])
+    return types.InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _build_plan_start_text(plan: TariffPlan, period: str) -> str:
@@ -159,6 +159,11 @@ def _build_plan_start_text(plan: TariffPlan, period: str) -> str:
     )
 
 
+async def _is_master_onboarding_completed(tg_user_id: int) -> bool:
+    specialist = await get_specialist_by_tg_user_id(tg_user_id)
+    return bool(specialist and specialist.onboarding_master_completed_at)
+
+
 async def _handle_plan_start_payload(
     message: types.Message,
     state: FSMContext,
@@ -169,6 +174,16 @@ async def _handle_plan_start_payload(
         return False
 
     plan, period = parsed
+
+    async with async_session_factory() as session:
+        await ensure_specialist_with_profile_for_tg_user(
+            session=session,
+            tg_user_id=message.from_user.id,
+            tg_username=message.from_user.username,
+            tg_first_name=message.from_user.first_name,
+            tg_last_name=message.from_user.last_name,
+        )
+
     await state.clear()
     text_out = _build_plan_start_text(plan, period)
     await _send_safe_html_message(message, text_out, reply_markup=_plan_choice_keyboard(plan, period))
@@ -1073,12 +1088,16 @@ async def plan_pay_stub(callback: types.CallbackQuery):
         await callback.answer("Некорректный выбор тарифа.", show_alert=True)
         return
 
-    specialist = await get_specialist_by_tg_user_id(callback.from_user.id)
-    if specialist is None:
-        await callback.answer("Профиль специалиста не найден. Нажмите /start.", show_alert=True)
-        return
-
     try:
+        async with async_session_factory() as session:
+            specialist = await ensure_specialist_with_profile_for_tg_user(
+                session=session,
+                tg_user_id=callback.from_user.id,
+                tg_username=callback.from_user.username,
+                tg_first_name=callback.from_user.first_name,
+                tg_last_name=callback.from_user.last_name,
+            )
+
         _, pay_url = await create_subscription_purchase(
             specialist.specialist_id,
             callback.from_user.id,
@@ -1092,13 +1111,13 @@ async def plan_pay_stub(callback: types.CallbackQuery):
 
     card = _PLAN_CARD_CONTENT[plan]
     period_label = _PLAN_PERIOD_LABELS.get(period, "месяц")
-    text_out = (
-        f"💳 Ссылка на оплату для тарифа <b>{card['title']}</b> ({period_label}):\n"
-        f"{pay_url}\n\n"
-        "Заказ действует 30 минут."
-    )
+    text_out = f"💳 Ссылка на оплату для тарифа <b>{card['title']}</b> ({period_label}) готова."
     keyboard = types.InlineKeyboardMarkup(
-        inline_keyboard=[[types.InlineKeyboardButton(text="Статус подписки", callback_data="plan:check_payment")]]
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text="Открыть страницу оплаты", url=pay_url)],
+            [types.InlineKeyboardButton(text="Продолжить настройку", callback_data="onboarding:start")],
+            [types.InlineKeyboardButton(text="Статус подписки", callback_data="plan:check_payment")],
+        ]
     )
     await _send_safe_html_message(
         callback.message,
@@ -1112,14 +1131,56 @@ async def plan_pay_stub(callback: types.CallbackQuery):
 @router.callback_query(F.data == "plan:check_payment")
 async def plan_check_payment(callback: types.CallbackQuery):
     status_text = await get_latest_purchase_status_text(callback.from_user.id)
-    await callback.message.answer(status_text)
+
+    reply_markup = None
+    if not await _is_master_onboarding_completed(callback.from_user.id):
+        reply_markup = types.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [types.InlineKeyboardButton(text="Продолжить настройку", callback_data="onboarding:start")],
+            ]
+        )
+
+    await callback.message.answer(status_text, reply_markup=reply_markup)
     await callback.answer()
 
 
-@router.callback_query(F.data == "plan:back_start")
-async def plan_back_start(callback: types.CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "onboarding:start")
+async def onboarding_start_from_plan(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
-    await cmd_start(callback.message, state)
+
+    if await _is_master_onboarding_completed(callback.from_user.id):
+        await cmd_start(callback.message, state)
+        return
+
+    prev_state = await state.get_state()
+    await state.clear()
+    await state.set_state(OnboardingStates.waiting_for_public_name)
+    log_event(
+        logger,
+        logging.INFO,
+        event="onboarding_step",
+        specialist_id=None,
+        tg_user_id=callback.from_user.id,
+        from_state=prev_state,
+        to_state=OnboardingStates.waiting_for_public_name.state,
+        action="start_from_plan_preview",
+        outcome="ok",
+    )
+
+    text_out = (
+        "📝 **Шаг 1 из 4. Публичное имя**\n\n"
+        "Посмотреть видео-инструкцию: /video\n\n"
+        "Введите имя, которое будут видеть ваши клиенты.\n"
+        "Например: *Психолог Анна* или *Иван Иванов*."
+    )
+    await callback.message.answer(text_out, reply_markup=types.ReplyKeyboardRemove())
+    await log_outbound_message(
+        callback.message.bot,
+        callback.from_user.id,
+        text_out,
+        fsm_state=OnboardingStates.waiting_for_public_name.state,
+        user_handle=_get_handle(callback.from_user),
+    )
 
 
 @router.message(F.text == "🚀 Стать специалистом")

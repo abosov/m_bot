@@ -1,4 +1,30 @@
 document.addEventListener("DOMContentLoaded", () => {
+
+  const BOT_BASE_URL = "https://t.me/zumhelper_bot";
+
+  function getBillingPeriodCode() {
+    const active = document.querySelector(".billing-toggle .toggle-option.active");
+    const billing = active?.getAttribute("data-billing") || "monthly";
+    return billing === "yearly" ? "y" : "m";
+  }
+
+  function updatePlanCtas() {
+    const periodCode = getBillingPeriodCode();
+    const ctas = document.querySelectorAll("a.plan-cta[data-plan]");
+
+    ctas.forEach((cta) => {
+      const plan = cta.getAttribute("data-plan");
+      if (!plan) {
+        return;
+      }
+
+      const payload = `plan_${plan}_${periodCode}`;
+      cta.setAttribute("href", `${BOT_BASE_URL}?start=${encodeURIComponent(payload)}`);
+      cta.setAttribute("target", "_blank");
+      cta.setAttribute("rel", "noopener noreferrer");
+    });
+  }
+
   const form = document.querySelector(".contact-form");
   const statusEl = document.getElementById("contact-status");
   const nameInput = document.getElementById("contact-name");
@@ -52,6 +78,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   const pricingToggle = document.querySelector(".billing-toggle, .pricing-toggle");
+  updatePlanCtas();
+
   if (pricingToggle) {
     const options = pricingToggle.querySelectorAll(".toggle-option");
     const monthYearFields = document.querySelectorAll("[data-month][data-year]");
@@ -64,6 +92,8 @@ document.addEventListener("DOMContentLoaded", () => {
       monthYearFields.forEach((field) => {
         field.textContent = period === "year" ? field.dataset.year : field.dataset.month;
       });
+
+      updatePlanCtas();
     };
 
     options.forEach((option) => {
