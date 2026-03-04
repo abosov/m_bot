@@ -90,6 +90,7 @@ body {
   font-weight: 600;
   border: none;
   cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 .button-small { padding: 10px 16px; }
 
@@ -199,21 +200,161 @@ section { padding: 34px 0; }
   padding: 18px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+.pricing-header {
+  margin-bottom: 18px;
+  max-width: 760px;
+}
+
+.pricing-header h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 2.5rem);
+}
+
+.pricing-header p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 1.1rem;
+}
+
+.pricing-toggle {
+  display: inline-flex;
+  justify-content: center;
+  gap: 6px;
+  background: #f2f5ff;
+  border: 1px solid #d9e4ff;
+  border-radius: 999px;
+  padding: 4px;
+  margin: 0 auto 18px;
+}
+
+.billing-toggle .toggle-option {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.billing-toggle .toggle-option.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1);
+}
+
 .pricing-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
-.pricing-grid .price { font-size: 1.9rem; margin: 8px 0 16px; }
+
+.pricing-grid .pricing-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pricing-grid .pricing-card h3 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.pricing-grid .price {
+  font-size: clamp(2.2rem, 4vw, 2.5rem);
+  line-height: 1.05;
+  font-weight: 700;
+  margin: 2px 0 4px;
+}
+
+
+.billing-note {
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  min-height: 1.1em;
+}
+
+.billing-save {
+  margin: -2px 0 2px;
+  color: #1d4ed8;
+  font-size: 0.82rem;
+  font-weight: 600;
+  min-height: 1.1em;
+}
+
 .plan-micro {
   color: var(--muted);
-  font-size: 0.9rem;
-  margin: -8px 0 12px;
+  font-size: 0.95rem;
+  margin: 0 0 6px;
 }
+
 .pricing-grid .price-period {
   color: var(--muted);
-  margin: -10px 0 16px;
+  margin: 0;
   font-size: 0.95rem;
 }
-.pricing-grid ul { padding-left: 18px; color: var(--muted); }
+
+.plan-features {
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.plan-features li {
+  position: relative;
+  padding-left: 28px;
+}
+
+.plan-features li + li {
+  margin-top: 9px;
+}
+
+.plan-features li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #e7f8ee;
+  color: #15803d;
+  display: grid;
+  place-items: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.plan-cta {
+  margin-top: auto;
+}
+
+.plan-badge {
+  align-self: flex-start;
+  margin: 0;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #e8f0ff;
+  color: #1d4ed8;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.pricing-card.popular {
+  border: 2px solid #3b82f6;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  transform: scale(1.025);
+}
+
+.pricing-trust-hint {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 0.98rem;
+}
+
 .pricing-referral-block {
   margin-top: 24px;
   background: var(--surface);
@@ -221,22 +362,63 @@ section { padding: 34px 0; }
   border-radius: var(--radius);
   padding: 18px 20px;
 }
+
 .pricing-referral-block h2 {
   margin: 0 0 8px;
   font-size: 1.25rem;
 }
+
 .pricing-referral-block p {
   margin: 0;
   color: var(--muted);
 }
+
 .pricing-referral-block p + p {
   margin-top: 6px;
 }
+
 .card-lite {
   background: #fbfcff;
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.03);
 }
-.featured { border-color: #c8d7ff; box-shadow: 0 14px 28px rgba(47, 107, 255, 0.14); }
+
+.faq-block {
+  margin-top: 26px;
+}
+
+.faq-block h2 {
+  margin-bottom: 14px;
+}
+
+.faq-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.faq-grid h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.faq-grid p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.pricing-final-cta {
+  margin-top: 26px;
+  text-align: center;
+  background: #edf3ff;
+  border-radius: 18px;
+  padding: 34px 22px;
+}
+
+.pricing-final-cta h2 {
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
 .contact-form { display: grid; gap: 12px; }
 .contact-form label { display: grid; gap: 6px; color: var(--muted); }
 input, textarea {
@@ -303,6 +485,10 @@ input, textarea {
   .pricing-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .pricing-card.popular {
+    transform: none;
+  }
 }
 
 @media (max-width: 1024px) {
@@ -314,7 +500,8 @@ input, textarea {
 @media (max-width: 900px) {
   .hero { grid-template-columns: 1fr; }
   .cards-grid,
-  .cards-grid-2 { grid-template-columns: 1fr; }
+  .cards-grid-2,
+  .faq-grid { grid-template-columns: 1fr; }
   .main-nav { gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 }
 

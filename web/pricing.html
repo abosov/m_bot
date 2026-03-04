@@ -1,23 +1,133 @@
 <!doctype html>
 <html lang="ru">
-  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Тарифы и реферальная программа — Zumbot</title><meta name="description" content="Тарифы Zumbot для специалистов: Free, Start, Pro, Team. Приглашайте коллег и получайте бонусный месяц Start по реферальной программе." />
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Тарифы и реферальная программа — Zumbot</title>
+    <meta
+      name="description"
+      content="Тарифы Zumbot для специалистов: Free, Start, Pro, Team. Приглашайте коллег и получайте бонусный месяц Start по реферальной программе."
+    />
 
     <!-- Global favicon -->
-    <link rel="icon" href="/assets/icons/favicon.ico" sizes="any">
-    <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/assets/icons/favicon-16.png">
-<link rel="stylesheet" href="assets/styles.css" /></head>
+    <link rel="icon" href="/assets/icons/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/icons/favicon-16.png" />
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
   <body>
     {{SITE_HEADER}}
     <main class="wrap page">
-      <h1>Тарифы</h1>
-      <div class="cards-grid pricing-grid">
-        <article class="card card-lite"><h3>Free</h3><p class="price">0 ₽</p><p class="price-period">в месяц</p><p class="plan-micro">Подходит для старта и тестирования.</p><ul><li>До 16 записей в месяц</li><li>Напоминания клиентам</li><li>Подключение 1 календаря</li><li>Без оплат и интеграций</li></ul><a class="button outline" href="https://t.me/zumhelper_bot">Попробовать бесплатно</a></article>
-        <article class="card"><h3>Start</h3><p class="price">990 ₽/мес</p><ul><li>До 100 записей</li><li>Напоминания</li><li>Подключение 1 календаря</li><li>Без аналитики</li></ul><a class="button ghost" href="https://t.me/zumhelper_bot">Начать</a></article>
-        <article class="card featured"><h3>Pro</h3><p class="price">2 490 ₽/мес</p><ul><li>Безлимит записей</li><li>Оплаты и интеграции</li><li>Приоритетная поддержка</li><li>Аналитика</li><li>Расширенная аналитика: записи, отмены, no-show, загрузка по дням</li></ul><a class="button" href="https://t.me/zumhelper_bot">Начать</a></article>
-        <article class="card"><h3>Team</h3><p class="price">4 990 ₽/мес</p><ul><li>Несколько специалистов</li><li>Роли и доступы</li><li>Расширенные отчёты</li></ul><a class="button ghost" href="https://t.me/zumhelper_bot">Начать</a></article>
+      <section class="pricing-header">
+        <h1>Простые тарифы для специалистов</h1>
+        <p>Начните бесплатно. Платите только когда появляются клиенты.</p>
+      </section>
+
+      <div class="pricing-toggle billing-toggle" role="group" aria-label="Переключатель периода оплаты">
+        <button class="toggle-option active" type="button" data-period="month" data-billing="monthly">Месяц</button>
+        <button class="toggle-option" type="button" data-period="year" data-billing="yearly">Год (-20%)</button>
       </div>
-      <section class="pricing-referral-block"><h2>Реферальная программа</h2><p>Пригласите коллегу — получите 1 месяц тарифа Start бесплатно.</p><p>Без ограничений по количеству рекомендаций.</p></section>
+
+      <div class="cards-grid pricing-grid">
+        <article class="card card-lite pricing-card">
+          <h3>Free</h3>
+          <p class="price" data-month="0 ₽" data-year="0 ₽">0 ₽</p>
+          <p class="price-period" data-month="в месяц" data-year="в год">в месяц</p>
+          <p class="plan-micro">Для тех, кто только начинает и хочет проверить, как сервис работает на практике.</p>
+          <ul class="plan-features">
+            <li>До 16 записей клиентов в месяц</li>
+            <li>Автоматические напоминания клиентам</li>
+            <li>Подключение Google Calendar</li>
+            <li>Без онлайн-оплат</li>
+          </ul>
+          <a class="button outline plan-cta" href="https://t.me/zumhelper_bot">Начать бесплатно</a>
+        </article>
+
+        <article class="card pricing-card">
+          <h3>Start</h3>
+          <p class="price" data-month="990 ₽ / мес" data-year="790 ₽ / мес">990 ₽ / мес</p>
+          <p class="price-period" data-month="для стабильной ежедневной работы" data-year="для стабильной ежедневной работы">для стабильной ежедневной работы</p>
+          <p class="billing-note" data-month="" data-year="При оплате за год"></p>
+          <p class="billing-save" data-month="" data-year="Экономия 20%"></p>
+          <p class="plan-micro">Оптимальный тариф для специалистов с постоянной записью и регулярными клиентами.</p>
+          <ul class="plan-features">
+            <li>До 100 записей клиентов в месяц</li>
+            <li>Удобные напоминания клиентам в Telegram</li>
+            <li>Подключение Google Calendar</li>
+            <li>Базовая статистика по записям</li>
+          </ul>
+          <a class="button ghost plan-cta" href="https://t.me/zumhelper_bot">Выбрать тариф</a>
+        </article>
+
+        <article class="card pricing-card popular">
+          <p class="plan-badge">Самый популярный</p>
+          <h3>Pro</h3>
+          <p class="price" data-month="2 490 ₽ / мес" data-year="1 990 ₽ / мес">2 490 ₽ / мес</p>
+          <p class="price-period" data-month="для активной практики и роста" data-year="для активной практики и роста">для активной практики и роста</p>
+          <p class="billing-note" data-month="" data-year="При оплате за год"></p>
+          <p class="billing-save" data-month="" data-year="Экономия 20%"></p>
+          <p class="plan-micro">Для тех, кто хочет полностью автоматизировать запись и масштабировать поток клиентов.</p>
+          <ul class="plan-features">
+            <li>Безлимит записей клиентов</li>
+            <li>Онлайн-оплаты и полезные интеграции</li>
+            <li>Приоритетная поддержка</li>
+            <li>Наглядная аналитика по отменам и загрузке</li>
+            <li>Инструменты для роста повторных записей</li>
+          </ul>
+          <a class="button plan-cta" href="https://t.me/zumhelper_bot">Подключить Pro</a>
+        </article>
+
+        <article class="card pricing-card">
+          <h3>Team</h3>
+          <p class="price" data-month="4 990 ₽ / мес" data-year="3 990 ₽ / мес">4 990 ₽ / мес</p>
+          <p class="price-period" data-month="для команд и студий" data-year="для команд и студий">для команд и студий</p>
+          <p class="billing-note" data-month="" data-year="При оплате за год"></p>
+          <p class="billing-save" data-month="" data-year="Экономия 20%"></p>
+          <p class="plan-micro">Для студий и команд, где важно координировать расписание нескольких специалистов.</p>
+          <ul class="plan-features">
+            <li>Работа сразу для нескольких специалистов</li>
+            <li>Гибкие роли и доступы для команды</li>
+            <li>Расширенные отчёты по работе команды</li>
+            <li>Помощь с настройкой под ваши процессы</li>
+          </ul>
+          <a class="button ghost plan-cta" href="https://t.me/zumhelper_bot">Связаться с нами</a>
+        </article>
+      </div>
+
+      <p class="pricing-trust-hint">📅 Zumbot синхронизируется с Google Calendar и автоматически управляет записью клиентов.</p>
+
+      <section class="pricing-referral-block">
+        <h2>Реферальная программа</h2>
+        <p>Пригласите коллегу — получите 1 месяц тарифа Start бесплатно.</p>
+        <p>Без ограничений по количеству рекомендаций.</p>
+      </section>
+
+      <section class="faq-block">
+        <h2>FAQ</h2>
+        <div class="faq-grid">
+          <article class="card">
+            <h3>Можно ли сменить тариф позже?</h3>
+            <p>Да, вы можете перейти на другой тариф в любой момент. Все данные и записи сохраняются.</p>
+          </article>
+          <article class="card">
+            <h3>Что входит в бесплатный тариф?</h3>
+            <p>Базовые функции для старта: запись клиентов, напоминания и подключение одного календаря.</p>
+          </article>
+          <article class="card">
+            <h3>Есть ли помощь с подключением?</h3>
+            <p>Да, мы поможем настроить сервис и ответим на вопросы в чате поддержки.</p>
+          </article>
+          <article class="card">
+            <h3>Подойдёт ли Zumbot для команды?</h3>
+            <p>Да, тариф Team создан для студий и команд с несколькими специалистами и ролями.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="pricing-final-cta">
+        <h2>Начните автоматизировать запись клиентов уже сегодня</h2>
+        <a class="button" href="https://t.me/zumhelper_bot">Начать бесплатно</a>
+      </section>
     </main>
     {{SITE_FOOTER}}
   </body>
