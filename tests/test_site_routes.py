@@ -206,8 +206,17 @@ def test_connect_page_contains_google_form_and_legal_links():
 
     assert response.status_code == 200
     assert 'form action="/google/oauth/start"' in response.text
-    assert 'href="https://zumbot.ru/privacy-ru"' in response.text
-    assert 'href="https://zumbot.ru/terms-ru"' in response.text
+    assert 'href="/terms-ru" target="_blank" rel="noopener"' in response.text
+    assert 'href="/privacy-ru" target="_blank" rel="noopener"' in response.text
+    assert "Для работы записи клиентов необходимо подключить ваш Google Календарь." in response.text
+    assert "Zumbot получит доступ только к выбранному календарю" in response.text
+    assert "показывать доступные слоты для записи" in response.text
+    assert "создавать события при бронировании" in response.text
+    assert "отменять события при отмене записи" in response.text
+    assert "Мы не получаем доступ к вашей почте или другим данным Google." in response.text
+    assert "Авторизация откроется в стандартной странице Google (не во встроенном iframe)." in response.text
+    assert "Продолжая, вы подтверждаете согласие" in response.text
+    assert "Нажимая кнопку оплаты" not in response.text
 
 
 def test_connect_status_requires_valid_cookie(monkeypatch):

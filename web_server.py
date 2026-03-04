@@ -1900,6 +1900,7 @@ async def connect_page() -> HTMLResponse:
     main { max-width: 640px; margin: 32px auto; background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 8px 28px rgba(15,23,42,.08); }
     h1 { margin-top: 0; font-size: 28px; }
     p { line-height: 1.5; }
+    ul { margin: 8px 0 12px; padding-left: 22px; line-height: 1.5; }
     button { border: 0; border-radius: 10px; background: #2563eb; color: #fff; font-size: 16px; font-weight: 600; padding: 12px 20px; cursor: pointer; }
     button:disabled { background: #94a3b8; cursor: not-allowed; }
     .hint { color: #475569; font-size: 14px; }
@@ -1909,12 +1910,21 @@ async def connect_page() -> HTMLResponse:
 <body>
   <main>
     <h1>Подключение Google Календаря</h1>
-    <p>Авторизация Google откроется в обычной странице браузера (не во встроенном скрытом iframe).</p>
+    <p>Для работы записи клиентов необходимо подключить ваш Google Календарь.</p>
+    <p>Вы будете перенаправлены на страницу Google для безопасной авторизации.<br />
+    Zumbot получит доступ только к выбранному календарю, чтобы:</p>
+    <ul>
+      <li>показывать доступные слоты для записи</li>
+      <li>создавать события при бронировании</li>
+      <li>отменять события при отмене записи</li>
+    </ul>
+    <p>Мы не получаем доступ к вашей почте или другим данным Google.</p>
+    <p class="hint">Авторизация откроется в стандартной странице Google (не во встроенном iframe).</p>
     <div id="webview-warning" class="warn" hidden>Откройте в браузере (Safari/Chrome), иначе Google может блокировать вход.</div>
     <form action="/google/oauth/start" method="post">
       <label class="hint" style="display:block; margin: 0 0 12px;">
-        <input id="payment-consent-checkbox" type="checkbox" required style="margin-right: 8px;" />
-        Нажимая кнопку оплаты, вы подтверждаете согласие с <a href="https://zumbot.ru/terms-ru" target="_blank" rel="noopener noreferrer">Публичной офертой</a> и <a href="https://zumbot.ru/privacy-ru" target="_blank" rel="noopener noreferrer">Политикой конфиденциальности</a>.
+        <input id="consent-checkbox" type="checkbox" required style="margin-right: 8px;" />
+        Продолжая, вы подтверждаете согласие с <a href="/terms-ru" target="_blank" rel="noopener">Публичной офертой</a> и <a href="/privacy-ru" target="_blank" rel="noopener">Политикой конфиденциальности</a>.
       </label>
       <button id="google-connect-btn" type="submit" disabled>Подключить Google</button>
     </form>
@@ -1922,7 +1932,7 @@ async def connect_page() -> HTMLResponse:
   <script>
     (function () {
       const button = document.getElementById('google-connect-btn');
-      const consentCheckbox = document.getElementById('payment-consent-checkbox');
+      const consentCheckbox = document.getElementById('consent-checkbox');
       const warning = document.getElementById('webview-warning');
       const ua = navigator.userAgent || '';
       let isAuthorized = false;
