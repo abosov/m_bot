@@ -167,6 +167,32 @@ curl -i \
   'http://127.0.0.1:18000/admin/ui/heartbeats?limit=5&service_name=worker'
 ```
 
+
+## 5.1 Admin Actions (US-AD-7)
+
+На странице Specialist Detail (`/admin/specialists/{id}`) доступна панель **Admin Actions**:
+
+- `Disable` — отключить специалиста;
+- `Enable` — включить обратно;
+- `Reset OAuth` — сбросить OAuth-связку;
+- `Change tariff` — выбрать новый тариф и применить.
+
+Порядок использования:
+1. Откройте карточку специалиста из раздела Specialists.
+2. В блоке **Admin Actions** выберите нужное действие.
+3. Подтвердите действие в браузерном `confirm()` диалоге.
+4. После успеха страница автоматически перечитывает detail JSON (`GET /admin/ui/specialists/{id}`).
+
+CSRF note:
+- Для всех `POST /admin/ui/*` действий UI отправляет `X-CSRF-Token`.
+- Значение токена берётся из cookie `admin_csrf` (double-submit pattern).
+- Не вставляйте CSRF token/cookies/пароли в баг-репорты, скриншоты и публичные каналы.
+
+Safety notes:
+- System accounts (`is_system=true`) защищены от разрушительных действий (например, disable/reset/tariff change возвращают `403`).
+- Любое действие пишется в `admin_audit_log` (success/failed) для форензики.
+- Ответы Admin Actions не содержат OAuth token-ов и других секретов.
+
 ### Шаг 4. [Локально] Проверить admin API по `X-API-Key`
 
 UI cookie **не заменяет** API-ключ для JSON endpoint-ов:

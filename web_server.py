@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import smtplib
+import secrets
 import time
 import uuid
 from email.message import EmailMessage
@@ -17,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -27,7 +28,9 @@ from database import (
     Appointment,
     BookingState,
     LogDirection,
+    Specialist,
     SpecialistStatus,
+    TariffPlan,
     async_session_factory, 
     GoogleOAuth, 
     GoogleOAuthStatus, 
@@ -69,6 +72,7 @@ from admin_api import (
     router as admin_router,
 )
 from services.log_exporter import serialize_message_log, serialize_service_heartbeat
+from services.admin_audit import write_admin_audit_log
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +106,10 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
             reset_request_id(token)
         response.headers["X-Request-ID"] = request_id
         return response
+
+
+def _csrf_protected_admin_ui_post(request: Request) -> bool:
+    return request.method.upper() == "POST" and request.url.path.startswith("/admin/ui/")
 
 
 def _request_id_from_request(request: Request) -> str:
@@ -377,6 +385,8 @@ def require_admin_key_hidden_404(x_api_key: str | None = Header(default=None, al
 
 
 ADMIN_UI_COOKIE_NAME = "admin_session"
+ADMIN_UI_CSRF_COOKIE_NAME = "admin_csrf"
+ADMIN_UI_CSRF_HEADER_NAME = "X-CSRF-Token"
 ADMIN_UI_SESSION_TTL_HOURS = 12
 
 
@@ -390,6 +400,26 @@ def _admin_ui_cookie_secure() -> bool:
 
 def _raise_not_found() -> None:
     raise HTTPException(status_code=404, detail="Not found")
+
+
+@app.middleware("http")
+async def admin_ui_csrf_middleware(request: Request, call_next):
+    if not _csrf_protected_admin_ui_post(request):
+        return await call_next(request)
+
+    if not _admin_ui_enabled():
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+    session_cookie = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(session_cookie):
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+    csrf_cookie = request.cookies.get(ADMIN_UI_CSRF_COOKIE_NAME, "")
+    csrf_header = request.headers.get(ADMIN_UI_CSRF_HEADER_NAME, "")
+    if not csrf_cookie or not csrf_header or not secrets.compare_digest(csrf_cookie, csrf_header):
+        return JSONResponse(status_code=403, content={"detail": "CSRF validation failed"})
+
+    return await call_next(request)
 
 
 @app.get("/admin/login", response_class=HTMLResponse)
@@ -420,12 +450,22 @@ async def admin_login(request: Request) -> Response:
         _raise_not_found()
 
     session_cookie = admin_ui_session.sign_admin_session_cookie(ttl_hours=ADMIN_UI_SESSION_TTL_HOURS)
+    csrf_token = secrets.token_urlsafe(32)
     response = RedirectResponse(url="/admin", status_code=303)
     response.set_cookie(
         key=ADMIN_UI_COOKIE_NAME,
         value=session_cookie,
         max_age=ADMIN_UI_SESSION_TTL_HOURS * 3600,
         httponly=True,
+        secure=_admin_ui_cookie_secure(),
+        samesite="strict",
+        path="/admin",
+    )
+    response.set_cookie(
+        key=ADMIN_UI_CSRF_COOKIE_NAME,
+        value=csrf_token,
+        max_age=ADMIN_UI_SESSION_TTL_HOURS * 3600,
+        httponly=False,
         secure=_admin_ui_cookie_secure(),
         samesite="strict",
         path="/admin",
@@ -443,6 +483,13 @@ async def admin_logout() -> Response:
         key=ADMIN_UI_COOKIE_NAME,
         path="/admin",
         httponly=True,
+        secure=_admin_ui_cookie_secure(),
+        samesite="strict",
+    )
+    response.delete_cookie(
+        key=ADMIN_UI_CSRF_COOKIE_NAME,
+        path="/admin",
+        httponly=False,
         secure=_admin_ui_cookie_secure(),
         samesite="strict",
     )
@@ -516,6 +563,270 @@ async def admin_ui_specialist_detail(
         _raise_not_found()
 
     return payload
+
+
+
+
+@app.post("/admin/ui/specialists/{specialist_id}/disable")
+async def admin_ui_disable_specialist(specialist_id: str, request: Request):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    try:
+        specialist_uuid = uuid.UUID(specialist_id)
+    except ValueError:
+        _raise_not_found()
+
+    request_id = _request_id_from_request(request)
+
+    async with async_session_factory() as session:
+        specialist = await session.get(Specialist, specialist_uuid)
+        if specialist is None:
+            _raise_not_found()
+
+        old_status = specialist.status.value
+        payload = {"old_status": old_status, "new_status": "disabled"}
+
+        if specialist.is_system:
+            await write_admin_audit_log(
+                session,
+                request_id=request_id,
+                admin_subject="cookie_session",
+                action="disable_specialist",
+                target_type="specialist",
+                target_id=specialist.specialist_id,
+                success=False,
+                payload=payload,
+                error_code="FORBIDDEN_SYSTEM",
+                error_message="Cannot disable system specialist",
+            )
+            await session.commit()
+            raise HTTPException(status_code=403, detail="Cannot disable system specialist")
+
+        if specialist.status != SpecialistStatus.suspended:
+            specialist.status = SpecialistStatus.suspended
+
+        await write_admin_audit_log(
+            session,
+            request_id=request_id,
+            admin_subject="cookie_session",
+            action="disable_specialist",
+            target_type="specialist",
+            target_id=specialist.specialist_id,
+            success=True,
+            payload=payload,
+        )
+        await session.commit()
+
+    return {"ok": True, "specialist_id": str(specialist_uuid), "status": "disabled"}
+
+
+
+
+@app.post("/admin/ui/specialists/{specialist_id}/enable")
+async def admin_ui_enable_specialist(specialist_id: str, request: Request):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    try:
+        specialist_uuid = uuid.UUID(specialist_id)
+    except ValueError:
+        _raise_not_found()
+
+    request_id = _request_id_from_request(request)
+
+    async with async_session_factory() as session:
+        specialist = await session.get(Specialist, specialist_uuid)
+        if specialist is None:
+            _raise_not_found()
+
+        old_status = specialist.status.value
+
+        if specialist.status == SpecialistStatus.suspended:
+            specialist.status = SpecialistStatus.active
+
+        payload = {"old_status": old_status, "new_status": specialist.status.value}
+
+        await write_admin_audit_log(
+            session,
+            request_id=request_id,
+            admin_subject="cookie_session",
+            action="enable_specialist",
+            target_type="specialist",
+            target_id=specialist.specialist_id,
+            success=True,
+            payload=payload,
+        )
+        await session.commit()
+
+    return {"ok": True, "specialist_id": str(specialist_uuid), "status": specialist.status.value}
+
+
+
+
+@app.post("/admin/ui/specialists/{specialist_id}/reset-oauth")
+async def admin_ui_reset_specialist_oauth(specialist_id: str, request: Request):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    try:
+        specialist_uuid = uuid.UUID(specialist_id)
+    except ValueError:
+        _raise_not_found()
+
+    request_id = _request_id_from_request(request)
+
+    async with async_session_factory() as session:
+        specialist = await session.get(Specialist, specialist_uuid)
+        if specialist is None:
+            _raise_not_found()
+
+        if specialist.is_system:
+            await write_admin_audit_log(
+                session,
+                request_id=request_id,
+                admin_subject="cookie_session",
+                action="reset_oauth",
+                target_type="specialist",
+                target_id=specialist.specialist_id,
+                success=False,
+                payload={"deleted_rows": 0},
+                error_code="FORBIDDEN_SYSTEM",
+                error_message="Cannot reset oauth for system specialist",
+            )
+            await session.commit()
+            raise HTTPException(status_code=403, detail="Cannot reset oauth for system specialist")
+
+        result = await session.execute(
+            delete(GoogleOAuth).where(GoogleOAuth.specialist_id == specialist.specialist_id)
+        )
+        deleted_rows = int(result.rowcount or 0)
+
+        await write_admin_audit_log(
+            session,
+            request_id=request_id,
+            admin_subject="cookie_session",
+            action="reset_oauth",
+            target_type="specialist",
+            target_id=specialist.specialist_id,
+            success=True,
+            payload={"deleted_rows": deleted_rows},
+        )
+        await session.commit()
+
+    return {"ok": True, "specialist_id": str(specialist_uuid), "oauth_connected": False}
+
+
+
+
+@app.post("/admin/ui/specialists/{specialist_id}/tariff")
+async def admin_ui_change_specialist_tariff(specialist_id: str, request: Request):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    try:
+        specialist_uuid = uuid.UUID(specialist_id)
+    except ValueError:
+        _raise_not_found()
+
+    request_id = _request_id_from_request(request)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    raw_tariff_plan = body.get("tariff_plan") if isinstance(body, dict) else None
+    allowed_tariff_values = {plan.value for plan in TariffPlan}
+
+    async with async_session_factory() as session:
+        specialist = await session.get(Specialist, specialist_uuid)
+        if specialist is None:
+            _raise_not_found()
+
+        if specialist.is_system:
+            await write_admin_audit_log(
+                session,
+                request_id=request_id,
+                admin_subject="cookie_session",
+                action="change_tariff",
+                target_type="specialist",
+                target_id=specialist.specialist_id,
+                success=False,
+                payload={"old_tariff": None, "new_tariff": raw_tariff_plan},
+                error_code="FORBIDDEN_SYSTEM",
+                error_message="Cannot change tariff for system specialist",
+            )
+            await session.commit()
+            raise HTTPException(status_code=403, detail="Cannot change tariff for system specialist")
+
+        profile = await session.get(SpecialistProfile, specialist.specialist_id)
+        if profile is None:
+            profile = SpecialistProfile(
+                specialist_id=specialist.specialist_id,
+                public_name=str(specialist.specialist_id),
+                owner_tg_user_id=0,
+                specialist_timezone="UTC",
+            )
+            session.add(profile)
+            await session.flush()
+
+        old_tariff = profile.tariff_plan.value if profile.tariff_plan else None
+
+        if not isinstance(raw_tariff_plan, str) or raw_tariff_plan not in allowed_tariff_values:
+            await write_admin_audit_log(
+                session,
+                request_id=request_id,
+                admin_subject="cookie_session",
+                action="change_tariff",
+                target_type="specialist",
+                target_id=specialist.specialist_id,
+                success=False,
+                payload={"old_tariff": old_tariff, "new_tariff": raw_tariff_plan},
+                error_code="VALIDATION",
+                error_message="Invalid tariff plan",
+            )
+            await session.commit()
+            raise HTTPException(status_code=422, detail="Invalid tariff_plan")
+
+        profile.tariff_plan = TariffPlan(raw_tariff_plan)
+
+        await write_admin_audit_log(
+            session,
+            request_id=request_id,
+            admin_subject="cookie_session",
+            action="change_tariff",
+            target_type="specialist",
+            target_id=specialist.specialist_id,
+            success=True,
+            payload={
+                "old_tariff": old_tariff,
+                "new_tariff": profile.tariff_plan.value if profile.tariff_plan else raw_tariff_plan,
+            },
+        )
+        await session.commit()
+
+    return {
+        "ok": True,
+        "specialist_id": str(specialist_uuid),
+        "tariff_plan": profile.tariff_plan.value if profile.tariff_plan else raw_tariff_plan,
+    }
 
 
 @app.get("/admin/ui/logs")
