@@ -1,0 +1,29 @@
+# User flow: subscription billing
+
+## Preconditions
+- Специалист общается с master-bot.
+- Сайт не требует регистрации.
+
+## End-to-end flow
+1. **Сайт `/pricing`**
+   - пользователь нажимает CTA тарифа (deep-link `start=plan_*_*`).
+2. **Master-bot `/start` с payload**
+   - показывает выбранный тариф и период.
+   - кнопка «Продолжить → Оплатить» создаёт purchase и выдаёт `/pay?token=...`.
+3. **Страница `/pay`**
+   - валидирует token (hash lookup, TTL, used_at).
+   - показывает заказ: тариф, период, сумма.
+4. **Переход в YooKassa**
+   - `/pay/confirm` создаёт payment и редиректит на `confirmation_url`.
+5. **Оплата в YooKassa**
+   - после оплаты YooKassa отправляет webhook в backend.
+6. **Webhook activation**
+   - purchase переводится в `succeeded`/`canceled`/`error`.
+   - при `succeeded` активируется подписка специалиста.
+7. **Возврат в bot**
+   - пользователь нажимает «Статус подписки».
+   - бот показывает текущий план, период и дату окончания.
+
+## Important UX constraints
+- Нет веб-аккаунта, email/password и личного кабинета.
+- Идентификация всегда через `tg_user_id` + one-time токен оплаты.

@@ -41,6 +41,7 @@ from database import (
     LogDirection,
     BotHealthCheck,
     BotHealthCheckStatus,
+    TariffPlan,
 )
 from services.crypto import encrypt_token, decrypt_token
 # Используем локальный импорт внутри функций, если возникнут циклические зависимости,
@@ -65,6 +66,7 @@ from services.referrals import attach_referrer_by_code, extract_referral_code
 from services.log_context import log_event
 from services.telegram.markdown_utils import escape_markdown_v2
 from services.telegram.calendar_keyboard import build_calendar_selection_keyboard
+from services.billing.subscriptions import create_subscription_purchase, get_latest_purchase_status_text
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -77,6 +79,107 @@ class OnboardingStates(StatesGroup):
 
 # --- Constants ---
 BASE_URL = BACKEND_BASE_URL
+
+_PLAN_PERIOD_LABELS = {
+    "m": "месяц",
+    "y": "год",
+}
+
+_PLAN_CARD_CONTENT = {
+    TariffPlan.free: {
+        "title": "Free",
+        "description": "До 16 записей в месяц, напоминания клиентам и Google Calendar.",
+        "price_m": "0 ₽",
+        "price_y": "0 ₽",
+    },
+    TariffPlan.start: {
+        "title": "Start",
+        "description": "До 100 записей в месяц, напоминания и базовая статистика.",
+        "price_m": "990 ₽ / мес",
+        "price_y": "790 ₽ / мес (при оплате за год)",
+    },
+    TariffPlan.pro: {
+        "title": "Pro",
+        "description": "Безлимит записей, оплаты, интеграции и приоритетная поддержка.",
+        "price_m": "2 490 ₽ / мес",
+        "price_y": "1 990 ₽ / мес (при оплате за год)",
+    },
+    TariffPlan.team: {
+        "title": "Team",
+        "description": "Для команд и студий: роли, доступы и расширенная отчётность.",
+        "price_m": "4 990 ₽ / мес",
+        "price_y": "3 990 ₽ / мес (при оплате за год)",
+    },
+}
+
+
+def _parse_plan_start_payload(raw_args: str | None) -> tuple[TariffPlan, str] | None:
+    if not raw_args:
+        return None
+    payload = raw_args.strip().lower()
+    if payload == "plan_team_contact":
+        return TariffPlan.team, "m"
+    if not payload.startswith("plan_"):
+        return None
+
+    parts = payload.split("_")
+    if len(parts) != 3:
+        return None
+
+    _, plan_raw, period = parts
+    if period not in _PLAN_PERIOD_LABELS:
+        return None
+
+    try:
+        plan = TariffPlan(plan_raw)
+    except ValueError:
+        return None
+    return plan, period
+
+
+def _plan_choice_keyboard(plan: TariffPlan, period: str) -> types.InlineKeyboardMarkup:
+    pricing_url = f"{PUBLIC_SITE_URL}/pricing"
+    return types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text="Продолжить → Оплатить", callback_data=f"plan:pay_stub:{plan.value}:{period}")],
+            [types.InlineKeyboardButton(text="Открыть тарифы на сайте", url=pricing_url)],
+            [types.InlineKeyboardButton(text="Назад", callback_data="plan:back_start")],
+        ]
+    )
+
+
+def _build_plan_start_text(plan: TariffPlan, period: str) -> str:
+    card = _PLAN_CARD_CONTENT[plan]
+    period_label = _PLAN_PERIOD_LABELS[period]
+    price = card["price_y"] if period == "y" else card["price_m"]
+    return (
+        f"✅ Вы выбрали тариф <b>{card['title']}</b> ({period_label}).\n\n"
+        f"{card['description']}\n"
+        f"Стоимость: <b>{price}</b>."
+    )
+
+
+async def _handle_plan_start_payload(
+    message: types.Message,
+    state: FSMContext,
+    command: CommandObject | None,
+) -> bool:
+    parsed = _parse_plan_start_payload(command.args if command else None)
+    if not parsed:
+        return False
+
+    plan, period = parsed
+    await state.clear()
+    text_out = _build_plan_start_text(plan, period)
+    await _send_safe_html_message(message, text_out, reply_markup=_plan_choice_keyboard(plan, period))
+    await log_outbound_message(
+        message.bot,
+        message.from_user.id,
+        text_out,
+        fsm_state="plan_start",
+        user_handle=_get_handle(message.from_user),
+    )
+    return True
 
 def _get_handle(user: types.User) -> str:
     """Helper to get user handle for logs"""
@@ -678,7 +781,10 @@ async def cmd_start(message: types.Message, state: FSMContext, command: CommandO
     last_name = message.from_user.last_name
     
     user_handle = _get_handle(message.from_user)
-    
+
+    if await _handle_plan_start_payload(message, state, command):
+        return
+
     try:
         async with async_session_factory() as session:
             # 1. Поиск по авторизации Telegram
@@ -952,6 +1058,69 @@ async def video_continue(callback: types.CallbackQuery, state: FSMContext):
             )
     finally:
         await callback.answer()
+
+@router.callback_query(F.data.startswith("plan:pay_stub:"))
+async def plan_pay_stub(callback: types.CallbackQuery):
+    parts = (callback.data or "").split(":")
+    if len(parts) != 4:
+        await callback.answer("Некорректный выбор тарифа.", show_alert=True)
+        return
+
+    _, _, plan_raw, period = parts
+    try:
+        plan = TariffPlan(plan_raw)
+    except ValueError:
+        await callback.answer("Некорректный выбор тарифа.", show_alert=True)
+        return
+
+    specialist = await get_specialist_by_tg_user_id(callback.from_user.id)
+    if specialist is None:
+        await callback.answer("Профиль специалиста не найден. Нажмите /start.", show_alert=True)
+        return
+
+    try:
+        _, pay_url = await create_subscription_purchase(
+            specialist.specialist_id,
+            callback.from_user.id,
+            plan,
+            period,
+        )
+    except Exception:
+        logger.exception("create_subscription_purchase failed")
+        await callback.answer("Не удалось создать ссылку на оплату. Попробуйте позже.", show_alert=True)
+        return
+
+    card = _PLAN_CARD_CONTENT[plan]
+    period_label = _PLAN_PERIOD_LABELS.get(period, "месяц")
+    text_out = (
+        f"💳 Ссылка на оплату для тарифа <b>{card['title']}</b> ({period_label}):\n"
+        f"{pay_url}\n\n"
+        "Заказ действует 30 минут."
+    )
+    keyboard = types.InlineKeyboardMarkup(
+        inline_keyboard=[[types.InlineKeyboardButton(text="Статус подписки", callback_data="plan:check_payment")]]
+    )
+    await _send_safe_html_message(
+        callback.message,
+        text_out,
+        reply_markup=keyboard,
+        disable_web_page_preview=True,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "plan:check_payment")
+async def plan_check_payment(callback: types.CallbackQuery):
+    status_text = await get_latest_purchase_status_text(callback.from_user.id)
+    await callback.message.answer(status_text)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "plan:back_start")
+async def plan_back_start(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await cmd_start(callback.message, state)
+
 
 @router.message(F.text == "🚀 Стать специалистом")
 async def start_flow(message: types.Message, state: FSMContext):
