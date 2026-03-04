@@ -494,69 +494,177 @@ async def admin_specialist_detail(
     ):
         specialist_id_str = str(specialist_uuid)
         return HTMLResponse(
-            content=(
-                "<html><body>"
-                "<p><a href='/admin#specialists'>← Back to specialists</a></p>"
-                "<h1 id='title'>Specialist: ...</h1>"
-                "<p id='state'>Loading specialist…</p>"
-                "<section id='basic' style='display:none;'><h2>Basic</h2><table border='1' cellpadding='6' style='border-collapse: collapse;'><tbody id='basic-body'></tbody></table></section>"
-                "<section id='integration' style='display:none;'><h2>Integration</h2><ul id='integration-list'></ul></section>"
-                "<section id='activity' style='display:none;'><h2>Activity</h2><ul id='activity-metrics'></ul><h3>Recent events</h3><ul id='recent-events'></ul></section>"
-                "<section id='errors' style='display:none;'><h2>Errors</h2><ul id='errors-list'></ul><p id='no-errors' style='display:none;'>No errors found</p></section>"
-                "<script>"
-                f"const specialistId='{specialist_id_str}';"
-                "const stateEl=document.getElementById('state');"
-                "const titleEl=document.getElementById('title');"
-                "const basicBodyEl=document.getElementById('basic-body');"
-                "const integrationListEl=document.getElementById('integration-list');"
-                "const activityMetricsEl=document.getElementById('activity-metrics');"
-                "const recentEventsEl=document.getElementById('recent-events');"
-                "const errorsListEl=document.getElementById('errors-list');"
-                "const noErrorsEl=document.getElementById('no-errors');"
-                "const basicSection=document.getElementById('basic');"
-                "const integrationSection=document.getElementById('integration');"
-                "const activitySection=document.getElementById('activity');"
-                "const errorsSection=document.getElementById('errors');"
-                "function addBasicRow(label,value){const tr=document.createElement('tr');const tdKey=document.createElement('td');const tdValue=document.createElement('td');tdKey.textContent=label;tdValue.textContent=value===null||value===undefined?'':String(value);tr.appendChild(tdKey);tr.appendChild(tdValue);basicBodyEl.appendChild(tr);}"
-                "function addListItem(container,label,value){const li=document.createElement('li');li.textContent=label+': '+(value===null||value===undefined?'':String(value));container.appendChild(li);}"
-                "async function loadDetail(){"
-                "try{"
-                "const res=await fetch('/admin/ui/specialists/'+specialistId,{credentials:'same-origin'});"
-                "if(!res.ok){throw new Error('failed');}"
-                "const data=await res.json();"
-                "const publicName=(data.basic&&data.basic.public_name)?data.basic.public_name:specialistId;"
-                "titleEl.textContent='Specialist: '+publicName;"
-                "stateEl.style.display='none';"
-                "addBasicRow('specialist_id',data.basic.specialist_id);"
-                "addBasicRow('public_name',data.basic.public_name);"
-                "addBasicRow('status',data.basic.status);"
-                "addBasicRow('is_system',data.basic.is_system);"
-                "addBasicRow('created_at',data.basic.created_at);"
-                "addBasicRow('tariff_plan',data.basic.tariff_plan);"
-                "addBasicRow('telegram_username',data.basic.telegram_username);"
-                "addBasicRow('telegram_first_name',data.basic.telegram_first_name);"
-                "addListItem(integrationListEl,'oauth_connected',data.integration.oauth_connected?'connected':'missing');"
-                "addListItem(integrationListEl,'calendar_selected',data.integration.calendar_selected?'selected':'not selected');"
-                "addListItem(integrationListEl,'selected_calendar_id',data.integration.selected_calendar_id);"
-                "addListItem(integrationListEl,'timezone',data.integration.timezone);"
-                "addListItem(integrationListEl,'slot_step',data.integration.slot_step);"
-                "addListItem(integrationListEl,'max_sessions_per_day',data.integration.max_sessions_per_day);"
-                "addListItem(integrationListEl,'onboarding_master_done',data.integration.onboarding_master_done);"
-                "addListItem(integrationListEl,'onboarding_personal_done',data.integration.onboarding_personal_done);"
-                "addListItem(activityMetricsEl,'clients_count',data.activity.clients_count);"
-                "addListItem(activityMetricsEl,'last_activity_at',data.activity.last_activity_at);"
-                "addListItem(activityMetricsEl,'active_7d',data.activity.active_7d);"
-                "const events=Array.isArray(data.activity.recent_events)?data.activity.recent_events:[];"
-                "if(events.length===0){addListItem(recentEventsEl,'event','No recent events');}else{events.forEach((event)=>{const li=document.createElement('li');li.textContent=(event.timestamp||'')+' — '+(event.event_type||'');recentEventsEl.appendChild(li);});}"
-                "const errors=Array.isArray(data.errors)?data.errors:[];"
-                "if(errors.length===0){noErrorsEl.style.display='block';}else{errors.forEach((err)=>{const li=document.createElement('li');li.textContent=(err.timestamp||'')+' ['+(err.type||'')+'] '+(err.message||'');errorsListEl.appendChild(li);});}"
-                "basicSection.style.display='block';integrationSection.style.display='block';activitySection.style.display='block';errorsSection.style.display='block';"
-                "}catch(_e){stateEl.textContent='Failed to load';}"
-                "}"
-                "loadDetail();"
-                "</script>"
-                "</body></html>"
-            ),
+            content=f"""<html><body>
+                <p><a href='/admin#specialists'>← Back to specialists</a></p>
+                <h1 id='title'>Specialist: ...</h1>
+                <p id='state'>Loading specialist…</p>
+                <section id='admin-actions' style='display:none; border:1px solid #ddd; padding:12px; margin:12px 0;'>
+                  <h2>Admin Actions</h2>
+                  <p id='actions-error' style='display:none; color:#b91c1c;'></p>
+                  <div style='display:flex; gap:8px; flex-wrap:wrap; align-items:center;'>
+                    <button id='action-disable' type='button'>Disable</button>
+                    <button id='action-enable' type='button'>Enable</button>
+                    <button id='action-reset-oauth' type='button'>Reset OAuth</button>
+                    <label for='action-tariff'>Tariff</label>
+                    <select id='action-tariff'>
+                      <option value='free'>free</option>
+                      <option value='start'>start</option>
+                      <option value='pro'>pro</option>
+                      <option value='team'>team</option>
+                    </select>
+                    <button id='action-tariff-apply' type='button'>Apply</button>
+                  </div>
+                </section>
+                <section id='basic' style='display:none;'><h2>Basic</h2><table border='1' cellpadding='6' style='border-collapse: collapse;'><tbody id='basic-body'></tbody></table></section>
+                <section id='integration' style='display:none;'><h2>Integration</h2><ul id='integration-list'></ul></section>
+                <section id='activity' style='display:none;'><h2>Activity</h2><ul id='activity-metrics'></ul><h3>Recent events</h3><ul id='recent-events'></ul></section>
+                <section id='errors' style='display:none;'><h2>Errors</h2><ul id='errors-list'></ul><p id='no-errors' style='display:none;'>No errors found</p></section>
+                <script>
+                const specialistId='{specialist_id_str}';
+                const stateEl=document.getElementById('state');
+                const titleEl=document.getElementById('title');
+                const basicBodyEl=document.getElementById('basic-body');
+                const integrationListEl=document.getElementById('integration-list');
+                const activityMetricsEl=document.getElementById('activity-metrics');
+                const recentEventsEl=document.getElementById('recent-events');
+                const errorsListEl=document.getElementById('errors-list');
+                const noErrorsEl=document.getElementById('no-errors');
+                const basicSection=document.getElementById('basic');
+                const integrationSection=document.getElementById('integration');
+                const activitySection=document.getElementById('activity');
+                const errorsSection=document.getElementById('errors');
+                const actionsSection=document.getElementById('admin-actions');
+                const actionsErrorEl=document.getElementById('actions-error');
+                const disableBtn=document.getElementById('action-disable');
+                const enableBtn=document.getElementById('action-enable');
+                const resetOAuthBtn=document.getElementById('action-reset-oauth');
+                const tariffSelect=document.getElementById('action-tariff');
+                const tariffApplyBtn=document.getElementById('action-tariff-apply');
+
+                function getCookie(name) {{
+                  const match=document.cookie.split('; ').find((row)=>row.startsWith(name+'='));
+                  return match?decodeURIComponent(match.split('=').slice(1).join('=')):'';
+                }}
+
+                function setActionsError(message) {{
+                  if(!message){{actionsErrorEl.style.display='none';actionsErrorEl.textContent='';return;}}
+                  actionsErrorEl.textContent=message;
+                  actionsErrorEl.style.display='block';
+                }}
+
+                function clearSections() {{
+                  basicBodyEl.innerHTML='';
+                  integrationListEl.innerHTML='';
+                  activityMetricsEl.innerHTML='';
+                  recentEventsEl.innerHTML='';
+                  errorsListEl.innerHTML='';
+                  noErrorsEl.style.display='none';
+                }}
+
+                function addBasicRow(label,value){{const tr=document.createElement('tr');const tdKey=document.createElement('td');const tdValue=document.createElement('td');tdKey.textContent=label;tdValue.textContent=value===null||value===undefined?'':String(value);tr.appendChild(tdKey);tr.appendChild(tdValue);basicBodyEl.appendChild(tr);}}
+                function addListItem(container,label,value){{const li=document.createElement('li');li.textContent=label+': '+(value===null||value===undefined?'':String(value));container.appendChild(li);}}
+
+                async function postAdminAction(path,payload) {{
+                  const csrfToken=getCookie('admin_csrf');
+                  const headers={{'Content-Type':'application/json'}};
+                  if(csrfToken)headers['X-CSRF-Token']=csrfToken;
+                  const res=await fetch(path,{{method:'POST',credentials:'same-origin',headers,body:payload?JSON.stringify(payload):JSON.stringify({{}})}});
+                  if(!res.ok){{
+                    const text=await res.text();
+                    throw new Error(text||('HTTP '+res.status));
+                  }}
+                  return await res.json();
+                }}
+
+                function setupActions(detailData) {{
+                  const currentStatus=((detailData.basic&&detailData.basic.status)||'').toLowerCase();
+                  const isDisabled=currentStatus==='suspended'||currentStatus==='disabled';
+                  disableBtn.disabled=isDisabled;
+                  enableBtn.disabled=!isDisabled;
+                  if(detailData.basic&&detailData.basic.tariff_plan){{
+                    tariffSelect.value=detailData.basic.tariff_plan;
+                  }}
+                  actionsSection.style.display='block';
+
+                  disableBtn.onclick=async()=>{{
+                    setActionsError('');
+                    if(!confirm('Disable specialist?'))return;
+                    try{{
+                      await postAdminAction('/admin/ui/specialists/'+specialistId+'/disable');
+                      await loadDetail();
+                    }}catch(err){{setActionsError('Disable failed: '+String(err.message||err));}}
+                  }};
+
+                  enableBtn.onclick=async()=>{{
+                    setActionsError('');
+                    if(!confirm('Enable specialist?'))return;
+                    try{{
+                      await postAdminAction('/admin/ui/specialists/'+specialistId+'/enable');
+                      await loadDetail();
+                    }}catch(err){{setActionsError('Enable failed: '+String(err.message||err));}}
+                  }};
+
+                  resetOAuthBtn.onclick=async()=>{{
+                    setActionsError('');
+                    if(!confirm('Reset OAuth for specialist?'))return;
+                    try{{
+                      await postAdminAction('/admin/ui/specialists/'+specialistId+'/reset-oauth');
+                      await loadDetail();
+                    }}catch(err){{setActionsError('Reset OAuth failed: '+String(err.message||err));}}
+                  }};
+
+                  tariffApplyBtn.onclick=async()=>{{
+                    setActionsError('');
+                    if(!confirm('Apply selected tariff plan?'))return;
+                    try{{
+                      await postAdminAction('/admin/ui/specialists/'+specialistId+'/tariff',{{tariff_plan:tariffSelect.value}});
+                      await loadDetail();
+                    }}catch(err){{setActionsError('Change tariff failed: '+String(err.message||err));}}
+                  }};
+                }}
+
+                async function loadDetail(){{
+                  clearSections();
+                  setActionsError('');
+                  stateEl.style.display='block';
+                  stateEl.textContent='Loading specialist…';
+                  try{{
+                    const res=await fetch('/admin/ui/specialists/'+specialistId,{{credentials:'same-origin'}});
+                    if(!res.ok){{throw new Error('failed');}}
+                    const data=await res.json();
+                    const publicName=(data.basic&&data.basic.public_name)?data.basic.public_name:specialistId;
+                    titleEl.textContent='Specialist: '+publicName;
+                    stateEl.style.display='none';
+                    addBasicRow('specialist_id',data.basic.specialist_id);
+                    addBasicRow('public_name',data.basic.public_name);
+                    addBasicRow('status',data.basic.status);
+                    addBasicRow('is_system',data.basic.is_system);
+                    addBasicRow('created_at',data.basic.created_at);
+                    addBasicRow('tariff_plan',data.basic.tariff_plan);
+                    addBasicRow('telegram_username',data.basic.telegram_username);
+                    addBasicRow('telegram_first_name',data.basic.telegram_first_name);
+                    addListItem(integrationListEl,'oauth_connected',data.integration.oauth_connected?'connected':'missing');
+                    addListItem(integrationListEl,'calendar_selected',data.integration.calendar_selected?'selected':'not selected');
+                    addListItem(integrationListEl,'selected_calendar_id',data.integration.selected_calendar_id);
+                    addListItem(integrationListEl,'timezone',data.integration.timezone);
+                    addListItem(integrationListEl,'slot_step',data.integration.slot_step);
+                    addListItem(integrationListEl,'max_sessions_per_day',data.integration.max_sessions_per_day);
+                    addListItem(integrationListEl,'onboarding_master_done',data.integration.onboarding_master_done);
+                    addListItem(integrationListEl,'onboarding_personal_done',data.integration.onboarding_personal_done);
+                    addListItem(activityMetricsEl,'clients_count',data.activity.clients_count);
+                    addListItem(activityMetricsEl,'last_activity_at',data.activity.last_activity_at);
+                    addListItem(activityMetricsEl,'active_7d',data.activity.active_7d);
+                    const events=Array.isArray(data.activity.recent_events)?data.activity.recent_events:[];
+                    if(events.length===0){{addListItem(recentEventsEl,'event','No recent events');}}else{{events.forEach((event)=>{{const li=document.createElement('li');li.textContent=(event.timestamp||'')+' — '+(event.event_type||'');recentEventsEl.appendChild(li);}});}}
+                    const errors=Array.isArray(data.errors)?data.errors:[];
+                    if(errors.length===0){{noErrorsEl.style.display='block';}}else{{errors.forEach((err)=>{{const li=document.createElement('li');li.textContent=(err.timestamp||'')+' ['+(err.type||'')+'] '+(err.message||'');errorsListEl.appendChild(li);}});}}
+                    basicSection.style.display='block';integrationSection.style.display='block';activitySection.style.display='block';errorsSection.style.display='block';
+                    setupActions(data);
+                  }}catch(_e){{stateEl.textContent='Failed to load';}}
+                }}
+                loadDetail();
+                </script>
+                </body></html>""",
             status_code=200,
         )
 

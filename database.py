@@ -8,7 +8,7 @@ from typing import Optional, List
 import config
 from sqlalchemy import (
     BigInteger, Boolean, String, ForeignKey, DateTime, Time,
-    Integer, Text, Enum as SAEnum, func, Float, CheckConstraint, UniqueConstraint, JSON, Index
+    Integer, Text, Enum as SAEnum, func, Float, CheckConstraint, UniqueConstraint, JSON, Index, desc
 )
 from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -519,6 +519,44 @@ class ServiceHeartbeat(Base):
     loop_ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+
+
+class AdminAuditLog(Base):
+    __tablename__ = "admin_audit_log"
+    __table_args__ = (
+        Index("ix_admin_audit_log_created_at_desc", desc("created_at")),
+        Index(
+            "ix_admin_audit_log_target_type_target_id_created_at_desc",
+            "target_type",
+            "target_id",
+            desc("created_at"),
+        ),
+        Index("ix_admin_audit_log_action_created_at_desc", "action", desc("created_at")),
+    )
+
+    audit_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    request_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    admin_subject: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    target_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    payload_json: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default="'{}'::jsonb",
+    )
+    error_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class OutboxEvent(Base):

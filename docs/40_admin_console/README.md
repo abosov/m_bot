@@ -175,6 +175,11 @@ Doc: [US-AD-6 specification](./us_ad_6_observability_logs_heartbeats.md)
 
 ---
 
+### US-AD-7 — Admin Actions: Specialist Management
+Status: Implemented
+Doc: [US-AD-7 specification](./us_ad_7_admin_actions_specialist_management.md)
+
+
 ## 9. Endpoints
 
 Все endpoint-ы Admin Console являются внутренними (`/admin/*`) и требуют заголовок `X-API-Key`.
@@ -189,6 +194,18 @@ Doc: [US-AD-6 specification](./us_ad_6_observability_logs_heartbeats.md)
 - `GET /admin/ui/specialists/{specialist_id}` (UI cookie auth)
   - Детальная JSON карточка специалиста (`basic`, `integration`, `activity`, `errors`).
   - При невалидной/отсутствующей cookie возвращает `404` (anti-enumeration).
+
+- `POST /admin/ui/specialists/{specialist_id}/disable` (UI cookie auth + CSRF)
+  - Отключение специалиста (idempotent), для system account -> `403`.
+
+- `POST /admin/ui/specialists/{specialist_id}/enable` (UI cookie auth + CSRF)
+  - Включение специалиста (idempotent).
+
+- `POST /admin/ui/specialists/{specialist_id}/reset-oauth` (UI cookie auth + CSRF)
+  - Сброс OAuth-связки специалиста, без возврата секретов.
+
+- `POST /admin/ui/specialists/{specialist_id}/tariff` (UI cookie auth + CSRF)
+  - Смена `specialist_profile.tariff_plan` по allowlist enum `TariffPlan`.
 
 - `GET /admin/specialists/{specialist_id}`
   - API режим: JSON detail payload при валидном `X-API-Key` (`403` при неверном/отсутствующем ключе).
