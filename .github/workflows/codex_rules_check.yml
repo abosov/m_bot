@@ -1,0 +1,103 @@
+name: Codex Rules Check
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  codex-rules-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate Codex Operating System rules
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PATH: ${{ github.event_path }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          PUSH_AFTER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          echo "Running Codex rules checks for event: ${EVENT_NAME}"
+
+          # Determine changed files range
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            BASE_SHA="${PR_BASE_SHA}"
+            HEAD_SHA="${PR_HEAD_SHA}"
+            git fetch --no-tags origin "${BASE_SHA}" "${HEAD_SHA}" >/dev/null 2>&1 || true
+            CHANGED_FILES="$(git diff --name-only "${BASE_SHA}" "${HEAD_SHA}" || true)"
+          else
+            BASE_SHA="${PUSH_BEFORE_SHA}"
+            HEAD_SHA="${PUSH_AFTER_SHA}"
+            if [[ -n "${BASE_SHA}" && "${BASE_SHA}" != "0000000000000000000000000000000000000000" ]]; then
+              CHANGED_FILES="$(git diff --name-only "${BASE_SHA}" "${HEAD_SHA}" || true)"
+            else
+              CHANGED_FILES="$(git show --pretty='' --name-only "${HEAD_SHA}" || true)"
+            fi
+          fi
+
+          echo "Changed files:"
+          echo "${CHANGED_FILES}"
+
+          # A. Ensure CODEX_OPERATING_SYSTEM.md exists.
+          if [[ ! -f "docs/90_codex/CODEX_OPERATING_SYSTEM.md" ]]; then
+            echo "ERROR: Missing docs/90_codex/CODEX_OPERATING_SYSTEM.md."
+            exit 1
+          fi
+
+          # B. Ensure README.md references the Codex Operating System document.
+          if ! grep -q "docs/90_codex/CODEX_OPERATING_SYSTEM.md" README.md; then
+            echo "ERROR: README.md must reference docs/90_codex/CODEX_OPERATING_SYSTEM.md."
+            exit 1
+          fi
+
+          # C. Ensure ORM models do not introduce server_default in backend ORM files.
+          # Critical violation: fail the job if added diff lines contain server_default=.
+          SERVER_DEFAULT_HITS=""
+          ORM_CHANGED_FILES="$(echo "${CHANGED_FILES}" | grep -E '^(backend/.*\.py|database\.py)$' || true)"
+
+          if [[ -n "${ORM_CHANGED_FILES}" ]]; then
+            while IFS= read -r file; do
+              [[ -z "${file}" ]] && continue
+              DIFF_HITS="$(git diff "${BASE_SHA}" "${HEAD_SHA}" -- "${file}" | grep -nE '^\+[^+].*server_default[[:space:]]*=' || true)"
+              if [[ -n "${DIFF_HITS}" ]]; then
+                SERVER_DEFAULT_HITS+=$'\n'"${file}:"$'\n'"${DIFF_HITS}"
+              fi
+            done <<< "${ORM_CHANGED_FILES}"
+          fi
+
+          if [[ -n "${SERVER_DEFAULT_HITS//[[:space:]]/}" ]]; then
+            echo "ERROR: ORM introduced server_default. Database defaults must be defined in SQL migrations."
+            echo "Matched added lines:"
+            echo -e "${SERVER_DEFAULT_HITS}"
+            exit 1
+          fi
+
+          # D. Warning if backend/database.py is modified without migrations/ changes.
+          # Non-critical: warning only.
+          if echo "${CHANGED_FILES}" | grep -qx "backend/database.py"; then
+            if ! echo "${CHANGED_FILES}" | grep -q '^migrations/'; then
+              echo "::warning::WARNING: backend/database.py changed without migrations/. Ensure schema changes are implemented via SQL migrations."
+            fi
+          fi
+
+          # E. Ensure PR description contains a User Story reference (US-*)
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            PR_BODY="$(jq -r '.pull_request.body // ""' "${EVENT_PATH}")"
+            if ! echo "${PR_BODY}" | grep -Eq 'US-[A-Za-z0-9-]+'; then
+              echo "ERROR: PR description must contain a User Story reference (e.g., US-AD-8, US-DOCS-2)."
+              exit 1
+            fi
+          else
+            echo "Skipping PR description check on push event."
+          fi
+
+          echo "Codex rules checks completed successfully."
