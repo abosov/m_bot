@@ -722,8 +722,15 @@ async def test_admin_page_returns_200_with_valid_cookie(tmp_path, monkeypatch):
     assert "id='specialists-table'" in response.text
     assert "<a href='#logs'>Logs</a>" in response.text
     assert "<a href='#heartbeats'>Heartbeats</a>" in response.text
+    assert "<a href='#audit-log'>Audit Log</a>" in response.text
+    assert "id='audit-log-section'" in response.text
+    assert "id='audit-limit'" in response.text
+    assert "id='audit-prev'" in response.text
+    assert "id='audit-next'" in response.text
+    assert "No audit records" in response.text
     assert "fetch('/admin/ui/logs?'+params.toString(),{credentials:'same-origin'})" in response.text
     assert "fetch('/admin/ui/heartbeats?'+params.toString(),{credentials:'same-origin'})" in response.text
+    assert "fetch('/admin/ui/audit-log?'+params.toString(),{credentials:'same-origin'})" in response.text
     assert "id='oauth-missing-filter'" in response.text
     assert "id='calendar-missing-filter'" in response.text
     assert "id='inactive-days-filter'" in response.text
@@ -2675,3 +2682,266 @@ async def test_admin_ui_specialists_operational_payload_and_filters(tmp_path, mo
     assert response_include_system.status_code == 200
     payload_include_system = response_include_system.json()
     assert payload_include_system["total"] == 3
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_audit_log_returns_404_without_cookie(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    response = client.get("/admin/ui/audit-log")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_audit_log_returns_200_with_valid_cookie_and_sanitized_payload(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    target_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(
+            database.AdminAuditLog(
+                admin_subject="cookie_session",
+                action="disable_specialist",
+                target_type="specialist",
+                target_id=target_id,
+                success=True,
+                payload_json={
+                    "access_token": "secret",
+                    "refresh_token": "secret",
+                    "secrets": {"x": 1},
+                    "tokens": ["a", "b"],
+                    "safe": "ok",
+                },
+                error_code=None,
+                error_message=None,
+            )
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get("/admin/ui/audit-log", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["limit"] == 100
+    assert payload["offset"] == 0
+    assert len(payload["items"]) == 1
+    item = payload["items"][0]
+    assert item["action"] == "disable_specialist"
+    assert item["target_id"] == str(target_id)
+    assert item["success"] is True
+    assert item["payload"] == {"safe": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_audit_log_filters_working(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    target_a = uuid.uuid4()
+    target_b = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.AdminAuditLog(
+                    admin_subject="cookie_session",
+                    action="disable_specialist",
+                    target_type="specialist",
+                    target_id=target_a,
+                    success=True,
+                    payload_json={"safe": 1},
+                ),
+                database.AdminAuditLog(
+                    admin_subject="cookie_session",
+                    action="enable_specialist",
+                    target_type="specialist",
+                    target_id=target_b,
+                    success=False,
+                    payload_json={"safe": 2},
+                    error_code="FORBIDDEN_SYSTEM",
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        f"/admin/ui/audit-log?action=enable_specialist&success=false&target_id={target_b}",
+        cookies={"admin_session": session_cookie},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["action"] == "enable_specialist"
+    assert payload["items"][0]["target_id"] == str(target_b)
+    assert payload["items"][0]["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_audit_log_limit_clamped_to_500(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get("/admin/ui/audit-log?limit=1000", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["limit"] == 500
+    assert payload["offset"] == 0
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_audit_log_filter_action_returns_only_matching_rows(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    now = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.AdminAuditLog(
+                    admin_subject="cookie_session",
+                    action="disable_specialist",
+                    target_type="specialist",
+                    target_id=uuid.uuid4(),
+                    success=True,
+                    payload_json={"safe": 1},
+                    created_at=now,
+                ),
+                database.AdminAuditLog(
+                    admin_subject="cookie_session",
+                    action="enable_specialist",
+                    target_type="specialist",
+                    target_id=uuid.uuid4(),
+                    success=True,
+                    payload_json={"safe": 2},
+                    created_at=now + timedelta(minutes=1),
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        "/admin/ui/audit-log?action=enable_specialist",
+        cookies={"admin_session": session_cookie},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["action"] == "enable_specialist"
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_audit_log_filter_success_returns_only_true_rows(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    now = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.AdminAuditLog(
+                    admin_subject="cookie_session",
+                    action="disable_specialist",
+                    target_type="specialist",
+                    target_id=uuid.uuid4(),
+                    success=True,
+                    payload_json={"safe": 1},
+                    created_at=now,
+                ),
+                database.AdminAuditLog(
+                    admin_subject="cookie_session",
+                    action="enable_specialist",
+                    target_type="specialist",
+                    target_id=uuid.uuid4(),
+                    success=False,
+                    payload_json={"safe": 2},
+                    created_at=now + timedelta(minutes=1),
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        "/admin/ui/audit-log?success=true",
+        cookies={"admin_session": session_cookie},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_audit_log_pagination_limit_2_offset_2_returns_correct_rows(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    base_time = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    actions = ["a0", "a1", "a2", "a3", "a4"]
+    async with database.async_session_factory() as session:
+        for idx, action in enumerate(actions):
+            session.add(
+                database.AdminAuditLog(
+                    admin_subject="cookie_session",
+                    action=action,
+                    target_type="specialist",
+                    target_id=uuid.uuid4(),
+                    success=True,
+                    payload_json={"idx": idx},
+                    created_at=base_time + timedelta(minutes=idx),
+                )
+            )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        "/admin/ui/audit-log?limit=2&offset=2",
+        cookies={"admin_session": session_cookie},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["limit"] == 2
+    assert payload["offset"] == 2
+    # Order is created_at DESC, so after a4,a3 then offset 2 yields a2,a1
+    assert [item["action"] for item in payload["items"]] == ["a2", "a1"]
