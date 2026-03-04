@@ -1,3 +1,5 @@
+import re
+
 from fastapi.testclient import TestClient
 
 import web_server
@@ -30,6 +32,24 @@ def test_site_pages_are_available():
         assert response.status_code == 200
         assert title in response.text
 
+
+def test_pricing_page_cta_links_open_bot_in_new_tab():
+    response = client.get("/pricing")
+
+    assert response.status_code == 200
+
+    # Тарифные CTA + финальный CTA-блок на странице pricing.
+    pricing_cta_links = re.findall(r'<a[^>]+href="https://t.me/zumhelper_bot"[^>]*>', response.text)
+    assert len(pricing_cta_links) >= 5
+
+    for link in pricing_cta_links:
+        assert 'target="_blank"' in link
+        assert 'rel="' in link
+        assert 'noopener' in link
+        assert 'noreferrer' in link
+
+    assert 'https://t.me/zumhelper_bot?start=' not in response.text
+    assert 'data-bot-link=' not in response.text
 
 def test_privacy_page_contains_google_calendar_policy_points():
     response = client.get("/privacy")

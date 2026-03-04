@@ -55,14 +55,6 @@ document.addEventListener("DOMContentLoaded", () => {
   if (pricingToggle) {
     const options = pricingToggle.querySelectorAll(".toggle-option");
     const monthYearFields = document.querySelectorAll("[data-month][data-year]");
-    const planCtas = document.querySelectorAll(".plan-cta[data-plan][data-bot-link]");
-
-    const buildStartPayload = (plan, period) => {
-      if (plan === "team") {
-        return "plan_team_contact";
-      }
-      return `plan_${plan}_${period === "year" ? "y" : "m"}`;
-    };
 
     const applyPeriod = (period) => {
       options.forEach((option) => {
@@ -71,11 +63,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       monthYearFields.forEach((field) => {
         field.textContent = period === "year" ? field.dataset.year : field.dataset.month;
-      });
-
-      planCtas.forEach((cta) => {
-        const payload = buildStartPayload(cta.dataset.plan, period);
-        cta.href = `${cta.dataset.botLink}?start=${payload}`;
       });
     };
 

@@ -55,3 +55,17 @@ def test_public_pages_render_unified_header_without_privacy_policy_link() -> Non
 
         for marker in REQUIRED_HEADER_ITEMS:
             assert marker in header_html, f"Missing header item '{marker}' on {route}"
+
+
+def test_header_cta_points_to_telegram_in_new_tab() -> None:
+    client = TestClient(web_server.app)
+
+    for route in PUBLIC_ROUTES:
+        response = client.get(route)
+        assert response.status_code == 200, f"Unexpected status on {route}: {response.status_code}"
+        header_html = _extract_header(response.text)
+
+        assert 'href="https://t.me/zumhelper_bot"' in header_html, f"Header CTA href is incorrect on {route}"
+        assert 'target="_blank"' in header_html, f"Header CTA target is incorrect on {route}"
+        assert 'rel="noopener noreferrer"' in header_html, f"Header CTA rel is incorrect on {route}"
+        assert 'href="/connect"' not in header_html, f"Legacy internal connect route is still used on {route}"
