@@ -8,18 +8,28 @@ document.addEventListener("DOMContentLoaded", () => {
     return billing === "yearly" ? "y" : "m";
   }
 
+  function buildPlanDeepLink(plan, periodCode) {
+    if (plan === "team") {
+      return `${BOT_BASE_URL}?start=plan_team_contact`;
+    }
+
+    const payload = `plan_${plan}_${periodCode}`;
+    return `${BOT_BASE_URL}?start=${encodeURIComponent(payload)}`;
+  }
+
   function updatePlanCtas() {
     const periodCode = getBillingPeriodCode();
-    const ctas = document.querySelectorAll("a.plan-cta[data-plan]");
+    const ctas = document.querySelectorAll("a.plan-cta");
 
     ctas.forEach((cta) => {
-      const plan = cta.getAttribute("data-plan");
+      const explicitPlan = (cta.getAttribute("data-plan") || "").trim().toLowerCase();
+      const plan = explicitPlan || (cta.classList.contains("plan-team-contact") ? "team" : "");
       if (!plan) {
         return;
       }
 
-      const payload = `plan_${plan}_${periodCode}`;
-      cta.setAttribute("href", `${BOT_BASE_URL}?start=${encodeURIComponent(payload)}`);
+      cta.setAttribute("href", buildPlanDeepLink(plan, periodCode));
+      cta.setAttribute("data-period", periodCode);
       cta.setAttribute("target", "_blank");
       cta.setAttribute("rel", "noopener noreferrer");
     });
