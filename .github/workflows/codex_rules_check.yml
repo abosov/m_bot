@@ -89,15 +89,20 @@ jobs:
             fi
           fi
 
+          # --------------------------------------------------------------------
           # E. Ensure PR description contains a User Story reference (US-*)
-          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
-            PR_BODY="$(jq -r '.pull_request.body // ""' "${EVENT_PATH}")"
-            if ! echo "${PR_BODY}" | grep -Eq 'US-[A-Za-z0-9-]+'; then
-              echo "ERROR: PR description must contain a User Story reference (e.g., US-AD-8, US-DOCS-2)."
-              exit 1
-            fi
-          else
-            echo "Skipping PR description check on push event."
-          fi
+          # Temporarily disabled for solo development to avoid unnecessary CI friction.
+          # Can be re-enabled later when multiple developers contribute to the project.
+          # --------------------------------------------------------------------
+          #
+          # if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+          #   PR_BODY="$(jq -r '.pull_request.body // ""' "${EVENT_PATH}")"
+          #   if ! echo "${PR_BODY}" | grep -Eq 'US-[A-Za-z0-9-]+'; then
+          #     echo "ERROR: PR description must contain a User Story reference (e.g., US-AD-8, US-DOCS-2)."
+          #     exit 1
+          #   fi
+          # else
+          #   echo "Skipping PR description check on push event."
+          # fi
 
           echo "Codex rules checks completed successfully."
