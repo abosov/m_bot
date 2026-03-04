@@ -106,12 +106,17 @@ async def test_admin_page_returns_200_with_valid_cookie(tmp_path, monkeypatch):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "<h1>Zumbot Admin Console</h1>" in response.text
-    assert "<p>Environment: local</p>" in response.text
-    assert "<p>Server time (UTC):" in response.text
-    assert "<p>Version: build-123</p>" in response.text
-    assert "<div id='admin-overview'>Loading overview…</div>" in response.text
+    assert "Environment: local" in response.text
+    assert "Server time (UTC):" in response.text
+    assert "Version: build-123" in response.text
+    assert "id='admin-overview'" in response.text
+    assert "Loading overview…" in response.text
     assert "const url='/admin/ui/overview?'+params.toString();" in response.text
     assert "id='specialists-table'" in response.text
+    assert "<a href='#logs'>Logs</a>" in response.text
+    assert "<a href='#heartbeats'>Heartbeats</a>" in response.text
+    assert "fetch('/admin/ui/logs?'+params.toString(),{credentials:'same-origin'})" in response.text
+    assert "fetch('/admin/ui/heartbeats?'+params.toString(),{credentials:'same-origin'})" in response.text
     assert "id='oauth-missing-filter'" in response.text
     assert "id='calendar-missing-filter'" in response.text
     assert "id='inactive-days-filter'" in response.text
@@ -840,6 +845,448 @@ async def test_admin_logs_redacted_by_default(tmp_path, monkeypatch):
     payload = response.json()
     assert len(payload["items"]) == 1
     assert payload["items"][0]["content"] == "[REDACTED]"
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_logs_returns_404_without_cookie_even_with_api_key(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    response = client.get("/admin/ui/logs", headers={"X-API-Key": "secret"})
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_logs_returns_404_for_text_html_accept(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        "/admin/ui/logs",
+        headers={"accept": "text/html"},
+        cookies={"admin_session": session_cookie},
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_heartbeats_returns_404_for_text_html_accept(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        "/admin/ui/heartbeats",
+        headers={"accept": "text/html"},
+        cookies={"admin_session": session_cookie},
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_logs_returns_404_without_cookie(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    response = client.get("/admin/ui/logs")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_logs_returns_200_with_valid_cookie_and_redacted_items(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    token_in_content = "debug token 123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
+
+    async with database.async_session_factory() as session:
+        session.add(
+            database.MessageLog(
+                specialist_id=specialist_id,
+                bot_id=100,
+                tg_user_id=200,
+                direction=database.LogDirection.IN,
+                message_type="message",
+                content=token_in_content,
+            )
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get("/admin/ui/logs", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["limit"] == 100
+    assert payload["offset"] == 0
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["content"] == "[REDACTED]"
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_logs_limit_clamped_to_500(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    async with database.async_session_factory() as session:
+        session.add(
+            database.MessageLog(
+                bot_id=100,
+                tg_user_id=200,
+                direction=database.LogDirection.IN,
+                message_type="message",
+                content="hello",
+            )
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get("/admin/ui/logs?limit=1000", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["limit"] == 500
+    assert len(payload["items"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_logs_ignores_redact_param_and_stays_redacted(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    token_in_content = "debug token 123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
+    async with database.async_session_factory() as session:
+        session.add(
+            database.MessageLog(
+                bot_id=100,
+                tg_user_id=200,
+                direction=database.LogDirection.IN,
+                message_type="message",
+                content=token_in_content,
+            )
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get("/admin/ui/logs?redact=false", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["content"] == "[REDACTED]"
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_heartbeats_returns_404_without_cookie(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    response = client.get("/admin/ui/heartbeats")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_heartbeats_returns_200_with_valid_cookie(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    now = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    async with database.async_session_factory() as session:
+        session.add(
+            database.ServiceHeartbeat(
+                service_name="worker",
+                ts=now,
+                db_ok=True,
+                loop_ok=True,
+                latency_ms=42,
+                details="ok",
+            )
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get("/admin/ui/heartbeats", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["limit"] == 100
+    assert payload["offset"] == 0
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["service_name"] == "worker"
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_heartbeats_limit_clamped_to_500(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    async with database.async_session_factory() as session:
+        session.add(
+            database.ServiceHeartbeat(
+                service_name="worker",
+                db_ok=True,
+                loop_ok=True,
+                latency_ms=42,
+                details="ok",
+            )
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get("/admin/ui/heartbeats?limit=1000", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["limit"] == 500
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_heartbeats_service_name_filter_works(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    now = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.ServiceHeartbeat(
+                    service_name="worker",
+                    ts=now,
+                    db_ok=True,
+                    loop_ok=True,
+                    latency_ms=42,
+                    details="ok",
+                ),
+                database.ServiceHeartbeat(
+                    service_name="scheduler",
+                    ts=now,
+                    db_ok=True,
+                    loop_ok=True,
+                    latency_ms=33,
+                    details="ok",
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        "/admin/ui/heartbeats?service_name=worker",
+        cookies={"admin_session": session_cookie},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["service_name"] == "worker"
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_logs_filters_is_error_and_direction(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    base_ts = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.MessageLog(
+                    created_at=base_ts,
+                    bot_id=100,
+                    tg_user_id=200,
+                    direction=database.LogDirection.IN,
+                    message_type="message",
+                    is_error=True,
+                    content="err in",
+                ),
+                database.MessageLog(
+                    created_at=base_ts + timedelta(minutes=1),
+                    bot_id=100,
+                    tg_user_id=201,
+                    direction=database.LogDirection.OUT,
+                    message_type="message",
+                    is_error=False,
+                    content="ok out",
+                ),
+                database.MessageLog(
+                    created_at=base_ts + timedelta(minutes=2),
+                    bot_id=100,
+                    tg_user_id=202,
+                    direction=database.LogDirection.OUT,
+                    message_type="message",
+                    is_error=True,
+                    content="err out",
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    err_response = client.get("/admin/ui/logs?is_error=true", cookies={"admin_session": session_cookie})
+    assert err_response.status_code == 200
+    err_items = err_response.json()["items"]
+    assert len(err_items) == 2
+    assert all(item["is_error"] is True for item in err_items)
+
+    in_response = client.get("/admin/ui/logs?direction=IN", cookies={"admin_session": session_cookie})
+    assert in_response.status_code == 200
+    in_items = in_response.json()["items"]
+    assert len(in_items) == 1
+    assert all(item["direction"] == "IN" for item in in_items)
+
+    out_response = client.get("/admin/ui/logs?direction=OUT", cookies={"admin_session": session_cookie})
+    assert out_response.status_code == 200
+    out_items = out_response.json()["items"]
+    assert len(out_items) == 2
+    assert all(item["direction"] == "OUT" for item in out_items)
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_logs_pagination_offset_limit(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    base_ts = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.MessageLog(created_at=base_ts, bot_id=100, tg_user_id=1, direction=database.LogDirection.IN, message_type="message", content="a"),
+                database.MessageLog(created_at=base_ts + timedelta(minutes=1), bot_id=100, tg_user_id=2, direction=database.LogDirection.IN, message_type="message", content="b"),
+                database.MessageLog(created_at=base_ts + timedelta(minutes=2), bot_id=100, tg_user_id=3, direction=database.LogDirection.IN, message_type="message", content="c"),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    page1 = client.get("/admin/ui/logs?limit=2&offset=0", cookies={"admin_session": session_cookie})
+    assert page1.status_code == 200
+    assert len(page1.json()["items"]) == 2
+
+    page2 = client.get("/admin/ui/logs?limit=2&offset=2", cookies={"admin_session": session_cookie})
+    assert page2.status_code == 200
+    assert len(page2.json()["items"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_heartbeats_since_until_filter_works(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    t0 = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    t1 = datetime(2024, 1, 1, 12, 10, tzinfo=timezone.utc)
+    t2 = datetime(2024, 1, 1, 12, 20, tzinfo=timezone.utc)
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.ServiceHeartbeat(service_name="worker", ts=t0, db_ok=True, loop_ok=True, latency_ms=10, details="old"),
+                database.ServiceHeartbeat(service_name="worker", ts=t1, db_ok=True, loop_ok=True, latency_ms=11, details="middle"),
+                database.ServiceHeartbeat(service_name="worker", ts=t2, db_ok=True, loop_ok=True, latency_ms=12, details="new"),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        "/admin/ui/heartbeats?since=2024-01-01T12:05:00Z&until=2024-01-01T12:15:00Z",
+        cookies={"admin_session": session_cookie},
+    )
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["details"] == "middle"
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_heartbeats_pagination_offset_limit(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    t0 = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.ServiceHeartbeat(service_name="worker", ts=t0, db_ok=True, loop_ok=True, latency_ms=10, details="a"),
+                database.ServiceHeartbeat(service_name="worker", ts=t0 + timedelta(minutes=1), db_ok=True, loop_ok=True, latency_ms=11, details="b"),
+                database.ServiceHeartbeat(service_name="worker", ts=t0 + timedelta(minutes=2), db_ok=True, loop_ok=True, latency_ms=12, details="c"),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    page1 = client.get("/admin/ui/heartbeats?limit=2&offset=0", cookies={"admin_session": session_cookie})
+    assert page1.status_code == 200
+    assert len(page1.json()["items"]) == 2
+
+    page2 = client.get("/admin/ui/heartbeats?limit=2&offset=2", cookies={"admin_session": session_cookie})
+    assert page2.status_code == 200
+    assert len(page2.json()["items"]) == 1
 
 
 @pytest.mark.asyncio

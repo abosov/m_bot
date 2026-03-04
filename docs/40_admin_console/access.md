@@ -132,7 +132,40 @@ ssh -N -L 18000:127.0.0.1:8000 <user>@<vps-host>
 
 - `http://127.0.0.1:18000/admin`
 
+Внутри `/admin` используйте верхнюю навигацию: `Overview | Specialists | Logs | Heartbeats`. Разделы `Logs` и `Heartbeats` загружают данные без перезагрузки страницы через UI JSON endpoints.
+
 Если cookie отсутствует/невалидна, endpoint возвращает `404` (без редиректа), чтобы не раскрывать наличие admin UI.
+
+UI разделы Observability (US-AD-6) также требуют валидную cookie `admin_session` и при её отсутствии/невалидности возвращают `404`:
+- `GET /admin/ui/logs`
+- `GET /admin/ui/heartbeats`
+
+
+UI Logs examples:
+- Browser URL (после логина): `http://127.0.0.1:18000/admin/ui/logs?limit=20&is_error=true`
+- Browser URL с фильтрами: `http://127.0.0.1:18000/admin/ui/logs?since=2026-03-01T00:00:00Z&until=2026-03-01T23:59:59Z&specialist_id=<SPECIALIST_UUID>`
+
+Пример `curl` к UI endpoint с cookie (для диагностики; redaction всегда включён):
+
+```bash
+curl -i \
+  -H 'Cookie: admin_session=<ADMIN_SESSION_COOKIE>' \
+  'http://127.0.0.1:18000/admin/ui/logs?limit=5&is_error=true'
+```
+
+
+
+UI Heartbeats examples:
+- Browser URL (после логина): `http://127.0.0.1:18000/admin/ui/heartbeats?limit=20`
+- Browser URL с фильтром: `http://127.0.0.1:18000/admin/ui/heartbeats?service_name=worker&since=2026-03-01T00:00:00Z`
+
+Пример `curl` к UI heartbeats endpoint с cookie:
+
+```bash
+curl -i \
+  -H 'Cookie: admin_session=<ADMIN_SESSION_COOKIE>' \
+  'http://127.0.0.1:18000/admin/ui/heartbeats?limit=5&service_name=worker'
+```
 
 ### Шаг 4. [Локально] Проверить admin API по `X-API-Key`
 
@@ -153,6 +186,13 @@ curl -i \
 ---
 
 ## 6. Security notes
+
+
+US-AD-6 specific:
+- `GET /admin/ui/logs` и `GET /admin/ui/heartbeats` используют только cookie `admin_session`; `X-API-Key` для них не требуется.
+- Для UI observability endpoint-ов невалидная/отсутствующая cookie и запросы с `Accept: text/html` должны отвечать `404`.
+- Для UI logs redaction всегда принудительный; попытки `redact=false` не должны отключать маскирование.
+- Не публикуйте `/admin/ui/*` наружу; используйте только внутренний доступ (SSH tunnel / защищённый private routing).
 
 - Не логируйте `ADMIN_API_KEY`, `ADMIN_UI_PASSWORD`, cookie `admin_session`.
 - Не храните `.htpasswd` в git-репозитории.

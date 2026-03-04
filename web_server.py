@@ -26,6 +26,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from database import (
     Appointment,
     BookingState,
+    LogDirection,
     SpecialistStatus,
     async_session_factory, 
     GoogleOAuth, 
@@ -62,9 +63,12 @@ import config
 from admin_api import (
     build_admin_specialist_detail_payload,
     build_admin_specialists_payload,
+    build_heartbeat_query,
+    build_message_log_query,
     compute_admin_overview,
     router as admin_router,
 )
+from services.log_exporter import serialize_message_log, serialize_service_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -459,6 +463,10 @@ async def admin_ui_specialists(
     if not _admin_ui_enabled():
         _raise_not_found()
 
+    accept_header = request.headers.get("accept", "")
+    if "text/html" in accept_header:
+        _raise_not_found()
+
     cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
     if not admin_ui_session.verify_admin_session_cookie(cookie_value):
         _raise_not_found()
@@ -510,6 +518,105 @@ async def admin_ui_specialist_detail(
     return payload
 
 
+@app.get("/admin/ui/logs")
+async def admin_ui_logs(
+    request: Request,
+    since: str | None = Query(default=None),
+    until: str | None = Query(default=None),
+    limit: int | None = Query(default=100),
+    offset: int = Query(default=0),
+    bot_id: int | None = Query(default=None),
+    specialist_id: str | None = Query(default=None),
+    tg_user_id: int | None = Query(default=None),
+    direction: LogDirection | None = Query(default=None),
+    is_error: bool | None = Query(default=None),
+):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    accept_header = request.headers.get("accept", "")
+    if "text/html" in accept_header:
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    stmt, limit_value = build_message_log_query(
+        since=since,
+        until=until,
+        limit=limit,
+        offset=offset,
+        bot_id=bot_id,
+        specialist_id=specialist_id,
+        tg_user_id=tg_user_id,
+        direction=direction,
+        is_error=is_error,
+    )
+
+    logger.info(
+        "event=admin_query request_id=%s path=/admin/ui/logs tg_user_id=%s is_error=%s created_at_since=%s created_at_until=%s limit=%s offset=%s",
+        _request_id_from_request(request),
+        tg_user_id,
+        is_error,
+        since,
+        until,
+        limit_value,
+        offset,
+    )
+
+    async with async_session_factory() as session:
+        result = await session.execute(stmt)
+        items = [serialize_message_log(row, redact=True) for row in result.scalars().all()]
+
+    return {"items": items, "limit": limit_value, "offset": offset}
+
+
+@app.get("/admin/ui/heartbeats")
+async def admin_ui_heartbeats(
+    request: Request,
+    since: str | None = Query(default=None),
+    until: str | None = Query(default=None),
+    limit: int | None = Query(default=100),
+    offset: int = Query(default=0),
+    service_name: str | None = Query(default=None),
+):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    accept_header = request.headers.get("accept", "")
+    if "text/html" in accept_header:
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    stmt, limit_value = build_heartbeat_query(
+        since=since,
+        until=until,
+        limit=limit,
+        offset=offset,
+        service_name=service_name,
+    )
+
+    logger.info(
+        "event=admin_query request_id=%s path=/admin/ui/heartbeats service_name=%s created_at_since=%s created_at_until=%s limit=%s offset=%s",
+        _request_id_from_request(request),
+        service_name,
+        since,
+        until,
+        limit_value,
+        offset,
+    )
+
+    async with async_session_factory() as session:
+        result = await session.execute(stmt)
+        items = [serialize_service_heartbeat(row) for row in result.scalars().all()]
+
+    return {"items": items, "limit": limit_value, "offset": offset}
+
+
 @app.get("/admin/ui/overview")
 async def admin_ui_overview(
     request: Request,
@@ -559,96 +666,244 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
     )
 
     return HTMLResponse(
-        content=(
-            "<html><body>"
-            "<h1>Zumbot Admin Console</h1>"
-            f"<p>Environment: {env_name}</p>"
-            f"<p>Server time (UTC): {server_time_utc}</p>"
-            f"<p>Version: {version}</p>"
-            "<h2>Overview</h2>"
-            "<div id='admin-overview'>Loading overview…</div>"
-            "<nav><strong>Навигация:</strong> <a href='#specialists'>Специалисты</a></nav>"
-            "<section id='specialists'>"
-            "<h2>Специалисты</h2>"
-            "<label for='status-filter'>Статус:</label>"
-            "<select id='status-filter'>"
-            "<option value=''>Все</option>"
-            "<option value='onboarding'>onboarding</option>"
-            "<option value='active'>active</option>"
-            "<option value='suspended'>suspended</option>"
-            "</select>"
-            "<label style='margin-left:12px;' for='include-system-filter'>Показывать системные</label>"
-            "<input id='include-system-filter' type='checkbox' />"
-            "<label style='margin-left:12px;' for='oauth-missing-filter'>Нет OAuth</label>"
-            "<input id='oauth-missing-filter' type='checkbox' />"
-            "<label style='margin-left:12px;' for='calendar-missing-filter'>Нет календаря</label>"
-            "<input id='calendar-missing-filter' type='checkbox' />"
-            "<label style='margin-left:12px;' for='inactive-days-filter'>Неактивен дней ></label>"
-            "<input id='inactive-days-filter' type='number' min='1' step='1' style='width:90px;' />"
-            "<button id='apply-filter' type='button'>Применить</button>"
-            "<p id='specialists-state'>Загрузка...</p>"
-            "<table id='specialists-table' border='1' cellpadding='6' style='border-collapse: collapse; display:none;'>"
-            "<thead><tr><th>Имя</th><th>Статус</th><th>Timezone</th><th>Onboarding</th><th>OAuth</th><th>Calendar</th><th>Active_7d</th><th>Клиенты</th><th>Тариф</th><th>Последняя активность</th></tr></thead>"
-            "<tbody></tbody>"
-            "</table>"
-            "</section>"
-            '<form method="post" action="/admin/logout"><button type="submit">Logout</button></form>'
-            "<script>"
-            "const overviewEl=document.getElementById('admin-overview');"
-            "const stateEl=document.getElementById('specialists-state');"
-            "const tableEl=document.getElementById('specialists-table');"
-            "const tbodyEl=tableEl.querySelector('tbody');"
-            "const statusEl=document.getElementById('status-filter');"
-            "const buttonEl=document.getElementById('apply-filter');"
-            "const includeSystemEl=document.getElementById('include-system-filter');const oauthMissingEl=document.getElementById('oauth-missing-filter');const calendarMissingEl=document.getElementById('calendar-missing-filter');const inactiveDaysEl=document.getElementById('inactive-days-filter');"
-            "function setOverviewLoading(){overviewEl.textContent='Loading overview…';}"
-            "function setOverviewError(){overviewEl.textContent='Failed to load overview';}"
-            "function renderOverview(payload){overviewEl.innerHTML='<ul>'"
-            "+'<li>specialists_total: '+String(payload.specialists_total??0)+'</li>'"
-            "+'<li>specialists_active_7d: '+String(payload.specialists_active_7d??0)+'</li>'"
-            "+'<li>clients_total: '+String(payload.clients_total??0)+'</li>'"
-            "+'<li>errors_24h: '+String(payload.errors_24h??0)+'</li>'"
-            "+'</ul>';"
-            "}"
-            "function getIncludeSystemParam(){return includeSystemEl.checked?'1':'0';}"
-            "async function loadOverview(){setOverviewLoading();const params=new URLSearchParams({include_system:getIncludeSystemParam()});"
-            "const url='/admin/ui/overview?'+params.toString();"
-            "try{const res=await fetch(url,{credentials:'same-origin'});if(!res.ok){throw new Error('HTTP '+res.status);}"
-            "const payload=await res.json();renderOverview(payload);}"
-            "catch(_err){setOverviewError();}}"
-            "function setState(state,msg){if(state==='loading'){stateEl.textContent='Загрузка...';stateEl.style.display='block';tableEl.style.display='none';}"
-            "else if(state==='empty'){stateEl.textContent='Данных нет';stateEl.style.display='block';tableEl.style.display='none';}"
-            "else if(state==='error'){stateEl.textContent=msg||'Ошибка загрузки';stateEl.style.display='block';tableEl.style.display='none';}"
-            "else{stateEl.style.display='none';tableEl.style.display='table';}}"
-            "function renderRows(items){tbodyEl.innerHTML='';items.forEach((item)=>{const row=document.createElement('tr');"
-            "const onboarding=(item.onboarding_master_done?'M✓':'M—')+' '+(item.onboarding_personal_done?'P✓':'P—');"
-            "const oauth=item.oauth_connected?'connected':'missing';"
-            "const calendar=item.calendar_selected?'selected':'missing';"
-            "const active=item.active_7d?'yes':'no';"
-            "const timezone=item.timezone||'—';"
-            "const lastActivity=item.last_activity_at||'—';"
-            "row.innerHTML='<td>'+((item.public_name||''))+'</td><td>'+((item.status||''))+'</td><td>'+timezone+'</td><td>'+onboarding+'</td><td>'+oauth+'</td><td>'+calendar+'</td><td>'+active+'</td><td>'+String(item.clients_count??0)+'</td><td>'+((item.tariff_plan||''))+'</td><td>'+lastActivity+'</td>' ;"
-            "tbodyEl.appendChild(row);});}"
-            "async function loadSpecialists(){setState('loading');const status=statusEl.value;"
-            "const params=new URLSearchParams({limit:'100',offset:'0',include_system:getIncludeSystemParam()});if(status){params.set('status',status);}"
-            "if(oauthMissingEl.checked){params.set('oauth_missing','1');}"
-            "if(calendarMissingEl.checked){params.set('calendar_missing','1');}"
-            "const inactiveDaysRaw=(inactiveDaysEl.value||'').trim();if(inactiveDaysRaw){params.set('inactive_days_gt',inactiveDaysRaw);}"
-            "try{const res=await fetch('/admin/ui/specialists?'+params.toString(),{credentials:'same-origin'});"
-            "if(!res.ok){throw new Error('HTTP '+res.status);}"
-            "const payload=await res.json();const items=payload.items||[];if(items.length===0){setState('empty');return;}renderRows(items);setState('ready');}"
-            "catch(_err){setState('error','Не удалось загрузить список специалистов');}}"
-            "buttonEl.addEventListener('click',()=>{loadOverview();loadSpecialists();});"
-            "includeSystemEl.addEventListener('change',()=>{loadOverview();loadSpecialists();});"
-            "loadOverview();"
-            "loadSpecialists();"
-            "</script>"
-            "</body></html>"
-        ),
+        content=f"""
+<html>
+<head>
+  <style>
+    body {{ font-family: Arial, sans-serif; background:#f6f8fb; color:#1f2937; margin:0; }}
+    .container {{ max-width:1200px; margin:24px auto; padding:0 16px; }}
+    .header {{ background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:16px; }}
+    .meta {{ color:#6b7280; font-size:14px; margin:4px 0; }}
+    .tabs {{ display:flex; gap:8px; margin:12px 0 20px; flex-wrap:wrap; }}
+    .tabs a {{ text-decoration:none; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; background:#fff; color:#111827; }}
+    .section {{ background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:16px; }}
+    .filters {{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }}
+    .filters input, .filters select {{ padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; }}
+    .btn {{ padding:7px 12px; border:1px solid #2563eb; background:#2563eb; color:#fff; border-radius:6px; cursor:pointer; }}
+    table {{ width:100%; border-collapse:collapse; }}
+    th, td {{ border:1px solid #e5e7eb; padding:8px; text-align:left; font-size:14px; vertical-align:top; }}
+    th {{ background:#f9fafb; }}
+    .state {{ color:#6b7280; }}
+    .hidden {{ display:none; }}
+    .pill {{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }}
+    .pill.ok {{ background:#dcfce7; color:#166534; }}
+    .pill.err {{ background:#fee2e2; color:#991b1b; }}
+  </style>
+</head>
+<body>
+  <div class='container'>
+    <header class='header'>
+      <h1>Zumbot Admin Console</h1>
+      <p class='meta'>Environment: {env_name}</p>
+      <p class='meta'>Server time (UTC): {server_time_utc}</p>
+      <p class='meta'>Version: {version}</p>
+      <nav class='tabs'>
+        <a href='#overview'>Overview</a>
+        <a href='#specialists'>Specialists</a>
+        <a href='#logs'>Logs</a>
+        <a href='#heartbeats'>Heartbeats</a>
+      </nav>
+    </header>
+
+    <section id='overview' class='section'>
+      <h2>Overview</h2>
+      <div id='admin-overview' class='state'>Loading overview…</div>
+    </section>
+
+    <section id='specialists' class='section'>
+      <h2>Specialists</h2>
+      <div class='filters'>
+        <label for='status-filter'>Status</label>
+        <select id='status-filter'>
+          <option value=''>All</option>
+          <option value='onboarding'>onboarding</option>
+          <option value='active'>active</option>
+          <option value='suspended'>suspended</option>
+        </select>
+        <label for='include-system-filter'>include_system</label><input id='include-system-filter' type='checkbox' />
+        <label for='oauth-missing-filter'>oauth_missing</label><input id='oauth-missing-filter' type='checkbox' />
+        <label for='calendar-missing-filter'>calendar_missing</label><input id='calendar-missing-filter' type='checkbox' />
+        <label for='inactive-days-filter'>inactive_days_gt</label><input id='inactive-days-filter' type='number' min='1' step='1' style='width:90px;' />
+        <button id='apply-filter' class='btn' type='button'>Apply</button>
+      </div>
+      <p id='specialists-state' class='state'>Загрузка...</p>
+      <table id='specialists-table' class='hidden'>
+        <thead><tr><th>Имя</th><th>Статус</th><th>Timezone</th><th>Onboarding</th><th>OAuth</th><th>Calendar</th><th>Active_7d</th><th>Клиенты</th><th>Тариф</th><th>Последняя активность</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section id='logs' class='section'>
+      <h2>Logs</h2>
+      <div class='filters'>
+        <input id='logs-since' placeholder='since (ISO)' />
+        <input id='logs-until' placeholder='until (ISO)' />
+        <input id='logs-bot-id' placeholder='bot_id' />
+        <input id='logs-specialist-id' placeholder='specialist_id' />
+        <input id='logs-tg-user-id' placeholder='tg_user_id' />
+        <select id='logs-direction'><option value=''>direction</option><option value='IN'>IN</option><option value='OUT'>OUT</option></select>
+        <select id='logs-is-error'><option value=''>is_error</option><option value='true'>true</option><option value='false'>false</option></select>
+        <input id='logs-limit' value='100' style='width:70px;' />
+        <input id='logs-offset' value='0' style='width:70px;' />
+        <button id='logs-apply' class='btn' type='button'>Apply</button>
+      </div>
+      <p id='logs-state' class='state'>Loading...</p>
+      <table id='logs-table' class='hidden'>
+        <thead><tr><th>created_at</th><th>is_error</th><th>direction</th><th>bot_id</th><th>specialist_id</th><th>tg_user_id</th><th>message_type</th><th>content</th><th>request_id</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section id='heartbeats' class='section'>
+      <h2>Heartbeats</h2>
+      <div class='filters'>
+        <input id='hb-since' placeholder='since (ISO)' />
+        <input id='hb-until' placeholder='until (ISO)' />
+        <input id='hb-service-name' placeholder='service_name' />
+        <input id='hb-limit' value='100' style='width:70px;' />
+        <input id='hb-offset' value='0' style='width:70px;' />
+        <button id='hb-apply' class='btn' type='button'>Apply</button>
+      </div>
+      <p id='hb-state' class='state'>Loading...</p>
+      <table id='hb-table' class='hidden'>
+        <thead><tr><th>created_at</th><th>service_name</th><th>status</th><th>details</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <form method='post' action='/admin/logout'><button type='submit'>Logout</button></form>
+  </div>
+
+  <script>
+    const overviewEl=document.getElementById('admin-overview');
+    const stateEl=document.getElementById('specialists-state');
+    const tableEl=document.getElementById('specialists-table');
+    const tbodyEl=tableEl.querySelector('tbody');
+    const statusEl=document.getElementById('status-filter');
+    const buttonEl=document.getElementById('apply-filter');
+    const includeSystemEl=document.getElementById('include-system-filter');
+    const oauthMissingEl=document.getElementById('oauth-missing-filter');
+    const calendarMissingEl=document.getElementById('calendar-missing-filter');
+    const inactiveDaysEl=document.getElementById('inactive-days-filter');
+
+    const logsStateEl=document.getElementById('logs-state');
+    const logsTableEl=document.getElementById('logs-table');
+    const logsBodyEl=logsTableEl.querySelector('tbody');
+
+    const hbStateEl=document.getElementById('hb-state');
+    const hbTableEl=document.getElementById('hb-table');
+    const hbBodyEl=hbTableEl.querySelector('tbody');
+
+    function setOverviewLoading(){{overviewEl.textContent='Loading overview…';}}
+    function setOverviewError(){{overviewEl.textContent='Failed to load overview';}}
+    function renderOverview(payload){{overviewEl.innerHTML='<ul>'
+      +'<li>specialists_total: '+String(payload.specialists_total??0)+'</li>'
+      +'<li>specialists_active_7d: '+String(payload.specialists_active_7d??0)+'</li>'
+      +'<li>clients_total: '+String(payload.clients_total??0)+'</li>'
+      +'<li>errors_24h: '+String(payload.errors_24h??0)+'</li>'
+      +'</ul>';}}
+
+    function getIncludeSystemParam(){{return includeSystemEl.checked?'1':'0';}}
+    async function loadOverview(){{
+      setOverviewLoading();
+      const params=new URLSearchParams({{include_system:getIncludeSystemParam()}});
+      const url='/admin/ui/overview?'+params.toString();
+      try{{const res=await fetch(url,{{credentials:'same-origin'}});if(!res.ok)throw new Error('HTTP '+res.status);renderOverview(await res.json());}}
+      catch(_err){{setOverviewError();}}
+    }}
+
+    function setState(state,msg){{
+      if(state==='loading'){{stateEl.textContent='Загрузка...';stateEl.style.display='block';tableEl.classList.add('hidden');}}
+      else if(state==='empty'){{stateEl.textContent='Данных нет';stateEl.style.display='block';tableEl.classList.add('hidden');}}
+      else if(state==='error'){{stateEl.textContent=msg||'Ошибка загрузки';stateEl.style.display='block';tableEl.classList.add('hidden');}}
+      else{{stateEl.style.display='none';tableEl.classList.remove('hidden');}}
+    }}
+
+    function renderRows(items){{tbodyEl.innerHTML='';items.forEach((item)=>{{const row=document.createElement('tr');
+      const onboarding=(item.onboarding_master_done?'M✓':'M—')+' '+(item.onboarding_personal_done?'P✓':'P—');
+      const oauth=item.oauth_connected?'connected':'missing';
+      const calendar=item.calendar_selected?'selected':'missing';
+      const active=item.active_7d?'yes':'no';
+      const timezone=item.timezone||'—';
+      const lastActivity=item.last_activity_at||'—';
+      row.innerHTML='<td>'+((item.public_name||''))+'</td><td>'+((item.status||''))+'</td><td>'+timezone+'</td><td>'+onboarding+'</td><td>'+oauth+'</td><td>'+calendar+'</td><td>'+active+'</td><td>'+String(item.clients_count??0)+'</td><td>'+((item.tariff_plan||''))+'</td><td>'+lastActivity+'</td>';
+      tbodyEl.appendChild(row);}});}}
+
+    async function loadSpecialists(){{
+      setState('loading');
+      const status=statusEl.value;
+      const params=new URLSearchParams({{limit:'100',offset:'0',include_system:getIncludeSystemParam()}});
+      if(status)params.set('status',status);
+      if(oauthMissingEl.checked)params.set('oauth_missing','1');
+      if(calendarMissingEl.checked)params.set('calendar_missing','1');
+      const inactiveDaysRaw=(inactiveDaysEl.value||'').trim(); if(inactiveDaysRaw)params.set('inactive_days_gt',inactiveDaysRaw);
+      try{{const res=await fetch('/admin/ui/specialists?'+params.toString(),{{credentials:'same-origin'}}); if(!res.ok)throw new Error('HTTP '+res.status);
+        const payload=await res.json(); const items=payload.items||[]; if(items.length===0){{setState('empty');return;}} renderRows(items); setState('ready');}}
+      catch(_err){{setState('error','Не удалось загрузить список специалистов');}}
+    }}
+
+    function setLogsState(kind,msg){{
+      if(kind==='loading'){{logsStateEl.textContent='Loading logs...';logsStateEl.style.display='block';logsTableEl.classList.add('hidden');return;}}
+      if(kind==='empty'){{logsStateEl.textContent='No logs found';logsStateEl.style.display='block';logsTableEl.classList.add('hidden');return;}}
+      if(kind==='error'){{logsStateEl.textContent=msg;logsStateEl.style.display='block';logsTableEl.classList.add('hidden');return;}}
+      logsStateEl.style.display='none';logsTableEl.classList.remove('hidden');
+    }}
+
+    function renderLogs(items){{logsBodyEl.innerHTML='';items.forEach((item)=>{{const row=document.createElement('tr');
+      row.innerHTML='<td>'+(item.created_at||'—')+'</td><td>'+(item.is_error?'true':'false')+'</td><td>'+(item.direction||'—')+'</td><td>'+(item.bot_id??'—')+'</td><td>'+(item.specialist_id||'—')+'</td><td>'+(item.tg_user_id??'—')+'</td><td>'+(item.message_type||'—')+'</td><td>'+(item.content||'—')+'</td><td>'+(item.request_id||'—')+'</td>';
+      logsBodyEl.appendChild(row);}});}}
+
+    async function loadLogs(){{
+      setLogsState('loading');
+      const params=new URLSearchParams();
+      const map=[['since','logs-since'],['until','logs-until'],['bot_id','logs-bot-id'],['specialist_id','logs-specialist-id'],['tg_user_id','logs-tg-user-id'],['direction','logs-direction'],['is_error','logs-is-error'],['limit','logs-limit'],['offset','logs-offset']];
+      map.forEach(([k,id])=>{{const v=(document.getElementById(id).value||'').trim(); if(v)params.set(k,v);}});
+      try{{const res=await fetch('/admin/ui/logs?'+params.toString(),{{credentials:'same-origin'}});
+        if(res.status===404){{setLogsState('error','Not available');return;}}
+        if(!res.ok)throw new Error('HTTP '+res.status);
+        const payload=await res.json(); const items=payload.items||[]; if(items.length===0){{setLogsState('empty');return;}} renderLogs(items); setLogsState('ready');}}
+      catch(_err){{setLogsState('error','Failed to load logs');}}
+    }}
+
+    function setHbState(kind,msg){{
+      if(kind==='loading'){{hbStateEl.textContent='Loading heartbeats...';hbStateEl.style.display='block';hbTableEl.classList.add('hidden');return;}}
+      if(kind==='empty'){{hbStateEl.textContent='No heartbeats found';hbStateEl.style.display='block';hbTableEl.classList.add('hidden');return;}}
+      if(kind==='error'){{hbStateEl.textContent=msg;hbStateEl.style.display='block';hbTableEl.classList.add('hidden');return;}}
+      hbStateEl.style.display='none';hbTableEl.classList.remove('hidden');
+    }}
+
+    function renderHeartbeats(items){{hbBodyEl.innerHTML='';items.forEach((item)=>{{const row=document.createElement('tr');
+      const ok=((item.db_ok===true)&&(item.loop_ok===true));
+      const status=ok?"<span class='pill ok'>ok</span>":"<span class='pill err'>issue</span>";
+      row.innerHTML='<td>'+(item.timestamp||item.created_at||'—')+'</td><td>'+(item.service_name||'—')+'</td><td>'+status+'</td><td>'+(item.details||'—')+'</td>';
+      hbBodyEl.appendChild(row);}});}}
+
+    async function loadHeartbeats(){{
+      setHbState('loading');
+      const params=new URLSearchParams();
+      [['since','hb-since'],['until','hb-until'],['service_name','hb-service-name'],['limit','hb-limit'],['offset','hb-offset']].forEach(([k,id])=>{{const v=(document.getElementById(id).value||'').trim(); if(v)params.set(k,v);}});
+      try{{const res=await fetch('/admin/ui/heartbeats?'+params.toString(),{{credentials:'same-origin'}});
+        if(res.status===404){{setHbState('error','Not available');return;}}
+        if(!res.ok)throw new Error('HTTP '+res.status);
+        const payload=await res.json(); const items=payload.items||[]; if(items.length===0){{setHbState('empty');return;}} renderHeartbeats(items); setHbState('ready');}}
+      catch(_err){{setHbState('error','Failed to load heartbeats');}}
+    }}
+
+    buttonEl.addEventListener('click',()=>{{loadOverview();loadSpecialists();}});
+    includeSystemEl.addEventListener('change',()=>{{loadOverview();loadSpecialists();}});
+    document.getElementById('logs-apply').addEventListener('click',loadLogs);
+    document.getElementById('hb-apply').addEventListener('click',loadHeartbeats);
+
+    loadOverview();
+    loadSpecialists();
+    loadLogs();
+    loadHeartbeats();
+  </script>
+</body>
+</html>
+""",
         status_code=200,
     )
-
-
 async def readyz():
     start_time = time.perf_counter()
 
