@@ -154,6 +154,10 @@ WEB_CONNECT_COOKIE_NAME = _require_in_prod(
         allow_empty_in_prod=False,
     ),
 )
+YOOKASSA_SHOP_ID = _require_in_prod("YOOKASSA_SHOP_ID", os.getenv("YOOKASSA_SHOP_ID"))
+YOOKASSA_SECRET_KEY = _require_in_prod("YOOKASSA_SECRET_KEY", os.getenv("YOOKASSA_SECRET_KEY"))
+YOOKASSA_WEBHOOK_SECRET = _require_in_prod("YOOKASSA_WEBHOOK_SECRET", os.getenv("YOOKASSA_WEBHOOK_SECRET"))
+
 SUPPORT_TG_URL = _require_in_prod(
     "SUPPORT_TG_URL",
     _env_or_default(

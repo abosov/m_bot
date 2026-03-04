@@ -2,12 +2,12 @@ import uuid
 import enum
 import logging
 import secrets
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from typing import Optional, List
 
 import config
 from sqlalchemy import (
-    text, BigInteger, Boolean, String, ForeignKey, DateTime, Time,
+    text, select, update, BigInteger, Boolean, String, ForeignKey, DateTime, Time,
     Integer, Text, Enum as SAEnum, func, Float, CheckConstraint, UniqueConstraint, JSON, Index, desc
 )
 from sqlalchemy import Column
@@ -89,6 +89,20 @@ class TariffPlan(str, enum.Enum):
     pro = "pro"
     team = "team"
 
+
+class BillingPeriod(str, enum.Enum):
+    monthly = "monthly"
+    yearly = "yearly"
+
+
+class BillingPurchaseStatus(str, enum.Enum):
+    pending = "pending"
+    awaiting_payment = "awaiting_payment"
+    succeeded = "succeeded"
+    canceled = "canceled"
+    expired = "expired"
+    error = "error"
+
 # --- MODELS ---
 
 class Specialist(Base):
@@ -169,6 +183,9 @@ class SpecialistProfile(Base):
         default=TariffPlan.start,
         server_default=TariffPlan.start.value,
     )
+    tariff_paid_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    tariff_period: Mapped[Optional[BillingPeriod]] = mapped_column(SAEnum(BillingPeriod), nullable=True)
+    tariff_last_paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     start_bonus_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     referral_bonus_months: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     analytics_upsell_prompted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -521,6 +538,25 @@ class ServiceHeartbeat(Base):
     details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
+class BillingPurchase(Base):
+    __tablename__ = "billing_purchase"
+
+    purchase_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=False)
+    tg_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    plan: Mapped[TariffPlan] = mapped_column(SAEnum(TariffPlan), nullable=False)
+    period: Mapped[BillingPeriod] = mapped_column(SAEnum(BillingPeriod), nullable=False)
+    amount_rub_int: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    status: Mapped[BillingPurchaseStatus] = mapped_column(SAEnum(BillingPurchaseStatus), nullable=False)
+    pay_token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    yookassa_payment_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True, unique=True)
+    yookassa_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
 
 
 class AdminAuditLog(Base):
@@ -621,3 +657,82 @@ async def init_db():
             exception_class=exc.__class__.__name__,
         )
         raise
+
+
+async def get_billing_purchase_by_token_hash(
+    session: AsyncSession,
+    token_hash: str,
+) -> Optional[BillingPurchase]:
+    stmt = select(BillingPurchase).where(BillingPurchase.pay_token_hash == token_hash)
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def mark_billing_purchase_used(
+    session: AsyncSession,
+    purchase_id: uuid.UUID,
+    *,
+    used_at: Optional[datetime] = None,
+) -> None:
+    used_at_value = used_at or datetime.now(timezone.utc)
+    stmt = (
+        update(BillingPurchase)
+        .where(BillingPurchase.purchase_id == purchase_id)
+        .values(used_at=used_at_value, updated_at=used_at_value)
+    )
+    await session.execute(stmt)
+
+
+async def set_billing_purchase_yookassa_fields(
+    session: AsyncSession,
+    purchase_id: uuid.UUID,
+    *,
+    yookassa_payment_id: Optional[str],
+    yookassa_status: Optional[str],
+) -> None:
+    stmt = (
+        update(BillingPurchase)
+        .where(BillingPurchase.purchase_id == purchase_id)
+        .values(
+            yookassa_payment_id=yookassa_payment_id,
+            yookassa_status=yookassa_status,
+            updated_at=datetime.now(timezone.utc),
+        )
+    )
+    await session.execute(stmt)
+
+
+async def set_billing_purchase_status(
+    session: AsyncSession,
+    purchase_id: uuid.UUID,
+    status: BillingPurchaseStatus,
+) -> None:
+    stmt = (
+        update(BillingPurchase)
+        .where(BillingPurchase.purchase_id == purchase_id)
+        .values(status=status, updated_at=datetime.now(timezone.utc))
+    )
+    await session.execute(stmt)
+
+
+async def get_billing_purchase_by_yookassa_payment_id(
+    session: AsyncSession,
+    yookassa_payment_id: str,
+) -> Optional[BillingPurchase]:
+    stmt = select(BillingPurchase).where(BillingPurchase.yookassa_payment_id == yookassa_payment_id)
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def get_latest_billing_purchase_for_tg_user(
+    session: AsyncSession,
+    tg_user_id: int,
+) -> Optional[BillingPurchase]:
+    stmt = (
+        select(BillingPurchase)
+        .where(BillingPurchase.tg_user_id == tg_user_id)
+        .order_by(BillingPurchase.created_at.desc())
+        .limit(1)
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()

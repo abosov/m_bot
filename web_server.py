@@ -27,6 +27,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from database import (
     Appointment,
     BookingState,
+    BillingPeriod,
     LogDirection,
     Specialist,
     SpecialistStatus,
@@ -73,6 +74,12 @@ from admin_api import (
 )
 from services.log_exporter import serialize_message_log, serialize_service_heartbeat
 from services.admin_audit import write_admin_audit_log
+from services.billing.subscriptions import (
+    BillingError,
+    create_yookassa_payment_for_token,
+    get_purchase_for_raw_token,
+    process_yookassa_webhook,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -365,6 +372,92 @@ if config.MASTER_BOT_TOKEN:
         )
     except Exception:
         logger.warning("MASTER_BOT_TOKEN is invalid, outbound notifications disabled", exc_info=True)
+
+
+
+_PLAN_TITLES = {
+    "free": "Free",
+    "start": "Start",
+    "pro": "Pro",
+    "team": "Team",
+}
+
+_PERIOD_TITLES = {
+    BillingPeriod.monthly.value: "Месяц",
+    BillingPeriod.yearly.value: "Год",
+}
+
+
+@app.get("/pay", response_class=HTMLResponse)
+async def pay_page(token: str = Query(..., min_length=16)) -> HTMLResponse:
+    purchase = await get_purchase_for_raw_token(token)
+    if purchase is None:
+        return HTMLResponse("<h1>Ссылка недействительна</h1><p>Попробуйте сформировать новую ссылку в Telegram-боте.</p>", status_code=404)
+
+    now = datetime.now(timezone.utc)
+    if purchase.expires_at <= now:
+        return HTMLResponse("<h1>Срок действия ссылки истёк</h1><p>Сформируйте новую ссылку на оплату в Telegram-боте.</p>", status_code=410)
+    if purchase.used_at is not None:
+        return HTMLResponse("<h1>Ссылка уже использована</h1><p>Сформируйте новую ссылку на оплату в Telegram-боте.</p>", status_code=410)
+
+    plan_title = _PLAN_TITLES.get(purchase.plan.value, purchase.plan.value)
+    period_title = _PERIOD_TITLES.get(purchase.period.value, purchase.period.value)
+    amount = purchase.amount_rub_int
+    html = (
+        "<!doctype html><html lang='ru'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>Оплата подписки — Zumbot</title>"
+        "<style>body{font-family:Arial,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;}"
+        "h1{margin-bottom:16px;} .card{border:1px solid #ddd;border-radius:12px;padding:20px;}"
+        ".muted{color:#666;} .btn{display:inline-block;margin-top:16px;background:#111;color:#fff;"
+        "padding:10px 14px;border-radius:8px;text-decoration:none;border:none;cursor:pointer;}"
+        "form{margin:0;}</style></head><body>"
+        "<h1>Заказ на подписку Zumbot</h1>"
+        "<div class='card'>"
+        f"<p><strong>Тариф:</strong> {plan_title}</p>"
+        f"<p><strong>Период:</strong> {period_title}</p>"
+        f"<p><strong>Сумма:</strong> {amount} ₽</p>"
+        "<p class='muted'>Статус: ожидает оплаты</p>"
+        f"<a class='btn' href='/pay/confirm?token={token}'>Перейти к оплате</a>"
+        "</div></body></html>"
+    )
+    return HTMLResponse(html)
+
+
+@app.get('/pay/confirm')
+async def pay_confirm(token: str = Query(..., min_length=16)):
+    try:
+        confirmation_url = await create_yookassa_payment_for_token(token)
+    except BillingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return RedirectResponse(url=confirmation_url, status_code=303)
+
+
+@app.post('/api/billing/yookassa/create')
+async def api_billing_yookassa_create(payload: dict):
+    token = str(payload.get('token') or '').strip()
+    if not token:
+        raise HTTPException(status_code=422, detail='token is required')
+    try:
+        confirmation_url = await create_yookassa_payment_for_token(token)
+    except BillingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {'ok': True, 'confirmation_url': confirmation_url}
+
+
+@app.post('/api/billing/yookassa/webhook')
+async def api_billing_yookassa_webhook(request: Request):
+    if config.YOOKASSA_WEBHOOK_SECRET:
+        got = request.headers.get('x-zumbot-webhook-secret', '')
+        if got != config.YOOKASSA_WEBHOOK_SECRET:
+            raise HTTPException(status_code=401, detail='unauthorized')
+
+    payload = await request.json()
+    try:
+        status = await process_yookassa_webhook(payload)
+    except BillingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {'ok': True, 'status': status}
 
 logger.info("readyz endpoint enabled=%s", config.ENABLE_READYZ)
 if config.ADMIN_API_KEY:
