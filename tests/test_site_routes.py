@@ -38,18 +38,32 @@ def test_pricing_page_cta_links_open_bot_in_new_tab():
 
     assert response.status_code == 200
 
-    # Тарифные CTA + финальный CTA-блок на странице pricing.
-    pricing_cta_links = re.findall(r'<a[^>]+href="https://t.me/zumhelper_bot"[^>]*>', response.text)
-    assert len(pricing_cta_links) >= 5
+    # Разрешённые ссылки для Telegram CTA.
+    allowed_bot_links = {
+        "https://t.me/zumhelper_bot?start=start",
+        "https://t.me/zumhelper_bot?start=pro",
+        "https://t.me/zumhelper_bot?start=team",
+    }
 
-    for link in pricing_cta_links:
+    pricing_cta_links = re.findall(r'<a[^>]+href="([^"]+)"[^>]*>', response.text)
+    telegram_links = [href for href in pricing_cta_links if href.startswith("https://t.me/zumhelper_bot")]
+
+    assert telegram_links, "Expected Telegram links on /pricing"
+    assert "https://t.me/zumhelper_bot" not in telegram_links
+    assert set(telegram_links).issubset(allowed_bot_links)
+
+    # На карточке Team CTA должен вести в контакты сайта, а не в Telegram.
+    assert 'href="/contacts" target="_blank" rel="noopener noreferrer">Связаться с нами</a>' in response.text
+
+    links_with_tg = re.findall(r'<a[^>]+href="https://t.me/zumhelper_bot[^\"]*"[^>]*>', response.text)
+    for link in links_with_tg:
         assert 'target="_blank"' in link
         assert 'rel="' in link
         assert 'noopener' in link
         assert 'noreferrer' in link
 
-    assert 'https://t.me/zumhelper_bot?start=' not in response.text
-    assert 'data-bot-link=' not in response.text
+    assert 'href="https://t.me/zumhelper_bot"' not in response.text
+    assert "window.location" not in response.text
 
 def test_privacy_page_contains_google_calendar_policy_points():
     response = client.get("/privacy")

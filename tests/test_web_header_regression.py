@@ -65,7 +65,10 @@ def test_header_cta_points_to_telegram_in_new_tab() -> None:
         assert response.status_code == 200, f"Unexpected status on {route}: {response.status_code}"
         header_html = _extract_header(response.text)
 
-        assert 'href="https://t.me/zumhelper_bot"' in header_html, f"Header CTA href is incorrect on {route}"
+        assert (
+            'href="https://t.me/zumhelper_bot?start=start"' in header_html
+        ), f"Header CTA href is incorrect on {route}"
         assert 'target="_blank"' in header_html, f"Header CTA target is incorrect on {route}"
         assert 'rel="noopener noreferrer"' in header_html, f"Header CTA rel is incorrect on {route}"
+        assert 'href="https://t.me/zumhelper_bot"' not in header_html, f"Plain Telegram CTA is forbidden on {route}"
         assert 'href="/connect"' not in header_html, f"Legacy internal connect route is still used on {route}"

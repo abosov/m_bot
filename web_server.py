@@ -207,7 +207,7 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
             '<span class="logo-text">Zumbot — Calendar Booking Automation</span>'
             '</a>'
             f'<nav class="main-nav">{nav_html}</nav>'
-            '<a href="https://t.me/zumhelper_bot" class="btn-primary" target="_blank" rel="noopener noreferrer">Подключить</a>'
+            '<a href="https://t.me/zumhelper_bot?start=start" class="btn-primary" target="_blank" rel="noopener noreferrer">Подключить</a>'
             '</div>'
             '</header>'
         )
