@@ -7,7 +7,7 @@ from typing import Optional, List
 
 import config
 from sqlalchemy import (
-    BigInteger, Boolean, String, ForeignKey, DateTime, Time,
+    text, BigInteger, Boolean, String, ForeignKey, DateTime, Time,
     Integer, Text, Enum as SAEnum, func, Float, CheckConstraint, UniqueConstraint, JSON, Index, desc
 )
 from sqlalchemy import Column
@@ -540,7 +540,6 @@ class AdminAuditLog(Base):
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
-        server_default=func.gen_random_uuid(),
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     request_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -553,7 +552,6 @@ class AdminAuditLog(Base):
         JSON().with_variant(JSONB, "postgresql"),
         nullable=False,
         default=dict,
-        server_default="'{}'::jsonb",
     )
     error_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
