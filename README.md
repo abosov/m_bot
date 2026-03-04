@@ -62,6 +62,25 @@ Google Calendar — источник истины для:
 9. **80_mvp_launch_checklist.md**
    - чеклист запуска
 
+
+---
+
+## AI Development Rules
+
+This repository follows a structured AI-assisted development workflow.
+
+All Codex prompts must follow the rules defined in:
+
+`docs/90_codex/CODEX_OPERATING_SYSTEM.md`
+
+Key principles:
+- SQL migrations are the single source of truth for database schema
+- One prompt = one atomic change
+- Role-based development workflow
+- Mandatory documentation updates
+- Explicit deployment checks
+- QA validation
+
 ---
 
 ## 4. Ключевые архитектурные решения (зафиксированы)
