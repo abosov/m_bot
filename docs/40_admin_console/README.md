@@ -137,6 +137,10 @@ User Story считается завершённой только если:
 Status: Planned / In progress
 Doc: [US-AD-2 specification](./us_ad_2_specialists_list.md)
 
+### US-AD-6 — Observability (Logs + Heartbeats)
+Status: Planned
+Doc: [US-AD-6 specification](./us_ad_6_observability_logs_heartbeats.md)
+
 
 ---
 
@@ -164,6 +168,10 @@ Doc: [US-AD-4 specification](./us_ad_4_specialists_operational_table.md)
 ### US-AD-5 — Specialist Detail Page
 Status: Implemented
 Doc: [US-AD-5 specification](./us_ad_5_specialist_detail_page.md)
+
+### US-AD-6 — Observability (Logs + Heartbeats)
+Status: Planned
+Doc: [US-AD-6 specification](./us_ad_6_observability_logs_heartbeats.md)
 
 ---
 

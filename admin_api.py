@@ -73,6 +73,69 @@ def parse_uuid(value: str | None) -> uuid.UUID | None:
 
 
 
+def build_message_log_query(
+    *,
+    since: str | None = None,
+    until: str | None = None,
+    limit: int | None = 100,
+    offset: int = 0,
+    bot_id: int | None = None,
+    specialist_id: str | None = None,
+    tg_user_id: int | None = None,
+    direction: LogDirection | None = None,
+    is_error: bool | None = None,
+):
+    since_dt = parse_iso_datetime(since) if since else None
+    until_dt = parse_iso_datetime(until) if until else None
+    limit_value = clamp_limit(limit)
+    specialist_uuid = parse_uuid(specialist_id)
+
+    stmt = select(MessageLog)
+    if since_dt:
+        stmt = stmt.where(MessageLog.created_at >= since_dt)
+    if until_dt:
+        stmt = stmt.where(MessageLog.created_at <= until_dt)
+    if bot_id is not None:
+        stmt = stmt.where(MessageLog.bot_id == bot_id)
+    if specialist_uuid is not None:
+        stmt = stmt.where(MessageLog.specialist_id == specialist_uuid)
+    if tg_user_id is not None:
+        stmt = stmt.where(MessageLog.tg_user_id == tg_user_id)
+    if direction is not None:
+        stmt = stmt.where(MessageLog.direction == direction)
+    if is_error is not None:
+        stmt = stmt.where(MessageLog.is_error == is_error)
+
+    stmt = stmt.order_by(MessageLog.created_at.asc())
+    stmt = stmt.limit(limit_value).offset(offset)
+    return stmt, limit_value
+
+
+def build_heartbeat_query(
+    *,
+    since: str | None = None,
+    until: str | None = None,
+    limit: int | None = 100,
+    offset: int = 0,
+    service_name: str | None = None,
+):
+    since_dt = parse_iso_datetime(since) if since else None
+    until_dt = parse_iso_datetime(until) if until else None
+    limit_value = clamp_limit(limit)
+
+    stmt = select(ServiceHeartbeat)
+    if since_dt:
+        stmt = stmt.where(ServiceHeartbeat.ts >= since_dt)
+    if until_dt:
+        stmt = stmt.where(ServiceHeartbeat.ts <= until_dt)
+    if service_name:
+        stmt = stmt.where(ServiceHeartbeat.service_name == service_name)
+
+    stmt = stmt.order_by(ServiceHeartbeat.ts.asc())
+    stmt = stmt.limit(limit_value).offset(offset)
+    return stmt, limit_value
+
+
 
 async def build_admin_specialists_payload(
     *,
@@ -518,10 +581,17 @@ async def admin_logs(
     _auth: None = Depends(require_admin_key),
 ):
     request_id = get_request_id()
-    since_dt = parse_iso_datetime(since) if since else None
-    until_dt = parse_iso_datetime(until) if until else None
-    limit_value = clamp_limit(limit)
-    specialist_uuid = parse_uuid(specialist_id)
+    stmt, limit_value = build_message_log_query(
+        since=since,
+        until=until,
+        limit=limit,
+        offset=offset,
+        bot_id=bot_id,
+        specialist_id=specialist_id,
+        tg_user_id=tg_user_id,
+        direction=direction,
+        is_error=is_error,
+    )
 
     log_event(
         logger,
@@ -539,23 +609,6 @@ async def admin_logs(
 
     try:
         async with async_session_factory() as session:
-            stmt = select(MessageLog)
-            if since_dt:
-                stmt = stmt.where(MessageLog.created_at >= since_dt)
-            if until_dt:
-                stmt = stmt.where(MessageLog.created_at <= until_dt)
-            if bot_id is not None:
-                stmt = stmt.where(MessageLog.bot_id == bot_id)
-            if specialist_uuid is not None:
-                stmt = stmt.where(MessageLog.specialist_id == specialist_uuid)
-            if tg_user_id is not None:
-                stmt = stmt.where(MessageLog.tg_user_id == tg_user_id)
-            if direction is not None:
-                stmt = stmt.where(MessageLog.direction == direction)
-            if is_error is not None:
-                stmt = stmt.where(MessageLog.is_error == is_error)
-            stmt = stmt.order_by(MessageLog.created_at.asc())
-            stmt = stmt.limit(limit_value).offset(offset)
             result = await session.execute(stmt)
             if config.APP_ENV == "prod" and not redact:
                 raise HTTPException(status_code=403, detail="Unredacted logs are disabled in production")
@@ -576,20 +629,15 @@ async def admin_heartbeats(
     service_name: str | None = Query(default=None),
     _auth: None = Depends(require_admin_key),
 ):
-    since_dt = parse_iso_datetime(since) if since else None
-    until_dt = parse_iso_datetime(until) if until else None
-    limit_value = clamp_limit(limit)
+    stmt, limit_value = build_heartbeat_query(
+        since=since,
+        until=until,
+        limit=limit,
+        offset=offset,
+        service_name=service_name,
+    )
 
     async with async_session_factory() as session:
-        stmt = select(ServiceHeartbeat)
-        if since_dt:
-            stmt = stmt.where(ServiceHeartbeat.ts >= since_dt)
-        if until_dt:
-            stmt = stmt.where(ServiceHeartbeat.ts <= until_dt)
-        if service_name:
-            stmt = stmt.where(ServiceHeartbeat.service_name == service_name)
-        stmt = stmt.order_by(ServiceHeartbeat.ts.asc())
-        stmt = stmt.limit(limit_value).offset(offset)
         result = await session.execute(stmt)
         items = [serialize_service_heartbeat(row) for row in result.scalars().all()]
 
