@@ -251,7 +251,7 @@ section { padding: 34px 0; }
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.pricing-grid .pricing-card {
+.pricing-card {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -298,7 +298,7 @@ section { padding: 34px 0; }
 }
 
 .plan-features {
-  margin: 0 0 18px;
+  margin: 0;
   padding: 0;
   list-style: none;
   color: var(--muted);
@@ -330,8 +330,12 @@ section { padding: 34px 0; }
   font-weight: 700;
 }
 
-.plan-cta {
+.pricing-card .plan-cta {
   margin-top: auto;
+}
+
+.pricing-card a.button {
+  align-self: stretch;
 }
 
 .plan-badge {
