@@ -62,12 +62,12 @@ jobs:
           # C. Ensure ORM models do not introduce server_default in backend ORM files.
           # Critical violation: fail the job if added diff lines contain server_default=.
           SERVER_DEFAULT_HITS=""
-          ORM_CHANGED_FILES="$(echo "${CHANGED_FILES}" | rg '^(backend/.*\.py|database\.py)$' || true)"
+          ORM_CHANGED_FILES="$(echo "${CHANGED_FILES}" | grep -E '^(backend/.*\.py|database\.py)$' || true)"
 
           if [[ -n "${ORM_CHANGED_FILES}" ]]; then
             while IFS= read -r file; do
               [[ -z "${file}" ]] && continue
-              DIFF_HITS="$(git diff "${BASE_SHA}" "${HEAD_SHA}" -- "${file}" | rg -n '^\+[^+].*server_default\s*=' || true)"
+              DIFF_HITS="$(git diff "${BASE_SHA}" "${HEAD_SHA}" -- "${file}" | grep -nE '^\+[^+].*server_default[[:space:]]*=' || true)"
               if [[ -n "${DIFF_HITS}" ]]; then
                 SERVER_DEFAULT_HITS+=$'\n'"${file}:"$'\n'"${DIFF_HITS}"
               fi
