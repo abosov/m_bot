@@ -41,6 +41,7 @@ from database import (
     SpecialistProfile,
     CalendarSyncState,
     ServiceHeartbeat,
+    AdminAuditLog,
     TelegramBot,
     TelegramBotStatus,
 )
@@ -70,10 +71,11 @@ from admin_api import (
     build_heartbeat_query,
     build_message_log_query,
     compute_admin_overview,
+    clamp_limit,
     router as admin_router,
 )
-from services.log_exporter import serialize_message_log, serialize_service_heartbeat
-from services.admin_audit import write_admin_audit_log
+from services.log_exporter import parse_iso_datetime, serialize_message_log, serialize_service_heartbeat
+from services.admin_audit import build_admin_audit_log_query, sanitize_admin_audit_payload_for_ui, write_admin_audit_log
 from services.billing.subscriptions import (
     BillingError,
     create_yookassa_payment_for_token,
@@ -593,7 +595,7 @@ async def admin_logout() -> Response:
 async def admin_ui_specialists(
     request: Request,
     limit: int | None = Query(default=100),
-    offset: int = Query(default=0),
+    offset: int = Query(default=0, ge=0),
     status: SpecialistStatus | None = Query(default=None),
     include_system: bool = Query(default=False),
     oauth_missing: bool = Query(default=False),
@@ -928,7 +930,7 @@ async def admin_ui_logs(
     since: str | None = Query(default=None),
     until: str | None = Query(default=None),
     limit: int | None = Query(default=100),
-    offset: int = Query(default=0),
+    offset: int = Query(default=0, ge=0),
     bot_id: int | None = Query(default=None),
     specialist_id: str | None = Query(default=None),
     tg_user_id: int | None = Query(default=None),
@@ -976,13 +978,90 @@ async def admin_ui_logs(
     return {"items": items, "limit": limit_value, "offset": offset}
 
 
+@app.get("/admin/ui/audit-log")
+async def admin_ui_audit_log(
+    request: Request,
+    since: str | None = Query(default=None),
+    until: str | None = Query(default=None),
+    action: str | None = Query(default=None),
+    target_type: str | None = Query(default=None),
+    target_id: str | None = Query(default=None),
+    success: bool | None = Query(default=None),
+    limit: int | None = Query(default=100),
+    offset: int = Query(default=0, ge=0),
+):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    accept_header = request.headers.get("accept", "")
+    if "text/html" in accept_header:
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    since_dt = parse_iso_datetime(since) if since else None
+    until_dt = parse_iso_datetime(until) if until else None
+
+    target_uuid: uuid.UUID | None = None
+    if target_id is not None:
+        try:
+            target_uuid = uuid.UUID(target_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid UUID format") from exc
+
+    limit_value = clamp_limit(limit)
+
+    stmt = build_admin_audit_log_query(
+        since=since_dt,
+        until=until_dt,
+        action=action,
+        target_type=target_type,
+        target_id=target_uuid,
+        success=success,
+    ).limit(limit_value).offset(offset)
+
+    logger.info(
+        "event=admin_query request_id=%s path=/admin/ui/audit-log action=%s target_type=%s target_id=%s success=%s created_at_since=%s created_at_until=%s limit=%s offset=%s",
+        _request_id_from_request(request),
+        action,
+        target_type,
+        target_id,
+        success,
+        since,
+        until,
+        limit_value,
+        offset,
+    )
+
+    async with async_session_factory() as session:
+        rows = (await session.execute(stmt)).scalars().all()
+
+    items = [
+        {
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "action": row.action,
+            "target_type": row.target_type,
+            "target_id": str(row.target_id),
+            "success": bool(row.success),
+            "payload": sanitize_admin_audit_payload_for_ui(row.payload_json or {}),
+            "error_code": row.error_code,
+            "error_message": row.error_message,
+        }
+        for row in rows
+    ]
+
+    return {"items": items, "limit": limit_value, "offset": offset}
+
+
 @app.get("/admin/ui/heartbeats")
 async def admin_ui_heartbeats(
     request: Request,
     since: str | None = Query(default=None),
     until: str | None = Query(default=None),
     limit: int | None = Query(default=100),
-    offset: int = Query(default=0),
+    offset: int = Query(default=0, ge=0),
     service_name: str | None = Query(default=None),
 ):
     if not _admin_ui_enabled():
@@ -1106,6 +1185,7 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
         <a href='#specialists'>Specialists</a>
         <a href='#logs'>Logs</a>
         <a href='#heartbeats'>Heartbeats</a>
+        <a href='#audit-log'>Audit Log</a>
       </nav>
     </header>
 
@@ -1158,6 +1238,32 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
       </table>
     </section>
 
+
+    <section id='audit-log' class='section'>
+      <h2>Audit Log</h2>
+      <div class='filters'>
+        <input id='audit-since' placeholder='since (ISO)' />
+        <input id='audit-until' placeholder='until (ISO)' />
+        <input id='audit-action' placeholder='action' />
+        <select id='audit-success'><option value=''>success</option><option value='true'>true</option><option value='false'>false</option></select>
+        <label for='audit-limit'>limit</label>
+        <select id='audit-limit'><option value='50'>50</option><option value='100' selected>100</option><option value='200'>200</option></select>
+        <button id='audit-apply' class='btn' type='button'>Apply</button>
+      </div>
+      <div class='filters'>
+        <button id='audit-prev' class='btn' type='button'>Prev</button>
+        <button id='audit-next' class='btn' type='button'>Next</button>
+        <span id='audit-page' class='state'>offset: 0</span>
+      </div>
+      <p id='audit-log-state' class='state'>Loading...</p>
+      <div id='audit-log-section'>
+        <table id='audit-log-table' class='hidden'>
+          <thead><tr><th>Time</th><th>Action</th><th>Target</th><th>Success</th><th>Payload</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
     <section id='heartbeats' class='section'>
       <h2>Heartbeats</h2>
       <div class='filters'>
@@ -1197,6 +1303,17 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
     const hbStateEl=document.getElementById('hb-state');
     const hbTableEl=document.getElementById('hb-table');
     const hbBodyEl=hbTableEl.querySelector('tbody');
+
+    const auditStateEl=document.getElementById('audit-log-state');
+    const auditSectionEl=document.getElementById('audit-log-section');
+    const auditTableEl=document.getElementById('audit-log-table');
+    const auditBodyEl=auditTableEl.querySelector('tbody');
+    const auditLimitEl=document.getElementById('audit-limit');
+    const auditPageEl=document.getElementById('audit-page');
+    const auditPrevEl=document.getElementById('audit-prev');
+    const auditNextEl=document.getElementById('audit-next');
+    let auditOffset=0;
+    let auditLastItemsCount=0;
 
     function setOverviewLoading(){{overviewEl.textContent='Loading overview…';}}
     function setOverviewError(){{overviewEl.textContent='Failed to load overview';}}
@@ -1269,6 +1386,53 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
       catch(_err){{setLogsState('error','Failed to load logs');}}
     }}
 
+
+    function setAuditPaginationState(){{
+      const limitValue=parseInt(auditLimitEl.value||'100',10)||100;
+      auditPageEl.textContent='offset: '+String(auditOffset)+' · limit: '+String(limitValue);
+      auditPrevEl.disabled=auditOffset<=0;
+      auditNextEl.disabled=auditLastItemsCount<limitValue;
+    }}
+
+    function setAuditState(kind,msg){{
+      if(kind==='loading'){{auditStateEl.textContent='Loading audit log...';auditStateEl.style.display='block';auditTableEl.classList.add('hidden');setAuditPaginationState();return;}}
+      if(kind==='empty'){{auditStateEl.textContent='No audit records';auditStateEl.style.display='block';auditTableEl.classList.add('hidden');setAuditPaginationState();return;}}
+      if(kind==='error'){{auditStateEl.textContent=msg;auditStateEl.style.display='block';auditTableEl.classList.add('hidden');setAuditPaginationState();return;}}
+      auditStateEl.style.display='none';auditTableEl.classList.remove('hidden');setAuditPaginationState();
+    }}
+
+    function renderAuditLogs(items){{auditBodyEl.innerHTML='';items.forEach((item)=>{{const row=document.createElement('tr');
+      const target=(item.target_type||'—')+' / '+(item.target_id||'—');
+      const success=item.success===true?'true':'false';
+      const payload=item.payload?JSON.stringify(item.payload):'{{}}';
+      row.innerHTML='<td>'+(item.created_at||'—')+'</td><td>'+(item.action||'—')+'</td><td>'+target+'</td><td>'+success+'</td><td><pre style="margin:0;white-space:pre-wrap;">'+payload+'</pre></td>';
+      auditBodyEl.appendChild(row);}});}}
+
+    async function loadAuditLog(){{
+      setAuditState('loading');
+      const params=new URLSearchParams();
+      [['since','audit-since'],['until','audit-until'],['action','audit-action'],['success','audit-success']].forEach(([k,id])=>{{const v=(document.getElementById(id).value||'').trim(); if(v)params.set(k,v);}});
+      const limitValue=(auditLimitEl.value||'100').trim()||'100';
+      params.set('limit',limitValue);
+      params.set('offset',String(auditOffset));
+      try{{const res=await fetch('/admin/ui/audit-log?'+params.toString(),{{credentials:'same-origin'}});
+        if(res.status===404){{auditLastItemsCount=0;setAuditState('error','Not available');return;}}
+        if(!res.ok)throw new Error('HTTP '+res.status);
+        const payload=await res.json();
+        const items=payload.items||[];
+        auditLastItemsCount=items.length;
+        if(items.length===0){{setAuditState('empty');return;}}
+        renderAuditLogs(items);
+        setAuditState('ready');
+      }}
+      catch(_err){{auditLastItemsCount=0;setAuditState('error','Failed to load audit log');}}
+    }}
+
+    function resetAuditPaginationAndReload(){{
+      auditOffset=0;
+      loadAuditLog();
+    }}
+
     function setHbState(kind,msg){{
       if(kind==='loading'){{hbStateEl.textContent='Loading heartbeats...';hbStateEl.style.display='block';hbTableEl.classList.add('hidden');return;}}
       if(kind==='empty'){{hbStateEl.textContent='No heartbeats found';hbStateEl.style.display='block';hbTableEl.classList.add('hidden');return;}}
@@ -1297,11 +1461,29 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
     includeSystemEl.addEventListener('change',()=>{{loadOverview();loadSpecialists();}});
     document.getElementById('logs-apply').addEventListener('click',loadLogs);
     document.getElementById('hb-apply').addEventListener('click',loadHeartbeats);
+    document.getElementById('audit-apply').addEventListener('click',resetAuditPaginationAndReload);
+    document.getElementById('audit-since').addEventListener('change',resetAuditPaginationAndReload);
+    document.getElementById('audit-until').addEventListener('change',resetAuditPaginationAndReload);
+    document.getElementById('audit-action').addEventListener('change',resetAuditPaginationAndReload);
+    document.getElementById('audit-success').addEventListener('change',resetAuditPaginationAndReload);
+    document.getElementById('audit-limit').addEventListener('change',resetAuditPaginationAndReload);
+    auditPrevEl.addEventListener('click',()=>{{
+      const limitValue=parseInt(auditLimitEl.value||'100',10)||100;
+      auditOffset=Math.max(0,auditOffset-limitValue);
+      loadAuditLog();
+    }});
+    auditNextEl.addEventListener('click',()=>{{
+      const limitValue=parseInt(auditLimitEl.value||'100',10)||100;
+      auditOffset=auditOffset+limitValue;
+      loadAuditLog();
+    }});
 
+    setAuditPaginationState();
     loadOverview();
     loadSpecialists();
     loadLogs();
     loadHeartbeats();
+    loadAuditLog();
   </script>
 </body>
 </html>

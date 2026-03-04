@@ -141,6 +141,10 @@ Doc: [US-AD-2 specification](./us_ad_2_specialists_list.md)
 Status: Planned
 Doc: [US-AD-6 specification](./us_ad_6_observability_logs_heartbeats.md)
 
+### US-AD-8 — Admin Audit Log Viewer
+Status: Planned
+Doc: [US-AD-8 specification](./us_ad_8_admin_audit_log_viewer.md)
+
 
 ---
 
