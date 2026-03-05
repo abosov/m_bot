@@ -23,6 +23,7 @@
 - `/privacy-ru` → `privacy-ru.html`
 - `/terms-ru` → `terms-ru.html`
 - `/revoke-access-ru` → `revoke-access-ru.html`
+- `/success` → `success.html`
 
 Также:
 
@@ -42,7 +43,7 @@
 
 `{{SITE_FOOTER}}` рендерится в зависимости от языка страницы:
 
-- RU страницы (`/`, `/features`, `/pricing`, `/specialists`, `/contacts`, `/privacy-ru`, `/terms-ru`, `/legal`, `/revoke-access-ru`):
+- RU страницы (`/`, `/features`, `/pricing`, `/specialists`, `/contacts`, `/privacy-ru`, `/terms-ru`, `/legal`, `/revoke-access-ru`, `/success`):
   - `Политика конфиденциальности` → `/privacy-ru`
   - `Пользовательское соглашение` → `/terms-ru`
   - `Реквизиты и правовая информация` → `/legal`

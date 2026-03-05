@@ -179,6 +179,7 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
         "/privacy-ru": "privacy-ru.html",
         "/terms-ru": "terms-ru.html",
         "/revoke-access-ru": "revoke-access-ru.html",
+        "/success": "success.html",
     }
 
     def _site_file(page: str) -> Path:
@@ -223,6 +224,7 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
             "/terms-ru",
             "/legal",
             "/revoke-access-ru",
+            "/success",
         }
         is_ru_page = page in ru_pages
 
@@ -347,12 +349,24 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
     @app.head("/revoke-access-ru")
     async def site_revoke_access_ru_head() -> Response:
         return Response(status_code=200)
+
+    @app.get("/success")
+    async def site_success() -> HTMLResponse:
+        return _render_site_page("/success")
 else:
     logger.warning(
         "Static site disabled: expected index=%s assets_dir=%s",
         INDEX_FILE,
         ASSETS_DIR,
     )
+
+    @app.get("/success", response_class=HTMLResponse)
+    async def site_success_fallback() -> HTMLResponse:
+        return HTMLResponse(
+            "<h1>Готово</h1>"
+            "<p>Google Календарь подключён. Вернитесь в Telegram, чтобы продолжить настройку.</p>"
+            '<p><a href="https://t.me/zumhelper_bot" target="_blank" rel="noopener noreferrer">Открыть Telegram</a></p>'
+        )
 
 READYZ_DB_TIMEOUT_SEC = 2.0
 READYZ_LOOP_TIMEOUT_SEC = 12.0
@@ -2079,30 +2093,6 @@ async def connect_page() -> HTMLResponse:
       init();
     })();
   </script>
-</body>
-</html>
-"""
-    return HTMLResponse(content=html)
-
-
-@app.get("/success")
-async def success_page() -> HTMLResponse:
-    text = "Google Календарь подключён. Вернитесь в Telegram, чтобы продолжить настройку."
-    telegram_url = "https://t.me/zumhelper_bot"
-
-    html = f"""<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Готово</title>
-</head>
-<body>
-  <main>
-    <h1>Готово</h1>
-    <p>{text}</p>
-    <p><a href="{telegram_url}">Открыть Telegram</a></p>
-  </main>
 </body>
 </html>
 """

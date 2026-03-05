@@ -5,6 +5,7 @@ import traceback
 import logging
 import asyncio
 import time
+import re
 from html import escape
 from datetime import datetime, timezone
 from typing import Literal
@@ -75,6 +76,7 @@ logger = logging.getLogger(__name__)
 # --- FSM States ---
 class OnboardingStates(StatesGroup):
     waiting_for_public_name = State()
+    waiting_for_specialization = State()
     waiting_for_bot_token = State()
     waiting_for_calendar_action = State()
 
@@ -239,17 +241,26 @@ async def _send_onboarding_screen_for_state(
 
     if current_state == OnboardingStates.waiting_for_public_name.state:
         text_out = (
-            "📝 **Шаг 1 из 4. Публичное имя**\n\n"
+            "📝 **Шаг 1 из 5. Имя**\n\n"
             "Посмотреть видео-инструкцию: /video\n\n"
             "Введите имя, которое будут видеть ваши клиенты.\n"
-            "Например: *Психолог Анна* или *Иван Иванов*."
+            "Например: *Анна* или *Иван Иванов*."
         )
         await callback.message.answer(text_out, reply_markup=types.ReplyKeyboardRemove())
         return text_out
 
+    if current_state == OnboardingStates.waiting_for_specialization.state:
+        text_out = (
+            "🧩 **Шаг 2 из 5. Специализация**\n\n"
+            "Укажите вашу специализацию.\n"
+            "Например: *Психолог*, *Коуч*, *Психотерапевт*, *Репетитор*."
+        )
+        await callback.message.answer(text_out)
+        return text_out
+
     if current_state == OnboardingStates.waiting_for_bot_token.state:
         text_out = (
-            "🤖 **Шаг 2 из 4. Личный бот**\n\n"
+            "🤖 **Шаг 3 из 5. Личный бот**\n\n"
             "1. Откройте @BotFather\n"
             "2. Создайте нового бота командой /newbot\n"
             "3. Скопируйте **API Token** и пришлите его сюда."
@@ -298,6 +309,7 @@ async def _infer_and_send_onboarding_step(
             specialist.profile is not None
             and bool((specialist.profile.public_name or "").strip())
         )
+        has_specialization = bool((specialist.specialization or "").strip())
         has_bot = _pick_latest_active_bot(specialist.telegram_bots or []) is not None
         has_oauth = (
             specialist.google_oauth is not None
@@ -311,18 +323,28 @@ async def _infer_and_send_onboarding_step(
         if not has_profile:
             await state.set_state(OnboardingStates.waiting_for_public_name)
             text_out = (
-                "📝 **Шаг 1 из 4. Публичное имя**\n\n"
+                "📝 **Шаг 1 из 5. Имя**\n\n"
                 "Посмотреть видео-инструкцию: /video\n\n"
                 "Введите имя, которое будут видеть ваши клиенты.\n"
-                "Например: *Психолог Анна* или *Иван Иванов*."
+                "Например: *Анна* или *Иван Иванов*."
             )
             await callback.message.answer(text_out, reply_markup=types.ReplyKeyboardRemove())
+            return text_out
+
+        if not has_specialization:
+            await state.set_state(OnboardingStates.waiting_for_specialization)
+            text_out = (
+                "🧩 **Шаг 2 из 5. Специализация**\n\n"
+                "Укажите вашу специализацию.\n"
+                "Например: *Психолог*, *Коуч*, *Психотерапевт*, *Репетитор*."
+            )
+            await callback.message.answer(text_out)
             return text_out
 
         if not has_bot:
             await state.set_state(OnboardingStates.waiting_for_bot_token)
             text_out = (
-                "🤖 **Шаг 2 из 4. Личный бот**\n\n"
+                "🤖 **Шаг 3 из 5. Личный бот**\n\n"
                 "1. Откройте @BotFather\n"
                 "2. Создайте нового бота командой /newbot\n"
                 "3. Скопируйте **API Token** и пришлите его сюда."
@@ -341,7 +363,7 @@ async def _infer_and_send_onboarding_step(
             connect_url = _build_connect_page_url(raw_token)
 
             text_out = (
-                "📅 <b>Шаг 3 из 4:</b> Подключите Google аккаунт, затем выберите рабочий календарь бота.\n\n"
+                "📅 <b>Шаг 4 из 5:</b> Подключите Google аккаунт.\n\n"
                 "Откроется страница сайта. Подключение Google пройдет в браузере."
             )
             keyboard = types.InlineKeyboardMarkup(
@@ -493,9 +515,10 @@ def _calendar_select_keyboard(
 def _calendar_select_text(total: int, page: int, per_page: int, has_readonly: bool) -> str:
     _ = (page, per_page, has_readonly)
     return (
-        "📂 Выберите рабочий Google Календарь\n\n"
+        "📂 Шаг 5 из 5. Выбор календаря\n\n"
+        "Выберите рабочий Google Календарь\n\n"
         f"Найдено календарей: {total}.\n"
-        "Формат в списке: Название и часовой пояс календаря.\nПосле выбора будет выполнена проверка интеграции."
+        "Формат в списке: 📅 Название (Timezone).\nПосле выбора будет выполнена проверка интеграции."
     )
 
 
@@ -549,6 +572,10 @@ async def _start_calendar_select(callback: types.CallbackQuery, state: FSMContex
 
 def _is_valid_public_name(public_name: str) -> bool:
     return 2 <= len(public_name) <= 80
+
+
+def _is_valid_specialization(specialization: str) -> bool:
+    return bool(re.fullmatch(r"[0-9A-Za-zА-Яа-яЁё\s\-.]{2,120}", specialization))
 
 
 def _pick_latest_active_bot(bots: list[TelegramBot]) -> TelegramBot | None:
@@ -837,7 +864,7 @@ async def cmd_start(message: types.Message, state: FSMContext, command: CommandO
                     message,
                     text_out,
                     reply_markup=types.ReplyKeyboardMarkup(
-                        keyboard=[[types.KeyboardButton(text="🚀 Стать специалистом")]],
+                        keyboard=[[types.KeyboardButton(text="🚀 Подключить сервис записи")]],
                         resize_keyboard=True,
                         one_time_keyboard=True
                     )
@@ -872,6 +899,7 @@ async def cmd_start(message: types.Message, state: FSMContext, command: CommandO
             # Ищем предсказуемо: активный бот с самым свежим updated_at/created_at
             active_bot = _pick_latest_active_bot(specialist.telegram_bots or [])
 
+            has_specialization = bool((specialist.specialization or "").strip())
             has_bot = active_bot is not None
             has_oauth = specialist.google_oauth is not None and specialist.google_oauth.status == GoogleOAuthStatus.connected
             has_calendar = specialist.calendar_settings is not None and bool(specialist.calendar_settings.calendar_id)
@@ -946,6 +974,12 @@ async def cmd_start(message: types.Message, state: FSMContext, command: CommandO
                 keyboard = types.ReplyKeyboardRemove()
                 new_state = "waiting_for_public_name"
             
+            elif not has_specialization:
+                await state.set_state(OnboardingStates.waiting_for_specialization)
+                next_step_msg = "\n👇 <b>Действие:</b> Укажите вашу специализацию."
+                keyboard = types.ReplyKeyboardRemove()
+                new_state = "waiting_for_specialization"
+
             elif not has_bot:
                 await state.set_state(OnboardingStates.waiting_for_bot_token)
                 next_step_msg = "\n👇 <b>Действие:</b> Пришлите токен вашего бота от @BotFather."
@@ -1168,10 +1202,10 @@ async def onboarding_start_from_plan(callback: types.CallbackQuery, state: FSMCo
     )
 
     text_out = (
-        "📝 **Шаг 1 из 4. Публичное имя**\n\n"
+        "📝 **Шаг 1 из 5. Имя**\n\n"
         "Посмотреть видео-инструкцию: /video\n\n"
         "Введите имя, которое будут видеть ваши клиенты.\n"
-        "Например: *Психолог Анна* или *Иван Иванов*."
+        "Например: *Анна* или *Иван Иванов*."
     )
     await callback.message.answer(text_out, reply_markup=types.ReplyKeyboardRemove())
     await log_outbound_message(
@@ -1183,7 +1217,7 @@ async def onboarding_start_from_plan(callback: types.CallbackQuery, state: FSMCo
     )
 
 
-@router.message(F.text == "🚀 Стать специалистом")
+@router.message(F.text == "🚀 Подключить сервис записи")
 async def start_flow(message: types.Message, state: FSMContext):
     prev_state = await state.get_state()
     await state.set_state(OnboardingStates.waiting_for_public_name)
@@ -1201,10 +1235,10 @@ async def start_flow(message: types.Message, state: FSMContext):
     user_handle = _get_handle(message.from_user)
     
     text_out = (
-        "📝 **Шаг 1 из 4. Публичное имя**\n\n"
+        "📝 **Шаг 1 из 5. Имя**\n\n"
         "Посмотреть видео-инструкцию: /video\n\n"
         "Введите имя, которое будут видеть ваши клиенты.\n"
-        "Например: *Психолог Анна* или *Иван Иванов*."
+        "Например: *Анна* или *Иван Иванов*."
     )
     await message.answer(text_out, reply_markup=types.ReplyKeyboardRemove())
     await log_outbound_message(message.bot, message.from_user.id, text_out, fsm_state="waiting_for_public_name", user_handle=user_handle)
@@ -1230,7 +1264,7 @@ async def process_public_name(message: types.Message, state: FSMContext):
         )
         text_out = (
             "⚠️ Некорректное публичное имя. Используйте от 2 до 80 символов.\n"
-            "Пример: *Психолог Анна* или *Иван Иванов*."
+            "Пример: *Анна* или *Иван Иванов*."
         )
         await message.answer(text_out)
         await log_outbound_message(
@@ -1284,7 +1318,7 @@ async def process_public_name(message: types.Message, state: FSMContext):
                     profile.session_buffer_min = 10
             await session.commit()
 
-        await state.set_state(OnboardingStates.waiting_for_bot_token)
+        await state.set_state(OnboardingStates.waiting_for_specialization)
         log_event(
             logger,
             logging.INFO,
@@ -1292,28 +1326,107 @@ async def process_public_name(message: types.Message, state: FSMContext):
             specialist_id=str(auth_entry.specialist_id),
             tg_user_id=tg_user_id,
             from_state=from_state,
-            to_state=OnboardingStates.waiting_for_bot_token.state,
+            to_state=OnboardingStates.waiting_for_specialization.state,
             action="public_name_submit",
             outcome="ok",
         )
-        
+
         text_out = (
             f"✅ Имя сохранено: **{public_name}**\n\n"
-            "🤖 **Шаг 2 из 4. Личный бот**\n\n"
-            "1. Откройте @BotFather\n"
-            "2. Создайте нового бота командой /newbot\n"
-            "3. Скопируйте **API Token** и пришлите его сюда."
+            "🧩 **Шаг 2 из 5. Специализация**\n\n"
+            "Укажите вашу специализацию.\n"
+            "Например: *Психолог*, *Коуч*, *Психотерапевт*, *Репетитор*."
         )
         await message.answer(text_out)
         await log_outbound_message(
-            message.bot, tg_user_id, text_out, 
-            fsm_state="waiting_for_bot_token", user_handle=user_handle, specialist_name=public_name
+            message.bot, tg_user_id, text_out,
+            fsm_state="waiting_for_specialization", user_handle=user_handle, specialist_name=public_name
         )
 
     except Exception:
         error_trace = traceback.format_exc()
         await _log_error_to_db(message.bot, tg_user_id, error_trace, "process_public_name")
         await message.answer("⚠️ Ошибка сохранения имени. Попробуйте еще раз.")
+
+
+@router.message(OnboardingStates.waiting_for_specialization)
+async def process_specialization(message: types.Message, state: FSMContext):
+    specialization = (message.text or "")
+    # Normalize control chars to prevent log/message injection vectors.
+    specialization = specialization.replace("\r", " ").replace("\n", " ").replace("\t", " ")
+    specialization = specialization.strip()
+    tg_user_id = message.from_user.id
+    user_handle = _get_handle(message.from_user)
+    from_state = await state.get_state()
+
+    if not _is_valid_specialization(specialization):
+        text_out = (
+            "⚠️ Некорректная специализация. Используйте от 2 до 120 символов: "
+            "буквы, цифры, пробел, дефис или точку."
+        )
+        await message.answer(text_out)
+        await log_outbound_message(
+            message.bot,
+            tg_user_id,
+            text_out,
+            fsm_state="waiting_for_specialization",
+            user_handle=user_handle,
+        )
+        await state.set_state(OnboardingStates.waiting_for_specialization)
+        log_event(
+            logger,
+            logging.WARNING,
+            event="onboarding_validation_error",
+            tg_user_id=tg_user_id,
+            stage="specialization",
+            reason="invalid_format",
+            text_length=len(specialization),
+        )
+        return
+
+    try:
+        async with async_session_factory() as session:
+            stmt = (
+                select(Specialist)
+                .join(SpecialistAuthTelegram, SpecialistAuthTelegram.specialist_id == Specialist.specialist_id)
+                .where(SpecialistAuthTelegram.tg_user_id == tg_user_id)
+            )
+            specialist = (await session.execute(stmt)).scalar_one()
+            specialist.specialization = specialization
+            await session.commit()
+
+        await state.set_state(OnboardingStates.waiting_for_bot_token)
+        log_event(
+            logger,
+            logging.INFO,
+            event="onboarding_step",
+            specialist_id=str(specialist.specialist_id),
+            tg_user_id=tg_user_id,
+            from_state=from_state,
+            to_state=OnboardingStates.waiting_for_bot_token.state,
+            action="specialization_submit",
+            outcome="ok",
+        )
+
+        text_out = (
+            "✅ Специализация сохранена.\n\n"
+            "🤖 **Шаг 3 из 5. Личный бот**\n\n"
+            "1. Откройте @BotFather\n"
+            "2. Создайте нового бота командой /newbot\n"
+            "3. Скопируйте **API Token** и пришлите его сюда."
+        )
+        await message.answer(text_out)
+        await log_outbound_message(
+            message.bot,
+            tg_user_id,
+            text_out,
+            fsm_state="waiting_for_bot_token",
+            user_handle=user_handle,
+        )
+    except Exception:
+        error_trace = traceback.format_exc()
+        await _log_error_to_db(message.bot, tg_user_id, error_trace, "process_specialization")
+        await message.answer("⚠️ Ошибка сохранения специализации. Попробуйте еще раз.")
 
 
 @router.message(OnboardingStates.waiting_for_bot_token)
@@ -1476,7 +1589,7 @@ async def process_bot_token(message: types.Message, state: FSMContext):
         text_out = (
             f"✅ Бот **@{escape_markdown_v2(bot_info.username)}** успешно подключен!\n"
             f"{status_line}\n\n"
-            "📅 **Шаг 3 из 4:** Подключите Google аккаунт, затем выберите рабочий календарь бота.\n\n"
+            "📅 **Шаг 4 из 5:** Подключите Google аккаунт.\n\n"
             "Откроется страница сайта. Подключение Google пройдет в браузере."
         )
         

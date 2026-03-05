@@ -1,11 +1,24 @@
 from aiogram import types
 
 
+def _format_calendar_label(summary: str | None, tz: str | None) -> str:
+    name = (summary or "").strip() or "Без названия"
+    timezone = (tz or "UTC").strip() or "UTC"
+
+    name = " ".join(name.split())
+    timezone = " ".join(timezone.split())
+
+    max_len = 40
+    if len(name) > max_len:
+        name = name[: max_len - 1].rstrip() + "…"
+
+    return f"📅 {name} ({timezone})"
+
+
 def format_calendar_button_text(item: dict, *, is_current: bool = False) -> str:
-    summary = (item.get("summary") or "Без названия").strip() or "Без названия"
-    timezone = (item.get("timeZone") or "UTC").strip() or "UTC"
-    current_marker = "\n✅ Current" if is_current else ""
-    return f"📅 {summary}\n🌍 {timezone}{current_marker}"
+    label = _format_calendar_label(item.get("summary"), item.get("timeZone"))
+    current_marker = " ✅ Current" if is_current else ""
+    return f"{label}{current_marker}"
 
 
 def build_calendar_selection_keyboard(

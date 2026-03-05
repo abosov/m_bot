@@ -555,11 +555,11 @@ def test_calendar_select_keyboard_and_text_navigation(monkeypatch):
 
     kb_page0 = onboarding._calendar_select_keyboard(items, page=0, per_page=6)
     buttons0 = [btn for row in kb_page0.inline_keyboard for btn in row]
-    assert any(btn.text.startswith("📅 Calendar 0\n🌍 UTC") for btn in buttons0)
+    assert any(btn.text.startswith("📅 Calendar 0 (UTC)") for btn in buttons0)
 
     kb_with_current = onboarding._calendar_select_keyboard(items, page=0, per_page=6, current_calendar_id="cal-1")
     marked_buttons = [btn for row in kb_with_current.inline_keyboard for btn in row]
-    assert any("Calendar 1" in btn.text and "✅ Current" in btn.text for btn in marked_buttons)
+    assert any("Calendar 1 (UTC)" in btn.text and "✅ Current" in btn.text for btn in marked_buttons)
     assert any(btn.callback_data == "calendar:refresh" for btn in buttons0)
     assert any(btn.callback_data == "calendar:page:1" for btn in buttons0)
     assert not any(btn.callback_data == "calendar:page:-1" for btn in buttons0)
@@ -573,16 +573,18 @@ def test_calendar_select_keyboard_and_text_navigation(monkeypatch):
 
     text = onboarding._calendar_select_text(total=7, page=1, per_page=6, has_readonly=True)
     assert text == (
-        "📂 Выберите рабочий Google Календарь\n\n"
+        "📂 Шаг 5 из 5. Выбор календаря\n\n"
+        "Выберите рабочий Google Календарь\n\n"
         "Найдено календарей: 7.\n"
-        "Формат в списке: Название и часовой пояс календаря.\nПосле выбора будет выполнена проверка интеграции."
+        "Формат в списке: 📅 Название (Timezone).\nПосле выбора будет выполнена проверка интеграции."
     )
 
     empty_text = onboarding._calendar_select_text(total=0, page=0, per_page=6, has_readonly=False)
     assert empty_text == (
-        "📂 Выберите рабочий Google Календарь\n\n"
+        "📂 Шаг 5 из 5. Выбор календаря\n\n"
+        "Выберите рабочий Google Календарь\n\n"
         "Найдено календарей: 0.\n"
-        "Формат в списке: Название и часовой пояс календаря.\nПосле выбора будет выполнена проверка интеграции."
+        "Формат в списке: 📅 Название (Timezone).\nПосле выбора будет выполнена проверка интеграции."
     )
 
     kb_empty = onboarding._calendar_select_keyboard([], page=0, per_page=6)
