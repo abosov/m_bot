@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from database import (
     Appointment,
+    BillingPurchase,
     BotHealthCheck,
     CalendarSyncState,
     Client,
@@ -233,6 +234,7 @@ async def execute_test_data_reset(
 
     counts: dict[str, int] = {
         "appointment": 0,
+        "billing_purchase": 0,
         "weekly_availability": 0,
         "specialist_calendar_settings": 0,
         "specialist_calendar": 0,
@@ -371,6 +373,17 @@ async def execute_test_data_reset(
         has_appointment_calendar_link = await _table_exists(session, "appointment_calendar_link")
         has_web_auth_session = await _table_exists(session, "web_auth_session")
         has_web_connect_token = await _table_exists(session, "web_connect_token")
+        has_billing_purchase = await _table_exists(session, "billing_purchase")
+
+        if has_billing_purchase and (all_target_specialist_ids or selected_tg_user_ids):
+            counts["billing_purchase"] = await _count_rows(
+                session,
+                BillingPurchase,
+                or_(
+                    BillingPurchase.specialist_id.in_(all_target_specialist_ids) if all_target_specialist_ids else False,
+                    BillingPurchase.tg_user_id.in_(selected_tg_user_ids) if selected_tg_user_ids else False,
+                ),
+            )
 
         if has_specialist_calendar and all_target_specialist_ids:
             for sid in all_target_specialist_ids:
@@ -504,6 +517,26 @@ async def execute_test_data_reset(
                             ).rowcount
                             or 0
                         )
+
+
+            if has_billing_purchase and (all_target_specialist_ids or selected_tg_user_ids):
+                deleted_counts["billing_purchase"] = int(
+                    (
+                        await session.execute(
+                            delete(BillingPurchase).where(
+                                or_(
+                                    BillingPurchase.specialist_id.in_(all_target_specialist_ids)
+                                    if all_target_specialist_ids
+                                    else False,
+                                    BillingPurchase.tg_user_id.in_(selected_tg_user_ids)
+                                    if selected_tg_user_ids
+                                    else False,
+                                )
+                            )
+                        )
+                    ).rowcount
+                    or 0
+                )
 
             if selected_tg_user_ids or all_target_specialist_ids:
                 deleted_counts["message_logs"] = int(

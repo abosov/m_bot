@@ -396,3 +396,75 @@ async def test_cleanup_safety_guard_threshold_requires_force(tmp_path, monkeypat
             registry_path=registry_path,
             max_clients_threshold=1,
         )
+
+
+@pytest.mark.asyncio
+async def test_cleanup_apply_deletes_billing_purchase_before_specialist(tmp_path, monkeypatch):
+    database, test_data_reset, _ = load_modules(tmp_path, monkeypatch)
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active),
+                database.SpecialistProfile(
+                    specialist_id=specialist_id,
+                    public_name="Smoke Specialist",
+                    owner_tg_user_id=111,
+                    owner_tg_username="smoke_owner",
+                    specialist_timezone="UTC",
+                ),
+                database.SpecialistAuthTelegram(
+                    specialist_id=specialist_id,
+                    tg_user_id=111,
+                ),
+                database.BillingPurchase(
+                    specialist_id=specialist_id,
+                    tg_user_id=111,
+                    plan=database.TariffPlan.start,
+                    period=database.BillingPeriod.monthly,
+                    amount_rub_int=1000,
+                    currency="RUB",
+                    status=database.BillingPurchaseStatus.pending,
+                    pay_token_hash="smoke-pay-token",
+                    expires_at=datetime(2030, 1, 1, tzinfo=timezone.utc),
+                    created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                    updated_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+        await session.commit()
+
+    registry_path = tmp_path / "test_accounts.yaml"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "accounts": [
+                    {"name": "smoke_specialist_1", "role": "specialist_owner", "tg_user_id": 111},
+                ],
+                "notes": "test",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = await test_data_reset.execute_test_data_reset(
+        session_factory=database.async_session_factory,
+        dry_run=False,
+        registry_path=registry_path,
+    )
+
+    assert report["deleted_counts"]["billing_purchase"] == 1
+    assert report["deleted_counts"]["specialist"] == 1
+
+    async with database.async_session_factory() as session:
+        purchase_count = await session.scalar(select(func.count()).select_from(database.BillingPurchase))
+        specialist_exists = await session.scalar(
+            select(database.Specialist.specialist_id).where(database.Specialist.specialist_id == specialist_id)
+        )
+
+    assert purchase_count == 0
+    assert specialist_exists is None
