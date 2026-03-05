@@ -2320,3 +2320,451 @@ async def test_client_pick_slot_returns_free_plan_limit_error(monkeypatch):
         "Обновите тариф для продолжения."
     )
     assert callback.answers[-1][1]["show_alert"] is True
+
+
+@pytest.mark.asyncio
+async def test_client_reminder_confirm_emits_outbox_and_thanks(monkeypatch):
+    message = DummyMessage("")
+    appointment = types.SimpleNamespace(
+        appointment_id=uuid4(),
+        specialist_id="sp-id",
+        client_id="c1",
+        start_at_utc=datetime(2099, 2, 18, 10, 45, tzinfo=timezone.utc),
+        booking_state=client_commands.BookingState.confirmed,
+    )
+    callback = types.SimpleNamespace(
+        data=f"client_rem:confirm:{appointment.appointment_id}",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    outbox_events = []
+
+    class _Session:
+        def __init__(self):
+            self._calls = 0
+
+        async def execute(self, _stmt):
+            self._calls += 1
+            if self._calls == 1:
+                return _Result(types.SimpleNamespace(client_id="c1"))
+            if self._calls == 2:
+                return _Result(appointment)
+            return _Result([])
+
+        async def commit(self):
+            return None
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _emit(_session, event_type, payload):
+        outbox_events.append((event_type, payload))
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+    monkeypatch.setattr(client_commands, "emit_outbox_domain_event", _emit)
+
+    await client_commands.client_reminder_confirm(callback, specialist_id="sp-id")
+
+    assert outbox_events[0][0] == "appointment_client_confirmed"
+    assert outbox_events[0][1]["appointment_id"] == str(appointment.appointment_id)
+    assert message.answers[0][0] == "Спасибо! Отметили, что вы придёте."
+
+
+@pytest.mark.asyncio
+async def test_client_reminder_contact_emits_outbox(monkeypatch):
+    message = DummyMessage("")
+    appointment = types.SimpleNamespace(
+        appointment_id=uuid4(),
+        specialist_id="sp-id",
+        client_id="c1",
+        start_at_utc=datetime(2099, 2, 18, 10, 45, tzinfo=timezone.utc),
+        booking_state=client_commands.BookingState.confirmed,
+    )
+    callback = types.SimpleNamespace(
+        data=f"client_rem:contact:{appointment.appointment_id}",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    outbox_events = []
+
+    class _Session:
+        def __init__(self):
+            self._calls = 0
+
+        async def execute(self, _stmt):
+            self._calls += 1
+            if self._calls == 1:
+                return _Result(types.SimpleNamespace(client_id="c1"))
+            if self._calls == 2:
+                return _Result(appointment)
+            return _Result([])
+
+        async def commit(self):
+            return None
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _emit(_session, event_type, payload):
+        outbox_events.append((event_type, payload))
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+    monkeypatch.setattr(client_commands, "emit_outbox_domain_event", _emit)
+
+    await client_commands.client_reminder_contact_specialist(callback, specialist_id="sp-id")
+
+    assert outbox_events[0][0] == "appointment_client_contact_specialist"
+    assert outbox_events[0][1]["idempotency_key"].startswith(f"contact:{appointment.appointment_id}:")
+    assert message.answers[0][0] == "Передал специалисту просьбу написать вам."
+
+
+@pytest.mark.asyncio
+async def test_client_reminder_contact_rate_limit_same_bucket(monkeypatch):
+    appointment = types.SimpleNamespace(
+        appointment_id=uuid4(),
+        specialist_id="sp-id",
+        client_id="c1",
+        start_at_utc=datetime(2099, 2, 18, 10, 45, tzinfo=timezone.utc),
+        booking_state=client_commands.BookingState.confirmed,
+    )
+    message = DummyMessage("")
+    callback = types.SimpleNamespace(
+        data=f"client_rem:contact:{appointment.appointment_id}",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    class _Session:
+        def __init__(self):
+            self._calls = 0
+
+        async def execute(self, _stmt):
+            self._calls += 1
+            if self._calls == 1:
+                return _Result(types.SimpleNamespace(client_id="c1"))
+            if self._calls == 2:
+                return _Result(appointment)
+            key, _, _ = client_commands._contact_idempotency_key(
+                appointment_id=appointment.appointment_id,
+                now_utc=datetime(2026, 1, 2, 10, 2, tzinfo=timezone.utc),
+            )
+            existing = types.SimpleNamespace(payload_json={"idempotency_key": key})
+            return _Result([existing])
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _emit(*_args, **_kwargs):
+        raise AssertionError("emit should not be called for duplicate contact signal")
+
+    class _FakeNow(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 1, 2, 10, 2, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+    monkeypatch.setattr(client_commands, "emit_outbox_domain_event", _emit)
+    monkeypatch.setattr(client_commands, "datetime", _FakeNow)
+
+    await client_commands.client_reminder_contact_specialist(callback, specialist_id="sp-id")
+
+    assert message.answers[0][0] == "Уже передали просьбу специалисту."
+
+
+@pytest.mark.asyncio
+async def test_client_reminder_cancel_no_changes_state_and_emits_outbox(monkeypatch):
+    message = DummyMessage("")
+    appointment = types.SimpleNamespace(
+        appointment_id=uuid4(),
+        specialist_id="sp-id",
+        client_id="c1",
+        start_at_utc=datetime(2099, 2, 18, 10, 45, tzinfo=timezone.utc),
+        booking_state=client_commands.BookingState.confirmed,
+        gcal_event_id=None,
+    )
+    callback = types.SimpleNamespace(
+        data=f"client_rem:cancel_comment:no:{appointment.appointment_id}",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+    state = DummyState()
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    outbox_events = []
+
+    class _Session:
+        def __init__(self):
+            self._calls = 0
+
+        async def execute(self, _stmt):
+            self._calls += 1
+            if self._calls == 1:
+                return _Result(types.SimpleNamespace(client_id="c1"))
+            return _Result(appointment)
+
+        async def get(self, _model, _pk):
+            return None
+
+        async def commit(self):
+            return None
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _emit(_session, event_type, payload):
+        outbox_events.append((event_type, payload))
+
+    async def _render(*_args, **_kwargs):
+        return None
+
+    async def _validate_ok(**_kwargs):
+        return None
+
+    async def _cancel_window(**_kwargs):
+        return 12
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+    monkeypatch.setattr(client_commands, "emit_outbox_domain_event", _emit)
+    monkeypatch.setattr(client_commands, "_render_client_appointments", _render)
+    monkeypatch.setattr(client_commands, "_validate_min_hours_policy", _validate_ok)
+    monkeypatch.setattr(client_commands, "_resolve_cancel_window_hours", _cancel_window)
+
+    await client_commands.client_reminder_cancel_comment_no(callback, specialist_id="sp-id", state=state)
+
+    assert appointment.booking_state == client_commands.BookingState.canceled_by_client
+    assert outbox_events[0][0] == "appointment_cancelled_by_client"
+    assert "comment" not in outbox_events[0][1]
+
+
+@pytest.mark.asyncio
+async def test_client_reminder_cancel_yes_text_emits_comment(monkeypatch):
+    state = DummyState()
+    appointment_id = uuid4()
+    await state.set_state(client_commands.ClientReminderCancelCommentState.waiting_for_text)
+    await state.update_data(reminder_cancel_appointment_id=str(appointment_id))
+
+    message = DummyMessage("Комментарий для специалиста", from_user=types.SimpleNamespace(id=42))
+    appointment = types.SimpleNamespace(
+        appointment_id=appointment_id,
+        specialist_id="sp-id",
+        client_id="c1",
+        start_at_utc=datetime(2099, 2, 18, 10, 45, tzinfo=timezone.utc),
+        booking_state=client_commands.BookingState.confirmed,
+        gcal_event_id=None,
+    )
+
+    outbox_events = []
+
+    class _Session:
+        def __init__(self):
+            self._calls = 0
+
+        async def execute(self, _stmt):
+            self._calls += 1
+            if self._calls == 1:
+                return _Result(types.SimpleNamespace(client_id="c1"))
+            return _Result(appointment)
+
+        async def get(self, _model, _pk):
+            return None
+
+        async def commit(self):
+            return None
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _emit(_session, event_type, payload):
+        outbox_events.append((event_type, payload))
+
+    async def _render(*_args, **_kwargs):
+        return None
+
+    async def _validate_ok(**_kwargs):
+        return None
+
+    async def _cancel_window(**_kwargs):
+        return 12
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+    monkeypatch.setattr(client_commands, "emit_outbox_domain_event", _emit)
+    monkeypatch.setattr(client_commands, "_render_client_appointments", _render)
+    monkeypatch.setattr(client_commands, "_validate_min_hours_policy", _validate_ok)
+    monkeypatch.setattr(client_commands, "_resolve_cancel_window_hours", _cancel_window)
+
+    await client_commands.client_reminder_cancel_comment_text(message, specialist_id="sp-id", state=state)
+
+    assert appointment.booking_state == client_commands.BookingState.canceled_by_client
+    assert outbox_events[0][1]["comment"] == "Комментарий для специалиста"
+
+
+@pytest.mark.asyncio
+async def test_client_reminder_ownership_violation_shows_alert(monkeypatch):
+    message = DummyMessage("")
+    callback = types.SimpleNamespace(
+        data=f"client_rem:confirm:{uuid4()}",
+        message=message,
+        from_user=types.SimpleNamespace(id=999),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    class _Session:
+        async def execute(self, _stmt):
+            return _Result(None)
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+
+    await client_commands.client_reminder_confirm(callback, specialist_id="sp-id")
+
+    assert callback.answers[-1][1]["show_alert"] is True
+
+
+@pytest.mark.asyncio
+async def test_client_reminder_cancel_window_blocks_and_no_outbox(monkeypatch):
+    message = DummyMessage("")
+    appointment = types.SimpleNamespace(
+        appointment_id=uuid4(),
+        specialist_id="sp-id",
+        client_id="c1",
+        start_at_utc=datetime(2026, 2, 18, 10, 45, tzinfo=timezone.utc),
+        booking_state=client_commands.BookingState.confirmed,
+    )
+    callback = types.SimpleNamespace(
+        data=f"client_rem:cancel:{appointment.appointment_id}",
+        message=message,
+        from_user=types.SimpleNamespace(id=42),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    outbox_events = []
+
+    class _Session:
+        def __init__(self):
+            self._calls = 0
+
+        async def execute(self, _stmt):
+            self._calls += 1
+            if self._calls == 1:
+                return _Result(types.SimpleNamespace(client_id="c1"))
+            return _Result(appointment)
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _emit(_session, event_type, payload):
+        outbox_events.append((event_type, payload))
+
+    async def _validate_fail(**_kwargs):
+        raise ValueError("policy")
+
+    async def _cancel_window(**_kwargs):
+        return 12
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+    monkeypatch.setattr(client_commands, "emit_outbox_domain_event", _emit)
+    monkeypatch.setattr(client_commands, "_validate_min_hours_policy", _validate_fail)
+    monkeypatch.setattr(client_commands, "_resolve_cancel_window_hours", _cancel_window)
+
+    await client_commands.client_reminder_cancel_entry(callback, specialist_id="sp-id")
+
+    assert outbox_events == []
+    assert callback.answers[-1][1]["show_alert"] is True
+
+
+@pytest.mark.asyncio
+async def test_client_reminder_cancel_ownership_violation_shows_alert(monkeypatch):
+    message = DummyMessage("")
+    callback = types.SimpleNamespace(
+        data=f"client_rem:cancel:{uuid4()}",
+        message=message,
+        from_user=types.SimpleNamespace(id=999),
+        answers=[],
+    )
+
+    async def _callback_answer(*args, **kwargs):
+        callback.answers.append((args, kwargs))
+
+    callback.answer = _callback_answer
+
+    class _Session:
+        async def execute(self, _stmt):
+            return _Result(None)
+
+    class _Ctx:
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(client_commands, "async_session_factory", lambda: _Ctx())
+
+    await client_commands.client_reminder_cancel_entry(callback, specialist_id="sp-id")
+
+    assert callback.answers[-1][1]["show_alert"] is True

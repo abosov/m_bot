@@ -28,6 +28,7 @@ from database import (
     BookingState,
     Client,
     ClientTimezoneSource,
+    OutboxEvent,
     SpecialistCalendarSettings,
     SpecialistProfile,
     TariffPlan,
@@ -67,6 +68,10 @@ class ClientBookingState(StatesGroup):
 
 class ClientTimezoneState(StatesGroup):
     waiting_for_timezone = State()
+
+
+class ClientReminderCancelCommentState(StatesGroup):
+    waiting_for_text = State()
 
 
 
@@ -184,6 +189,71 @@ async def _validate_min_hours_policy(*, specialist_id, target_start_utc: datetim
         target_start_utc=target_start_utc,
         min_hours=min_hours,
     )
+
+
+async def _load_client_and_appointment_for_callback(*, session, specialist_id, tg_user_id: int, appointment_id: UUID):
+    client = (
+        await session.execute(
+            select(Client)
+            .where(Client.specialist_id == specialist_id)
+            .where(Client.tg_user_id == tg_user_id)
+        )
+    ).scalar_one_or_none()
+    if client is None:
+        return None, None
+
+    appointment = (
+        await session.execute(
+            select(Appointment)
+            .where(Appointment.appointment_id == appointment_id)
+            .where(Appointment.client_id == client.client_id)
+            .where(Appointment.specialist_id == specialist_id)
+        )
+    ).scalar_one_or_none()
+    return client, appointment
+
+
+async def _cancel_client_appointment(
+    *,
+    session,
+    specialist_id,
+    client,
+    appointment,
+    comment: str | None = None,
+) -> None:
+    try:
+        if appointment.booking_state != BookingState.confirmed:
+            raise InvalidAppointmentTransitionError("client cancellation requires confirmed state")
+        appointment.booking_state = BookingState.canceled_by_client
+    except InvalidAppointmentTransitionError:
+        raise ValueError("Отмена доступна только для подтверждённой записи.") from None
+
+    settings = await session.get(SpecialistCalendarSettings, specialist_id)
+    calendar_id = settings.calendar_id if settings is not None else None
+    if calendar_id and appointment.gcal_event_id:
+        await delete_appointment_event(
+            specialist_id=specialist_id,
+            calendar_id=calendar_id,
+            google_event_id=appointment.gcal_event_id,
+        )
+
+    payload = {
+        "appointment_id": str(appointment.appointment_id),
+        "specialist_id": str(specialist_id),
+        "client_id": str(client.client_id),
+        "start_at_utc": appointment.start_at_utc.isoformat(),
+    }
+    if comment:
+        payload["comment"] = comment
+    await emit_outbox_domain_event(session, "appointment_cancelled_by_client", payload)
+
+
+def _contact_idempotency_key(*, appointment_id: UUID, now_utc: datetime) -> tuple[str, datetime, datetime]:
+    floored_minute = (now_utc.minute // 5) * 5
+    bucket_start = now_utc.replace(minute=floored_minute, second=0, microsecond=0)
+    bucket_end = bucket_start + timedelta(minutes=5)
+    bucket_code = bucket_start.strftime("%Y%m%d%H%M")
+    return f"contact:{appointment_id}:{bucket_code}", bucket_start, bucket_end
 
 
 async def _get_specialist_tz(specialist_id) -> ZoneInfo:
@@ -1285,25 +1355,15 @@ async def client_appointment_cancel_confirm(callback, specialist_id) -> None:
         return
 
     async with async_session_factory() as session:
-        client = (
-            await session.execute(
-                select(Client)
-                .where(Client.specialist_id == specialist_id)
-                .where(Client.tg_user_id == callback.from_user.id)
-            )
-        ).scalar_one_or_none()
+        client, appointment = await _load_client_and_appointment_for_callback(
+            session=session,
+            specialist_id=specialist_id,
+            tg_user_id=callback.from_user.id,
+            appointment_id=appointment_id,
+        )
         if client is None:
             await callback.answer("Профиль клиента не найден. Нажмите /start.", show_alert=True)
             return
-
-        appointment = (
-            await session.execute(
-                select(Appointment)
-                .where(Appointment.appointment_id == appointment_id)
-                .where(Appointment.client_id == client.client_id)
-                .where(Appointment.specialist_id == specialist_id)
-            )
-        ).scalar_one_or_none()
         if appointment is None:
             await callback.answer("Запись не найдена", show_alert=True)
             return
@@ -1334,52 +1394,347 @@ async def client_appointment_cancel_confirm(callback, specialist_id) -> None:
             return
 
         try:
-            if appointment.booking_state != BookingState.confirmed:
-                raise InvalidAppointmentTransitionError("client cancellation requires confirmed state")
-            appointment.booking_state = BookingState.canceled_by_client
-        except InvalidAppointmentTransitionError:
-            await callback.answer("Отмена доступна только для подтверждённой записи.", show_alert=True)
+            await _cancel_client_appointment(
+                session=session,
+                specialist_id=specialist_id,
+                client=client,
+                appointment=appointment,
+                comment=None,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to cancel appointment from client callback",
+                extra={
+                    "specialist_id": str(specialist_id),
+                    "appointment_id": str(appointment.appointment_id),
+                },
+            )
+            if hasattr(session, "rollback"):
+                await session.rollback()
+            if callback.message is not None:
+                await callback.message.answer("Не удалось отменить запись. Попробуйте позже.")
+            await callback.answer()
             return
-
-        settings = await session.get(SpecialistCalendarSettings, specialist_id)
-        calendar_id = settings.calendar_id if settings is not None else None
-        if calendar_id and appointment.gcal_event_id:
-            try:
-                await delete_appointment_event(
-                    specialist_id=specialist_id,
-                    calendar_id=calendar_id,
-                    google_event_id=appointment.gcal_event_id,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to delete Google Calendar event for cancelled appointment",
-                    extra={
-                        "specialist_id": str(specialist_id),
-                        "appointment_id": str(appointment.appointment_id),
-                        "calendar_id": calendar_id,
-                        "google_event_id": appointment.gcal_event_id,
-                    },
-                )
-                if hasattr(session, "rollback"):
-                    await session.rollback()
-                if callback.message is not None:
-                    await callback.message.answer("Не удалось отменить запись. Попробуйте позже.")
-                await callback.answer()
-                return
-
-        payload = {
-            "appointment_id": str(appointment.appointment_id),
-            "specialist_id": str(specialist_id),
-            "client_id": str(client.client_id),
-            "start_at_utc": appointment.start_at_utc.isoformat(),
-        }
-        await emit_outbox_domain_event(session, "appointment_cancelled_by_client", payload)
 
         await session.commit()
 
     if callback.message is not None:
         await callback.message.answer("Запись отменена.")
         await _render_client_appointments(callback.message, specialist_id, callback.from_user.id)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("client_rem:confirm:"))
+async def client_reminder_confirm(callback, specialist_id) -> None:
+    if callback.from_user is None:
+        await callback.answer("Запись неактуальна.", show_alert=True)
+        return
+
+    appointment_id_raw = callback.data.removeprefix("client_rem:confirm:")
+    try:
+        appointment_id = UUID(appointment_id_raw)
+    except ValueError:
+        await callback.answer("Запись неактуальна.", show_alert=True)
+        return
+
+    async with async_session_factory() as session:
+        client, appointment = await _load_client_and_appointment_for_callback(
+            session=session,
+            specialist_id=specialist_id,
+            tg_user_id=callback.from_user.id,
+            appointment_id=appointment_id,
+        )
+        if client is None or appointment is None or appointment.booking_state != BookingState.confirmed:
+            await callback.answer("Запись неактуальна.", show_alert=True)
+            return
+
+        payload = {
+            "appointment_id": str(appointment.appointment_id),
+            "specialist_id": str(appointment.specialist_id),
+            "client_id": str(appointment.client_id),
+            "start_at_utc": appointment.start_at_utc.isoformat(),
+        }
+        await emit_outbox_domain_event(session, "appointment_client_confirmed", payload)
+        await session.commit()
+
+    if callback.message is not None:
+        await callback.message.answer("Спасибо! Отметили, что вы придёте.")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("client_rem:cancel:"))
+async def client_reminder_cancel_entry(callback, specialist_id) -> None:
+    if callback.from_user is None or callback.message is None:
+        await callback.answer("Запись неактуальна.", show_alert=True)
+        return
+
+    appointment_id_raw = callback.data.removeprefix("client_rem:cancel:")
+    try:
+        appointment_id = UUID(appointment_id_raw)
+    except ValueError:
+        await callback.answer("Запись неактуальна.", show_alert=True)
+        return
+
+    async with async_session_factory() as session:
+        client, appointment = await _load_client_and_appointment_for_callback(
+            session=session,
+            specialist_id=specialist_id,
+            tg_user_id=callback.from_user.id,
+            appointment_id=appointment_id,
+        )
+        if client is None or appointment is None or appointment.booking_state != BookingState.confirmed:
+            await callback.answer("Запись неактуальна.", show_alert=True)
+            return
+        min_hours = await _resolve_cancel_window_hours(specialist_id=specialist_id)
+        try:
+            await _validate_min_hours_policy(specialist_id=specialist_id, target_start_utc=appointment.start_at_utc)
+        except ValueError:
+            await callback.answer(
+                f"Отмена недоступна менее чем за {min_hours} часов до начала. Напишите специалисту.",
+                show_alert=True,
+            )
+            return
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Оставить комментарий специалисту", callback_data=f"client_rem:cancel_comment:yes:{appointment_id}")],
+            [InlineKeyboardButton(text="Без комментария", callback_data=f"client_rem:cancel_comment:no:{appointment_id}")],
+        ]
+    )
+    await callback.message.answer("Хотите оставить комментарий специалисту?", reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("client_rem:cancel_comment:yes:"))
+async def client_reminder_cancel_comment_yes(callback, specialist_id, state: FSMContext) -> None:
+    if callback.from_user is None or callback.message is None:
+        await callback.answer("Запись неактуальна.", show_alert=True)
+        return
+
+    appointment_id_raw = callback.data.removeprefix("client_rem:cancel_comment:yes:")
+    try:
+        appointment_id = UUID(appointment_id_raw)
+    except ValueError:
+        await callback.answer("Запись неактуальна.", show_alert=True)
+        return
+
+    async with async_session_factory() as session:
+        client, appointment = await _load_client_and_appointment_for_callback(
+            session=session,
+            specialist_id=specialist_id,
+            tg_user_id=callback.from_user.id,
+            appointment_id=appointment_id,
+        )
+        if client is None or appointment is None or appointment.booking_state != BookingState.confirmed:
+            await callback.answer("Запись неактуальна.", show_alert=True)
+            return
+        min_hours = await _resolve_cancel_window_hours(specialist_id=specialist_id)
+        try:
+            await _validate_min_hours_policy(specialist_id=specialist_id, target_start_utc=appointment.start_at_utc)
+        except ValueError:
+            await callback.answer(
+                f"Отмена недоступна менее чем за {min_hours} часов до начала. Напишите специалисту.",
+                show_alert=True,
+            )
+            return
+
+    await state.set_state(ClientReminderCancelCommentState.waiting_for_text)
+    await state.update_data(reminder_cancel_appointment_id=str(appointment_id), reminder_cancel_specialist_id=str(specialist_id))
+    await callback.message.answer("Напишите комментарий одним сообщением (до 500 символов).")
+    await callback.answer()
+
+
+@router.message(ClientReminderCancelCommentState.waiting_for_text)
+async def client_reminder_cancel_comment_text(message: Message, specialist_id, state: FSMContext) -> None:
+    if message.from_user is None:
+        await state.clear()
+        return
+
+    raw_text = (message.text or "").strip()
+    if not raw_text:
+        await message.answer("Комментарий не должен быть пустым.")
+        return
+    comment = raw_text[:500]
+    logger.info(
+        "client_reminder_cancel_comment_received request_id=%s specialist_id=%s tg_user_id=%s comment_len=%s",
+        get_request_id(),
+        specialist_id,
+        message.from_user.id,
+        len(comment),
+    )
+
+    state_data = await state.get_data()
+    appointment_id_raw = state_data.get("reminder_cancel_appointment_id")
+    if not appointment_id_raw:
+        await state.clear()
+        await message.answer("Запись неактуальна.")
+        return
+
+    appointment_id = UUID(str(appointment_id_raw))
+    async with async_session_factory() as session:
+        client, appointment = await _load_client_and_appointment_for_callback(
+            session=session,
+            specialist_id=specialist_id,
+            tg_user_id=message.from_user.id,
+            appointment_id=appointment_id,
+        )
+        if client is None or appointment is None or appointment.booking_state != BookingState.confirmed:
+            await state.clear()
+            await message.answer("Запись неактуальна.")
+            return
+
+        min_hours = await _resolve_cancel_window_hours(specialist_id=specialist_id)
+        try:
+            await _validate_min_hours_policy(specialist_id=specialist_id, target_start_utc=appointment.start_at_utc)
+        except ValueError:
+            await state.clear()
+            await message.answer(f"Отмена недоступна менее чем за {min_hours} часов до начала. Напишите специалисту.")
+            return
+
+        try:
+            await _cancel_client_appointment(
+                session=session,
+                specialist_id=specialist_id,
+                client=client,
+                appointment=appointment,
+                comment=comment,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to cancel appointment from reminder comment flow",
+                extra={"specialist_id": str(specialist_id), "appointment_id": str(appointment_id)},
+            )
+            if hasattr(session, "rollback"):
+                await session.rollback()
+            await state.clear()
+            await message.answer("Не удалось отменить запись. Попробуйте позже.")
+            return
+        await session.commit()
+
+    await state.clear()
+    await message.answer("Запись отменена.")
+    await _render_client_appointments(message, specialist_id, message.from_user.id)
+
+
+@router.callback_query(F.data.startswith("client_rem:cancel_comment:no:"))
+async def client_reminder_cancel_comment_no(callback, specialist_id, state: FSMContext) -> None:
+    if callback.from_user is None:
+        await callback.answer("Запись неактуальна.", show_alert=True)
+        return
+
+    appointment_id_raw = callback.data.removeprefix("client_rem:cancel_comment:no:")
+    try:
+        appointment_id = UUID(appointment_id_raw)
+    except ValueError:
+        await callback.answer("Запись неактуальна.", show_alert=True)
+        return
+
+    async with async_session_factory() as session:
+        client, appointment = await _load_client_and_appointment_for_callback(
+            session=session,
+            specialist_id=specialist_id,
+            tg_user_id=callback.from_user.id,
+            appointment_id=appointment_id,
+        )
+        if client is None or appointment is None or appointment.booking_state != BookingState.confirmed:
+            await callback.answer("Запись неактуальна.", show_alert=True)
+            return
+
+        min_hours = await _resolve_cancel_window_hours(specialist_id=specialist_id)
+        try:
+            await _validate_min_hours_policy(specialist_id=specialist_id, target_start_utc=appointment.start_at_utc)
+        except ValueError:
+            await callback.answer(
+                f"Отмена недоступна менее чем за {min_hours} часов до начала. Напишите специалисту.",
+                show_alert=True,
+            )
+            return
+
+        try:
+            await _cancel_client_appointment(
+                session=session,
+                specialist_id=specialist_id,
+                client=client,
+                appointment=appointment,
+                comment=None,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to cancel appointment from reminder no-comment flow",
+                extra={"specialist_id": str(specialist_id), "appointment_id": str(appointment_id)},
+            )
+            if hasattr(session, "rollback"):
+                await session.rollback()
+            if callback.message is not None:
+                await callback.message.answer("Не удалось отменить запись. Попробуйте позже.")
+            await callback.answer()
+            return
+        await session.commit()
+
+    await state.clear()
+    if callback.message is not None:
+        await callback.message.answer("Запись отменена.")
+        await _render_client_appointments(callback.message, specialist_id, callback.from_user.id)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("client_rem:contact:"))
+async def client_reminder_contact_specialist(callback, specialist_id) -> None:
+    if callback.from_user is None:
+        await callback.answer("Запись неактуальна.", show_alert=True)
+        return
+
+    appointment_id_raw = callback.data.removeprefix("client_rem:contact:")
+    try:
+        appointment_id = UUID(appointment_id_raw)
+    except ValueError:
+        await callback.answer("Запись неактуальна.", show_alert=True)
+        return
+
+    async with async_session_factory() as session:
+        client, appointment = await _load_client_and_appointment_for_callback(
+            session=session,
+            specialist_id=specialist_id,
+            tg_user_id=callback.from_user.id,
+            appointment_id=appointment_id,
+        )
+        if client is None or appointment is None or appointment.booking_state != BookingState.confirmed:
+            await callback.answer("Запись неактуальна.", show_alert=True)
+            return
+
+        now_utc = datetime.now(timezone.utc)
+        idempotency_key, bucket_start, bucket_end = _contact_idempotency_key(
+            appointment_id=appointment.appointment_id,
+            now_utc=now_utc,
+        )
+        recent_contact_events = (
+            await session.execute(
+                select(OutboxEvent)
+                .where(OutboxEvent.event_type == "appointment_client_contact_specialist")
+                .where(OutboxEvent.created_at >= bucket_start)
+                .where(OutboxEvent.created_at < bucket_end)
+            )
+        ).scalars().all()
+        for existing in recent_contact_events:
+            payload = existing.payload_json or {}
+            if payload.get("idempotency_key") == idempotency_key:
+                if callback.message is not None:
+                    await callback.message.answer("Уже передали просьбу специалисту.")
+                await callback.answer()
+                return
+
+        payload = {
+            "appointment_id": str(appointment.appointment_id),
+            "specialist_id": str(appointment.specialist_id),
+            "client_id": str(appointment.client_id),
+            "start_at_utc": appointment.start_at_utc.isoformat(),
+            "idempotency_key": idempotency_key,
+        }
+        await emit_outbox_domain_event(session, "appointment_client_contact_specialist", payload)
+        await session.commit()
+
+    if callback.message is not None:
+        await callback.message.answer("Передал специалисту просьбу написать вам.")
     await callback.answer()
 
 

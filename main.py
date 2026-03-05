@@ -23,6 +23,7 @@ from aiogram.client.default import DefaultBotProperties
 
 from services.heartbeat import heartbeat_task
 from services.outbox import outbox_worker_task
+from services.scheduler import scheduler_task
 from services.alerting import close_alerting, notify_exception
 
 async def start_web_server():
@@ -130,12 +131,13 @@ async def main():
     server_task = asyncio.create_task(start_web_server())
     heartbeat = asyncio.create_task(heartbeat_task())
     outbox_worker = asyncio.create_task(outbox_worker_task())
+    scheduler = asyncio.create_task(scheduler_task())
     shutdown_task = asyncio.create_task(stop_event.wait())
     
     # Ожидаем завершения (или отмены)
     try:
         done, _pending = await asyncio.wait(
-            {bot_task, server_task, heartbeat, outbox_worker, shutdown_task},
+            {bot_task, server_task, heartbeat, outbox_worker, scheduler, shutdown_task},
             return_when=asyncio.FIRST_COMPLETED,
         )
         if shutdown_task not in done:
@@ -166,6 +168,8 @@ async def main():
             heartbeat.cancel()
         if not outbox_worker.done():
             outbox_worker.cancel()
+        if not scheduler.done():
+            scheduler.cancel()
         if not shutdown_task.done():
             shutdown_task.cancel()
         
@@ -175,6 +179,7 @@ async def main():
             server_task,
             heartbeat,
             outbox_worker,
+            scheduler,
             shutdown_task,
             return_exceptions=True,
         )

@@ -215,6 +215,34 @@ curl -fsS --max-time 8 "https://api.telegram.org/bot${MASTER_BOT_TOKEN}/getMe"
 - Telegram `getMe` возвращает JSON с `"ok": true`;
 - webhook path в nginx логируется только в маскированном виде (`***`), без `webhook_secret`.
 
+
+### Smoke-check reminders (test env)
+
+Цель: проверить, что scheduler создаёт reminder outbox event, а delivery проходит через outbox worker.
+
+```sql
+-- 1) создайте confirmed appointment со start_at_utc = now() + interval '24 hours'
+-- (через тестовые фикстуры/SQL в вашем стенде)
+
+-- 2) дождитесь scheduler-цикла (~1 минута) и проверьте запись reminder
+SELECT appointment_id, reminder_type, due_at_utc, sent_at_utc
+FROM appointment_reminder
+WHERE due_at_utc <= now() + interval '1 minute'
+ORDER BY created_at_utc DESC
+LIMIT 20;
+
+-- 3) проверьте, что появился outbox event
+SELECT id, event_type, processed_at, attempts, error
+FROM outbox_events
+WHERE event_type IN ('appointment_client_reminder_24h', 'appointment_client_reminder_2h')
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+Проверка delivery:
+- после обработки outbox worker в `appointment_reminder.sent_at_utc` появляется timestamp;
+- в message logs текст reminder не должен содержать `appointment_id`/UUID (UUID допускается только в callback_data).
+
 ## Где смотреть логи
 
 - Лог запуска: `/tmp/zumbot_deploy_*.log`
@@ -233,12 +261,28 @@ sudo journalctl -u zumbot-backend.service -n 300 --no-pager
 
 - `handler_missing` — событие не обработано, потому что для его типа не найден зарегистрированный обработчик.
 - `dead_letter` — событие переведено в «мёртвую очередь» после исчерпания попыток обработки.
-- Чтобы найти зависшие события, смотрите записи outbox без `processed_at`.
+
+Новые reminder/event-типы:
+- `appointment_client_reminder_24h` — напоминание клиенту за 24 часа (кнопки confirm/cancel/contact);
+- `appointment_client_reminder_2h` — напоминание клиенту за 2 часа (кнопка contact);
+- `appointment_client_confirmed` — уведомление специалисту, что клиент подтвердил встречу;
+- `appointment_client_contact_specialist` — уведомление специалисту, что клиент просит связаться.
+
+Чтобы найти зависшие события, смотрите записи outbox без `processed_at`.
 
 ```sql
 SELECT id, event_type, attempts, error
 FROM outbox_events
 WHERE processed_at IS NULL;
+```
+
+Для reminder-событий:
+
+```sql
+SELECT id, event_type, attempts, error
+FROM outbox_events
+WHERE processed_at IS NULL
+  AND event_type LIKE 'appointment_client_%';
 ```
 
 ## Troubleshooting
@@ -252,6 +296,25 @@ WHERE processed_at IS NULL;
 tail -n 200 <LOG_PATH>
 sudo journalctl -u zumbot-backend.service -n 300 --no-pager
 ```
+
+3. Диагностика reminder-доставки (зависшие reminders):
+
+```sql
+SELECT *
+FROM appointment_reminder
+WHERE sent_at_utc IS NULL
+  AND due_at_utc < now() - interval '10 minutes';
+```
+
+4. Диагностика pending outbox reminder-событий:
+
+```sql
+SELECT id, event_type, attempts, error
+FROM outbox_events
+WHERE processed_at IS NULL
+  AND event_type LIKE 'appointment_client_%';
+```
+
 
 ## Безопасный сброс тестовых данных smoke-аккаунтов
 
