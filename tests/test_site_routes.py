@@ -25,6 +25,7 @@ def test_site_pages_are_available():
         "/terms": "Terms of Service — Zumbot",
         "/privacy-ru": "Политика конфиденциальности Zumbot",
         "/terms-ru": "Условия использования Zumbot",
+        "/success": "Готово — Zumbot",
     }
 
     for path, title in expected.items():
@@ -116,14 +117,18 @@ def test_site_assets_are_served():
     assert "contact-form" in js.text
 
 
-def test_success_page_contains_expected_text():
+def test_success_page_uses_site_chrome_and_contains_expected_text():
     response = client.get("/success")
 
     assert response.status_code == 200
-    assert "Готово" in response.text
+    assert "Готово — Zumbot" in response.text
+    assert 'class="site-header"' in response.text
+    assert 'class="site-footer"' in response.text
     assert "Google Календарь подключён. Вернитесь в Telegram, чтобы продолжить настройку." in response.text
     assert response.text.count("Открыть Telegram") == 1
     assert 'href="https://t.me/zumhelper_bot"' in response.text
+    assert 'target="_blank"' in response.text
+    assert 'rel="noopener noreferrer"' in response.text
     assert "tg://resolve?domain=zumbot_support" not in response.text
     assert "https://t.me/zumbot_support" not in response.text
 
