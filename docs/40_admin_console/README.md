@@ -137,6 +137,22 @@ User Story считается завершённой только если:
 Status: Planned / In progress
 Doc: [US-AD-2 specification](./us_ad_2_specialists_list.md)
 
+### US-AD-9 — Admin Security Hardening
+
+Admin Console protected by multiple layers:
+
+1. SSH tunnel access
+2. Nginx Basic Auth
+3. Admin session cookie
+4. CSRF token validation
+5. ADMIN_API_KEY for API endpoints
+
+This layered security prevents:
+
+- brute-force access
+- endpoint enumeration
+- unauthorized admin access
+
 
 ---
 
