@@ -13,3 +13,4 @@ uvicorn
 google-auth-oauthlib
 requests
 PyYAML
+python-multipart

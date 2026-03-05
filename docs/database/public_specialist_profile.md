@@ -16,6 +16,9 @@ CREATE TABLE specialist_public_profile (
     specialist_id UUID NOT NULL REFERENCES specialist(specialist_id) ON DELETE CASCADE,
     public_slug TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
+    first_name TEXT,
+    middle_name TEXT,
+    last_name TEXT,
     specialization TEXT NOT NULL,
     hero_quote TEXT,
     contact_telegram TEXT,
@@ -36,7 +39,10 @@ ON specialist_public_profile(public_slug);
 - `id` — первичный ключ записи публичного профиля.
 - `specialist_id` — ссылка на специалиста (`specialist.specialist_id`), удаляется каскадно при удалении специалиста.
 - `public_slug` — уникальный slug публичной страницы (обязательное поле).
-- `display_name` — отображаемое имя специалиста на публичной странице.
+- `display_name` — отображаемое имя специалиста на публичной странице (совместимость публичного рендера).
+- `first_name` — структурное имя специалиста для приватного редактирования.
+- `middle_name` — структурное отчество/среднее имя (опционально).
+- `last_name` — структурная фамилия специалиста.
 - `specialization` — специализация специалиста.
 - `hero_quote` — цитата/слоган в hero-блоке (опционально).
 - `contact_telegram` — контакт Telegram (опционально).
@@ -52,3 +58,9 @@ ON specialist_public_profile(public_slug);
 - `public_slug` обязан быть заполнен (`NOT NULL`).
 - `public_slug` уникален (`UNIQUE` + отдельный уникальный индекс `idx_specialist_public_slug`).
 - Валидация формата slug выполняется на backend **до** записи в БД.
+
+
+## Нормализация ФИО
+- Новые колонки `first_name`/`middle_name`/`last_name` являются source of truth для приватного API редактирования профиля.
+- `display_name` сохраняется и продолжает использоваться публичной страницей для обратной совместимости.
+- При сохранении через приватный API `display_name` пересчитывается из name-parts.

@@ -49,6 +49,7 @@ from services.crypto import encrypt_token, decrypt_token
 # но здесь импортируем функцию логирования сообщений.
 from logging_middleware import log_outbound_message
 from services import web_connect
+from services.web_connect_links import build_connect_page_url
 from services.google_calendar import (
     GoogleCalendarError,
     GoogleCalendarInsufficientPermissionsError,
@@ -221,9 +222,6 @@ def _build_personal_deep_link(bot_username: str | None) -> str:
     return f"https://t.me/{safe_username}?start=owner_panel" if safe_username else ""
 
 
-def _build_connect_page_url(raw_token: str) -> str:
-    return f"{PUBLIC_SITE_URL}/connect#token={raw_token}"
-
 
 def _video_continue_keyboard() -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(
@@ -360,7 +358,7 @@ async def _infer_and_send_onboarding_step(
                 ttl_minutes=15,
             )
             await session.commit()
-            connect_url = _build_connect_page_url(raw_token)
+            connect_url = build_connect_page_url(raw_token, public_site_url=PUBLIC_SITE_URL)
 
             text_out = (
                 "📅 <b>Шаг 4 из 5:</b> Подключите Google аккаунт.\n\n"
@@ -994,7 +992,7 @@ async def cmd_start(message: types.Message, state: FSMContext, command: CommandO
                     ttl_minutes=15,
                 )
                 await session.commit()
-                connect_url = _build_connect_page_url(raw_token)
+                connect_url = build_connect_page_url(raw_token, public_site_url=PUBLIC_SITE_URL)
                 next_step_msg = (
                     "\n👇 <b>Действие:</b> Подключите Google аккаунт через кнопку ниже.\n"
                     "Откроется страница сайта. Подключение Google пройдет в браузере."
@@ -1583,7 +1581,7 @@ async def process_bot_token(message: types.Message, state: FSMContext):
                 ttl_minutes=15,
             )
             await session.commit()
-        connect_url = _build_connect_page_url(raw_token)
+        connect_url = build_connect_page_url(raw_token, public_site_url=PUBLIC_SITE_URL)
 
         status_line = "🟢 Статус специалиста: active." if is_active_now else "⏳ Статус специалиста: onboarding."
         text_out = (

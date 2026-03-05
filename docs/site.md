@@ -24,6 +24,7 @@
 - `/terms-ru` → `terms-ru.html`
 - `/revoke-access-ru` → `revoke-access-ru.html`
 - `/success` → `success.html`
+- `/profile/edit` → `profile-edit.html`
 
 Также:
 

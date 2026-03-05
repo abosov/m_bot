@@ -45,6 +45,7 @@ from services.working_intervals import (
 from services.working_intervals_repository import WorkingIntervalsRepository
 from services.referrals import build_referral_link, count_active_referrals
 from services.telegram.calendar_keyboard import format_calendar_button_text
+from services.web_connect_links import build_profile_edit_url_for_specialist
 from services.log_context import log_event
 from services.specialist_defaults import (
     apply_specialist_defaults_if_missing,
@@ -601,6 +602,7 @@ async def _build_owner_panel_view(
     *,
     specialist_id,
     public_name: str | None,
+    owner_tg_user_id: int | None,
 ) -> tuple[str, InlineKeyboardMarkup] | None:
     profile, rows = await _load_profile_and_rows(specialist_id)
     calendar_settings = await _load_calendar_settings(specialist_id)
@@ -610,6 +612,18 @@ async def _build_owner_panel_view(
 
     display_name = public_name or profile.public_name or "специалист"
     referral_link, invited_count = await _load_referral_program_stats(specialist_id)
+    profile_edit_url = None
+    if owner_tg_user_id is not None:
+        async with async_session_factory() as session:
+            try:
+                profile_edit_url = await build_profile_edit_url_for_specialist(
+                    session=session,
+                    specialist_id=specialist_id,
+                    tg_user_id=owner_tg_user_id,
+                )
+            except ValueError:
+                logger.warning("Profile edit URL is unavailable due to PUBLIC_SITE_URL configuration")
+                profile_edit_url = None
     text, keyboard = build_specialist_settings_view(
         profile=profile,
         rows=rows,
@@ -618,6 +632,7 @@ async def _build_owner_panel_view(
         keep_callback_data=None,
         include_reset_button=True,
         working_intervals_by_idx=working_intervals_by_idx,
+        profile_edit_url=profile_edit_url,
         referral_link=referral_link,
         referrals_count=invited_count,
     )
@@ -655,7 +670,7 @@ async def send_owner_panel(
         public_name=public_name,
     )
 
-    panel_view = await _build_owner_panel_view(specialist_id=specialist_id, public_name=public_name)
+    panel_view = await _build_owner_panel_view(specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
     if panel_view is None:
         logger.error("send_owner_panel: SpecialistProfile not found for specialist_id=%s", specialist_id)
         await message.answer(
@@ -694,7 +709,7 @@ async def _render_owner_panel_inplace(
         public_name=public_name,
     )
 
-    panel_view = await _build_owner_panel_view(specialist_id=specialist_id, public_name=public_name)
+    panel_view = await _build_owner_panel_view(specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
     if panel_view is None:
         logger.error("_render_owner_panel_inplace: SpecialistProfile not found for specialist_id=%s", specialist_id)
         await message.edit_text(
