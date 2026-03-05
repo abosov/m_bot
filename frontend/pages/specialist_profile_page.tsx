@@ -88,6 +88,42 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
     };
   }, [isValidSlug, loader, slug]);
 
+  useEffect(() => {
+    let animationFrameId: number | null = null;
+
+    const updateStickyOffset = () => {
+      const stickyHeader = document.getElementById("specialist-sticky-header");
+      const measuredHeight = stickyHeader?.getBoundingClientRect().height ?? 120;
+      const offset = `${Math.ceil(measuredHeight)}px`;
+
+      document.documentElement.style.setProperty("--specialist-sticky-offset", offset);
+    };
+
+    const handleResize = () => {
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+      }
+
+      animationFrameId = requestAnimationFrame(() => {
+        updateStickyOffset();
+        animationFrameId = null;
+      });
+    };
+
+    updateStickyOffset();
+    window.addEventListener("resize", handleResize);
+
+    // TODO(US-PUB-UX-1): add UI test asserting anchor navigation keeps headings visible under sticky header.
+    return () => {
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+      }
+
+      window.removeEventListener("resize", handleResize);
+      document.documentElement.style.removeProperty("--specialist-sticky-offset");
+    };
+  }, []);
+
   const displayName = (payload?.profile.display_name as string | undefined) ?? "Специалист";
   const specialization = (payload?.profile.specialization as string | undefined) ?? "Специализация";
   const contacts = (payload?.profile.contacts as Record<string, unknown> | undefined) ?? {};

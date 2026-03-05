@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_sticky_header_css_and_page_offset_present():
+def test_sticky_header_css_and_runtime_offset_present():
     css = (ROOT / "frontend/styles/specialist.css").read_text(encoding="utf-8")
     page = (ROOT / "frontend/pages/specialist_profile_page.tsx").read_text(encoding="utf-8")
 
@@ -12,9 +12,12 @@ def test_sticky_header_css_and_page_offset_present():
     assert "top: 0;" in css
     assert "z-index: 100;" in css
     assert ".specialist-page" in css
-    assert "padding-top: var(--specialist-header-height);" in css
-    assert "scroll-margin-top: calc(var(--specialist-header-height) + 16px);" in css
+    assert "padding-top: var(--specialist-header-height);" not in css
+    assert "scroll-padding-top: var(--specialist-sticky-offset, 120px);" in css
+    assert "scroll-margin-top: var(--specialist-sticky-offset, 120px);" in css
     assert 'className="specialist-page"' in page
+    assert 'document.getElementById("specialist-sticky-header")' in page
+    assert 'document.documentElement.style.setProperty("--specialist-sticky-offset", offset);' in page
 
 
 def test_header_contains_identity_and_navigation_items():

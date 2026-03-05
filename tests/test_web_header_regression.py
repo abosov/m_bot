@@ -72,3 +72,15 @@ def test_header_cta_points_to_telegram_in_new_tab() -> None:
         assert 'rel="noopener noreferrer"' in header_html, f"Header CTA rel is incorrect on {route}"
         assert 'href="https://t.me/zumhelper_bot"' not in header_html, f"Plain Telegram CTA is forbidden on {route}"
         assert 'href="/connect"' not in header_html, f"Legacy internal connect route is still used on {route}"
+
+
+def test_header_brand_text_is_short_name_only() -> None:
+    client = TestClient(web_server.app)
+
+    for route in PUBLIC_ROUTES:
+        response = client.get(route)
+        assert response.status_code == 200, f"Unexpected status on {route}: {response.status_code}"
+        header_html = _extract_header(response.text)
+
+        assert '<span class="logo-text">Zumbot</span>' in header_html, f"Short brand text missing on {route}"
+        assert "Zumbot — Calendar Booking Automation" not in header_html, f"Long brand text should not be in header on {route}"
