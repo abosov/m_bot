@@ -263,12 +263,24 @@ section { padding: 34px 0; }
 }
 
 .pricing-grid .price {
-  font-size: clamp(2.2rem, 4vw, 2.5rem);
-  line-height: 1.05;
-  font-weight: 700;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   margin: 2px 0 4px;
 }
 
+.pricing-grid .price-value {
+  font-size: clamp(2.2rem, 4vw, 2.5rem);
+  line-height: 1.05;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pricing-grid .price-unit {
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
 
 .billing-note {
   margin: -2px 0 0;
