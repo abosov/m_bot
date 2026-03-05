@@ -66,7 +66,16 @@ def test_pay_page_returns_200_for_valid_token(monkeypatch):
     response = client.get("/pay", params={"token": "valid-token-1234567890"})
 
     assert response.status_code == 200
-    assert "Заказ на подписку Zumbot" in response.text
+    assert "Подписка на сервис Zumbot" in response.text
+    assert "Тариф подписки:" in response.text
+    assert "Период подписки:" in response.text
+    assert "Стоимость:" in response.text
+    assert "Оплата осуществляется через платежную систему ЮKassa." in response.text
+    assert "Условия подписки" in response.text
+    assert "Период подписки: 1 месяц." in response.text
+    assert "Продление подписки осуществляется вручную через интерфейс сервиса." in response.text
+    assert "info@zumbot.ru" in response.text
+    assert "target='_blank'" in response.text
 
 
 def test_pay_page_returns_404_for_missing_token(monkeypatch):
