@@ -865,6 +865,7 @@ async def test_client_reminder_24h_handler_sends_markup_and_marks_sent(monkeypat
             specialist_id=specialist_id,
             reminder_type=ReminderType.h24,
             due_at_utc=datetime(2026, 1, 1, 11, 0, tzinfo=timezone.utc),
+            created_at_utc=datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc),
         )
         session.add_all([specialist, profile, client, reminder])
         await session.commit()
@@ -1256,6 +1257,7 @@ async def test_outbox_worker_processes_client_reminder_with_reply_markup(monkeyp
             specialist_id=specialist_id,
             reminder_type=ReminderType.h24,
             due_at_utc=datetime.now(timezone.utc),
+            created_at_utc=datetime.now(timezone.utc),
         )
         outbox_event = OutboxEvent(
             id=uuid.uuid4(),

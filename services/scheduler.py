@@ -54,6 +54,7 @@ async def insert_reminder_once(
         specialist_id=appointment.specialist_id,
         reminder_type=reminder_type,
         due_at_utc=due_at_utc,
+        created_at_utc=datetime.now(timezone.utc),
     )
     try:
         async with session.begin_nested():

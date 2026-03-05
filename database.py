@@ -507,7 +507,7 @@ class AppointmentReminder(Base):
         nullable=False,
     )
     due_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    created_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     sent_at_utc: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

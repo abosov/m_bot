@@ -88,6 +88,7 @@ Introduce DB table (via SQL migrations) to keep idempotent reminder fact:
 - `sent_at_utc` (timestamp with timezone, nullable until delivered)
 - `created_at_utc` (timestamp with timezone, required, default now UTC)
 - `UNIQUE (appointment_id, reminder_type)`
+- DB defaults for reminder ledger are defined in SQL migration (`migrations/sql/20260309_add_appointment_reminder.sql`), not in ORM fields.
 
 ### Why this does not create a second source of truth
 - Appointment lifecycle state remains in `appointments` table.

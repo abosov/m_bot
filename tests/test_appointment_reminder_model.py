@@ -61,6 +61,7 @@ async def test_appointment_reminder_unique_constraint(monkeypatch, tmp_path):
             specialist_id=specialist_id,
             reminder_type=database.ReminderType.h24,
             due_at_utc=datetime.now(timezone.utc) + timedelta(days=1),
+            created_at_utc=datetime.now(timezone.utc),
         )
         duplicate = database.AppointmentReminder(
             id=uuid.uuid4(),
@@ -68,6 +69,7 @@ async def test_appointment_reminder_unique_constraint(monkeypatch, tmp_path):
             specialist_id=specialist_id,
             reminder_type=database.ReminderType.h24,
             due_at_utc=datetime.now(timezone.utc) + timedelta(days=1),
+            created_at_utc=datetime.now(timezone.utc),
         )
 
         session.add(first)
