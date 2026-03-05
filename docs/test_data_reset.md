@@ -84,6 +84,8 @@ python3 scripts/test_data_reset.py --apply --registry /etc/zumbot/test_accounts.
 Удаление ограничено scope’ом тестовых `tg_user_id` и связанных с ними `specialist_id/client_id`.
 Данные других специалистов/клиентов не должны затрагиваться.
 
+Дополнительно reset удаляет записи из `billing_purchase` для тестового scope (по `specialist_id` и `tg_user_id`) до удаления `specialist`, чтобы избежать FK-конфликтов в smoke-очистке.
+
 
 ## Troubleshooting
 - Wrapper перед запуском всегда печатает строку `Running: ...` с фактической командой.
