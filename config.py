@@ -211,6 +211,20 @@ MAX_WEBHOOK_BODY_BYTES = _parse_int_env_or_default(
     min_value=1,
     max_value=10_000_000,
 )
+
+PROFILE_UPLOADS_DIR = Path(_env_or_default("PROFILE_UPLOADS_DIR", "/var/lib/zumbot/uploads"))
+PROFILE_PHOTO_MAX_BYTES = _parse_int_env_runtime(
+    "PROFILE_PHOTO_MAX_BYTES",
+    default=10 * 1024 * 1024,
+    min_value=1_024,
+    max_value=100 * 1024 * 1024,
+)
+PROFILE_DOCUMENT_MAX_BYTES = _parse_int_env_runtime(
+    "PROFILE_DOCUMENT_MAX_BYTES",
+    default=20 * 1024 * 1024,
+    min_value=1_024,
+    max_value=200 * 1024 * 1024,
+)
 ALERTS_ENABLED = _parse_bool(os.getenv("ALERTS_ENABLED", "false"))
 ALERTS_TELEGRAM_CHAT_ID = os.getenv("ALERTS_TELEGRAM_CHAT_ID")
 ALERTS_TELEGRAM_TOKEN = os.getenv("ALERTS_TELEGRAM_TOKEN")

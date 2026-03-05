@@ -26,6 +26,7 @@ def test_site_pages_are_available():
         "/privacy-ru": "Политика конфиденциальности Zumbot",
         "/terms-ru": "Условия использования Zumbot",
         "/success": "Готово — Zumbot",
+        "/profile/edit": "Профиль специалиста — Zumbot",
     }
 
     for path, title in expected.items():
@@ -204,6 +205,24 @@ def test_auth_telegram_consume_rejects_empty_token():
 
     assert response.status_code == 400
     assert response.json() == {"ok": False, "error": "token_required"}
+
+
+
+
+def test_profile_edit_page_contains_auth_status_and_working_form_sections():
+    response = client.get("/profile/edit")
+
+    assert response.status_code == 200
+    assert "Профиль специалиста" in response.text
+    assert "✅ Авторизовано" in response.text
+    assert "❌ Не удалось авторизоваться" in response.text
+    assert "Основное" in response.text
+    assert "О себе" in response.text
+    assert "Образование" in response.text
+    assert "Услуги и цены" in response.text
+    assert "Отзывы" in response.text
+    assert "Загрузить фото" in response.text
+    assert "Загрузить документы" in response.text
 
 
 def test_connect_page_contains_google_form_and_legal_links():

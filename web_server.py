@@ -83,6 +83,7 @@ from services.billing.subscriptions import (
     process_yookassa_webhook,
 )
 from backend.api.public_specialist import router as public_specialist_router
+from backend.api.specialist_profile_private import router as specialist_profile_private_router
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(RequestIdMiddleware)
 app.include_router(public_specialist_router)
+app.include_router(specialist_profile_private_router)
 
 if ASSETS_DIR.exists() and INDEX_FILE.exists():
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
@@ -182,6 +184,7 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
         "/terms-ru": "terms-ru.html",
         "/revoke-access-ru": "revoke-access-ru.html",
         "/success": "success.html",
+        "/profile/edit": "profile-edit.html",
     }
 
     def _site_file(page: str) -> Path:
@@ -357,6 +360,10 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
     @app.get("/success")
     async def site_success() -> HTMLResponse:
         return _render_site_page("/success")
+
+    @app.get("/profile/edit")
+    async def site_profile_edit() -> HTMLResponse:
+        return _render_site_page("/profile/edit")
 else:
     logger.warning(
         "Static site disabled: expected index=%s assets_dir=%s",

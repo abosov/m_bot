@@ -17,3 +17,8 @@ Dynamic values in Telegram messages must be escaped for MarkdownV2 using `escape
 
 - API contract: `docs/api/public_specialist.md`.
 - User flow: `docs/user_flows/public_specialist_page.md`.
+
+
+## Private specialist profile draft API
+
+- Private API contract for web-form profile editing: `docs/api/specialist_profile_private.md`.

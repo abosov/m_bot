@@ -224,6 +224,9 @@ class SpecialistPublicProfile(Base):
     )
     public_slug: Mapped[str] = mapped_column(Text, nullable=False)
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    first_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    middle_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     specialization: Mapped[str] = mapped_column(Text, nullable=False)
     hero_quote: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
