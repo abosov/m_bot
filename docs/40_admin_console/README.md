@@ -137,14 +137,6 @@ User Story считается завершённой только если:
 Status: Planned / In progress
 Doc: [US-AD-2 specification](./us_ad_2_specialists_list.md)
 
-### US-AD-6 — Observability (Logs + Heartbeats)
-Status: Planned
-Doc: [US-AD-6 specification](./us_ad_6_observability_logs_heartbeats.md)
-
-### US-AD-8 — Admin Audit Log Viewer
-Status: Planned
-Doc: [US-AD-8 specification](./us_ad_8_admin_audit_log_viewer.md)
-
 
 ---
 
@@ -174,8 +166,25 @@ Status: Implemented
 Doc: [US-AD-5 specification](./us_ad_5_specialist_detail_page.md)
 
 ### US-AD-6 — Observability (Logs + Heartbeats)
-Status: Planned
+Status: Implemented
+Admin observability tools:
+- logs viewer
+- heartbeat monitor
+
+Endpoints:
+- `GET /admin/ui/logs`
+- `GET /admin/ui/heartbeats`
+
 Doc: [US-AD-6 specification](./us_ad_6_observability_logs_heartbeats.md)
+
+### US-AD-8 — Admin Audit Log Viewer
+Status: Implemented
+Admin audit log viewer.
+
+Endpoint:
+- `GET /admin/ui/audit-log`
+
+Doc: [US-AD-8 specification](./us_ad_8_admin_audit_log_viewer.md)
 
 ---
 
@@ -194,6 +203,15 @@ Doc: [US-AD-7 specification](./us_ad_7_admin_actions_specialist_management.md)
 
 - `GET /admin/ui/specialists` (UI cookie auth)
   - Query params: `limit`, `offset`, `status`, `include_system=0|1` (default `0`), `oauth_missing=0|1` (default `0`), `calendar_missing=0|1` (default `0`), `inactive_days_gt` (`>=1`, optional).
+
+- `GET /admin/ui/logs` (UI cookie auth)
+  - Просмотр журналов системы в Admin Console.
+
+- `GET /admin/ui/heartbeats` (UI cookie auth)
+  - Мониторинг heartbeat-сигналов интеграций/воркеров.
+
+- `GET /admin/ui/audit-log` (UI cookie auth)
+  - Просмотр audit-журнала административных действий.
 
 - `GET /admin/ui/specialists/{specialist_id}` (UI cookie auth)
   - Детальная JSON карточка специалиста (`basic`, `integration`, `activity`, `errors`).
@@ -218,6 +236,14 @@ Doc: [US-AD-7 specification](./us_ad_7_admin_actions_specialist_management.md)
 ### GET /admin/specialists
 
 Назначение: список специалистов для MVP dashboard с базовыми метриками.
+
+## 9.1 Admin Console Navigation
+
+- Overview
+- Specialists
+- Logs
+- Heartbeats
+- Audit Log
 
 Query params:
 - `limit` (optional, default `100`, clamp `1..500`)
