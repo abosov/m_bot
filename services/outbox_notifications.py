@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -10,9 +11,22 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import Client, NotificationLog, OutboxEvent, SpecialistProfile, TelegramBot, TelegramBotStatus
+from database import (
+    AppointmentReminder,
+    Client,
+    NotificationLog,
+    OutboxEvent,
+    ReminderType,
+    SpecialistProfile,
+    TelegramBot,
+    TelegramBotStatus,
+)
 from services.client_display import format_client_display
+from services.telegram.markdown_utils import escape_markdown_v2
 from services.telegram.bot_factory import get_personal_bot
+
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_uuid(payload: dict, key: str) -> uuid.UUID:
@@ -72,12 +86,13 @@ async def _send_client_message(
     bot: TelegramBot,
     client: Client,
     text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
 ) -> None:
     target = f"client:{client.tg_user_id}"
     if await _already_sent(session, outbox_event.id, target):
         return
     personal_bot = await get_personal_bot(bot)
-    await personal_bot.send_message(chat_id=client.tg_user_id, text=text)
+    await personal_bot.send_message(chat_id=client.tg_user_id, text=text, reply_markup=reply_markup)
     await _mark_sent(session, outbox_event.id, target)
 
 
@@ -107,6 +122,49 @@ def _appointment_confirmation_keyboard(appointment_id: uuid.UUID) -> InlineKeybo
             InlineKeyboardButton(text="Отклонить", callback_data=f"sp_appt_decision:reject:{appointment_id}"),
         ]]
     )
+
+
+def _client_reminder_24h_keyboard(appointment_id: uuid.UUID) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Подтвердить", callback_data=f"client_rem:confirm:{appointment_id}")],
+            [InlineKeyboardButton(text="Отменить", callback_data=f"client_rem:cancel:{appointment_id}")],
+            [InlineKeyboardButton(text="Написать специалисту", callback_data=f"client_rem:contact:{appointment_id}")],
+        ]
+    )
+
+
+def _client_reminder_2h_keyboard(appointment_id: uuid.UUID) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Написать специалисту", callback_data=f"client_rem:contact:{appointment_id}")],
+        ]
+    )
+
+
+async def _mark_reminder_sent(
+    session: AsyncSession,
+    *,
+    appointment_id: uuid.UUID,
+    reminder_type: ReminderType,
+) -> None:
+    stmt = select(AppointmentReminder).where(
+        and_(
+            AppointmentReminder.appointment_id == appointment_id,
+            AppointmentReminder.reminder_type == reminder_type,
+        )
+    )
+    reminder = (await session.execute(stmt)).scalar_one_or_none()
+    if reminder is None:
+        logger.warning(
+            "appointment_reminder row not found while marking sent: appointment_id=%s reminder_type=%s",
+            appointment_id,
+            reminder_type.value,
+        )
+        return
+
+    reminder.sent_at_utc = datetime.now(timezone.utc)
+    await session.flush()
 
 
 def _format_client_contact(client: Client) -> str:
@@ -301,11 +359,17 @@ async def _handle_appointment_cancelled_by_client(session: AsyncSession, event: 
 
     specialist_tz_name = specialist_profile.specialist_timezone if specialist_profile else None
     specialist_start = _format_dt_for_client(start_at_utc, specialist_tz_name)
+    comment = payload.get("comment")
+    comment_text = str(comment).strip() if comment is not None else None
+    if comment_text:
+        comment_text = comment_text[:500]
     specialist_text = (
         "Клиент отменил запись.\n"
         f"Время: {specialist_start}\n"
         f"Клиент: {_format_client_contact(client)}"
     )
+    if comment_text:
+        specialist_text += f"\nКомментарий клиента: {escape_markdown_v2(comment_text)}"
     await _send_specialist_message(
         session,
         outbox_event=event,
@@ -358,6 +422,122 @@ async def _handle_appointment_cancelled_by_specialist_calendar(session: AsyncSes
         )
 
 
+async def _handle_appointment_client_reminder_24h(session: AsyncSession, event: OutboxEvent) -> None:
+    payload = event.payload_json or {}
+    appointment_id = _parse_uuid(payload, "appointment_id")
+    specialist_id = _parse_uuid(payload, "specialist_id")
+    client_id = _parse_uuid(payload, "client_id")
+    start_at_utc = _parse_dt(payload, "start_at_utc")
+
+    client = await session.get(Client, client_id)
+    specialist_profile = await session.get(SpecialistProfile, specialist_id)
+    personal_bot_row = await _load_personal_bot(session, specialist_id)
+    if client is None or personal_bot_row is None:
+        return
+
+    specialist_name = specialist_profile.public_name if specialist_profile and specialist_profile.public_name else "специалист"
+    client_start = _format_dt_for_client(start_at_utc, client.client_timezone)
+    text = f"У вас встреча с {specialist_name} {client_start}. Подтвердите, пожалуйста."
+
+    await _send_client_message(
+        session,
+        outbox_event=event,
+        bot=personal_bot_row,
+        client=client,
+        text=text,
+        reply_markup=_client_reminder_24h_keyboard(appointment_id),
+    )
+    await _mark_reminder_sent(session, appointment_id=appointment_id, reminder_type=ReminderType.h24)
+
+
+async def _handle_appointment_client_reminder_2h(session: AsyncSession, event: OutboxEvent) -> None:
+    payload = event.payload_json or {}
+    appointment_id = _parse_uuid(payload, "appointment_id")
+    specialist_id = _parse_uuid(payload, "specialist_id")
+    client_id = _parse_uuid(payload, "client_id")
+    start_at_utc = _parse_dt(payload, "start_at_utc")
+
+    client = await session.get(Client, client_id)
+    specialist_profile = await session.get(SpecialistProfile, specialist_id)
+    personal_bot_row = await _load_personal_bot(session, specialist_id)
+    if client is None or personal_bot_row is None:
+        return
+
+    specialist_name = specialist_profile.public_name if specialist_profile and specialist_profile.public_name else "специалист"
+    client_start = _format_dt_for_client(start_at_utc, client.client_timezone)
+    text = f"Напоминание: встреча с {specialist_name} {client_start} через 2 часа."
+
+    await _send_client_message(
+        session,
+        outbox_event=event,
+        bot=personal_bot_row,
+        client=client,
+        text=text,
+        reply_markup=_client_reminder_2h_keyboard(appointment_id),
+    )
+    await _mark_reminder_sent(session, appointment_id=appointment_id, reminder_type=ReminderType.h2)
+
+
+async def _handle_appointment_client_confirmed(session: AsyncSession, event: OutboxEvent) -> None:
+    payload = event.payload_json or {}
+    _parse_uuid(payload, "appointment_id")
+    specialist_id = _parse_uuid(payload, "specialist_id")
+    client_id = _parse_uuid(payload, "client_id")
+    start_at_utc = _parse_dt(payload, "start_at_utc")
+
+    client = await session.get(Client, client_id)
+    specialist_profile = await session.get(SpecialistProfile, specialist_id)
+    personal_bot_row = await _load_personal_bot(session, specialist_id)
+    if client is None or personal_bot_row is None or specialist_profile is None:
+        return
+
+    owner_tg_user_id = specialist_profile.owner_tg_user_id
+    if owner_tg_user_id is None:
+        return
+
+    specialist_start = _format_dt_for_client(start_at_utc, specialist_profile.specialist_timezone)
+    specialist_text = f"Клиент подтвердил запись.\nВремя: {specialist_start}"
+    await _send_specialist_message(
+        session,
+        outbox_event=event,
+        bot=personal_bot_row,
+        specialist_tg_user_id=owner_tg_user_id,
+        text=specialist_text,
+    )
+
+
+async def _handle_appointment_client_contact_specialist(session: AsyncSession, event: OutboxEvent) -> None:
+    payload = event.payload_json or {}
+    _parse_uuid(payload, "appointment_id")
+    specialist_id = _parse_uuid(payload, "specialist_id")
+    client_id = _parse_uuid(payload, "client_id")
+    start_at_utc = _parse_dt(payload, "start_at_utc")
+
+    client = await session.get(Client, client_id)
+    specialist_profile = await session.get(SpecialistProfile, specialist_id)
+    personal_bot_row = await _load_personal_bot(session, specialist_id)
+    if client is None or personal_bot_row is None or specialist_profile is None:
+        return
+
+    owner_tg_user_id = specialist_profile.owner_tg_user_id
+    if owner_tg_user_id is None:
+        return
+
+    specialist_start = _format_dt_for_client(start_at_utc, specialist_profile.specialist_timezone)
+    specialist_text = (
+        "Клиент просит связаться.\n"
+        f"Клиент: {_format_client_contact(client)}\n"
+        f"Время записи: {specialist_start}"
+    )
+    await _send_specialist_message(
+        session,
+        outbox_event=event,
+        bot=personal_bot_row,
+        specialist_tg_user_id=owner_tg_user_id,
+        text=specialist_text,
+    )
+
+
 from typing import Callable, Awaitable
 
 
@@ -369,3 +549,7 @@ def register_outbox_handlers(handlers: dict[str, Callable[[AsyncSession, OutboxE
     handlers["appointment_rescheduled"] = _handle_appointment_rescheduled
     handlers["appointment_cancelled_by_client"] = _handle_appointment_cancelled_by_client
     handlers["appointment_cancelled_by_specialist_calendar"] = _handle_appointment_cancelled_by_specialist_calendar
+    handlers["appointment_client_reminder_24h"] = _handle_appointment_client_reminder_24h
+    handlers["appointment_client_reminder_2h"] = _handle_appointment_client_reminder_2h
+    handlers["appointment_client_confirmed"] = _handle_appointment_client_confirmed
+    handlers["appointment_client_contact_specialist"] = _handle_appointment_client_contact_specialist

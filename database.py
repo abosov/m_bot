@@ -70,6 +70,11 @@ class BookingState(str, enum.Enum):
     canceled_by_client = "canceled_by_client"
     canceled_by_specialist = "canceled_by_specialist"
 
+
+class ReminderType(str, enum.Enum):
+    h24 = "h24"
+    h2 = "h2"
+
 class OAuthStateType(str, enum.Enum):
     google_connect = "google_connect"
     google_reconnect = "google_reconnect"
@@ -475,6 +480,35 @@ class AppointmentCalendarLink(Base):
     )
 
     appointment: Mapped["Appointment"] = relationship(back_populates="calendar_link")
+
+
+class AppointmentReminder(Base):
+    __tablename__ = "appointment_reminder"
+    __table_args__ = (
+        UniqueConstraint("appointment_id", "reminder_type", name="uq_appointment_reminder_appointment_type"),
+        CheckConstraint("reminder_type IN ('h24', 'h2')", name="ck_appointment_reminder_type"),
+        Index("ix_appointment_reminder_due_at_utc", "due_at_utc"),
+        Index("ix_appointment_reminder_sent_due", "sent_at_utc", "due_at_utc"),
+        Index(
+            "ix_appointment_reminder_due_unsent",
+            "due_at_utc",
+            postgresql_where=text("sent_at_utc IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    appointment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("appointment.appointment_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    specialist_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    reminder_type: Mapped[ReminderType] = mapped_column(
+        SAEnum(ReminderType, native_enum=False),
+        nullable=False,
+    )
+    due_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    sent_at_utc: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class OAuthState(Base):

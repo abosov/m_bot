@@ -77,6 +77,25 @@ Heartbeat throttling (контракт):
 - иметь историю проверок для диагностики инцидентов;
 - не перегружать БД частыми heartbeat-вставками.
 
+### 2.5 Scheduler reminder scan
+Назначение:
+- раз в минуту сканировать подтверждённые записи (`appointment.booking_state = confirmed`)
+  для напоминаний за 24 часа и за 2 часа до старта;
+- не отправлять сообщения напрямую в Telegram;
+- писать только в БД: `appointment_reminder` (идемпотентный ledger) и `outbox_events`
+  для дальнейшей доставки через outbox worker.
+
+Контракт:
+- частота цикла: `60s`;
+- окно поиска для каждого reminder type: `target_time ± 3m`, где
+  `target_time = now_utc + 24h` и `target_time = now_utc + 2h`;
+- при успешном idempotent insert в `appointment_reminder`
+  (`UNIQUE(appointment_id, reminder_type)`) создаётся outbox-событие:
+  - `appointment_client_reminder_24h`
+  - `appointment_client_reminder_2h`;
+- при unique-конфликте (дубликат) цикл продолжает работу без exception/alert,
+  т.к. это нормальная ситуация повторного скана.
+
 ---
 
 ## 3. Telegram Ingress Layer

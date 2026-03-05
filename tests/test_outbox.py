@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from database import Client, OutboxEvent, SpecialistProfile
+from database import AppointmentReminder, Client, OutboxEvent, ReminderType, SpecialistProfile
 from services import outbox
 from services import outbox_notifications
 
@@ -58,6 +58,17 @@ def test_register_outbox_handlers_include_specialist_confirmation_events():
     assert handlers["appointment_needs_confirmation"] is outbox_notifications._handle_appointment_needs_confirmation
     assert handlers["appointment_confirmed_by_specialist"] is outbox_notifications._handle_appointment_confirmed_by_specialist
     assert handlers["appointment_rejected_by_specialist"] is outbox_notifications._handle_appointment_rejected_by_specialist
+
+
+def test_register_outbox_handlers_include_client_reminder_events():
+    handlers = {}
+
+    outbox_notifications.register_outbox_handlers(handlers)
+
+    assert handlers["appointment_client_reminder_24h"] is outbox_notifications._handle_appointment_client_reminder_24h
+    assert handlers["appointment_client_reminder_2h"] is outbox_notifications._handle_appointment_client_reminder_2h
+    assert handlers["appointment_client_confirmed"] is outbox_notifications._handle_appointment_client_confirmed
+    assert handlers["appointment_client_contact_specialist"] is outbox_notifications._handle_appointment_client_contact_specialist
 
 
 @pytest.mark.asyncio
@@ -805,3 +816,477 @@ async def test_rejected_by_specialist_handler_includes_rejection_reason(monkeypa
     assert sent[0][0] == 111
     assert "Запись отклонена специалистом: 2026-01-02 Пт [11:00]" in sent[0][1]
     assert "Комментарий: Не могу в это время" in sent[0][1]
+
+
+@pytest.mark.asyncio
+async def test_client_reminder_24h_handler_sends_markup_and_marks_sent(monkeypatch, tmp_path):
+    pytest.importorskip("aiosqlite")
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    import database
+
+    db_path = tmp_path / "outbox_reminder_24h.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    client_id = uuid.uuid4()
+    appointment_id = uuid.uuid4()
+    start_iso = "2026-01-02T11:00:00+00:00"
+
+    async with session_factory() as session:
+        specialist = database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active)
+        profile = database.SpecialistProfile(
+            specialist_id=specialist_id,
+            public_name="Иван",
+            owner_tg_user_id=999,
+            specialist_timezone="UTC",
+            session_duration_min=60,
+            session_buffer_min=0,
+            max_sessions_per_day=4,
+            slot_step_min=30,
+            cancel_window_hours=12,
+        )
+        client = database.Client(
+            client_id=client_id,
+            specialist_id=specialist_id,
+            tg_user_id=111,
+            client_code="C-1",
+            client_timezone="UTC",
+            timezone_source=database.ClientTimezoneSource.default_from_specialist,
+        )
+        reminder = AppointmentReminder(
+            id=uuid.uuid4(),
+            appointment_id=appointment_id,
+            specialist_id=specialist_id,
+            reminder_type=ReminderType.h24,
+            due_at_utc=datetime(2026, 1, 1, 11, 0, tzinfo=timezone.utc),
+        )
+        session.add_all([specialist, profile, client, reminder])
+        await session.commit()
+
+    event = OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="appointment_client_reminder_24h",
+        payload_json={
+            "appointment_id": str(appointment_id),
+            "specialist_id": str(specialist_id),
+            "client_id": str(client_id),
+            "start_at_utc": start_iso,
+            "end_at_utc": "2026-01-02T12:00:00+00:00",
+        },
+    )
+
+    sent = {}
+
+    async def fake_load_personal_bot(*_args, **_kwargs):
+        return SimpleNamespace()
+
+    async def fake_send_client_message(_session, **kwargs):
+        sent["text"] = kwargs["text"]
+        sent["reply_markup"] = kwargs["reply_markup"]
+
+    monkeypatch.setattr(outbox_notifications, "_load_personal_bot", fake_load_personal_bot)
+    monkeypatch.setattr(outbox_notifications, "_send_client_message", fake_send_client_message)
+
+    async with session_factory() as session:
+        await outbox_notifications._handle_appointment_client_reminder_24h(session, event)
+        await session.commit()
+
+    assert "Подтвердите, пожалуйста." in sent["text"]
+    assert str(appointment_id) not in sent["text"]
+    buttons = [btn for row in sent["reply_markup"].inline_keyboard for btn in row]
+    callback_data = [btn.callback_data for btn in buttons]
+    assert f"client_rem:confirm:{appointment_id}" in callback_data
+    assert f"client_rem:cancel:{appointment_id}" in callback_data
+    assert f"client_rem:contact:{appointment_id}" in callback_data
+
+    async with session_factory() as session:
+        updated = (
+            await session.execute(
+                select(AppointmentReminder).where(
+                    AppointmentReminder.appointment_id == appointment_id,
+                    AppointmentReminder.reminder_type == ReminderType.h24,
+                )
+            )
+        ).scalar_one()
+        assert updated.sent_at_utc is not None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_client_reminder_2h_handler_sends_contact_button_and_no_uuid_in_text(monkeypatch):
+    specialist_id = uuid.uuid4()
+    client_id = uuid.uuid4()
+    appointment_id = uuid.uuid4()
+
+    event = OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="appointment_client_reminder_2h",
+        payload_json={
+            "appointment_id": str(appointment_id),
+            "specialist_id": str(specialist_id),
+            "client_id": str(client_id),
+            "start_at_utc": "2026-01-02T11:00:00+00:00",
+            "end_at_utc": "2026-01-02T12:00:00+00:00",
+        },
+    )
+
+    client = Client(
+        client_id=client_id,
+        specialist_id=specialist_id,
+        tg_user_id=111,
+        client_code="C-1",
+        client_timezone="UTC",
+        timezone_source="default_from_specialist",
+    )
+    specialist = SpecialistProfile(
+        specialist_id=specialist_id,
+        public_name="Мария",
+        owner_tg_user_id=222,
+        specialist_timezone="UTC",
+        session_duration_min=60,
+        session_buffer_min=0,
+        max_sessions_per_day=4,
+        slot_step_min=30,
+        cancel_window_hours=12,
+    )
+
+    class Session:
+        async def get(self, model, key):
+            if model is Client and key == client_id:
+                return client
+            if model is SpecialistProfile and key == specialist_id:
+                return specialist
+            return None
+
+        async def execute(self, _stmt):
+            return SimpleNamespace(scalar_one_or_none=lambda: None)
+
+        async def flush(self):
+            return None
+
+    sent = {}
+
+    async def fake_load_personal_bot(*_args, **_kwargs):
+        return SimpleNamespace()
+
+    async def fake_send_client_message(_session, **kwargs):
+        sent["text"] = kwargs["text"]
+        sent["reply_markup"] = kwargs["reply_markup"]
+
+    monkeypatch.setattr(outbox_notifications, "_load_personal_bot", fake_load_personal_bot)
+    monkeypatch.setattr(outbox_notifications, "_send_client_message", fake_send_client_message)
+
+    await outbox_notifications._handle_appointment_client_reminder_2h(Session(), event)
+
+    assert "через 2 часа" in sent["text"]
+    assert str(appointment_id) not in sent["text"]
+    buttons = [btn for row in sent["reply_markup"].inline_keyboard for btn in row]
+    assert len(buttons) == 1
+    assert buttons[0].callback_data == f"client_rem:contact:{appointment_id}"
+
+
+@pytest.mark.asyncio
+async def test_client_reminder_handler_skips_when_client_missing(monkeypatch):
+    event = OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="appointment_client_reminder_24h",
+        payload_json={
+            "appointment_id": str(uuid.uuid4()),
+            "specialist_id": str(uuid.uuid4()),
+            "client_id": str(uuid.uuid4()),
+            "start_at_utc": "2026-01-02T11:00:00+00:00",
+            "end_at_utc": "2026-01-02T12:00:00+00:00",
+        },
+    )
+
+    class Session:
+        async def get(self, _model, _key):
+            return None
+
+    called = False
+
+    async def fake_send_client_message(_session, **kwargs):
+        nonlocal called
+        called = True
+
+    async def fake_load_personal_bot(*_args, **_kwargs):
+        return SimpleNamespace()
+
+    monkeypatch.setattr(outbox_notifications, "_load_personal_bot", fake_load_personal_bot)
+    monkeypatch.setattr(outbox_notifications, "_send_client_message", fake_send_client_message)
+
+    await outbox_notifications._handle_appointment_client_reminder_24h(Session(), event)
+
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_cancelled_by_client_handler_includes_comment(monkeypatch):
+    specialist_id = uuid.uuid4()
+    client_id = uuid.uuid4()
+
+    event = OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="appointment_cancelled_by_client",
+        payload_json={
+            "appointment_id": str(uuid.uuid4()),
+            "specialist_id": str(specialist_id),
+            "client_id": str(client_id),
+            "start_at_utc": "2026-01-02T11:00:00+00:00",
+            "comment": "Нужен перенос *срочно*",
+        },
+    )
+
+    client = Client(
+        client_id=client_id,
+        specialist_id=specialist_id,
+        tg_user_id=111,
+        client_code="C-1",
+        client_timezone="UTC",
+        timezone_source="default_from_specialist",
+    )
+    specialist = SpecialistProfile(
+        specialist_id=specialist_id,
+        public_name="sp",
+        owner_tg_user_id=222,
+        specialist_timezone="UTC",
+        session_duration_min=60,
+        session_buffer_min=0,
+        max_sessions_per_day=4,
+        slot_step_min=30,
+        cancel_window_hours=12,
+    )
+
+    class Session:
+        async def get(self, model, key):
+            if model is Client and key == client_id:
+                return client
+            if model is SpecialistProfile and key == specialist_id:
+                return specialist
+            return None
+
+    sent = []
+
+    async def fake_send_specialist_message(_session, **kwargs):
+        sent.append(kwargs["text"])
+
+    async def fake_load_personal_bot(*_args, **_kwargs):
+        return SimpleNamespace()
+
+    monkeypatch.setattr(outbox_notifications, "_load_personal_bot", fake_load_personal_bot)
+    monkeypatch.setattr(outbox_notifications, "_send_specialist_message", fake_send_specialist_message)
+
+    await outbox_notifications._handle_appointment_cancelled_by_client(Session(), event)
+
+    assert "Комментарий клиента:" in sent[0]
+    assert "Нужен перенос *срочно*" not in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_client_confirmed_handler_notifies_specialist(monkeypatch):
+    specialist_id = uuid.uuid4()
+    client_id = uuid.uuid4()
+
+    event = OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="appointment_client_confirmed",
+        payload_json={
+            "appointment_id": str(uuid.uuid4()),
+            "specialist_id": str(specialist_id),
+            "client_id": str(client_id),
+            "start_at_utc": "2026-01-02T11:00:00+00:00",
+        },
+    )
+
+    client = Client(
+        client_id=client_id,
+        specialist_id=specialist_id,
+        tg_user_id=111,
+        client_code="C-1",
+        client_timezone="UTC",
+        timezone_source="default_from_specialist",
+    )
+    specialist = SpecialistProfile(
+        specialist_id=specialist_id,
+        public_name="sp",
+        owner_tg_user_id=222,
+        specialist_timezone="UTC",
+        session_duration_min=60,
+        session_buffer_min=0,
+        max_sessions_per_day=4,
+        slot_step_min=30,
+        cancel_window_hours=12,
+    )
+
+    class Session:
+        async def get(self, model, key):
+            if model is Client and key == client_id:
+                return client
+            if model is SpecialistProfile and key == specialist_id:
+                return specialist
+            return None
+
+    sent = []
+
+    async def fake_send_specialist_message(_session, **kwargs):
+        sent.append(kwargs["text"])
+
+    async def fake_load_personal_bot(*_args, **_kwargs):
+        return SimpleNamespace()
+
+    monkeypatch.setattr(outbox_notifications, "_load_personal_bot", fake_load_personal_bot)
+    monkeypatch.setattr(outbox_notifications, "_send_specialist_message", fake_send_specialist_message)
+
+    await outbox_notifications._handle_appointment_client_confirmed(Session(), event)
+
+    assert "Клиент подтвердил запись." in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_client_contact_specialist_handler_notifies_specialist(monkeypatch):
+    specialist_id = uuid.uuid4()
+    client_id = uuid.uuid4()
+
+    event = OutboxEvent(
+        id=uuid.uuid4(),
+        event_type="appointment_client_contact_specialist",
+        payload_json={
+            "appointment_id": str(uuid.uuid4()),
+            "specialist_id": str(specialist_id),
+            "client_id": str(client_id),
+            "start_at_utc": "2026-01-02T11:00:00+00:00",
+        },
+    )
+
+    client = Client(
+        client_id=client_id,
+        specialist_id=specialist_id,
+        tg_user_id=111,
+        display_name="Клиент",
+        client_code="C-1",
+        client_timezone="UTC",
+        timezone_source="default_from_specialist",
+    )
+    specialist = SpecialistProfile(
+        specialist_id=specialist_id,
+        public_name="sp",
+        owner_tg_user_id=222,
+        specialist_timezone="UTC",
+        session_duration_min=60,
+        session_buffer_min=0,
+        max_sessions_per_day=4,
+        slot_step_min=30,
+        cancel_window_hours=12,
+    )
+
+    class Session:
+        async def get(self, model, key):
+            if model is Client and key == client_id:
+                return client
+            if model is SpecialistProfile and key == specialist_id:
+                return specialist
+            return None
+
+    sent = []
+
+    async def fake_send_specialist_message(_session, **kwargs):
+        sent.append(kwargs["text"])
+
+    async def fake_load_personal_bot(*_args, **_kwargs):
+        return SimpleNamespace()
+
+    monkeypatch.setattr(outbox_notifications, "_load_personal_bot", fake_load_personal_bot)
+    monkeypatch.setattr(outbox_notifications, "_send_specialist_message", fake_send_specialist_message)
+
+    await outbox_notifications._handle_appointment_client_contact_specialist(Session(), event)
+
+    assert "Клиент просит связаться." in sent[0]
+    assert "Время записи:" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_outbox_worker_processes_client_reminder_with_reply_markup(monkeypatch, tmp_path):
+    pytest.importorskip("aiosqlite")
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    import database
+
+    db_path = tmp_path / "outbox_worker_reminder.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    client_id = uuid.uuid4()
+    appointment_id = uuid.uuid4()
+
+    async with session_factory() as session:
+        specialist = database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active)
+        profile = database.SpecialistProfile(
+            specialist_id=specialist_id,
+            public_name="Специалист",
+            owner_tg_user_id=999,
+            specialist_timezone="UTC",
+            session_duration_min=60,
+            session_buffer_min=0,
+            max_sessions_per_day=4,
+            slot_step_min=30,
+            cancel_window_hours=12,
+        )
+        client = database.Client(
+            client_id=client_id,
+            specialist_id=specialist_id,
+            tg_user_id=111,
+            client_code="C-1",
+            client_timezone="UTC",
+            timezone_source=database.ClientTimezoneSource.default_from_specialist,
+        )
+        reminder = AppointmentReminder(
+            id=uuid.uuid4(),
+            appointment_id=appointment_id,
+            specialist_id=specialist_id,
+            reminder_type=ReminderType.h24,
+            due_at_utc=datetime.now(timezone.utc),
+        )
+        outbox_event = OutboxEvent(
+            id=uuid.uuid4(),
+            event_type="appointment_client_reminder_24h",
+            payload_json={
+                "appointment_id": str(appointment_id),
+                "specialist_id": str(specialist_id),
+                "client_id": str(client_id),
+                "start_at_utc": "2026-01-02T11:00:00+00:00",
+                "end_at_utc": "2026-01-02T12:00:00+00:00",
+            },
+        )
+        session.add_all([specialist, profile, client, reminder, outbox_event])
+        await session.commit()
+
+    sent = {}
+
+    async def fake_load_personal_bot(*_args, **_kwargs):
+        return SimpleNamespace()
+
+    async def fake_send_client_message(_session, **kwargs):
+        sent["reply_markup"] = kwargs.get("reply_markup")
+
+    monkeypatch.setattr(outbox, "async_session_factory", session_factory)
+    monkeypatch.setattr(outbox_notifications, "_load_personal_bot", fake_load_personal_bot)
+    monkeypatch.setattr(outbox_notifications, "_send_client_message", fake_send_client_message)
+
+    await outbox.process_outbox_events(limit=10)
+
+    assert sent["reply_markup"] is not None
+    buttons = [btn for row in sent["reply_markup"].inline_keyboard for btn in row]
+    assert any(btn.callback_data and btn.callback_data.startswith("client_rem:confirm:") for btn in buttons)
+
+    await engine.dispose()
