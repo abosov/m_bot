@@ -1,4 +1,6 @@
+import base64
 import importlib
+import json
 from datetime import datetime, timedelta, timezone
 import uuid
 
@@ -81,6 +83,91 @@ async def test_admin_login_returns_404_for_wrong_password(tmp_path, monkeypatch)
     assert response.status_code == 404
 
 
+
+
+
+
+@pytest.mark.asyncio
+async def test_admin_login_rotates_session_old_cookie_invalid(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    login_response_1 = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    old_cookie = login_response_1.cookies.get("admin_session")
+
+    login_response_2 = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    new_cookie = login_response_2.cookies.get("admin_session")
+
+    assert old_cookie
+    assert new_cookie
+    assert old_cookie != new_cookie
+
+    old_response = client.get("/admin", cookies={"admin_session": old_cookie})
+    new_response = client.get("/admin", cookies={"admin_session": new_cookie})
+
+    assert old_response.status_code == 404
+    assert new_response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_admin_session_cookie_contains_issued_at(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    assert session_cookie
+
+    payload_b64 = session_cookie.split(".", 1)[0]
+    payload_padding = "=" * (-len(payload_b64) % 4)
+    payload_raw = base64.urlsafe_b64decode(f"{payload_b64}{payload_padding}").decode("utf-8")
+    payload = json.loads(payload_raw)
+
+    assert "issued_at" in payload
+    assert isinstance(payload["issued_at"], int)
+
+@pytest.mark.asyncio
+async def test_admin_login_logs_success_with_ip_and_request_id(tmp_path, monkeypatch, caplog):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    with caplog.at_level("INFO"):
+        response = client.post(
+            "/admin/login",
+            data={"password": "ui-secret"},
+            follow_redirects=False,
+            headers={"X-Request-ID": "req-login-ok"},
+        )
+
+    assert response.status_code == 303
+    assert "event=admin_login_success" in caplog.text
+    assert "request_id=req-login-ok" in caplog.text
+    assert "ip=testclient" in caplog.text
+    assert "timestamp=" in caplog.text
+    assert "ui-secret" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_admin_login_logs_failed_with_ip_and_request_id(tmp_path, monkeypatch, caplog):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    with caplog.at_level("INFO"):
+        response = client.post(
+            "/admin/login",
+            data={"password": "wrong-password"},
+            follow_redirects=False,
+            headers={"X-Request-ID": "req-login-fail"},
+        )
+
+    assert response.status_code == 404
+    assert "event=admin_login_failed" in caplog.text
+    assert "reason=invalid_password" in caplog.text
+    assert "request_id=req-login-fail" in caplog.text
+    assert "ip=testclient" in caplog.text
+    assert "timestamp=" in caplog.text
+    assert "wrong-password" not in caplog.text
+
 @pytest.mark.asyncio
 async def test_admin_login_sets_cookie_for_correct_password(tmp_path, monkeypatch):
     app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
@@ -90,9 +177,55 @@ async def test_admin_login_sets_cookie_for_correct_password(tmp_path, monkeypatc
 
     assert response.status_code == 303
     assert response.headers["location"] == "/admin"
-    assert "admin_session=" in response.headers["set-cookie"]
+    set_cookie = response.headers["set-cookie"]
+    assert "admin_session=" in set_cookie
+    assert "admin_csrf=" in set_cookie
+    assert "Max-Age=43200" in set_cookie
+    assert "expires=" in set_cookie.lower()
+    assert "HttpOnly" in set_cookie
+    assert "Secure" in set_cookie
+
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    session_cookie_header = next(v for v in set_cookie_headers if v.startswith("admin_session="))
+    csrf_cookie_header = next(v for v in set_cookie_headers if v.startswith("admin_csrf="))
+    assert "HttpOnly" in session_cookie_header
+    assert "Secure" in session_cookie_header
+    assert "SameSite=lax" in session_cookie_header
+    assert "Secure" in csrf_cookie_header
+    assert "SameSite=lax" in csrf_cookie_header
 
 
+
+
+
+
+@pytest.mark.asyncio
+async def test_admin_logout_clears_cookies(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+    client = TestClient(app)
+
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    assert session_cookie
+    assert csrf_cookie
+
+    response = client.post(
+        "/admin/logout",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "admin_session=" in set_cookie
+    assert "admin_csrf=" in set_cookie
+    assert "Max-Age=0" in set_cookie
+
+    admin_page_response = client.get("/admin")
+    assert admin_page_response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -723,6 +856,8 @@ async def test_admin_page_returns_200_with_valid_cookie(tmp_path, monkeypatch):
     assert "<a href='#logs'>Logs</a>" in response.text
     assert "<a href='#heartbeats'>Heartbeats</a>" in response.text
     assert "<a href='#audit-log'>Audit Log</a>" in response.text
+    assert "id='logout-btn'" in response.text
+    assert "await fetch('/admin/logout', { method:'POST' });" in response.text
     assert "id='audit-log-section'" in response.text
     assert "id='audit-limit'" in response.text
     assert "id='audit-prev'" in response.text
@@ -2026,6 +2161,25 @@ async def test_admin_ui_overview_requires_cookie(tmp_path, monkeypatch):
     client = TestClient(app)
 
     response = client.get("/admin/ui/overview")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_overview_rejects_expired_session_cookie(tmp_path, monkeypatch):
+    app, _database = load_app(tmp_path, monkeypatch, admin_key=None, admin_ui_password="ui-secret")
+
+    import services.admin_ui_session as admin_ui_session
+
+    now = 1_700_000_000
+    monkeypatch.setattr(admin_ui_session.time, "time", lambda: now)
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    monkeypatch.setattr(admin_ui_session.time, "time", lambda: now + (12 * 3600) + 1)
+    response = client.get("/admin/ui/overview", cookies={"admin_session": session_cookie})
 
     assert response.status_code == 404
 

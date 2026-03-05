@@ -482,7 +482,7 @@ def require_admin_key_hidden_404(x_api_key: str | None = Header(default=None, al
 ADMIN_UI_COOKIE_NAME = "admin_session"
 ADMIN_UI_CSRF_COOKIE_NAME = "admin_csrf"
 ADMIN_UI_CSRF_HEADER_NAME = "X-CSRF-Token"
-ADMIN_UI_SESSION_TTL_HOURS = 12
+ADMIN_UI_SESSION_TTL_HOURS = config.ADMIN_SESSION_TTL_HOURS
 
 
 def _admin_ui_enabled() -> bool:
@@ -490,7 +490,7 @@ def _admin_ui_enabled() -> bool:
 
 
 def _admin_ui_cookie_secure() -> bool:
-    return config.APP_ENV == "prod"
+    return True
 
 
 def _raise_not_found() -> None:
@@ -541,11 +541,29 @@ async def admin_login_page() -> HTMLResponse:
 async def admin_login(request: Request) -> Response:
     form_data = parse_qs((await request.body()).decode("utf-8"))
     password = form_data.get("password", [""])[0]
+    request_id = _request_id_from_request(request)
+    request_ip = request.client.host if request.client else "unknown"
+    timestamp_utc = datetime.now(timezone.utc).isoformat()
+
     if not _admin_ui_enabled() or password != config.ADMIN_UI_PASSWORD:
+        logger.info(
+            "event=admin_login_failed timestamp=%s ip=%s request_id=%s reason=invalid_password",
+            timestamp_utc,
+            request_ip,
+            request_id,
+        )
         _raise_not_found()
+
+    logger.info(
+        "event=admin_login_success timestamp=%s ip=%s request_id=%s",
+        timestamp_utc,
+        request_ip,
+        request_id,
+    )
 
     session_cookie = admin_ui_session.sign_admin_session_cookie(ttl_hours=ADMIN_UI_SESSION_TTL_HOURS)
     csrf_token = secrets.token_urlsafe(32)
+    session_expires_at = datetime.now(timezone.utc) + timedelta(hours=ADMIN_UI_SESSION_TTL_HOURS)
     response = RedirectResponse(url="/admin", status_code=303)
     response.set_cookie(
         key=ADMIN_UI_COOKIE_NAME,
@@ -553,8 +571,9 @@ async def admin_login(request: Request) -> Response:
         max_age=ADMIN_UI_SESSION_TTL_HOURS * 3600,
         httponly=True,
         secure=_admin_ui_cookie_secure(),
-        samesite="strict",
+        samesite="lax",
         path="/admin",
+        expires=session_expires_at,
     )
     response.set_cookie(
         key=ADMIN_UI_CSRF_COOKIE_NAME,
@@ -562,7 +581,7 @@ async def admin_login(request: Request) -> Response:
         max_age=ADMIN_UI_SESSION_TTL_HOURS * 3600,
         httponly=False,
         secure=_admin_ui_cookie_secure(),
-        samesite="strict",
+        samesite="lax",
         path="/admin",
     )
     return response
@@ -573,7 +592,9 @@ async def admin_logout() -> Response:
     if not _admin_ui_enabled():
         _raise_not_found()
 
-    response = RedirectResponse(url="/admin/login", status_code=303)
+    admin_ui_session.invalidate_admin_sessions()
+
+    response = JSONResponse(content={"ok": True})
     response.delete_cookie(
         key=ADMIN_UI_COOKIE_NAME,
         path="/admin",
@@ -1180,6 +1201,7 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
       <p class='meta'>Environment: {env_name}</p>
       <p class='meta'>Server time (UTC): {server_time_utc}</p>
       <p class='meta'>Version: {version}</p>
+      <button id='logout-btn' class='btn' type='button'>Logout</button>
       <nav class='tabs'>
         <a href='#overview'>Overview</a>
         <a href='#specialists'>Specialists</a>
@@ -1281,7 +1303,6 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
       </table>
     </section>
 
-    <form method='post' action='/admin/logout'><button type='submit'>Logout</button></form>
   </div>
 
   <script>
@@ -1314,6 +1335,17 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
     const auditNextEl=document.getElementById('audit-next');
     let auditOffset=0;
     let auditLastItemsCount=0;
+
+    const logoutButtonEl=document.getElementById('logout-btn');
+
+    async function logout(){{
+      try {{
+        await fetch('/admin/logout', {{ method:'POST' }});
+      }} finally {{
+        window.location.href='/admin/login';
+      }}
+    }}
+    logoutButtonEl.addEventListener('click', logout);
 
     function setOverviewLoading(){{overviewEl.textContent='Loading overview…';}}
     function setOverviewError(){{overviewEl.textContent='Failed to load overview';}}
