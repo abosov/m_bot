@@ -193,6 +193,39 @@ Safety notes:
 - Любое действие пишется в `admin_audit_log` (success/failed) для форензики.
 - Ответы Admin Actions не содержат OAuth token-ов и других секретов.
 
+## 5.2 Audit Log Smoke Test
+
+Steps:
+
+1) Open admin console:
+
+`https://zumbot.ru/admin`
+
+2) Go to tab:
+
+`Audit Log`
+
+3) Trigger any admin action:
+
+- enable specialist
+- disable specialist
+- reset oauth
+
+4) Click Apply in Audit Log filter.
+
+Expected result:
+
+New row appears in table with:
+
+- action
+- target_type
+- target_id
+- success
+
+Security expectation:
+
+payload must not contain tokens or secrets.
+
 ### Шаг 4. [Локально] Проверить admin API по `X-API-Key`
 
 UI cookie **не заменяет** API-ключ для JSON endpoint-ов:
