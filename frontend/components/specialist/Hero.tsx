@@ -7,6 +7,7 @@ type SpecialistHeroProps = {
   photoUrl?: string;
   heroQuote?: string;
   clientBotUsername?: string;
+  specialistUuid?: string;
   telegram?: string;
   whatsapp?: string;
   phone?: string;
@@ -30,13 +31,14 @@ export function Hero({
   photoUrl,
   heroQuote,
   clientBotUsername,
+  specialistUuid,
   telegram,
   whatsapp,
   phone,
   email,
 }: SpecialistHeroProps) {
   const canRenderImage = isAllowedImageUrl(photoUrl);
-  const clientBotContactLink = buildClientBotLink(clientBotUsername, "contact_specialist");
+  const clientBotContactLink = buildClientBotLink(clientBotUsername, "contact_specialist", specialistUuid);
 
   return (
     <section id="hero" className="specialist-page__section" aria-label="Hero специалиста">

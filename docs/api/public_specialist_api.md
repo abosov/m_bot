@@ -10,3 +10,7 @@
 - security notes (включая запрет на возврат `file_key`, токенов и внутренних полей)
 
 См. подробную спецификацию в `docs/api/public_specialist.md`.
+
+Ключевые поля контракта для frontend:
+- `profile.contacts.{telegram,whatsapp,phone,email}` — контакты специалиста;
+- `profile.id` (UUID) — идентификатор специалиста для client-bot deep-links.
