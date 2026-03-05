@@ -15,6 +15,28 @@ _BLOCK_SORT_ORDER = {
     "reviews": 40,
 }
 
+_MAX_SPECIALIZATION_LEN = 200
+_MAX_HERO_QUOTE_LEN = 200
+_MAX_BLOCK_LEN = 8000
+_MAX_DISPLAY_NAME_LEN = 200
+
+
+def _normalize_text(value: str | None) -> str:
+    return (value or "").strip()
+
+
+def _validate_profile_payload(*, specialization: str, hero_quote: str, about: str, education: str, services: str, reviews: str) -> None:
+    if not specialization:
+        raise ValueError("specialization_required")
+    if len(specialization) > _MAX_SPECIALIZATION_LEN:
+        raise ValueError("specialization_too_long")
+    if len(hero_quote) > _MAX_HERO_QUOTE_LEN:
+        raise ValueError("hero_quote_too_long")
+
+    for block_value in (about, education, services, reviews):
+        if len(block_value) > _MAX_BLOCK_LEN:
+            raise ValueError("block_too_long")
+
 
 def split_display_name(display_name: str) -> tuple[str, str, str]:
     normalized = " ".join((display_name or "").split())
@@ -36,7 +58,7 @@ def build_display_name(first_name: str, middle_name: str, last_name: str) -> str
 
 
 def _normalize_name_part(value: str | None) -> str:
-    return (value or "").strip()
+    return _normalize_text(value)
 
 
 async def _resolve_client_bot_username(session: AsyncSession, specialist_id) -> str:
@@ -181,12 +203,27 @@ async def update_specialist_profile_draft(
 ) -> dict[str, str]:
     profile = await get_or_create_public_profile_for_specialist(session, specialist_id)
 
-    normalized_first_name = first_name.strip()
-    normalized_middle_name = middle_name.strip()
-    normalized_last_name = last_name.strip()
+    normalized_first_name = _normalize_text(first_name)
+    normalized_middle_name = _normalize_text(middle_name)
+    normalized_last_name = _normalize_text(last_name)
+    normalized_specialization = _normalize_text(specialization)
+    normalized_hero_quote = _normalize_text(hero_quote)
+    normalized_about = _normalize_text(about)
+    normalized_education = _normalize_text(education)
+    normalized_services = _normalize_text(services)
+    normalized_reviews = _normalize_text(reviews)
+
+    _validate_profile_payload(
+        specialization=normalized_specialization,
+        hero_quote=normalized_hero_quote,
+        about=normalized_about,
+        education=normalized_education,
+        services=normalized_services,
+        reviews=normalized_reviews,
+    )
 
     display_name = build_display_name(normalized_first_name, normalized_middle_name, normalized_last_name)
-    if len(display_name) > 200:
+    if len(display_name) > _MAX_DISPLAY_NAME_LEN:
         raise ValueError("display_name_too_long")
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -210,17 +247,17 @@ async def update_specialist_profile_draft(
             "first_name": normalized_first_name or None,
             "middle_name": normalized_middle_name or None,
             "last_name": normalized_last_name or None,
-            "specialization": specialization.strip(),
-            "hero_quote": hero_quote.strip() or None,
+            "specialization": normalized_specialization,
+            "hero_quote": normalized_hero_quote or None,
             "updated_at": now,
         },
     )
 
     payload = {
-        "about": about.strip(),
-        "education": education.strip(),
-        "services": services.strip(),
-        "reviews": reviews.strip(),
+        "about": normalized_about,
+        "education": normalized_education,
+        "services": normalized_services,
+        "reviews": normalized_reviews,
     }
     blocks_by_type = await _get_blocks_by_type(session, profile["id"])
     for block_type, content in payload.items():
