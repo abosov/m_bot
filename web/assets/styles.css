@@ -44,10 +44,15 @@ body {
   padding: 16px 0;
 }
 
+.header-inner {
+  min-width: 0;
+}
+
 .logo {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  min-width: 0;
   text-decoration: none;
 }
 
@@ -65,12 +70,14 @@ body {
   font-size: 20px;
   font-weight: 600;
   color: #1F2937;
+  min-width: 0;
 }
 
 .main-nav {
   display: flex;
   align-items: center;
   gap: 20px;
+  min-width: 0;
 }
 
 .main-nav a {
@@ -534,9 +541,40 @@ input, textarea {
   .cards-grid,
   .cards-grid-2,
   .faq-grid { grid-template-columns: 1fr; }
-  .main-nav { gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+  .header-inner {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+  .main-nav {
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    min-width: 0;
+  }
 }
 
+@media (max-width: 760px) {
+  .header-inner {
+    flex-wrap: wrap;
+  }
+
+  .main-nav {
+    order: 3;
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .main-nav a {
+    overflow-wrap: anywhere;
+  }
+
+  .btn-primary {
+    order: 2;
+    margin-left: auto;
+  }
+}
 
 @media (max-width: 640px) {
   .site-footer .logo-footer,
@@ -551,6 +589,17 @@ input, textarea {
 
   .site-footer .logo-footer .logo-text {
     overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 420px) {
+  .btn-primary {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .main-nav {
+    order: 3;
   }
 }
 
