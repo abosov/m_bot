@@ -30,16 +30,17 @@
 
       <div class="cards-grid pricing-grid">
         <article class="card card-lite pricing-card">
-          <h3>Free</h3>
-          <div class="price">
-            <div class="price-value" data-month="0" data-year="0">0</div>
-            <div class="price-unit" data-month="₽ / мес" data-year="₽ / год">₽ / мес</div>
+          <div class="pricing-badge-slot"></div>
+          <h3 class="pricing-title">Free</h3>
+          <div class="price pricing-price">
+            <span class="price-value" data-month="0" data-year="0">0</span>
+            <span class="price-unit pricing-price-unit" data-month="₽ / мес" data-year="₽ / год">₽ / мес</span>
           </div>
-          <p class="price-period" data-month="в месяц" data-year="в год">в месяц</p>
-          <p class="plan-micro">Для тех, кто только начинает и хочет проверить, как сервис работает на практике.</p>
-          <ul class="plan-features">
+          <p class="price-subtitle pricing-subtitle" data-month="До 16 записей в месяц" data-year="До 16 записей в месяц">До 16 записей в месяц</p>
+          <p class="price-description pricing-description">Подходит для знакомства с сервисом.</p>
+          <ul class="plan-features pricing-features">
             <li>До 16 записей клиентов в месяц</li>
-            <li>Автоматические напоминания клиентам</li>
+            <li>Напоминания клиентам</li>
             <li>Подключение Google Calendar</li>
             <li>Без онлайн-оплат</li>
           </ul>
@@ -49,30 +50,31 @@
           so the bot knows which plan user selected.
           Do not replace with plain https://t.me/zumhelper_bot
           -->
-          <a
-            class="button outline plan-cta"
-            data-plan="free"
-            href="https://t.me/zumhelper_bot?start=plan_free_m"
-            target="_blank"
-            rel="noopener noreferrer"
-          >Начать бесплатно</a>
+          <div class="pricing-action">
+            <a
+              class="button outline btn plan-cta pricing-button"
+              data-plan="free"
+              href="https://t.me/zumhelper_bot?start=plan_free_m"
+              target="_blank"
+              rel="noopener noreferrer"
+            >Начать бесплатно</a>
+          </div>
         </article>
 
         <article class="card pricing-card">
-          <h3>Start</h3>
-          <div class="price">
-            <div class="price-value" data-month="990" data-year="790">990</div>
-            <div class="price-unit" data-month="₽ / мес" data-year="₽ / мес">₽ / мес</div>
+          <div class="pricing-badge-slot"></div>
+          <h3 class="pricing-title">Start</h3>
+          <div class="price pricing-price">
+            <span class="price-value" data-month="990" data-year="790">990</span>
+            <span class="price-unit pricing-price-unit" data-month="₽ / мес" data-year="₽ / мес">₽ / мес</span>
           </div>
-          <p class="price-period" data-month="для стабильной ежедневной работы" data-year="для стабильной ежедневной работы">для стабильной ежедневной работы</p>
-          <p class="billing-note" data-month="" data-year="При оплате за год"></p>
-          <p class="billing-save" data-month="" data-year="Экономия 20%"></p>
-          <p class="plan-micro">Оптимальный тариф для специалистов с постоянной записью и регулярными клиентами.</p>
-          <ul class="plan-features">
+          <p class="price-subtitle pricing-subtitle" data-month="Для регулярной практики" data-year="Для регулярной практики">Для регулярной практики</p>
+          <p class="price-description pricing-description">Оптимально для специалистов с постоянной записью.</p>
+          <ul class="plan-features pricing-features">
             <li>До 100 записей клиентов в месяц</li>
-            <li>Удобные напоминания клиентам в Telegram</li>
+            <li>Напоминания клиентам в Telegram</li>
             <li>Подключение Google Calendar</li>
-            <li>Базовая статистика по записям</li>
+            <li>Базовая статистика записей</li>
           </ul>
           <!--
           IMPORTANT:
@@ -80,32 +82,32 @@
           so the bot knows which plan user selected.
           Do not replace with plain https://t.me/zumhelper_bot
           -->
-          <a
-            class="button ghost plan-cta"
-            data-plan="start"
-            href="https://t.me/zumhelper_bot?start=plan_start_m"
-            target="_blank"
-            rel="noopener noreferrer"
-          >Выбрать тариф</a>
+          <div class="pricing-action">
+            <a
+              class="button ghost btn plan-cta pricing-button"
+              data-plan="start"
+              href="https://t.me/zumhelper_bot?start=plan_start_m"
+              target="_blank"
+              rel="noopener noreferrer"
+            >Выбрать тариф</a>
+          </div>
         </article>
 
-        <article class="card pricing-card popular">
-          <p class="plan-badge">Самый популярный</p>
-          <h3>Pro</h3>
-          <div class="price">
-            <div class="price-value" data-month="2 490" data-year="1 990">2 490</div>
-            <div class="price-unit" data-month="₽ / мес" data-year="₽ / мес">₽ / мес</div>
+        <article class="card pricing-card is-featured">
+          <div class="pricing-badge-slot"><p class="plan-badge">Самый популярный</p></div>
+          <h3 class="pricing-title">Pro</h3>
+          <div class="price pricing-price">
+            <span class="price-value" data-month="2&nbsp;490" data-year="1&nbsp;990">2&nbsp;490</span>
+            <span class="price-unit pricing-price-unit" data-month="₽ / мес" data-year="₽ / мес">₽ / мес</span>
           </div>
-          <p class="price-period" data-month="для активной практики и роста" data-year="для активной практики и роста">для активной практики и роста</p>
-          <p class="billing-note" data-month="" data-year="При оплате за год"></p>
-          <p class="billing-save" data-month="" data-year="Экономия 20%"></p>
-          <p class="plan-micro">Для тех, кто хочет полностью автоматизировать запись и масштабировать поток клиентов.</p>
-          <ul class="plan-features">
+          <p class="price-subtitle pricing-subtitle" data-month="Для активной практики" data-year="Для активной практики">Для активной практики</p>
+          <p class="price-description pricing-description">Полная автоматизация записи клиентов.</p>
+          <ul class="plan-features pricing-features">
             <li>Безлимит записей клиентов</li>
-            <li>Онлайн-оплаты и полезные интеграции</li>
+            <li>Онлайн-оплаты</li>
             <li>Приоритетная поддержка</li>
-            <li>Наглядная аналитика по отменам и загрузке</li>
-            <li>Инструменты для роста повторных записей</li>
+            <li>Аналитика отмен и загрузки</li>
+            <li>Инструменты повторных записей</li>
           </ul>
           <!--
           IMPORTANT:
@@ -113,30 +115,31 @@
           so the bot knows which plan user selected.
           Do not replace with plain https://t.me/zumhelper_bot
           -->
-          <a
-            class="button plan-cta"
-            data-plan="pro"
-            href="https://t.me/zumhelper_bot?start=plan_pro_m"
-            target="_blank"
-            rel="noopener noreferrer"
-          >Подключить Pro</a>
+          <div class="pricing-action">
+            <a
+              class="button btn plan-cta pricing-button"
+              data-plan="pro"
+              href="https://t.me/zumhelper_bot?start=plan_pro_m"
+              target="_blank"
+              rel="noopener noreferrer"
+            >Подключить Pro</a>
+          </div>
         </article>
 
         <article class="card pricing-card">
-          <h3>Team</h3>
-          <div class="price">
-            <div class="price-value" data-month="4 990" data-year="3 990">4 990</div>
-            <div class="price-unit" data-month="₽ / мес" data-year="₽ / мес">₽ / мес</div>
+          <div class="pricing-badge-slot"></div>
+          <h3 class="pricing-title">Team</h3>
+          <div class="price pricing-price">
+            <span class="price-value" data-month="4&nbsp;990" data-year="3&nbsp;990">4&nbsp;990</span>
+            <span class="price-unit pricing-price-unit" data-month="₽ / мес" data-year="₽ / мес">₽ / мес</span>
           </div>
-          <p class="price-period" data-month="для команд и студий" data-year="для команд и студий">для команд и студий</p>
-          <p class="billing-note" data-month="" data-year="При оплате за год"></p>
-          <p class="billing-save" data-month="" data-year="Экономия 20%"></p>
-          <p class="plan-micro">Для студий и команд, где важно координировать расписание нескольких специалистов.</p>
-          <ul class="plan-features">
-            <li>Работа сразу для нескольких специалистов</li>
-            <li>Гибкие роли и доступы для команды</li>
-            <li>Расширенные отчёты по работе команды</li>
-            <li>Помощь с настройкой под ваши процессы</li>
+          <p class="price-subtitle pricing-subtitle" data-month="Для команд и студий" data-year="Для команд и студий">Для команд и студий</p>
+          <p class="price-description pricing-description">Управление расписанием нескольких специалистов.</p>
+          <ul class="plan-features pricing-features">
+            <li>Несколько специалистов</li>
+            <li>Гибкие роли и доступы</li>
+            <li>Расширенные отчёты</li>
+            <li>Помощь с настройкой</li>
           </ul>
           <!--
           IMPORTANT:
@@ -144,12 +147,14 @@
           so the bot knows which plan user selected.
           Do not replace with plain https://t.me/zumhelper_bot
           -->
-          <a
-            class="button ghost plan-cta plan-team-contact"
-            href="https://t.me/zumhelper_bot?start=plan_team_contact"
-            target="_blank"
-            rel="noopener noreferrer"
-          >Связаться с нами</a>
+          <div class="pricing-action">
+            <a
+              class="button ghost btn plan-cta plan-team-contact pricing-button"
+              href="https://t.me/zumhelper_bot?start=plan_team_contact"
+              target="_blank"
+              rel="noopener noreferrer"
+            >Связаться с нами</a>
+          </div>
         </article>
       </div>
 
