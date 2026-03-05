@@ -214,6 +214,74 @@ class SpecialistProfile(Base):
         return _validate_int_range(value, 1, 20, key)
 
 
+class SpecialistPublicProfile(Base):
+    __tablename__ = "specialist_public_profile"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    specialist_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("specialist.specialist_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    public_slug: Mapped[str] = mapped_column(Text, nullable=False)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    specialization: Mapped[str] = mapped_column(Text, nullable=False)
+    hero_quote: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    contact_telegram: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    contact_whatsapp: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    contact_phone: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    contact_email: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    client_bot_username: Mapped[str] = mapped_column(Text, nullable=False)
+    is_published: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    specialist: Mapped["Specialist"] = relationship()
+    blocks: Mapped[List["SpecialistPublicBlock"]] = relationship(
+        back_populates="profile",
+        cascade="all, delete-orphan",
+    )
+    media: Mapped[List["SpecialistPublicMedia"]] = relationship(
+        back_populates="profile",
+        cascade="all, delete-orphan",
+    )
+
+
+class SpecialistPublicBlock(Base):
+    __tablename__ = "specialist_public_block"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("specialist_public_profile.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    block_type: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    profile: Mapped["SpecialistPublicProfile"] = relationship(back_populates="blocks")
+
+
+class SpecialistPublicMedia(Base):
+    __tablename__ = "specialist_public_media"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("specialist_public_profile.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    media_type: Mapped[str] = mapped_column(Text, nullable=False)
+    file_key: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    profile: Mapped["SpecialistPublicProfile"] = relationship(back_populates="media")
+
+
 class TelegramBot(Base):
     __tablename__ = "telegram_bot"
 

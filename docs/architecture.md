@@ -12,3 +12,8 @@ Dynamic values in Telegram messages must be escaped for MarkdownV2 using `escape
 
 - Appointment outbox event contracts: `docs/outbox_event_contracts.md`.
 - Time-based reminders must be produced only by scheduler and delivered only via outbox worker.
+
+## Public specialist page
+
+- API contract: `docs/api/public_specialist.md`.
+- User flow: `docs/user_flows/public_specialist_page.md`.

@@ -4,72 +4,50 @@ import re
 
 from fastapi import APIRouter, HTTPException
 
-from backend.services.public_specialist_service import get_public_specialist_by_slug
+from backend.schemas.public_specialist import PublicSpecialistResponse
+from services.public_specialist import get_public_specialist_by_slug
 
 
 router = APIRouter(prefix="/api/public/specialists", tags=["public-specialist"])
 
-_SLUG_RE = re.compile(r"^[A-Za-z]+[A-Za-z]_[1-9][0-9]$")
-_RESERVED_PATHS = {
-    "pricing",
-    "privacy",
-    "terms",
-    "revoke-access",
-    "api",
-    "static",
-    "assets",
-}
-
-_PUBLIC_PROFILE_FIELDS = {
-    "id",
-    "specialist_id",
-    "public_slug",
-    "display_name",
-    "specialization",
-    "hero_quote",
-    "contact_telegram",
-    "contact_whatsapp",
-    "contact_phone",
-    "contact_email",
-    "client_bot_username",
-    "is_published",
-    "created_at",
-    "updated_at",
-}
+_SLUG_RE = re.compile(r"^[A-Za-z]+[A-Za-z0-9]*_[0-9]{2}$")
 
 
-def _is_valid_slug(slug: str) -> bool:
-    if slug in _RESERVED_PATHS:
-        return False
+def _validate_public_slug(slug: str) -> None:
     if not _SLUG_RE.fullmatch(slug):
-        return False
+        raise HTTPException(status_code=400, detail="invalid_slug_format")
 
     try:
         suffix = int(slug.split("_", maxsplit=1)[1])
     except (IndexError, ValueError):
-        return False
+        raise HTTPException(status_code=400, detail="invalid_slug_suffix") from None
 
-    return 10 <= suffix <= 30
+    if suffix < 10 or suffix > 30:
+        raise HTTPException(status_code=400, detail="invalid_slug_suffix_range")
 
 
-@router.get("/{slug}")
-async def get_public_specialist_profile(slug: str) -> dict:
-    if not _is_valid_slug(slug):
-        raise HTTPException(status_code=400, detail="invalid_slug")
+@router.get("/{public_slug}", response_model=PublicSpecialistResponse)
+async def get_public_specialist_profile(public_slug: str) -> PublicSpecialistResponse:
+    _validate_public_slug(public_slug)
 
-    data = await get_public_specialist_by_slug(slug)
+    data = await get_public_specialist_by_slug(public_slug)
     if data is None:
         raise HTTPException(status_code=404, detail="not_found")
 
-    profile = data.get("profile") or {}
-    if not profile.get("is_published", False):
-        raise HTTPException(status_code=404, detail="not_found")
+    media_public: list[dict[str, object]] = []
+    for item in data.get("media", []):
+        media_public.append(
+            {
+                "media_type": item.get("media_type"),
+                "title": item.get("title"),
+                "sort_order": item.get("sort_order"),
+                "url": None,
+            }
+        )
 
-    safe_profile = {k: v for k, v in profile.items() if k in _PUBLIC_PROFILE_FIELDS}
-
-    return {
-        "profile": safe_profile,
+    payload = {
+        "profile": data.get("profile", {}),
         "blocks": data.get("blocks", []),
-        "media": data.get("media", []),
-        "reviews": data.get("reviews", []),
+        "media": media_public,
     }
+    return PublicSpecialistResponse.model_validate(payload)

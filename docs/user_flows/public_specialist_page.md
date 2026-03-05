@@ -1,25 +1,33 @@
-# User Flow: Public Specialist Page (Frontend Template)
+# User Flow: Public Specialist Page
 
-## Базовая структура страницы
-Страница `specialist_profile_page` реализована как одностраничный лендинг с базовыми блоками (без стилизации):
+## Public URL
+- Pattern: `/{public_slug}`
+- Example: `/TsarevaE_12`
 
-1. `Header`
-2. `Hero`
-3. `SectionAbout`
-4. `SectionEducation`
-5. `SectionDocuments`
-6. `SectionServices`
-7. `SectionReviews`
-8. `SectionCTA`
+## Data source
+Public page data is loaded from:
+- `GET /api/public/specialists/{public_slug}`
 
-## Data flow
-1. Роутер передает `slug` в `SpecialistProfilePage`.
-2. На фронтенде выполняется валидация slug:
-   - regex `^[A-Za-z]+[A-Za-z]_[1-9][0-9]$`
-   - исключение зарезервированных путей: `pricing`, `privacy`, `terms`, `revoke-access`, `api`, `static`, `assets`
-   - числовой суффикс в диапазоне `10..30`
-3. Если slug валиден — вызывается API `GET /api/public/specialists/{slug}`.
-4. Если slug невалиден — отображается ошибка и API не вызывается.
+## Visibility rule
+Only records with `is_published=true` are visible publicly.
+If profile is missing or not published, API returns `404 not_found`.
 
-## Безопасность
-Frontend-валидация slug выполняется перед сетевым запросом, чтобы не отправлять запросы с невалидными или служебными путями.
+## Slug validation rules
+`public_slug` must satisfy both:
+1. Regex: `^[A-Za-z]+[A-Za-z0-9]*_[0-9]{2}$`
+2. Numeric suffix range: `10..30` inclusive
+
+## Public page payload
+Page consumes three sections:
+- `profile` (name, specialization, quote, contacts, client bot username)
+- `blocks` (text sections such as about/education/documents/services/reviews)
+- `media` (metadata only)
+
+## Security requirements
+- Do not expose raw `file_key` to public clients.
+- Do not expose internal `specialist` fields.
+- Public media URLs are not implemented yet (`url=null` placeholder in API response).
+
+## Future work
+- Add backend media delivery endpoint with signed URLs / access validation.
+- Extend docs with final media delivery contract after implementation.
