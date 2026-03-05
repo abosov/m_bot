@@ -8,6 +8,14 @@
 - Телефон
 - Email
 
+
+## Источник данных
+Поля берутся из `specialist_public_profile`:
+- `contact_telegram`
+- `contact_whatsapp`
+- `contact_phone`
+- `contact_email`
+
 ## Правило отображения
 Показываются только непустые поля. Пустые/состоящие из пробелов значения не рендерятся.
 
