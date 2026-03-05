@@ -158,3 +158,151 @@ def test_put_then_get_returns_updated_values(tmp_path, monkeypatch):
             }
 
     asyncio.run(_assert_blocks_saved())
+
+
+def _valid_profile_payload() -> dict[str, str]:
+    return {
+        "first_name": "Анна",
+        "middle_name": "Сергеевна",
+        "last_name": "Петрова",
+        "specialization": "Психотерапевт",
+        "hero_quote": "С заботой о вашем состоянии",
+        "about": "Текст о себе",
+        "education": "МГУ, факультет психологии",
+        "services": "Консультация 60 минут",
+        "reviews": "Очень помогли",
+    }
+
+
+def test_put_profile_rejects_blank_specialization_after_trim(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    payload = _valid_profile_payload()
+    payload["specialization"] = "   "
+
+    response = client.put(
+        "/api/specialist/profile",
+        json=payload,
+        cookies={web_server.config.WEB_CONNECT_COOKIE_NAME: cookie},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "specialization_required"}
+
+
+def test_put_profile_rejects_too_long_specialization(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    payload = _valid_profile_payload()
+    payload["specialization"] = "x" * 201
+
+    response = client.put(
+        "/api/specialist/profile",
+        json=payload,
+        cookies={web_server.config.WEB_CONNECT_COOKIE_NAME: cookie},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "specialization_too_long"}
+
+
+def test_put_profile_rejects_too_long_hero_quote(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    payload = _valid_profile_payload()
+    payload["hero_quote"] = "x" * 201
+
+    response = client.put(
+        "/api/specialist/profile",
+        json=payload,
+        cookies={web_server.config.WEB_CONNECT_COOKIE_NAME: cookie},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "hero_quote_too_long"}
+
+
+def test_put_profile_rejects_too_long_about_block(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    payload = _valid_profile_payload()
+    payload["about"] = "x" * 8001
+
+    response = client.put(
+        "/api/specialist/profile",
+        json=payload,
+        cookies={web_server.config.WEB_CONNECT_COOKIE_NAME: cookie},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "block_too_long"}
+
+
+def test_put_profile_server_trims_fields_and_builds_display_name(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    cookies = {web_server.config.WEB_CONNECT_COOKIE_NAME: cookie}
+
+    payload = _valid_profile_payload()
+    payload.update(
+        {
+            "first_name": "  Анна  ",
+            "middle_name": "  Сергеевна ",
+            "last_name": "  Петрова   ",
+            "specialization": "  Психолог  ",
+            "hero_quote": "  С заботой  ",
+            "about": "  О себе  ",
+            "education": "  Образование  ",
+            "services": "  Услуги  ",
+            "reviews": "  Отзывы  ",
+        }
+    )
+
+    put_response = client.put("/api/specialist/profile", json=payload, cookies=cookies)
+    assert put_response.status_code == 200
+    assert put_response.json() == {
+        "first_name": "Анна",
+        "middle_name": "Сергеевна",
+        "last_name": "Петрова",
+        "specialization": "Психолог",
+        "hero_quote": "С заботой",
+        "about": "О себе",
+        "education": "Образование",
+        "services": "Услуги",
+        "reviews": "Отзывы",
+    }
+
+    async def _assert_profile_name_and_specialization_saved():
+        async with database.async_session_factory() as session:
+            profile = (
+                await session.execute(
+                    text(
+                        "SELECT display_name, first_name, middle_name, last_name, specialization "
+                        "FROM specialist_public_profile WHERE specialist_id = :sid"
+                    ),
+                    {"sid": str(specialist_id)},
+                )
+            ).mappings().first()
+            assert profile is not None
+            assert profile["display_name"] == "Анна Сергеевна Петрова"
+            assert profile["first_name"] == "Анна"
+            assert profile["middle_name"] == "Сергеевна"
+            assert profile["last_name"] == "Петрова"
+            assert profile["specialization"] == "Психолог"
+
+    asyncio.run(_assert_profile_name_and_specialization_saved())

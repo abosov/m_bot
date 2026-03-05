@@ -107,6 +107,29 @@ def test_build_specialist_settings_view_includes_profile_edit_url_button() -> No
 
     all_buttons = [button for row in keyboard.inline_keyboard for button in row]
     profile_button = next((b for b in all_buttons if b.text == "✏️ Редактировать профиль специалиста"), None)
+    reset_button = next((b for b in all_buttons if b.text == "♻️ Сбросить на дефолты"), None)
+
     assert profile_button is not None
-    assert profile_button.url is not None
-    assert "/profile/edit#token=" in profile_button.url
+    assert reset_button is not None
+    assert profile_button.url == "https://example.test/profile/edit#token=abc"
+    assert profile_button.callback_data is None
+
+    profile_button_idx = all_buttons.index(profile_button)
+    reset_button_idx = all_buttons.index(reset_button)
+    assert profile_button_idx < reset_button_idx
+
+
+def test_build_specialist_settings_view_omits_profile_edit_url_button_when_missing_url() -> None:
+    _, keyboard = build_specialist_settings_view(
+        profile=_Profile(),
+        rows=[_Row()],
+        calendar_settings=_Calendar(),
+        keep_button_text=None,
+        keep_callback_data=None,
+        include_reset_button=True,
+        working_intervals_by_idx={1: (540, 720), 2: (780, 1020), 3: (1020, 1260)},
+        profile_edit_url=None,
+    )
+
+    button_texts = [button.text for row in keyboard.inline_keyboard for button in row]
+    assert "✏️ Редактировать профиль специалиста" not in button_texts
