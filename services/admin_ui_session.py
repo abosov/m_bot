@@ -12,6 +12,7 @@ import config
 
 
 _DEFAULT_TTL_HOURS = 12
+_active_session_nonce: str | None = None
 
 
 def _base64url_encode(raw: bytes) -> str:
@@ -45,14 +46,18 @@ def _sign_payload(payload_b64: str, key: bytes) -> str:
 
 
 def sign_admin_session_cookie(ttl_hours: int = _DEFAULT_TTL_HOURS) -> str:
+    global _active_session_nonce
+
     if ttl_hours <= 0:
         raise ValueError("ttl_hours must be greater than zero")
 
     now = int(time.time())
+    nonce = secrets.token_hex(4)
     payload = {
         "scope": "admin-ui",
+        "issued_at": now,
         "exp": now + (ttl_hours * 3600),
-        "nonce": secrets.token_hex(4),
+        "nonce": nonce,
     }
 
     payload_raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -60,6 +65,7 @@ def sign_admin_session_cookie(ttl_hours: int = _DEFAULT_TTL_HOURS) -> str:
 
     key = _resolve_signing_key()
     signature = _sign_payload(payload_b64, key)
+    _active_session_nonce = nonce
     return f"{payload_b64}.{signature}"
 
 
@@ -77,11 +83,22 @@ def verify_admin_session_cookie(cookie_value: str) -> bool:
         payload = json.loads(_base64url_decode(payload_b64).decode("utf-8"))
         if payload.get("scope") != "admin-ui":
             return False
+        issued_at = int(payload["issued_at"])
         exp = int(payload["exp"])
+        nonce = str(payload["nonce"])
     except (ValueError, TypeError, KeyError, json.JSONDecodeError, base64.binascii.Error):
         return False
 
-    if int(time.time()) >= exp:
+    now = int(time.time())
+    if now >= exp or issued_at > now:
+        return False
+
+    if _active_session_nonce is not None and nonce != _active_session_nonce:
         return False
 
     return True
+
+
+def invalidate_admin_sessions() -> None:
+    global _active_session_nonce
+    _active_session_nonce = "__invalidated__"
