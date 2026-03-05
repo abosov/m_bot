@@ -1,0 +1,65 @@
+# Public Specialist API
+
+## Purpose
+Public JSON API for specialist public pages like `/TsarevaE_12`.
+
+## Endpoint
+`GET /api/public/specialists/{public_slug}`
+
+## Slug rules
+- Format: `^[A-Za-z]+[A-Za-z0-9]*_[0-9]{2}$`
+- Suffix range: `10..30` (inclusive)
+
+Invalid slug returns `400 Bad Request` with one of:
+- `invalid_slug_format`
+- `invalid_slug_suffix`
+- `invalid_slug_suffix_range`
+
+## Published-only behavior
+- `200 OK`: published profile found.
+- `404 Not Found`: profile does not exist or is not published.
+
+## Response shape
+```json
+{
+  "profile": {
+    "id": "uuid",
+    "public_slug": "TsarevaE_12",
+    "display_name": "Евгения Царёва",
+    "specialization": "Психолог, ЭФТ",
+    "hero_quote": "Можно по-другому.",
+    "contacts": {
+      "telegram": "evgenia_tsareva",
+      "whatsapp": "+79990000000",
+      "phone": "+79991112233",
+      "email": "info@example.com"
+    },
+    "client_bot_username": "zumbot_client_bot"
+  },
+  "blocks": [
+    {
+      "block_type": "about",
+      "content": "О себе текст",
+      "sort_order": 10,
+      "updated_at": "2026-03-12T10:00:00"
+    }
+  ],
+  "media": [
+    {
+      "media_type": "photo",
+      "title": "Фото",
+      "sort_order": 10,
+      "url": null
+    }
+  ]
+}
+```
+
+## Security notes
+Public API MUST NOT return:
+- raw media storage keys (`file_key`),
+- OAuth tokens,
+- internal specialist/private fields not in public schema.
+
+## TODO (next task)
+Media delivery must be implemented via controlled backend delivery (e.g., signed URLs or validated download endpoint).
