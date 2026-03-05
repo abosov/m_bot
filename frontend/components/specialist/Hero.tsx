@@ -2,12 +2,13 @@ import Contacts from "./Contacts";
 
 const ALLOWED_IMAGE_HOSTNAMES = new Set(["images.mbot.app", "cdn.mbot.app"]);
 const TELEGRAM_BOT_USERNAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{3,30}bot$/i;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type SpecialistHeroProps = {
   photoUrl?: string;
   heroQuote?: string;
   clientBotUsername?: string;
-  specialistId?: number;
+  specialistId?: string;
   telegram?: string;
   whatsapp?: string;
   phone?: string;
@@ -35,11 +36,15 @@ function isValidClientBotUsername(clientBotUsername?: string): clientBotUsername
   return TELEGRAM_BOT_USERNAME_REGEX.test(clientBotUsername);
 }
 
-function isValidSpecialistId(specialistId?: number): specialistId is number {
-  return Number.isInteger(specialistId) && specialistId > 0;
+function isValidSpecialistId(specialistId?: string): specialistId is string {
+  if (!specialistId) {
+    return false;
+  }
+
+  return UUID_REGEX.test(specialistId);
 }
 
-export function buildClientBotWriteLink(clientBotUsername?: string, specialistId?: number): string | null {
+export function buildClientBotWriteLink(clientBotUsername?: string, specialistId?: string): string | null {
   if (!isValidClientBotUsername(clientBotUsername) || !isValidSpecialistId(specialistId)) {
     return null;
   }

@@ -102,11 +102,11 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
         photoUrl={payload?.profile.photo_url as string | undefined}
         heroQuote={payload?.profile.hero_quote as string | undefined}
         clientBotUsername={payload?.profile.client_bot_username as string | undefined}
-        specialistId={payload?.profile.specialist_id as number | undefined}
-        telegram={payload?.profile.telegram as string | undefined}
-        whatsapp={payload?.profile.whatsapp as string | undefined}
-        phone={payload?.profile.phone as string | undefined}
-        email={payload?.profile.email as string | undefined}
+        specialistId={payload?.profile.specialist_id as string | undefined}
+        telegram={payload?.profile.contact_telegram as string | undefined}
+        whatsapp={payload?.profile.contact_whatsapp as string | undefined}
+        phone={payload?.profile.contact_phone as string | undefined}
+        email={payload?.profile.contact_email as string | undefined}
       />
       <SectionAbout blocks={payload?.blocks} />
       <SectionEducation blocks={payload?.blocks} />
@@ -115,7 +115,7 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
       <SectionReviews reviews={payload?.reviews} />
       <SectionCTA
         clientBotUsername={payload?.profile.client_bot_username as string | undefined}
-        specialistId={payload?.profile.specialist_id as number | undefined}
+        specialistId={payload?.profile.specialist_id as string | undefined}
       />
     </main>
   );

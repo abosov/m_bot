@@ -25,9 +25,10 @@ def test_client_bot_link_template_and_username_validation_present():
     hero = (ROOT / "frontend/components/specialist/Hero.tsx").read_text(encoding="utf-8")
 
     assert "TELEGRAM_BOT_USERNAME_REGEX" in hero
+    assert "UUID_REGEX" in hero
     assert "buildClientBotWriteLink" in hero
     assert "https://t.me/${clientBotUsername}?start=write_${specialistId}" in hero
-    assert "Number.isInteger(specialistId) && specialistId > 0" in hero
+    assert "UUID_REGEX.test(specialistId)" in hero
 
 
 def test_contacts_component_renders_only_non_empty_and_valid_email():
@@ -47,7 +48,7 @@ def test_contacts_component_renders_only_non_empty_and_valid_email():
 def test_page_passes_contacts_to_hero():
     page = (ROOT / "frontend/pages/specialist_profile_page.tsx").read_text(encoding="utf-8")
 
-    assert "telegram={payload?.profile.telegram as string | undefined}" in page
-    assert "whatsapp={payload?.profile.whatsapp as string | undefined}" in page
-    assert "phone={payload?.profile.phone as string | undefined}" in page
-    assert "email={payload?.profile.email as string | undefined}" in page
+    assert "telegram={payload?.profile.contact_telegram as string | undefined}" in page
+    assert "whatsapp={payload?.profile.contact_whatsapp as string | undefined}" in page
+    assert "phone={payload?.profile.contact_phone as string | undefined}" in page
+    assert "email={payload?.profile.contact_email as string | undefined}" in page
