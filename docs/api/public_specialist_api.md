@@ -1,33 +1,12 @@
-# Public Specialist API
+# Public Specialist API (canonical reference)
 
-## Endpoint
-`GET /api/public/specialists/{slug}`
+Этот файл оставлен как точка входа в раздел API.
 
-Возвращает данные публичной страницы специалиста для frontend-лендинга.
+Единый источник правды по публичному endpoint специалиста:
+- `GET /api/public/specialists/{public_slug}`
+- правила slug (формат `^[A-Za-z]+[A-Za-z0-9]*_[0-9]{2}$` и диапазон `10..30`)
+- published-only поведение
+- точная форма ответа `PublicSpecialistResponse` (`profile`, `blocks`, `media`)
+- security notes (включая запрет на возврат `file_key`, токенов и внутренних полей)
 
-## Валидация
-Перед чтением данных API:
-1. проверяет формат `slug` по regex `^[A-Za-z]+[A-Za-z]_[1-9][0-9]$`;
-2. проверяет диапазон числового суффикса `10..30`;
-3. отклоняет зарезервированные значения (`pricing`, `privacy`, `terms`, `revoke-access`, `api`, `static`, `assets`).
-
-При невалидном slug возвращается `400 invalid_slug`.
-
-## Поведение
-- Если профиль не найден: `404 not_found`.
-- Если профиль найден, но `is_published = false`: `404 not_found`.
-- Если профиль опубликован: `200 OK`.
-
-## Response JSON
-```json
-{
-  "profile": {},
-  "blocks": [],
-  "media": [],
-  "reviews": []
-}
-```
-
-Гарантия безопасности:
-- endpoint возвращает только публичные поля `profile`;
-- private-поля внутренней сущности `specialist` не должны попадать в ответ.
+См. подробную спецификацию в `docs/api/public_specialist.md`.

@@ -90,6 +90,8 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
 
   const displayName = (payload?.profile.display_name as string | undefined) ?? "Специалист";
   const specialization = (payload?.profile.specialization as string | undefined) ?? "Специализация";
+  const contacts = (payload?.profile.contacts as Record<string, unknown> | undefined) ?? {};
+  const clientBotUsername = payload?.profile.client_bot_username as string | undefined;
 
   if (error) {
     return <main>{error}</main>;
@@ -97,26 +99,22 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
 
   return (
     <main className="specialist-page">
-      <Header displayName={displayName} specialization={specialization} />
+      <Header displayName={displayName} specialization={specialization} clientBotUsername={clientBotUsername} />
       <Hero
         photoUrl={payload?.profile.photo_url as string | undefined}
         heroQuote={payload?.profile.hero_quote as string | undefined}
-        clientBotUsername={payload?.profile.client_bot_username as string | undefined}
-        specialistId={payload?.profile.specialist_id as string | undefined}
-        telegram={payload?.profile.contact_telegram as string | undefined}
-        whatsapp={payload?.profile.contact_whatsapp as string | undefined}
-        phone={payload?.profile.contact_phone as string | undefined}
-        email={payload?.profile.contact_email as string | undefined}
+        clientBotUsername={clientBotUsername}
+        telegram={contacts.telegram as string | undefined}
+        whatsapp={contacts.whatsapp as string | undefined}
+        phone={contacts.phone as string | undefined}
+        email={contacts.email as string | undefined}
       />
       <SectionAbout blocks={payload?.blocks} />
       <SectionEducation blocks={payload?.blocks} />
       <SectionDocuments />
       <SectionServices blocks={payload?.blocks} />
       <SectionReviews reviews={payload?.reviews} />
-      <SectionCTA
-        clientBotUsername={payload?.profile.client_bot_username as string | undefined}
-        specialistId={payload?.profile.specialist_id as string | undefined}
-      />
+      <SectionCTA clientBotUsername={clientBotUsername} />
     </main>
   );
 }
