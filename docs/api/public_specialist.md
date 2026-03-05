@@ -23,7 +23,7 @@ Invalid slug returns `400 Bad Request` with one of:
 ```json
 {
   "profile": {
-    "id": "uuid",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
     "public_slug": "TsarevaE_12",
     "display_name": "Евгения Царёва",
     "specialization": "Психолог, ЭФТ",

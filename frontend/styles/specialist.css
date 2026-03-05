@@ -1,20 +1,16 @@
-:root {
-  --specialist-header-height: 112px;
-}
-
 .specialist-page {
-  padding-top: var(--specialist-header-height);
+  scroll-padding-top: var(--specialist-sticky-offset, 120px);
 }
 
 .specialist-page__section {
-  scroll-margin-top: calc(var(--specialist-header-height) + 16px);
+  scroll-margin-top: var(--specialist-sticky-offset, 120px);
 }
 
 .specialist-header {
   position: sticky;
   top: 0;
   z-index: 100;
-  min-height: var(--specialist-header-height);
+  min-height: 112px;
   display: flex;
   align-items: center;
   justify-content: space-between;

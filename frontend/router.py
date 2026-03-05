@@ -9,11 +9,26 @@ RESERVED_PATHS = {
     "api",
     "static",
     "assets",
+    "robots.txt",
+    "sitemap.xml",
+    "favicon.ico",
+    "healthz",
+    "readyz",
+    "docs",
+    "blog",
+    "specialists",
+    "admin",
 }
 
 
+def _normalize_path_segment(path_segment: str) -> str:
+    return path_segment.strip().strip("/").lower()
+
+
 def is_specialist_slug(path_segment: str) -> bool:
-    if path_segment in RESERVED_PATHS:
+    normalized_segment = _normalize_path_segment(path_segment)
+
+    if normalized_segment in RESERVED_PATHS:
         return False
     if not SPECIALIST_SLUG_RE.fullmatch(path_segment):
         return False

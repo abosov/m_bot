@@ -187,6 +187,8 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
     def _site_file(page: str) -> Path:
         return WEB_DIR / SITE_PAGES[page]
 
+    SITE_BRAND_TEXT = "Zumbot"
+
     SITE_NAV_LINKS = (
         ("Возможности", "/features"),
         ("Тарифы", "/pricing"),
@@ -207,7 +209,7 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
             '<a class="logo" href="/">'
             '<img src="/assets/zumbot_logo.png" srcset="/assets/zumbot_logo.png 1x, '
             '/assets/zumbot_logo@2x.png 2x" alt="Zumbot logo" />'
-            '<span class="logo-text">Zumbot</span>'
+            f'<span class="logo-text">{SITE_BRAND_TEXT}</span>'
             '</a>'
             f'<nav class="main-nav">{nav_html}</nav>'
             '<a href="https://t.me/zumhelper_bot?start=start" class="btn-primary" target="_blank" rel="noopener noreferrer">Подключить</a>'
@@ -251,7 +253,7 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
             '<a class="logo logo-footer" href="/">'
             '<img src="/assets/zumbot_logo.png" srcset="/assets/zumbot_logo.png 1x, '
             '/assets/zumbot_logo@2x.png 2x" alt="Zumbot logo" />'
-            '<span class="logo-text">Zumbot</span>'
+            f'<span class="logo-text">{SITE_BRAND_TEXT}</span>'
             '</a>'
             f'<nav>{nav_html}</nav>'
             '<p class="footer-copy">© 2026</p>'
