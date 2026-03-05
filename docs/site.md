@@ -69,3 +69,36 @@
 ## Юрисдикция в Terms
 
 Для страницы условий использования (`/terms`, `/terms-ru`) формулировка о применимом праве должна соответствовать опубликованной юрисдикции и реквизитам исполнителя (РФ). Не допускайте противоречивых формулировок в духе другой страны.
+
+
+## Nginx SPA fallback for public specialist pages
+
+Для маршрутов вида `/{slug}` (например, `/TsarevaE_12`) nginx должен отдавать `index.html`,
+чтобы маршрутизация происходила во frontend SPA.
+
+Рекомендуемое правило для `location /`:
+
+```nginx
+try_files $uri $uri/ /index.html;
+```
+
+При этом обязательны отдельные location-блоки без fallback:
+
+- `/api/` — проксирование в backend (нельзя отдавать `index.html`);
+- `/static/`, `/assets/` — раздача статических файлов;
+- явные страницы `/privacy`, `/terms`, `/revoke-access`, `/pricing`.
+
+См. шаблон: `deploy/nginx/zumbot_site.conf`.
+
+Регресс-проверка после деплоя:
+
+- `/pricing` отвечает `200`;
+- `/api/healthz` отвечает `200`;
+- `/TsarevaE_12` отвечает `200` и `Content-Type: text/html`.
+
+Команды:
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+bash scripts/smoke/site_routes_smoke.sh
+```

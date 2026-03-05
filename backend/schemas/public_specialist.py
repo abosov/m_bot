@@ -36,7 +36,18 @@ class PublicSpecialistMedia(BaseModel):
     url: str | None = None
 
 
+
+
+class PublicSpecialistReview(BaseModel):
+    author_name: str | None = None
+    rating: int | None = None
+    content: str
+    sort_order: int
+    created_at: str | None = None
+
+
 class PublicSpecialistResponse(BaseModel):
     profile: PublicSpecialistProfile
     blocks: list[PublicSpecialistBlock]
     media: list[PublicSpecialistMedia]
+    reviews: list[PublicSpecialistReview]

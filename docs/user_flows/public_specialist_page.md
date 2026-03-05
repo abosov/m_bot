@@ -31,3 +31,20 @@ Page consumes three sections:
 ## Future work
 - Add backend media delivery endpoint with signed URLs / access validation.
 - Extend docs with final media delivery contract after implementation.
+
+
+## Dev seed: TsarevaE_12
+For local visual verification you can seed a demo published profile (`TsarevaE_12`) in **dev only**.
+
+```bash
+APP_ENV=dev python -m backend.scripts.dev_seed_public_specialist
+```
+
+Seed includes:
+- profile (`Евгения Царёва`, `Психолог, ЭФТ`, contacts, quote, `is_published=true`),
+- blocks (`about`, `education`, `services`),
+- two manual reviews,
+- one media metadata record.
+
+Security guard:
+- script hard-stops unless `APP_ENV=dev`.

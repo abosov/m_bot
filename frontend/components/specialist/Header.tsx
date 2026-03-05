@@ -4,6 +4,7 @@ type SpecialistHeaderProps = {
   displayName: string;
   specialization: string;
   clientBotUsername?: string;
+  specialistUuid?: string;
 };
 
 const NAV_ITEMS = [
@@ -14,8 +15,8 @@ const NAV_ITEMS = [
   { href: "#reviews", label: "Отзывы" },
 ];
 
-export function Header({ displayName, specialization, clientBotUsername }: SpecialistHeaderProps) {
-  const bookingLink = buildClientBotLink(clientBotUsername, "book");
+export function Header({ displayName, specialization, clientBotUsername, specialistUuid }: SpecialistHeaderProps) {
+  const bookingLink = buildClientBotLink(clientBotUsername, "book", specialistUuid);
 
   return (
     <header id="specialist-sticky-header" className="specialist-header" aria-label="Specialist profile header">

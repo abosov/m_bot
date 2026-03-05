@@ -55,6 +55,12 @@ Invalid slug returns `400 Bad Request` with one of:
 }
 ```
 
+## Frontend contract notes
+- Контакты читаются только из вложенного объекта `profile.contacts.{telegram,whatsapp,phone,email}`.
+- Идентификатор специалиста для deep-link payload в client bot — `profile.id` (UUID).
+  Пример payload: `book_<profile.id>` или `contact_specialist_<profile.id>`.
+- Поля вида `profile.contact_telegram` / `profile.contact_whatsapp` / `profile.specialist_id` не являются частью контракта.
+
 ## Security notes
 Public API MUST NOT return:
 - raw media storage keys (`file_key`),

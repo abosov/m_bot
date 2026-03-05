@@ -14,11 +14,45 @@ const MIN_SPECIALIST_ID = 10;
 const MAX_SPECIALIST_ID = 30;
 
 export type PublicSpecialistPagePayload = {
-  profile: Record<string, unknown>;
+  profile: PublicSpecialistProfile;
   blocks: Array<Record<string, unknown>>;
   media: Array<Record<string, unknown>>;
   reviews: Array<Record<string, unknown>>;
 };
+
+type PublicSpecialistContacts = {
+  telegram?: string | null;
+  whatsapp?: string | null;
+  phone?: string | null;
+  email?: string | null;
+};
+
+type PublicSpecialistProfile = {
+  id: string;
+  public_slug: string;
+  display_name: string;
+  specialization: string;
+  hero_quote?: string | null;
+  contacts: PublicSpecialistContacts;
+  client_bot_username: string;
+  photo_url?: string | null;
+};
+
+type HeroContactProps = {
+  telegram?: string;
+  whatsapp?: string;
+  phone?: string;
+  email?: string;
+};
+
+export function mapProfileToHeroContacts(profile?: PublicSpecialistProfile | null): HeroContactProps {
+  return {
+    telegram: profile?.contacts?.telegram ?? undefined,
+    whatsapp: profile?.contacts?.whatsapp ?? undefined,
+    phone: profile?.contacts?.phone ?? undefined,
+    email: profile?.contacts?.email ?? undefined,
+  };
+}
 
 export function validateSpecialistSlug(slug: string): boolean {
   if (!SPECIALIST_SLUG_REGEX.test(slug) || RESERVED_PATHS.has(slug)) {
@@ -126,8 +160,9 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
 
   const displayName = (payload?.profile.display_name as string | undefined) ?? "Специалист";
   const specialization = (payload?.profile.specialization as string | undefined) ?? "Специализация";
-  const contacts = (payload?.profile.contacts as Record<string, unknown> | undefined) ?? {};
-  const clientBotUsername = payload?.profile.client_bot_username as string | undefined;
+  const heroContacts = mapProfileToHeroContacts(payload?.profile);
+  const clientBotUsername = payload?.profile.client_bot_username;
+  const specialistUuid = payload?.profile.id;
 
   if (error) {
     return <main>{error}</main>;
@@ -135,22 +170,28 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
 
   return (
     <main className="specialist-page">
-      <Header displayName={displayName} specialization={specialization} clientBotUsername={clientBotUsername} />
+      <Header
+        displayName={displayName}
+        specialization={specialization}
+        clientBotUsername={clientBotUsername}
+        specialistUuid={specialistUuid}
+      />
       <Hero
         photoUrl={payload?.profile.photo_url as string | undefined}
         heroQuote={payload?.profile.hero_quote as string | undefined}
         clientBotUsername={clientBotUsername}
-        telegram={contacts.telegram as string | undefined}
-        whatsapp={contacts.whatsapp as string | undefined}
-        phone={contacts.phone as string | undefined}
-        email={contacts.email as string | undefined}
+        specialistUuid={specialistUuid}
+        telegram={heroContacts.telegram}
+        whatsapp={heroContacts.whatsapp}
+        phone={heroContacts.phone}
+        email={heroContacts.email}
       />
       <SectionAbout blocks={payload?.blocks} />
       <SectionEducation blocks={payload?.blocks} />
       <SectionDocuments />
       <SectionServices blocks={payload?.blocks} />
       <SectionReviews reviews={payload?.reviews} />
-      <SectionCTA clientBotUsername={clientBotUsername} />
+      <SectionCTA clientBotUsername={clientBotUsername} specialistUuid={specialistUuid} />
     </main>
   );
 }
