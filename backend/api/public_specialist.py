@@ -11,9 +11,21 @@ from services.public_specialist import get_public_specialist_by_slug
 router = APIRouter(prefix="/api/public/specialists", tags=["public-specialist"])
 
 _SLUG_RE = re.compile(r"^[A-Za-z]+[A-Za-z0-9]*_[0-9]{2}$")
+_RESERVED_SLUGS = {
+    "pricing",
+    "privacy",
+    "terms",
+    "revoke-access",
+    "api",
+    "static",
+    "assets",
+}
 
 
 def _validate_public_slug(slug: str) -> None:
+    if slug in _RESERVED_SLUGS:
+        raise HTTPException(status_code=400, detail="invalid_slug")
+
     if not _SLUG_RE.fullmatch(slug):
         raise HTTPException(status_code=400, detail="invalid_slug_format")
 

@@ -27,13 +27,23 @@ export function Contacts({ telegram, whatsapp, phone, email }: SpecialistContact
   const normalizedPhone = normalizeValue(phone);
   const normalizedEmail = isValidEmail(email) ? normalizeValue(email) : null;
 
+  const contactItems = [
+    normalizedTelegram ? `Telegram: ${normalizedTelegram}` : null,
+    normalizedWhatsapp ? `WhatsApp: ${normalizedWhatsapp}` : null,
+    normalizedPhone ? `Телефон: ${normalizedPhone}` : null,
+    normalizedEmail ? `Email: ${normalizedEmail}` : null,
+  ].filter((item): item is string => Boolean(item));
+
+  if (contactItems.length === 0) {
+    return null;
+  }
+
   return (
-    <div className="specialist-contacts" aria-label="Контакты специалиста">
-      {normalizedTelegram ? <p>Telegram: {normalizedTelegram}</p> : null}
-      {normalizedWhatsapp ? <p>WhatsApp: {normalizedWhatsapp}</p> : null}
-      {normalizedPhone ? <p>Телефон: {normalizedPhone}</p> : null}
-      {normalizedEmail ? <p>Email: {normalizedEmail}</p> : null}
-    </div>
+    <ul className="specialist-contacts" aria-label="Контакты специалиста">
+      {contactItems.map((item) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
   );
 }
 

@@ -1,6 +1,9 @@
+import { buildClientBotLink } from "../../utils/telegram_links";
+
 type SpecialistHeaderProps = {
   displayName: string;
   specialization: string;
+  clientBotUsername?: string;
 };
 
 const NAV_ITEMS = [
@@ -9,10 +12,11 @@ const NAV_ITEMS = [
   { href: "#documents", label: "Документы" },
   { href: "#services", label: "Услуги и цены" },
   { href: "#reviews", label: "Отзывы" },
-  { href: "#booking", label: "Записаться", isCta: true },
 ];
 
-export function Header({ displayName, specialization }: SpecialistHeaderProps) {
+export function Header({ displayName, specialization, clientBotUsername }: SpecialistHeaderProps) {
+  const bookingLink = buildClientBotLink(clientBotUsername, "book");
+
   return (
     <header className="specialist-header" aria-label="Specialist profile header">
       <div className="specialist-header__identity">
@@ -22,14 +26,18 @@ export function Header({ displayName, specialization }: SpecialistHeaderProps) {
 
       <nav className="specialist-header__menu" aria-label="Меню специалиста">
         {NAV_ITEMS.map((item) => (
-          <a
-            key={item.href}
-            href={item.href}
-            className={item.isCta ? "specialist-header__cta" : "specialist-header__menu-link"}
-          >
+          <a key={item.href} href={item.href} className="specialist-header__menu-link">
             {item.label}
           </a>
         ))}
+        <a
+          href={bookingLink ?? "#booking"}
+          className="specialist-header__cta"
+          target={bookingLink ? "_blank" : undefined}
+          rel={bookingLink ? "noopener noreferrer" : undefined}
+        >
+          Записаться
+        </a>
       </nav>
     </header>
   );
