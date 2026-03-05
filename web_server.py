@@ -82,6 +82,7 @@ from services.billing.subscriptions import (
     get_purchase_for_raw_token,
     process_yookassa_webhook,
 )
+from backend.api.public_specialist import router as public_specialist_router
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +163,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(RequestIdMiddleware)
+app.include_router(public_specialist_router)
 
 if ASSETS_DIR.exists() and INDEX_FILE.exists():
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
