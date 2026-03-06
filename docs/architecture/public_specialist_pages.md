@@ -56,6 +56,7 @@
 - bootstrap обёрнут в `try/catch`;
 - добавлены `window.error` и `window.unhandledrejection` fail-safe обработчики;
 - loading-state обязан завершаться в один из терминальных состояний: success (показ `#specialist-page`) или not-found/error (показ `#public-specialist-not-found`).
+- runtime bridge в HTML route должен оставаться совместимым с older mobile browsers / embedded webviews: не использовать optional chaining (`?.`) и nullish coalescing (`??`) в inline script.
 
 ## 4) Правила slug
 Формат slug:
