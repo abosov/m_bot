@@ -91,3 +91,28 @@ Security guard:
 - Fail-safe: runtime JS errors и unhandled promise rejection переводят страницу в not-found/error state (без вечного loading); bootstrap обёрнут как `try { bootstrap().catch(showNotFound) } catch (_) { showNotFound() }`.
 - Reserved paths (`/pricing`, `/privacy`, `/terms`, `/revoke-access`, `/api`, `/static`, `/assets`) не перехватываются slug-route.
 - Невалидные slug по-прежнему дают 404 на site-route и 400 на API route.
+
+
+## Post-deploy diagnostic smoke-check (VPS)
+Проверка нужна, чтобы убедиться, что production route `GET /{public_slug}` действительно отдаёт **актуальный full-page bridge** из текущего `web_server.py`, а не stale HTML-артефакт.
+
+1. Проверить bridge-маркер `apiBaseUrl` в HTML:
+```bash
+curl -s https://zumbot.ru/{slug} | grep "const apiBaseUrl"
+```
+Ожидание: в выдаче есть строка вида `const apiBaseUrl = "https://api.zumbot.ru";` (или текущий `BASE_URL` окружения).
+
+2. Проверить доступность публичного API для опубликованного slug:
+```bash
+curl -i https://api.zumbot.ru/api/public/specialists/{slug}
+```
+Ожидание: `HTTP/1.1 200` (или `HTTP/2 200`) и JSON payload профиля.
+
+3. Проверить server-side observability:
+- В логах backend присутствует INFO событие
+  `event=public_slug_route_rendered slug={slug} route_name=specialist_profile_page api_base_url=...`
+- В событии нет персональных данных сверх slug.
+
+4. Проверить завершение loading-state:
+- При `200` от API страница переходит в контентный state (`#specialist-page`).
+- При runtime ошибке/`!response.ok` страница уходит в not-found state (`#public-specialist-not-found`) без вечной загрузки.

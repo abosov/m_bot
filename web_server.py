@@ -2921,4 +2921,10 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
 """
     html = html.replace("__PUBLIC_SLUG_JSON__", json.dumps(public_slug))
     html = html.replace("__PUBLIC_API_BASE_URL_JSON__", json.dumps(config.BASE_URL))
+    logger.info(
+        "event=public_slug_route_rendered slug=%s route_name=%s api_base_url=%s",
+        public_slug,
+        route_name,
+        config.BASE_URL,
+    )
     return HTMLResponse(content=html)

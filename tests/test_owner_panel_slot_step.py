@@ -304,10 +304,42 @@ async def test_owner_panel_profile_edit_link_sends_plain_text_without_raw_url_or
     assert fresh_url not in text
     assert "parse_mode" in kwargs
     assert kwargs["parse_mode"] is None
+    assert kwargs.get("disable_web_page_preview") is True
 
     keyboard = kwargs["reply_markup"]
     url_button = keyboard.inline_keyboard[0][0]
     assert url_button.url == fresh_url
+
+
+@pytest.mark.asyncio
+async def test_owner_panel_profile_edit_link_logs_info_without_raw_token(monkeypatch, caplog) -> None:
+    callback = DummyCallback()
+    callback.from_user = type("User", (), {"id": 123})()
+
+    class _SessionCtx:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    fresh_url = "https://example.test/profile/edit#token=fresh_1-abc=xyz"
+
+    async def fake_build_profile_edit_url_for_specialist(*, session, specialist_id, tg_user_id):
+        return fresh_url
+
+    monkeypatch.setattr(owner_panel, "async_session_factory", lambda: _SessionCtx())
+    monkeypatch.setattr(owner_panel, "build_profile_edit_url_for_specialist", fake_build_profile_edit_url_for_specialist)
+
+    with caplog.at_level("INFO", logger="handlers.personal_bot.routers.specialist.owner_panel"):
+        await owner_panel.owner_panel_profile_edit_link(callback=callback, specialist_id="sp-id", owner_tg_user_id=123)
+
+    assert "event=owner_profile_edit_link_generated" in caplog.text
+    assert "specialist_id=sp-id" in caplog.text
+    assert "tg_user_id=123" in caplog.text
+    assert "path=/profile/edit" in caplog.text
+    assert fresh_url not in caplog.text
+    assert "fresh_1-abc=xyz" not in caplog.text
 
 def test_format_intervals_for_ui_hides_null_intervals() -> None:
     row = type(

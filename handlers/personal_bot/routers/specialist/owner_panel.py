@@ -1059,9 +1059,16 @@ async def owner_panel_profile_edit_link(
         "Откройте редактор профиля по свежей ссылке.\n"
         "Ссылка одноразовая и действует ограниченное время.",
         parse_mode=None,
+        disable_web_page_preview=True,
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="Открыть редактор профиля", url=profile_edit_url)]]
         ),
+    )
+    logger.info(
+        "event=owner_profile_edit_link_generated specialist_id=%s tg_user_id=%s path=%s",
+        specialist_id,
+        owner_tg_user_id,
+        "/profile/edit",
     )
 
 @router.callback_query(F.data == "owner_panel:apply_defaults")
