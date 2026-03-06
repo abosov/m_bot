@@ -219,13 +219,34 @@ def test_profile_edit_page_contains_auth_status_and_working_form_sections():
     assert "Публичная страница" in response.text
     assert "Опубликовать" in response.text
     assert "Копировать" in response.text
+    assert "Ссылка появится после создания slug" not in response.text
+    assert "Ссылка появится после сохранения основной информации." in response.text
+    assert 'id="copy-public-link" type="button" class="btn-secondary" disabled' in response.text
     assert "Основное" in response.text
+    assert "Цитата" in response.text
+    assert response.text.index("Специализация") < response.text.index("Цитата")
+    assert "Сначала сохраните основную информацию, чтобы создать ссылку профиля." in response.text
+    assert "secondary-lock-hint" in response.text
+    assert "setSecondarySectionsLocked" in response.text
+    assert "save-main" in response.text
     assert "О себе" in response.text
     assert "Образование" in response.text
     assert "Услуги и цены" in response.text
     assert "Отзывы" in response.text
     assert "Загрузить фото" in response.text
     assert "Загрузить документы" in response.text
+
+
+
+def test_profile_edit_public_state_rendering_handles_no_slug_draft_and_published_states():
+    response = client.get("/profile/edit")
+
+    assert response.status_code == 200
+    assert "if (!publicUrl)" in response.text
+    assert "linkEl.removeAttribute('href')" in response.text
+    assert "copyBtn.disabled = true" in response.text
+    assert "copyBtn.disabled = false" in response.text
+    assert "statusBadge.textContent = isPublished ? 'Опубликовано' : 'Черновик'" in response.text
 
 
 def test_connect_page_contains_google_form_and_legal_links():

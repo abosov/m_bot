@@ -22,7 +22,9 @@
     input, textarea { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; }
     textarea { min-height: 90px; resize: vertical; }
     .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .subblock-secondary { margin-top: 14px; padding-top: 12px; border-top: 1px solid #e5e7eb; }
     .actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+    .lock-hint { margin: 0 0 10px; padding: 10px 12px; border-radius: 8px; background: #f8fafc; border: 1px solid #e5e7eb; color: #475569; font-size: 14px; }
     button { border: 0; border-radius: 8px; background: #2563eb; color: #fff; padding: 10px 14px; font-weight: 600; cursor: pointer; }
     button[disabled] { opacity: .6; cursor: not-allowed; }
     .media-list { margin: 8px 0 0; padding-left: 18px; color: #334155; }
@@ -55,10 +57,10 @@
         <h3>Публичная страница</h3>
         <p><span id="public-status-badge" class="public-status draft">Черновик</span></p>
         <div class="public-link-wrap">
-          <a id="public-link" class="public-link disabled" href="#" target="_blank" rel="noopener">Ссылка появится после создания slug</a>
+          <a id="public-link" class="public-link disabled" target="_blank" rel="noopener"></a>
           <button id="copy-public-link" type="button" class="btn-secondary" disabled>Копировать</button>
         </div>
-        <p id="public-link-hint" class="public-hint">Ссылка появится после создания slug</p>
+        <p id="public-link-hint" class="public-hint"></p>
         <p id="public-visibility-hint" class="public-hint">Пока видите только Вы</p>
         <div class="actions">
           <button id="toggle-publish" type="button">Опубликовать</button>
@@ -73,10 +75,14 @@
           <label>Фамилия <input id="last_name" type="text" placeholder="Фамилия" /></label>
         </div>
         <label>Специализация <input id="specialization" type="text" placeholder="Например: Психолог" /></label>
-        <label>Цитата <textarea id="hero_quote" placeholder="Ваша цитата"></textarea></label>
+        <div class="subblock-secondary">
+          <label>Цитата <textarea id="hero_quote" placeholder="Ваша цитата"></textarea></label>
+        </div>
         <div class="actions"><button id="save-main">Сохранить</button></div>
         <p id="status-main" class="section-status"></p>
       </div>
+
+      <p id="secondary-lock-hint" class="lock-hint hidden">Сначала сохраните основную информацию, чтобы создать ссылку профиля.</p>
 
       <div class="section">
         <h3>О себе</h3>
@@ -135,7 +141,8 @@
         model: {
           first_name: '', middle_name: '', last_name: '', specialization: '', hero_quote: '',
           about: '', education: '', services: '', reviews: '',
-          public_slug: null, is_published: false
+          public_slug: null, is_published: false,
+          secondary_sections_locked: true
         }
       };
 
@@ -218,22 +225,27 @@
         statusBadge.classList.remove('draft', 'published');
         statusBadge.classList.add(isPublished ? 'published' : 'draft');
 
-        if (publicUrl) {
-          linkEl.textContent = publicUrl;
-          linkEl.href = publicUrl;
-          linkEl.classList.remove('disabled');
-          hintEl.textContent = '';
-          copyBtn.disabled = false;
-          publishBtn.disabled = false;
-        } else {
-          linkEl.textContent = 'Ссылка появится после создания slug';
-          linkEl.href = '#';
-          linkEl.classList.add('disabled');
-          hintEl.textContent = 'Ссылка появится после создания slug';
+        if (!publicUrl) {
+          statusBadge.textContent = 'Черновик';
+          statusBadge.classList.remove('published');
+          statusBadge.classList.add('draft');
+          linkEl.textContent = '';
+          linkEl.removeAttribute('href');
+          linkEl.classList.add('disabled', 'hidden');
+          hintEl.textContent = 'Ссылка появится после сохранения основной информации.';
           copyBtn.disabled = true;
           publishBtn.disabled = true;
+          visibilityHintEl.textContent = 'Пока видите только Вы';
+          publishBtn.textContent = 'Опубликовать';
+          return;
         }
 
+        linkEl.textContent = publicUrl;
+        linkEl.href = publicUrl;
+        linkEl.classList.remove('disabled', 'hidden');
+        hintEl.textContent = '';
+        copyBtn.disabled = false;
+        publishBtn.disabled = false;
         visibilityHintEl.textContent = isPublished ? '' : 'Пока видите только Вы';
         publishBtn.textContent = isPublished ? 'Снять с публикации' : 'Опубликовать';
       }
@@ -311,6 +323,7 @@
         };
         applyModelToForm();
         renderPublicProfile();
+        syncSecondarySectionsLock();
       }
 
       function setStatus(id, text, type) {
@@ -332,6 +345,62 @@
         document.getElementById(buttonId).disabled = !!disabled;
       }
 
+      function hasProfileSlug() {
+        return !!((state.model.public_slug || '').trim());
+      }
+
+      function setSecondarySectionsLocked(isLocked, reasonText) {
+        state.model.secondary_sections_locked = !!isLocked;
+        const lockHint = document.getElementById('secondary-lock-hint');
+        const message = reasonText || 'Сначала сохраните основную информацию, чтобы создать ссылку профиля.';
+        const secondaryButtonIds = [
+          'save-about', 'save-education', 'save-services', 'save-reviews', 'upload-photo', 'upload-documents'
+        ];
+        secondaryButtonIds.forEach((id) => {
+          const button = document.getElementById(id);
+          if (!button) return;
+          button.disabled = !!isLocked;
+          if (isLocked) {
+            button.setAttribute('title', message);
+          } else {
+            button.removeAttribute('title');
+          }
+        });
+
+        const fileInputIds = ['photo-file', 'documents-file'];
+        fileInputIds.forEach((id) => {
+          const input = document.getElementById(id);
+          if (!input) return;
+          input.disabled = !!isLocked;
+          if (isLocked) {
+            input.setAttribute('title', message);
+          } else {
+            input.removeAttribute('title');
+          }
+        });
+
+        if (lockHint) {
+          lockHint.textContent = message;
+          lockHint.classList.toggle('hidden', !isLocked);
+        }
+      }
+
+      function syncSecondarySectionsLock() {
+        setSecondarySectionsLocked(!hasProfileSlug());
+      }
+
+      async function ensureSlugAfterMainSave() {
+        if (hasProfileSlug()) {
+          syncSecondarySectionsLock();
+          return;
+        }
+        try {
+          await loadProfile();
+        } catch (_) {
+          // keep lock state if reload fails
+        }
+        syncSecondarySectionsLock();
+      }
 
       function buildDraftPayload(patch) {
         const editablePayload = {
@@ -349,6 +418,10 @@
       }
 
       async function saveBlock(buttonId, statusId, patch) {
+        if (buttonId !== 'save-main' && state.model.secondary_sections_locked) {
+          setStatus(statusId, 'Сначала сохраните основную информацию, чтобы создать ссылку профиля.', 'error');
+          return;
+        }
         toggleButton(buttonId, true);
         setStatus(statusId, '', null);
         try {
@@ -371,6 +444,9 @@
           renderPublicProfile();
           setStatus(statusId, 'Сохранено ✅', 'ok');
           showSaveToast();
+          if (buttonId === 'save-main') {
+            await ensureSlugAfterMainSave();
+          }
         } catch (_) {
           setStatus(statusId, 'Ошибка сети, попробуйте снова', 'error');
         } finally {
@@ -396,6 +472,10 @@
       }
 
       async function uploadPhoto() {
+        if (state.model.secondary_sections_locked) {
+          setStatus('status-photo', 'Сначала сохраните основную информацию, чтобы создать ссылку профиля.', 'error');
+          return;
+        }
         const input = document.getElementById('photo-file');
         const file = input.files && input.files[0];
         if (!file) {
@@ -428,6 +508,10 @@
       }
 
       async function uploadDocuments() {
+        if (state.model.secondary_sections_locked) {
+          setStatus('status-documents', 'Сначала сохраните основную информацию, чтобы создать ссылку профиля.', 'error');
+          return;
+        }
         const input = document.getElementById('documents-file');
         const files = Array.from(input.files || []);
         if (!files.length) {
