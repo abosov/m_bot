@@ -15,7 +15,8 @@
   - Записаться
 
 ## Реализация
-- Компонент: `frontend/components/specialist/Header.tsx`
+- Компонент-цель: `frontend/components/specialist/Header.tsx`
+- Website bridge route: `web_server.py` (`GET /{public_slug}`) рендерит ту же структуру sticky header/меню и использует тот же public API.
 - Стили: `frontend/styles/specialist.css`
 
 Ключевые CSS параметры:
@@ -27,3 +28,7 @@
 
 ## Безопасность
 Компонент не принимает пользовательский ввод для разметки и не использует `dangerouslySetInnerHTML`.
+
+
+## Примечание по routing
+Legacy minimal page с `specialist-loading` / `specialist-content` и только тремя полями больше не является основной публичной страницей. Route `/{public_slug}` теперь сразу отдаёт полноразмерную структуру public specialist page с якорными секциями.

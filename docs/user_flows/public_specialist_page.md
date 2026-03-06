@@ -11,9 +11,25 @@ Public page data is loaded from:
 ## Website routing
 - Реальный route на сайте: `GET /{public_slug}`.
 - Route проходит через `frontend.router.resolve_frontend_route(path)`.
-- Если route resolved как `specialist_profile_page`, сайт рендерит HTML публичной страницы и frontend вызывает `GET /api/public/specialists/{public_slug}`.
+- Если route resolved как `specialist_profile_page`, сайт рендерит полноценный HTML-мост публичной страницы специалиста (sticky header + hero + контентные секции + CTA) и frontend-логика запрашивает `GET /api/public/specialists/{public_slug}`.
+- Legacy minimal-шаблон (только name/specialization/quote) больше не используется.
 - Если slug валиден, но профиль не найден/не опубликован, страница показывает site-level not found state.
 - Невалидные slug и non-slug пути не перехватываются и обрабатываются обычным routing сайта.
+
+
+## Public page visual order
+1. Имя / отчество / фамилия (в `display_name`)
+2. Специализация
+3. Sticky-меню
+4. Hero: фото слева, цитата справа
+5. О себе
+6. Образование
+7. Документы
+8. Услуги и цены
+9. Отзывы
+
+Если фото отсутствует, левая колонка hero сохраняется без поломки layout.
+Если цитата пустая, правая колонка с цитатой скрывается.
 
 ## Visibility rule
 Only records with `is_published=true` are visible publicly.
@@ -30,10 +46,15 @@ Slug lifecycle in private profile flow:
 - after creation slug remains stable and is not regenerated on subsequent edits.
 
 ## Public page payload
-Page consumes three sections:
+Page consumes three sections in current MVP read-side:
 - `profile` (name, specialization, quote, contacts, client bot username)
-- `blocks` (text sections such as about/education/documents/services/reviews)
-- `media` (metadata only)
+- `blocks` (text sections such as about/education/services/reviews)
+- `media` (metadata; documents are rendered from items with `media_type=document`)
+
+`reviews` are rendered from `specialist_public_block` with `block_type=reviews`.
+`payload.reviews` may stay empty for backward compatibility, but UI does not depend on it.
+Документы рендерятся из `media` и показываются только для `media_type=document`.
+Если `url` у документа отсутствует (`null`), показывается только название без ссылки.
 
 ## Security requirements
 - Do not expose raw `file_key` to public clients.
@@ -55,8 +76,14 @@ APP_ENV=dev python -m backend.scripts.dev_seed_public_specialist
 Seed includes:
 - profile (`Евгения Царёва`, `Психолог, ЭФТ`, contacts, quote, `is_published=true`),
 - blocks (`about`, `education`, `services`),
-- two manual reviews,
+- reviews block in `specialist_public_block` (block_type=`reviews`),
 - one media metadata record.
 
 Security guard:
 - script hard-stops unless `APP_ENV=dev`.
+
+## Smoke checklist
+- `GET /{public_slug}` возвращает HTML со sticky header (`#specialist-sticky-header`) и пунктами меню: «О себе», «Образование», «Документы», «Услуги и цены», «Отзывы», «Записаться».
+- Страница делает fetch в `/api/public/specialists/{public_slug}` для загрузки контента.
+- Reserved paths (`/pricing`, `/privacy`, `/terms`, `/revoke-access`, `/api`, `/static`, `/assets`) не перехватываются slug-route.
+- Невалидные slug по-прежнему дают 404 на site-route и 400 на API route.

@@ -82,6 +82,13 @@
       <p id="secondary-lock-hint" class="lock-hint hidden">Сначала сохраните основную информацию, чтобы создать ссылку профиля.</p>
 
       <div class="section">
+        <h3>Фото</h3>
+        <input id="photo-file" type="file" accept="image/jpeg,image/png,image/webp" />
+        <div class="actions"><button id="upload-photo">Загрузить фото</button></div>
+        <p id="status-photo" class="section-status"></p>
+      </div>
+
+      <div class="section">
         <h3>Цитата</h3>
         <textarea id="hero_quote" placeholder="Ваша цитата"></textarea>
         <div class="actions"><button id="save-quote">Сохранить</button></div>
@@ -103,6 +110,14 @@
       </div>
 
       <div class="section">
+        <h3>Документы</h3>
+        <input id="documents-file" type="file" multiple accept="application/pdf,image/jpeg,image/png" />
+        <div class="actions"><button id="upload-documents">Загрузить документы</button></div>
+        <p id="status-documents" class="section-status"></p>
+        <ul id="documents-list" class="media-list"></ul>
+      </div>
+
+      <div class="section">
         <h3>Услуги и цены</h3>
         <textarea id="services" placeholder="Список услуг"></textarea>
         <div class="actions"><button id="save-services">Сохранить</button></div>
@@ -114,21 +129,6 @@
         <textarea id="reviews" placeholder="Отзывы"></textarea>
         <div class="actions"><button id="save-reviews">Сохранить</button></div>
         <p id="status-reviews" class="section-status"></p>
-      </div>
-
-      <div class="section">
-        <h3>Фото</h3>
-        <input id="photo-file" type="file" accept="image/jpeg,image/png,image/webp" />
-        <div class="actions"><button id="upload-photo">Загрузить фото</button></div>
-        <p id="status-photo" class="section-status"></p>
-      </div>
-
-      <div class="section">
-        <h3>Документы</h3>
-        <input id="documents-file" type="file" multiple accept="application/pdf,image/jpeg,image/png" />
-        <div class="actions"><button id="upload-documents">Загрузить документы</button></div>
-        <p id="status-documents" class="section-status"></p>
-        <ul id="documents-list" class="media-list"></ul>
       </div>
     </div>
     <div id="save-toast" class="save-toast hidden">Сохранено</div>

@@ -39,6 +39,7 @@ def test_anchor_links_match_page_sections():
     about = (ROOT / "frontend/components/specialist/SectionAbout.tsx").read_text(encoding="utf-8")
     education = (ROOT / "frontend/components/specialist/SectionEducation.tsx").read_text(encoding="utf-8")
     reviews = (ROOT / "frontend/components/specialist/SectionReviews.tsx").read_text(encoding="utf-8")
+    documents = (ROOT / "frontend/components/specialist/SectionDocuments.tsx").read_text(encoding="utf-8")
     services = (ROOT / "frontend/components/specialist/SectionServices.tsx").read_text(encoding="utf-8")
     cta = (ROOT / "frontend/components/specialist/SectionCTA.tsx").read_text(encoding="utf-8")
 
@@ -54,5 +55,21 @@ def test_anchor_links_match_page_sections():
             assert f'id="{anchor}"' in services
         elif anchor == "booking":
             assert f'id="{anchor}"' in cta
+        elif anchor == "documents":
+            assert f'id="{anchor}"' in documents
         else:
             assert f'id="{anchor}"' in page
+
+
+
+def test_public_page_section_render_order_matches_editor_flow():
+    page = (ROOT / "frontend/pages/specialist_profile_page.tsx").read_text(encoding="utf-8")
+
+    hero_idx = page.index("<Hero")
+    about_idx = page.index("<SectionAbout")
+    education_idx = page.index("<SectionEducation")
+    documents_idx = page.index("<SectionDocuments")
+    services_idx = page.index("<SectionServices")
+    reviews_idx = page.index("<SectionReviews")
+
+    assert hero_idx < about_idx < education_idx < documents_idx < services_idx < reviews_idx

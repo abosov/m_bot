@@ -12,10 +12,15 @@ def test_hero_grid_layout_and_contact_cta_present():
     assert "Связаться со специалистом" in hero
 
 
-def test_hero_quote_fallback_and_allowed_domains_guard_present():
+def test_hero_quote_conditional_render_and_allowed_domains_guard_present():
     hero = (ROOT / "frontend/components/specialist/Hero.tsx").read_text(encoding="utf-8")
 
-    assert 'heroQuote ?? ""' in hero
+    assert 'const quoteText = (heroQuote ?? "").trim();' in hero
+    assert 'const hasQuote = quoteText.length > 0;' in hero
+    assert 'gridTemplateAreas: hasQuote ?' in hero
+    assert '"photo quote" "photo button"' in hero
+    assert "'\"photo button\"'" in hero
+    assert '{hasQuote ? <blockquote style={{ gridArea: "quote", margin: 0 }}>{quoteText}</blockquote> : null}' in hero
     assert 'const ALLOWED_IMAGE_HOSTNAMES = new Set(["images.mbot.app", "cdn.mbot.app"]);' in hero
     assert "ALLOWED_IMAGE_HOSTNAMES.has(url.hostname)" in hero
     assert "Фото специалиста недоступно" in hero
