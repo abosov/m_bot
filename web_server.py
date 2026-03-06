@@ -2699,8 +2699,8 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
       <header id="specialist-sticky-header" class="specialist-header" aria-label="Specialist profile header">
         <div class="specialist-header__inner container">
           <div class="specialist-header__identity">
-            <p id="public-specialist-display-name" class="specialist-header__display-name">Специалист</p>
-            <p id="public-specialist-specialization" class="specialist-header__specialization">Специализация</p>
+            <p id="public-specialist-display-name" class="specialist-header__display-name"></p>
+            <p id="public-specialist-specialization" class="specialist-header__specialization"></p>
           </div>
           <a id="specialist-booking-link" href="#booking" class="specialist-button specialist-button--primary specialist-header__cta">Записаться</a>
         </div>
@@ -2718,9 +2718,9 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
               <img id="public-specialist-hero-photo-image" class="specialist-hero__photo specialist-hidden" alt="Фото специалиста" />
             </div>
             <div class="specialist-hero__content">
-              <p class="specialist-hero__kicker">Публичный профиль специалиста</p>
-              <h1 id="public-specialist-hero-name" class="specialist-hero__title hero-name">Специалист</h1>
-              <p id="public-specialist-hero-specialization" class="specialist-hero__subtitle hero-specialization">Специализация</p>
+              <p class="specialist-hero__kicker"></p>
+              <h1 id="public-specialist-hero-name" class="specialist-hero__title hero-name"></h1>
+              <p id="public-specialist-hero-specialization" class="specialist-hero__subtitle hero-specialization"></p>
               <blockquote id="public-specialist-hero-quote" class="specialist-hero__quote hero-quote specialist-hidden"></blockquote>
               <ul id="specialist-contacts" class="specialist-contacts specialist-hidden" aria-label="Контакты специалиста"></ul>
               <div class="specialist-hero__actions hero-cta">
@@ -2776,6 +2776,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
         const heroPhotoFallbackEl = document.getElementById('public-specialist-hero-photo-fallback');
         const bookingLinkEl = document.getElementById('specialist-booking-link');
         const bookingCtaLinkEl = document.getElementById('specialist-booking-cta-link');
+        const subnavBookingLinkEl = document.getElementById('specialist-subnav-booking-link');
         const contactLinkEl = document.getElementById('specialist-contact-link');
         const contactsEl = document.getElementById('specialist-contacts');
         const aboutEl = document.getElementById('specialist-about-content');
@@ -2785,17 +2786,31 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
         const reviewsEl = document.getElementById('specialist-reviews-content');
         const publicProfileApiUrl = `${apiBaseUrl.replace(/\\/$/, '')}/api/public/specialists/${encodeURIComponent(slug)}`;
 
-        const showNotFound = () => {
-          if (loadingEl) {
-            loadingEl.style.display = 'none';
+        const setRuntimeState = (state) => {
+          if (!specialistPageEl || !loadingEl || !notFoundEl) {
+            return;
           }
-          if (specialistPageEl) {
-            specialistPageEl.classList.add('specialist-page--hidden');
-          }
-          if (notFoundEl) {
-            notFoundEl.classList.remove('specialist-hidden');
-          }
+
+          specialistPageEl.classList.toggle('specialist-page--hidden', state !== 'success');
+          specialistPageEl.setAttribute('aria-hidden', state === 'success' ? 'false' : 'true');
+
+          loadingEl.classList.toggle('specialist-hidden', state !== 'loading');
+          loadingEl.setAttribute('aria-hidden', state === 'loading' ? 'false' : 'true');
+
+          notFoundEl.classList.toggle('specialist-hidden', state !== 'not-found');
+          notFoundEl.setAttribute('aria-hidden', state === 'not-found' ? 'false' : 'true');
         };
+
+        const showNotFound = () => {
+          setRuntimeState('not-found');
+        };
+
+        if (!specialistPageEl || !loadingEl || !notFoundEl || !nameEl || !specializationEl || !heroNameEl || !heroSpecializationEl || !quoteEl || !heroPhotoImageEl || !heroPhotoFallbackEl || !bookingLinkEl) {
+          showNotFound();
+          return;
+        }
+
+        setRuntimeState('loading');
 
         window.addEventListener('error', showNotFound);
         window.addEventListener('unhandledrejection', showNotFound);
@@ -3221,21 +3236,13 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           const payload = await response.json();
           const profile = payload && payload.profile ? payload.profile : {};
 
-            loadingEl.style.display = 'none';
-            if (notFoundEl) {
-              notFoundEl.classList.add('specialist-hidden');
-            }
-            specialistPageEl.classList.remove('specialist-page--hidden');
-            const displayName = profile.display_name || 'Специалист';
-            const profileSpecialization = profile.specialization || 'Специализация';
+            setRuntimeState('success');
+            const displayName = String(profile.display_name || '').trim();
+            const profileSpecialization = String(profile.specialization || '').trim();
             nameEl.textContent = displayName;
             specializationEl.textContent = profileSpecialization;
-            if (heroNameEl) {
-              heroNameEl.textContent = displayName;
-            }
-            if (heroSpecializationEl) {
-              heroSpecializationEl.textContent = profileSpecialization;
-            }
+            heroNameEl.textContent = displayName;
+            heroSpecializationEl.textContent = profileSpecialization;
             const heroQuote = String(profile.hero_quote || '').trim();
             quoteEl.textContent = heroQuote;
             if (heroQuote) {
@@ -3329,7 +3336,11 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             window.removeEventListener('unhandledrejection', showNotFound);
         };
 
-        bootstrap().catch(showNotFound);
+        try {
+          bootstrap().catch(showNotFound);
+        } catch (_error) {
+          showNotFound();
+        }
       })();
     </script>
   </body>

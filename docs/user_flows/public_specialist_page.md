@@ -52,6 +52,19 @@ Public page data is loaded from:
 - Для предотвращения перекрытия заголовков якорных секций используются runtime-offset variables (`--specialist-sticky-offset` на базе высоты header + subnav).
 
 
+## Runtime bridge state model (single-bridge)
+- Для `GET /{public_slug}` используется **один** канонический full-page bridge из `web_server.py`.
+- В DOM существуют только 3 root-state контейнера:
+  - `#specialist-page` — success;
+  - `#public-specialist-loading` — loading;
+  - `#public-specialist-not-found` — not-found/error.
+- Runtime script переключает state через единый `setRuntimeState(state)` и гарантирует взаимоисключаемость состояний (в каждый момент времени видим только один root-state).
+- Initial state: visible только loading (`setRuntimeState('loading')`).
+- Success state: после `fetch(...).ok` выполняется `setRuntimeState('success')`.
+- Error state: при `!response.ok`, runtime exception, `window.error` или `unhandledrejection` выполняется `setRuntimeState('not-found')` через единый `showNotFound()`.
+- Bootstrap обязательно обёрнут в `try/catch`; аварийный fallback: `showNotFound()`.
+- Legacy minimal-template удалён и не должен сосуществовать с full-page bridge.
+
 ## Visibility rule
 Only records with `is_published=true` are visible publicly.
 If profile is missing or not published, API returns `404 not_found`.
