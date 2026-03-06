@@ -6,6 +6,16 @@ Public JSON API for specialist public pages like `/TsarevaE_12`.
 ## Endpoint
 `GET /api/public/specialists/{public_slug}`
 
+## Data source of truth
+Public read-side uses only these tables:
+- `specialist_public_profile`
+- `specialist_public_block`
+- `specialist_public_media`
+
+Notes:
+- `is_published` is read from `specialist_public_profile` and unpublished profiles return `404`.
+- Reviews are not implemented in `specialist_public_*` storage yet, so API currently returns `reviews: []` to keep response contract stable.
+
 ## Slug rules
 - Format: `^[A-Za-z]+[A-Za-z0-9]*_[0-9]{2}$`
 - Suffix range: `10..30` (inclusive)
@@ -51,7 +61,8 @@ Invalid slug returns `400 Bad Request` with one of:
       "sort_order": 10,
       "url": null
     }
-  ]
+  ],
+  "reviews": []
 }
 ```
 

@@ -32,7 +32,7 @@ async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | No
                         contact_email,
                         client_bot_username,
                         is_published
-                    FROM public_specialist_profile
+                    FROM specialist_public_profile
                     WHERE public_slug = :public_slug
                     """
                 ),
@@ -50,7 +50,7 @@ async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | No
                 text(
                     """
                     SELECT block_type, content, sort_order, updated_at
-                    FROM public_specialist_block
+                    FROM specialist_public_block
                     WHERE profile_id = :profile_id
                     ORDER BY sort_order ASC, block_type ASC
                     """
@@ -64,21 +64,7 @@ async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | No
                 text(
                     """
                     SELECT media_type, title, sort_order
-                    FROM public_specialist_media
-                    WHERE profile_id = :profile_id
-                    ORDER BY sort_order ASC, created_at ASC
-                    """
-                ),
-                {"profile_id": profile_id},
-            )
-        ).mappings().all()
-
-        review_rows = (
-            await session.execute(
-                text(
-                    """
-                    SELECT author_name, rating, content, sort_order, created_at
-                    FROM public_specialist_review
+                    FROM specialist_public_media
                     WHERE profile_id = :profile_id
                     ORDER BY sort_order ASC, created_at ASC
                     """
@@ -121,14 +107,6 @@ async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | No
                 }
                 for row in media_rows
             ],
-            "reviews": [
-                {
-                    "author_name": row["author_name"],
-                    "rating": row["rating"],
-                    "content": row["content"],
-                    "sort_order": row["sort_order"],
-                    "created_at": _iso(row["created_at"]),
-                }
-                for row in review_rows
-            ],
+            # Reviews table is not part of specialist_public_* storage yet.
+            "reviews": [],
         }

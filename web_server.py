@@ -84,6 +84,7 @@ from services.billing.subscriptions import (
 )
 from backend.api.public_specialist import router as public_specialist_router
 from backend.api.specialist_profile_private import router as specialist_profile_private_router
+from frontend.router import resolve_frontend_route
 
 logger = logging.getLogger(__name__)
 
@@ -277,6 +278,7 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
         html = html.replace("{{SITE_FOOTER}}", _site_footer_html(page))
         return HTMLResponse(content=html)
 
+
     @app.get("/")
     async def site_index() -> HTMLResponse:
         return _render_site_page("/")
@@ -364,6 +366,7 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
     @app.get("/profile/edit")
     async def site_profile_edit() -> HTMLResponse:
         return _render_site_page("/profile/edit")
+
 else:
     logger.warning(
         "Static site disabled: expected index=%s assets_dir=%s",
@@ -2658,3 +2661,74 @@ async def google_oauth_callback(request: Request):
             stage="google_oauth",
         )
         return text_out
+
+
+@app.get("/{public_slug}")
+async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
+    route_name = resolve_frontend_route(f"/{public_slug}")
+    if route_name != "specialist_profile_page":
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    if not (ASSETS_DIR.exists() and INDEX_FILE.exists()):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    html = """<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Профиль специалиста — Zumbot</title>
+    <link rel="icon" href="/assets/icons/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/icons/favicon-16.png" />
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <section id="specialist-loading"><p>Загружаем профиль специалиста...</p></section>
+      <section id="specialist-not-found" style="display:none">
+        <h1>Профиль не найден</h1>
+        <p>Проверьте ссылку или вернитесь на главную страницу.</p>
+        <p><a class="button" href="/">На главную</a></p>
+      </section>
+      <section id="specialist-content" style="display:none">
+        <h1 id="specialist-display-name"></h1>
+        <p id="specialist-specialization"></p>
+        <blockquote id="specialist-hero-quote"></blockquote>
+      </section>
+    </main>
+    <script>
+      (function() {
+        const slug = __PUBLIC_SLUG_JSON__;
+        const loadingEl = document.getElementById('specialist-loading');
+        const notFoundEl = document.getElementById('specialist-not-found');
+        const contentEl = document.getElementById('specialist-content');
+        const nameEl = document.getElementById('specialist-display-name');
+        const specializationEl = document.getElementById('specialist-specialization');
+        const quoteEl = document.getElementById('specialist-hero-quote');
+
+        fetch(`/api/public/specialists/${encodeURIComponent(slug)}`)
+          .then(async (response) => {
+            if (!response.ok) {
+              throw new Error(String(response.status));
+            }
+            return await response.json();
+          })
+          .then((payload) => {
+            loadingEl.style.display = 'none';
+            contentEl.style.display = 'block';
+            nameEl.textContent = payload?.profile?.display_name || 'Специалист';
+            specializationEl.textContent = payload?.profile?.specialization || '';
+            quoteEl.textContent = payload?.profile?.hero_quote || '';
+          })
+          .catch(() => {
+            loadingEl.style.display = 'none';
+            notFoundEl.style.display = 'block';
+          });
+      })();
+    </script>
+  </body>
+</html>
+"""
+    html = html.replace("__PUBLIC_SLUG_JSON__", json.dumps(public_slug))
+    return HTMLResponse(content=html)

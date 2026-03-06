@@ -37,7 +37,7 @@ async def _build_test_app(tmp_path: Path, monkeypatch):
         await conn.execute(
             text(
                 """
-                CREATE TABLE public_specialist_profile (
+                CREATE TABLE specialist_public_profile (
                     id TEXT PRIMARY KEY,
                     public_slug TEXT NOT NULL UNIQUE,
                     display_name TEXT NOT NULL,
@@ -58,7 +58,7 @@ async def _build_test_app(tmp_path: Path, monkeypatch):
         await conn.execute(
             text(
                 """
-                CREATE TABLE public_specialist_block (
+                CREATE TABLE specialist_public_block (
                     id TEXT PRIMARY KEY,
                     profile_id TEXT NOT NULL,
                     block_type TEXT NOT NULL,
@@ -72,27 +72,12 @@ async def _build_test_app(tmp_path: Path, monkeypatch):
         await conn.execute(
             text(
                 """
-                CREATE TABLE public_specialist_media (
+                CREATE TABLE specialist_public_media (
                     id TEXT PRIMARY KEY,
                     profile_id TEXT NOT NULL,
                     media_type TEXT NOT NULL,
                     title TEXT,
                     file_key TEXT,
-                    sort_order INTEGER NOT NULL,
-                    created_at TEXT
-                )
-                """
-            )
-        )
-        await conn.execute(
-            text(
-                """
-                CREATE TABLE public_specialist_review (
-                    id TEXT PRIMARY KEY,
-                    profile_id TEXT NOT NULL,
-                    author_name TEXT,
-                    rating INTEGER,
-                    content TEXT NOT NULL,
                     sort_order INTEGER NOT NULL,
                     created_at TEXT
                 )
@@ -113,7 +98,7 @@ async def _create_public_profile(database, *, slug: str, published: bool, with_r
         await session.execute(
             text(
                 """
-                INSERT INTO public_specialist_profile (
+                INSERT INTO specialist_public_profile (
                     id, public_slug, display_name, specialization, hero_quote,
                     contact_telegram, contact_whatsapp, contact_phone, contact_email,
                     client_bot_username, is_published, created_at, updated_at
@@ -145,7 +130,7 @@ async def _create_public_profile(database, *, slug: str, published: bool, with_r
             await session.execute(
                 text(
                     """
-                    INSERT INTO public_specialist_block (id, profile_id, block_type, content, sort_order, updated_at)
+                    INSERT INTO specialist_public_block (id, profile_id, block_type, content, sort_order, updated_at)
                     VALUES (:id1, :profile_id, 'about', 'О себе текст', 10, :updated_at),
                            (:id2, :profile_id, 'education', 'Образование', 20, :updated_at)
                     """
@@ -155,17 +140,8 @@ async def _create_public_profile(database, *, slug: str, published: bool, with_r
             await session.execute(
                 text(
                     """
-                    INSERT INTO public_specialist_media (id, profile_id, media_type, title, file_key, sort_order, created_at)
+                    INSERT INTO specialist_public_media (id, profile_id, media_type, title, file_key, sort_order, created_at)
                     VALUES (:id, :profile_id, 'photo', 'Фото', 'private/secret-key.jpg', 10, :created_at)
-                    """
-                ),
-                {"id": str(uuid.uuid4()), "profile_id": profile_id, "created_at": now},
-            )
-            await session.execute(
-                text(
-                    """
-                    INSERT INTO public_specialist_review (id, profile_id, author_name, rating, content, sort_order, created_at)
-                    VALUES (:id, :profile_id, 'Клиент', 5, 'Отзыв', 10, :created_at)
                     """
                 ),
                 {"id": str(uuid.uuid4()), "profile_id": profile_id, "created_at": now},
@@ -243,5 +219,4 @@ async def test_public_specialist_published_profile_returns_public_response(tmp_p
     assert data["media"][0]["url"] is None
     assert "file_key" not in data["media"][0]
 
-    assert len(data["reviews"]) == 2
-    assert data["reviews"][0]["author_name"] == "Анна"
+    assert data["reviews"] == []

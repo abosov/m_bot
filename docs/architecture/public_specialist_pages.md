@@ -12,10 +12,10 @@
 Архитектура строится как read-only публичный контур на основе существующего backend:
 
 1. **Frontend (website)** принимает запрос на путь `/{slug}`.
-2. **Router** проверяет, что путь подходит под правила публичной страницы (валидный slug + не зарезервированный путь).
-3. **Frontend Page** запрашивает данные страницы через **Public API** backend.
-4. **Public API** читает сущность публичной страницы и связанные данные специалиста из **Database**.
-5. Для изображений/файлов Public API возвращает ссылки на **Media storage**.
+2. **Router** использует `resolve_frontend_route(path)` и проверяет, что путь подходит под правила публичной страницы (валидный slug + не зарезервированный путь).
+3. **Frontend Page** (для `specialist_profile_page`) запрашивает данные страницы через **Public API** backend (`GET /api/public/specialists/{slug}`).
+4. **Public API** читает published-снимок из **Database** только через `specialist_public_profile`, `specialist_public_block`, `specialist_public_media`.
+5. Для изображений/файлов Public API не отдает `file_key`; публичная выдача использует только безопасные поля ответа.
 6. Frontend рендерит мини-лендинг и CTA для перехода в Telegram-бот записи.
 
 Ключевые принципы:
@@ -65,6 +65,13 @@
 Валидация диапазона `10–30` выполняется отдельно от regex (на уровне backend-логики и/или CHECK constraint в SQL-миграции).
 
 ## 5) Данные и хранение
+Источник истины для public page:
+- `specialist_public_profile`
+- `specialist_public_block`
+- `specialist_public_media`
+
+Таблицы `public_specialist_*` не используются в read-side публичного API.
+
 Минимально необходимая модель публичной страницы:
 - `slug` (unique, indexed);
 - `specialist_id` (ссылка на специалиста);
@@ -108,3 +115,9 @@ Media storage
 - страница редактирования в текущей версии работает как UI-заглушка без сохранения данных.
 
 Важно: этот контур не раскрывает публичные данные и не меняет контракты публичного API специалистов.
+
+
+## 9) Deploy / nginx integration
+- Для корректной работы `/{slug}` nginx не должен принудительно делать fallback на `/index.html` для всех неизвестных путей.
+- Минимальная схема: `try_files $uri $uri/ @backend_site` и делегирование в backend location `@backend_site`, где работает route resolver.
+- Reserved/system paths продолжают обслуживаться отдельными location/route и не перехватываются slug-роутом.
