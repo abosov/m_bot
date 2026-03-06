@@ -7,11 +7,13 @@
 ## Data source
 Public page data is loaded from:
 - `GET /api/public/specialists/{public_slug}`
+- Runtime bridge for `GET /{public_slug}` builds absolute API URL from backend config: `${BASE_URL}/api/public/specialists/{public_slug}`.
 
 ## Website routing
 - Реальный route на сайте: `GET /{public_slug}`.
 - Route проходит через `frontend.router.resolve_frontend_route(path)`.
 - Если route resolved как `specialist_profile_page`, сайт рендерит полноценный HTML-мост публичной страницы специалиста (sticky header + hero + контентные секции + CTA) и frontend-логика запрашивает `GET /api/public/specialists/{public_slug}`.
+- Source of truth for this bridge: `web_server.py` route `@app.get("/{public_slug}")` (single full-page HTML bridge, legacy ветки отсутствуют).
 - Legacy minimal-шаблон (только name/specialization/quote) больше не используется.
 - Если slug валиден, но профиль не найден/не опубликован, страница показывает site-level not found state.
 - Невалидные slug и non-slug пути не перехватываются и обрабатываются обычным routing сайта.
@@ -84,6 +86,8 @@ Security guard:
 
 ## Smoke checklist
 - `GET /{public_slug}` возвращает HTML со sticky header (`#specialist-sticky-header`) и пунктами меню: «О себе», «Образование», «Документы», «Услуги и цены», «Отзывы», «Записаться».
-- Страница делает fetch в `/api/public/specialists/{public_slug}` для загрузки контента.
+- Страница делает fetch в `${BASE_URL}/api/public/specialists/{public_slug}` для загрузки контента.
+- Loading-state `Загружаем профиль специалиста...` всегда завершается: либо success (`#specialist-page`), либо not-found/error (`#public-specialist-not-found`).
+- Fail-safe: runtime JS errors и unhandled promise rejection переводят страницу в not-found/error state (без вечного loading).
 - Reserved paths (`/pricing`, `/privacy`, `/terms`, `/revoke-access`, `/api`, `/static`, `/assets`) не перехватываются slug-route.
 - Невалидные slug по-прежнему дают 404 на site-route и 400 на API route.
