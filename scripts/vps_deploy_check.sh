@@ -196,6 +196,25 @@ check_webhook_secret_not_logged() {
   pass "webhook secret is masked in nginx access log"
 }
 
+check_public_specialist_bridge() {
+  local slug="${PUBLIC_SMOKE_SLUG:-}"
+  if [[ -z "${slug}" ]]; then
+    log "[INFO] PUBLIC_SMOKE_SLUG is not set; skipping public specialist bridge smoke-check"
+    return 0
+  fi
+
+  local page_url="https://zumbot.ru/${slug}"
+  local api_url="https://api.zumbot.ru/api/public/specialists/${slug}"
+  local html response_code
+
+  html="$(curl -fsS --max-time 8 "${page_url}")" || die "public specialist page is unavailable (${page_url})"
+  printf '%s' "${html}" | grep -F 'const apiBaseUrl = ' >/dev/null || die "public specialist bridge marker is missing (${page_url})"
+  response_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 8 "${api_url}")" || die "public specialist API is unavailable (${api_url})"
+  [[ "${response_code}" == "200" ]] || die "public specialist API returned HTTP ${response_code}, expected 200 (${api_url})"
+
+  pass "public specialist bridge/API smoke-check slug=${slug}"
+}
+
 check_telegram_getme() {
   local bot_name="$1"
   local token="$2"
@@ -276,6 +295,8 @@ PY
   else
     log "[INFO] TEST_PERSONAL_BOT_TOKEN is not set; skipping personal bot getMe smoke-check"
   fi
+
+  run_step "Smoke: public specialist bridge/API" check_public_specialist_bridge
 }
 
 run_checks() {

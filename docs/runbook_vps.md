@@ -181,6 +181,7 @@ P0/MUST: для production запрещён релиз, если `webhook_secret
 - `Smoke: webhook log masking` → в nginx access log есть только маскированный путь `/tg/webhook/<bot_id>/***`, а сырой `/tg/webhook/<bot_id>/<secret>` отсутствует;
 - `Smoke: master bot getMe` → `ok=true`;
 - опционально `Smoke: test personal bot getMe` (если задан `TEST_PERSONAL_BOT_TOKEN`).
+- smoke-check публичного specialist route: `GET /{slug}` содержит актуальный bridge-маркер `const apiBaseUrl = ...`, а `GET /api/public/specialists/{slug}` отвечает 200 для опубликованного slug.
 
 Чеклист руками:
 
@@ -206,6 +207,14 @@ fi
 # 5) master-bot getMe (токен из /etc/zumbot/backend.env)
 source /etc/zumbot/backend.env
 curl -fsS --max-time 8 "https://api.telegram.org/bot${MASTER_BOT_TOKEN}/getMe"
+
+# 6) public specialist bridge + API smoke (для опубликованного slug)
+slug="TsarevaE_12"  # замените на реальный опубликованный slug
+curl -s "https://zumbot.ru/${slug}" | grep "const apiBaseUrl"
+curl -i "https://api.zumbot.ru/api/public/specialists/${slug}"
+
+# 7) observability: route render log
+sudo journalctl -u zumbot-backend.service --since "10 minutes ago" --no-pager   | grep "event=public_slug_route_rendered" | tail -n 20
 ```
 
 Признаки OK:
@@ -214,6 +223,9 @@ curl -fsS --max-time 8 "https://api.telegram.org/bot${MASTER_BOT_TOKEN}/getMe"
 - в `journalctl` нет свежих ERROR/Traceback;
 - Telegram `getMe` возвращает JSON с `"ok": true`;
 - webhook path в nginx логируется только в маскированном виде (`***`), без `webhook_secret`.
+- `curl -s https://zumbot.ru/{slug} | grep "const apiBaseUrl"` показывает актуальный bridge-маркер;
+- `curl -i https://api.zumbot.ru/api/public/specialists/{slug}` возвращает HTTP 200 для опубликованного slug;
+- в `journalctl` есть INFO `event=public_slug_route_rendered ... route_name=specialist_profile_page ...`.
 
 
 ### Smoke-check reminders (test env)

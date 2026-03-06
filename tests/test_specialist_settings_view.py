@@ -173,3 +173,29 @@ def test_build_specialist_settings_view_omits_public_page_url_button_when_missin
 
     button_texts = [button.text for row in keyboard.inline_keyboard for button in row]
     assert "🌐 Открыть публичную страницу" not in button_texts
+
+
+def test_build_specialist_settings_view_uses_same_profile_edit_callback_for_existing_specialist_states() -> None:
+    class _ProfileCompleted(_Profile):
+        onboarding_completed = True
+
+    class _ProfileLegacy(_Profile):
+        onboarding_completed = False
+
+    def _profile_button_callback(profile) -> str | None:
+        _, keyboard = build_specialist_settings_view(
+            profile=profile,
+            rows=[_Row()],
+            calendar_settings=_Calendar(),
+            keep_button_text=None,
+            keep_callback_data=None,
+            include_reset_button=True,
+            working_intervals_by_idx={1: (540, 720), 2: (780, 1020), 3: (1020, 1260)},
+        )
+        all_buttons = [button for row in keyboard.inline_keyboard for button in row]
+        profile_button = next((b for b in all_buttons if b.text == "✏️ Редактировать профиль специалиста"), None)
+        assert profile_button is not None
+        return profile_button.callback_data
+
+    assert _profile_button_callback(_ProfileCompleted()) == "owner_panel:profile_edit_link"
+    assert _profile_button_callback(_ProfileLegacy()) == "owner_panel:profile_edit_link"

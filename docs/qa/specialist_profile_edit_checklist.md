@@ -3,6 +3,8 @@
 ## Preconditions
 - Specialist opens owner panel and taps callback **«✏️ Редактировать профиль специалиста»** to get a fresh link (`/profile/edit#token=...`).
 - Re-tapping callback issues a new one-time link without reopening owner panel.
+- Повторная регистрация specialist и reset аккаунта не требуются.
+- Проверки выполняются на уже существующем specialist (existing account).
 - Backend is running and private profile endpoints are available.
 
 ## Auth / session
@@ -19,6 +21,9 @@
 - [ ] Открыть ту же ссылку повторно в новой вкладке → отображается flow `expired_or_used` с понятным текстом про возврат в бот за новой ссылкой.
 - [ ] Вернуться в бот и нажать **«✏️ Редактировать профиль специалиста»** повторно → бот выдаёт новую одноразовую ссылку, переход по ней снова успешен.
 - [ ] Повторные нажатия callback **«✏️ Редактировать профиль специалиста»** не вызывают Telegram alert `can't parse entities`.
+- [ ] Текст сообщения не содержит raw URL/token (`/profile/edit#token=...` только в URL-кнопке).
+- [ ] Сообщение отправляется как plain text (`parse_mode` отсутствует или `None`).
+- [ ] Для specialist с завершённым personal onboarding и для specialist без «свежего» onboarding используется один и тот же callback path `owner_panel:profile_edit_link`.
 
 ## Data loading
 - [ ] After auth, form fields are populated from `GET /api/specialist/profile`.
@@ -66,3 +71,11 @@
 - [ ] Media list does not expose `file_key`.
 - [ ] Requests use cookie session (`credentials: include`).
 - [ ] No public endpoint exposes uploaded private media directly.
+
+
+## Manual smoke (existing specialist without reset)
+- [ ] Взять уже существующего specialist (без reset аккаунта и без повторной регистрации).
+- [ ] Открыть owner panel и нажать **«✏️ Редактировать профиль специалиста»**.
+- [ ] Убедиться, что приходит новое сообщение с plain-text текстом и URL-кнопкой **«Открыть редактор профиля»**.
+- [ ] Открыть ссылку и проверить, что на странице отображается `✅ Авторизовано`.
+- [ ] Вернуться в бот и повторить callback ещё раз — должна прийти новая одноразовая ссылка.

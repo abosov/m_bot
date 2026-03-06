@@ -131,6 +131,19 @@ def test_public_slug_route_returns_full_public_specialist_page_markup():
     assert 'const slug = "TsarevaE_12";' in response.text
 
 
+
+def test_public_slug_route_logs_render_event_without_personal_data(caplog):
+    with caplog.at_level("INFO", logger="web_server"):
+        response = client.get("/TsarevaE_12")
+
+    assert response.status_code == 200
+    assert "event=public_slug_route_rendered" in caplog.text
+    assert "slug=TsarevaE_12" in caplog.text
+    assert "route_name=specialist_profile_page" in caplog.text
+    assert f"api_base_url={config.BASE_URL}" in caplog.text
+    assert "tg_user_id=" not in caplog.text
+    assert "token=" not in caplog.text
+
 def test_public_slug_route_keeps_not_found_container_markup():
     response = client.get("/TsarevaE_12")
 
