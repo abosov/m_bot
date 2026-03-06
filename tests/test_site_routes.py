@@ -121,7 +121,7 @@ def test_public_slug_route_returns_full_public_specialist_page_markup():
     assert 'id="public-specialist-not-found"' in response.text
     assert 'id="specialist-page"' in response.text
     assert 'id="specialist-sticky-header"' in response.text
-    assert 'aria-label="Меню специалиста"' in response.text
+    assert 'aria-label="Навигация по разделам специалиста"' in response.text
     assert ">О себе<" in response.text
     assert ">Образование<" in response.text
     assert ">Документы<" in response.text
@@ -175,7 +175,7 @@ def test_public_slug_route_hides_loading_when_api_returns_non_ok_status():
     assert "if (!response.ok) {" in response.text
     assert "throw new Error(String(response.status));" in response.text
     assert "loadingEl.style.display = 'none';" in response.text
-    assert "notFoundEl.style.display = 'block';" in response.text
+    assert "notFoundEl.classList.remove('specialist-hidden');" in response.text
 
 
 
@@ -185,9 +185,10 @@ def test_public_slug_route_hero_places_photo_left_and_quote_right():
 
     assert response.status_code == 200
     assert 'id="public-specialist-hero-grid"' in response.text
-    assert "grid-template-areas:'photo quote'" in response.text
-    assert "heroGridEl.style.gridTemplateAreas = heroQuote ? \"'photo quote'\" : \"'photo photo'\";" in response.text
-    assert "quoteEl.style.display = heroQuote ? 'block' : 'none';" in response.text
+    assert 'class="section-card specialist-hero hero-grid specialist-card"' in response.text
+    assert 'class="specialist-hero__photo-wrap profile-photo"' in response.text
+    assert "quoteEl.classList.remove('specialist-hidden');" in response.text
+    assert "quoteEl.classList.add('specialist-hidden');" in response.text
 
 
 def test_public_slug_route_reviews_rendering_uses_blocks_not_reviews_array():

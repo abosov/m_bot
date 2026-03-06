@@ -16,7 +16,7 @@ def test_education_section_uses_education_block_and_hides_when_missing():
 def test_education_section_renders_list_and_sanitizes_content():
     education = (ROOT / "frontend/components/specialist/SectionEducation.tsx").read_text(encoding="utf-8")
 
-    assert "<ul>" in education
+    assert "<ul className=" in education
     assert "<li" in education
     assert "function sanitizeHtml" in education
     assert "<script[\\s\\S]*?>[\\s\\S]*?<\\/script>" in education

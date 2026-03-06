@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import Header from "../components/specialist/Header";
 import Hero from "../components/specialist/Hero";
+import SectionNav from "../components/specialist/SectionNav";
 import SectionAbout from "../components/specialist/SectionAbout";
 import SectionEducation from "../components/specialist/SectionEducation";
 import SectionReviews from "../components/specialist/SectionReviews";
 import SectionDocuments from "../components/specialist/SectionDocuments";
 import SectionServices from "../components/specialist/SectionServices";
 import SectionCTA from "../components/specialist/SectionCTA";
+import "../styles/layout.css";
 import "../styles/specialist.css";
 
 const SPECIALIST_SLUG_REGEX = /^[A-Za-z]+[A-Za-z]_[1-9][0-9]$/;
@@ -80,6 +82,41 @@ export async function loadSpecialistProfilePage(slug: string): Promise<PublicSpe
   return (await response.json()) as PublicSpecialistPagePayload;
 }
 
+
+function hasNonEmptyLines(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => typeof item === "string" && item.trim().length > 0);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split("\n")
+      .map((line) => line.trim())
+      .some(Boolean);
+  }
+
+  return false;
+}
+
+function hasBlockContent(blocks: Array<Record<string, unknown>> | undefined, blockType: string): boolean {
+  const target = blocks?.find((block) => block.block_type === blockType);
+  if (!target) {
+    return false;
+  }
+
+  return hasNonEmptyLines(target.items ?? target.content ?? target.body ?? target.text);
+}
+
+function hasDocumentMedia(media: Array<Record<string, unknown>> | undefined): boolean {
+  return Boolean(
+    media?.some((item) => {
+      const mediaType = typeof item.media_type === "string" ? item.media_type.trim().toLowerCase() : "";
+      const title = typeof item.title === "string" ? item.title.trim() : "";
+      return mediaType === "document" && title.length > 0;
+    }),
+  );
+}
+
 type SpecialistProfilePageProps = {
   slug: string;
   loader?: (slug: string) => Promise<PublicSpecialistPagePayload>;
@@ -124,9 +161,14 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
 
     const updateStickyOffset = () => {
       const stickyHeader = document.getElementById("specialist-sticky-header");
-      const measuredHeight = stickyHeader?.getBoundingClientRect().height ?? 120;
+      const sectionNav = document.getElementById("specialist-section-nav");
+      const headerHeight = stickyHeader?.getBoundingClientRect().height ?? 72;
+      const sectionNavHeight = sectionNav?.getBoundingClientRect().height ?? 0;
+      const measuredHeight = headerHeight + sectionNavHeight + 16;
       const offset = `${Math.ceil(measuredHeight)}px`;
 
+      document.documentElement.style.setProperty("--specialist-header-height", `${Math.ceil(headerHeight)}px`);
+      document.documentElement.style.setProperty("--specialist-subnav-height", `${Math.ceil(sectionNavHeight)}px`);
       document.documentElement.style.setProperty("--specialist-sticky-offset", offset);
     };
 
@@ -151,6 +193,8 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
       }
 
       window.removeEventListener("resize", handleResize);
+      document.documentElement.style.removeProperty("--specialist-header-height");
+      document.documentElement.style.removeProperty("--specialist-subnav-height");
       document.documentElement.style.removeProperty("--specialist-sticky-offset");
     };
   }, []);
@@ -160,6 +204,15 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
   const heroContacts = mapProfileToHeroContacts(payload?.profile);
   const clientBotUsername = payload?.profile.client_bot_username;
   const specialistUuid = payload?.profile.id;
+
+  const navItems = [
+    hasBlockContent(payload?.blocks, "about") ? { id: "about", label: "О себе" } : null,
+    hasBlockContent(payload?.blocks, "education") ? { id: "education", label: "Образование" } : null,
+    hasDocumentMedia(payload?.media) ? { id: "documents", label: "Документы" } : null,
+    hasBlockContent(payload?.blocks, "services") ? { id: "services", label: "Услуги и цены" } : null,
+    hasBlockContent(payload?.blocks, "reviews") ? { id: "reviews", label: "Отзывы" } : null,
+    clientBotUsername && specialistUuid ? { id: "booking", label: "Записаться" } : null,
+  ].filter((item): item is { id: string; label: string } => Boolean(item));
 
   if (error) {
     return <main>{error}</main>;
@@ -174,6 +227,8 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
         specialistUuid={specialistUuid}
       />
       <Hero
+        displayName={displayName}
+        specialization={specialization}
         photoUrl={payload?.profile.photo_url as string | undefined}
         heroQuote={payload?.profile.hero_quote as string | undefined}
         clientBotUsername={clientBotUsername}
@@ -183,6 +238,7 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
         phone={heroContacts.phone}
         email={heroContacts.email}
       />
+      <SectionNav items={navItems} clientBotUsername={clientBotUsername} specialistUuid={specialistUuid} />
       <SectionAbout blocks={payload?.blocks} />
       <SectionEducation blocks={payload?.blocks} />
       <SectionDocuments media={payload?.media} />

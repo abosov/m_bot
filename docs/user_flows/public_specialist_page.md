@@ -22,18 +22,35 @@ Public page data is loaded from:
 
 
 ## Public page visual order
-1. Имя / отчество / фамилия (в `display_name`)
-2. Специализация
-3. Sticky-меню
-4. Hero: фото слева, цитата справа
-5. О себе
-6. Образование
-7. Документы
-8. Услуги и цены
-9. Отзывы
+1. Sticky header (identity + компактная CTA)
+2. Hero (desktop: 2 колонки, mobile/tablet: 1 колонка)
+3. Sticky section navigation (pill tabs + active section tracking)
+   - фото в контейнере с фиксированной пропорцией **4:5** (`aspect-ratio: 4 / 5`, `object-fit: cover`)
+   - справа: имя, специализация, quote-card (если есть), primary CTA и contacts pills
+4. О себе
+5. Образование
+6. Документы
+7. Услуги и цены
+8. Отзывы
+9. Нижний CTA-блок «Записаться»
 
-Если фото отсутствует, левая колонка hero сохраняется без поломки layout.
-Если цитата пустая, правая колонка с цитатой скрывается.
+Если фото отсутствует, рендерится визуальный placeholder-card той же пропорции 4:5.
+Если цитата пустая, quote-card не рендерится.
+Все контентные секции визуально унифицированы: max-width контейнер, card-style и единая типографическая иерархия.
+
+### Responsive правила
+- **Desktop >=1200px**: комфортный 2-колоночный hero + sticky section nav с pills.
+- **Tablet 768–1199px**: header/hero уплотняются, subnav остаётся в одну строку с горизонтальным скроллом при необходимости.
+- **Mobile <768px**: hero в 1 колонку, фото занимает всю ширину колонки и сохраняет 4:5; sticky subnav остаётся usable пальцем и не вызывает overflow страницы.
+
+### Sticky section navigation UX
+- Subnav рендерится отдельным sticky-блоком `#specialist-section-nav` сразу после hero.
+- Subnav использует chips/pills вместо plain-links и поддерживает `hover`, `focus-visible`, `active` states.
+- Active section определяется через `IntersectionObserver` (стабильный выбор по видимости и позиции).
+- На tablet/mobile subnav становится горизонтально прокручиваемым контейнером; активный пункт автоматически подводится в видимую область.
+- В subnav CTA "Записаться" остаётся на desktop, а на mobile скрывается для снижения визуальной перегрузки.
+- Для предотвращения перекрытия заголовков якорных секций используются runtime-offset variables (`--specialist-sticky-offset` на базе высоты header + subnav).
+
 
 ## Visibility rule
 Only records with `is_published=true` are visible publicly.

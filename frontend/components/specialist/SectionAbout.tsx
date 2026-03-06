@@ -36,9 +36,13 @@ export function SectionAbout({ blocks }: SectionAboutProps) {
   }
 
   return (
-    <section id="about" className="specialist-page__section" aria-label="О себе">
-      <h2>О себе</h2>
-      <div dangerouslySetInnerHTML={{ __html: aboutContent }} />
+    <section id="about" className="specialist-page__section section" aria-label="О себе">
+      <div className="container">
+        <div className="section-card specialist-card specialist-content-card">
+          <h2 className="section-title specialist-section-title">О себе</h2>
+            <div className="section-text specialist-rich-text" dangerouslySetInnerHTML={{ __html: aboutContent }} />
+        </div>
+      </div>
     </section>
   );
 }
