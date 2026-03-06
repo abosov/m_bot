@@ -75,14 +75,18 @@
           <label>Фамилия <input id="last_name" type="text" placeholder="Фамилия" /></label>
         </div>
         <label>Специализация <input id="specialization" type="text" placeholder="Например: Психолог" /></label>
-        <div class="subblock-secondary">
-          <label>Цитата <textarea id="hero_quote" placeholder="Ваша цитата"></textarea></label>
-        </div>
         <div class="actions"><button id="save-main">Сохранить</button></div>
         <p id="status-main" class="section-status"></p>
       </div>
 
       <p id="secondary-lock-hint" class="lock-hint hidden">Сначала сохраните основную информацию, чтобы создать ссылку профиля.</p>
+
+      <div class="section">
+        <h3>Цитата</h3>
+        <textarea id="hero_quote" placeholder="Ваша цитата"></textarea>
+        <div class="actions"><button id="save-quote">Сохранить</button></div>
+        <p id="status-quote" class="section-status"></p>
+      </div>
 
       <div class="section">
         <h3>О себе</h3>
@@ -143,6 +147,10 @@
           about: '', education: '', services: '', reviews: '',
           public_slug: null, is_published: false,
           secondary_sections_locked: true
+        },
+        currentProfileMeta: {
+          public_slug: null,
+          is_published: false,
         }
       };
 
@@ -205,9 +213,18 @@
       }
 
       function buildPublicUrl() {
-        const slug = (state.model.public_slug || '').trim();
+        const slug = (state.currentProfileMeta.public_slug || '').trim();
         if (!slug) return '';
         return `https://zumbot.ru/${encodeURIComponent(slug)}`;
+      }
+
+      function setCurrentProfileMeta(profileData) {
+        state.currentProfileMeta = {
+          public_slug: (profileData && profileData.public_slug) ? String(profileData.public_slug).trim() : null,
+          is_published: !!(profileData && profileData.is_published),
+        };
+        state.model.public_slug = state.currentProfileMeta.public_slug;
+        state.model.is_published = state.currentProfileMeta.is_published;
       }
 
       function renderPublicProfile() {
@@ -219,7 +236,7 @@
         const publishBtn = document.getElementById('toggle-publish');
 
         const publicUrl = buildPublicUrl();
-        const isPublished = !!state.model.is_published;
+        const isPublished = !!state.currentProfileMeta.is_published;
 
         statusBadge.textContent = isPublished ? 'Опубликовано' : 'Черновик';
         statusBadge.classList.remove('draft', 'published');
@@ -284,7 +301,7 @@
 
       async function togglePublish() {
         const button = document.getElementById('toggle-publish');
-        const shouldPublish = !state.model.is_published;
+        const shouldPublish = !state.currentProfileMeta.is_published;
         button.disabled = true;
         setStatus('status-public', '', null);
         try {
@@ -295,9 +312,12 @@
             setStatus('status-public', `Ошибка: ${msg}`, 'error');
             return;
           }
-          state.model.is_published = !!data.is_published;
+          setCurrentProfileMeta({
+            public_slug: state.currentProfileMeta.public_slug,
+            is_published: !!data.is_published,
+          });
           renderPublicProfile();
-          setStatus('status-public', state.model.is_published ? 'Профиль опубликован' : 'Профиль снят с публикации', 'ok');
+          setStatus('status-public', state.currentProfileMeta.is_published ? 'Профиль опубликован' : 'Профиль снят с публикации', 'ok');
         } catch (_) {
           setStatus('status-public', 'Ошибка сети, попробуйте снова', 'error');
         } finally {
@@ -321,6 +341,7 @@
           public_slug: data.public_slug || null,
           is_published: !!data.is_published,
         };
+        setCurrentProfileMeta(data);
         applyModelToForm();
         renderPublicProfile();
         syncSecondarySectionsLock();
@@ -346,7 +367,7 @@
       }
 
       function hasProfileSlug() {
-        return !!((state.model.public_slug || '').trim());
+        return !!((state.currentProfileMeta.public_slug || '').trim());
       }
 
       function setSecondarySectionsLocked(isLocked, reasonText) {
@@ -354,7 +375,7 @@
         const lockHint = document.getElementById('secondary-lock-hint');
         const message = reasonText || 'Сначала сохраните основную информацию, чтобы создать ссылку профиля.';
         const secondaryButtonIds = [
-          'save-about', 'save-education', 'save-services', 'save-reviews', 'upload-photo', 'upload-documents'
+          'save-quote', 'save-about', 'save-education', 'save-services', 'save-reviews', 'upload-photo', 'upload-documents'
         ];
         secondaryButtonIds.forEach((id) => {
           const button = document.getElementById(id);
@@ -389,16 +410,11 @@
         setSecondarySectionsLocked(!hasProfileSlug());
       }
 
-      async function ensureSlugAfterMainSave() {
-        if (hasProfileSlug()) {
-          syncSecondarySectionsLock();
-          return;
-        }
-        try {
-          await loadProfile();
-        } catch (_) {
-          // keep lock state if reload fails
-        }
+      async function reloadProfileMeta() {
+        const { res, data } = await apiFetch('/api/specialist/profile', { method: 'GET' });
+        if (!res.ok || !data) throw new Error('Не удалось обновить состояние профиля');
+        setCurrentProfileMeta(data);
+        renderPublicProfile();
         syncSecondarySectionsLock();
       }
 
@@ -440,12 +456,17 @@
             return;
           }
           state.model = { ...state.model, ...data };
+          setCurrentProfileMeta(data);
           applyModelToForm();
           renderPublicProfile();
           setStatus(statusId, 'Сохранено ✅', 'ok');
           showSaveToast();
           if (buttonId === 'save-main') {
-            await ensureSlugAfterMainSave();
+            try {
+              await reloadProfileMeta();
+            } catch (_) {
+              syncSecondarySectionsLock();
+            }
           }
         } catch (_) {
           setStatus(statusId, 'Ошибка сети, попробуйте снова', 'error');
@@ -576,6 +597,8 @@
             middle_name: fields.middle_name.value,
             last_name: fields.last_name.value,
             specialization: fields.specialization.value,
+          }));
+          document.getElementById('save-quote').addEventListener('click', () => saveBlock('save-quote', 'status-quote', {
             hero_quote: fields.hero_quote.value,
           }));
           document.getElementById('save-about').addEventListener('click', () => saveBlock('save-about', 'status-about', {

@@ -17,6 +17,11 @@ If profile is missing or not published, API returns `404 not_found`.
 1. Regex: `^[A-Za-z]+[A-Za-z0-9]*_[0-9]{2}$`
 2. Numeric suffix range: `10..30` inclusive
 
+Slug lifecycle in private profile flow:
+- slug is created during first successful save of block "Основное" in private profile editing;
+- before that specialist profile stays in draft state without public link;
+- after creation slug remains stable and is not regenerated on subsequent edits.
+
 ## Public page payload
 Page consumes three sections:
 - `profile` (name, specialization, quote, contacts, client bot username)
