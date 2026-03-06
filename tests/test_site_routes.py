@@ -117,6 +117,9 @@ def test_public_slug_route_returns_full_public_specialist_page_markup():
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     assert "Профиль специалиста — Zumbot" in response.text
+    assert 'id="public-specialist-loading"' in response.text
+    assert 'id="public-specialist-not-found"' in response.text
+    assert 'id="specialist-page"' in response.text
     assert 'id="specialist-sticky-header"' in response.text
     assert 'aria-label="Меню специалиста"' in response.text
     assert ">О себе<" in response.text
@@ -129,6 +132,10 @@ def test_public_slug_route_returns_full_public_specialist_page_markup():
     assert f'const apiBaseUrl = "{config.BASE_URL}";' in response.text
     assert "const publicProfileApiUrl = `${apiBaseUrl.replace(/\\/$/, '')}/api/public/specialists/${encodeURIComponent(slug)}`;" in response.text
     assert 'const slug = "TsarevaE_12";' in response.text
+    assert "bootstrap().catch(showNotFound);" in response.text
+    assert 'id="specialist-loading"' not in response.text
+    assert 'id="specialist-not-found"' not in response.text
+    assert 'id="specialist-content"' not in response.text
 
 
 
