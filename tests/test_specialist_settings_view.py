@@ -61,6 +61,7 @@ def test_build_specialist_settings_view_has_unified_block_order() -> None:
         "owner_panel:slot_params_menu",
         "owner_panel:change_timezone",
         "owner_panel:change_schedule",
+        "owner_panel:profile_edit_link",
         "owner_panel:apply_defaults",
     ]
 
@@ -93,7 +94,7 @@ def test_build_specialist_settings_view_when_all_intervals_disabled_shows_dash()
     assert "• Интервалы: —" in text
 
 
-def test_build_specialist_settings_view_includes_profile_edit_url_button() -> None:
+def test_build_specialist_settings_view_includes_profile_edit_callback_button() -> None:
     _, keyboard = build_specialist_settings_view(
         profile=_Profile(),
         rows=[_Row()],
@@ -102,7 +103,6 @@ def test_build_specialist_settings_view_includes_profile_edit_url_button() -> No
         keep_callback_data=None,
         include_reset_button=True,
         working_intervals_by_idx={1: (540, 720), 2: (780, 1020), 3: (1020, 1260)},
-        profile_edit_url="https://example.test/profile/edit#token=abc",
     )
 
     all_buttons = [button for row in keyboard.inline_keyboard for button in row]
@@ -111,15 +111,15 @@ def test_build_specialist_settings_view_includes_profile_edit_url_button() -> No
 
     assert profile_button is not None
     assert reset_button is not None
-    assert profile_button.url == "https://example.test/profile/edit#token=abc"
-    assert profile_button.callback_data is None
+    assert profile_button.url is None
+    assert profile_button.callback_data == "owner_panel:profile_edit_link"
 
     profile_button_idx = all_buttons.index(profile_button)
     reset_button_idx = all_buttons.index(reset_button)
     assert profile_button_idx < reset_button_idx
 
 
-def test_build_specialist_settings_view_omits_profile_edit_url_button_when_missing_url() -> None:
+def test_build_specialist_settings_view_always_shows_profile_edit_callback_button() -> None:
     _, keyboard = build_specialist_settings_view(
         profile=_Profile(),
         rows=[_Row()],
@@ -128,11 +128,12 @@ def test_build_specialist_settings_view_omits_profile_edit_url_button_when_missi
         keep_callback_data=None,
         include_reset_button=True,
         working_intervals_by_idx={1: (540, 720), 2: (780, 1020), 3: (1020, 1260)},
-        profile_edit_url=None,
     )
 
-    button_texts = [button.text for row in keyboard.inline_keyboard for button in row]
-    assert "✏️ Редактировать профиль специалиста" not in button_texts
+    all_buttons = [button for row in keyboard.inline_keyboard for button in row]
+    profile_button = next((b for b in all_buttons if b.text == "✏️ Редактировать профиль специалиста"), None)
+    assert profile_button is not None
+    assert profile_button.callback_data == "owner_panel:profile_edit_link"
 
 
 def test_build_specialist_settings_view_includes_public_page_url_button_when_provided() -> None:
@@ -144,7 +145,6 @@ def test_build_specialist_settings_view_includes_public_page_url_button_when_pro
         keep_callback_data=None,
         include_reset_button=True,
         working_intervals_by_idx={1: (540, 720), 2: (780, 1020), 3: (1020, 1260)},
-        profile_edit_url="https://example.test/profile/edit#token=abc",
         public_page_url="https://zumbot.ru/Valid_Slug123",
     )
 
@@ -168,7 +168,6 @@ def test_build_specialist_settings_view_omits_public_page_url_button_when_missin
         keep_callback_data=None,
         include_reset_button=True,
         working_intervals_by_idx={1: (540, 720), 2: (780, 1020), 3: (1020, 1260)},
-        profile_edit_url="https://example.test/profile/edit#token=abc",
         public_page_url=None,
     )
 

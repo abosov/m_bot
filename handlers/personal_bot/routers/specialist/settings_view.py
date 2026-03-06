@@ -65,7 +65,6 @@ def build_specialist_settings_view(
     include_reset_button: bool,
     working_intervals_by_idx: Mapping[int, tuple[int | None, int | None]] | None = None,
     later_button: tuple[str, str] | None = None,
-    profile_edit_url: str | None = None,
     public_page_url: str | None = None,
     referral_link: str | None = None,
     referrals_count: int = 0,
@@ -106,8 +105,9 @@ def build_specialist_settings_view(
     ]
     if keep_button_text is not None and keep_callback_data is not None:
         keyboard_rows.append([InlineKeyboardButton(text=keep_button_text, callback_data=keep_callback_data)])
-    if profile_edit_url:
-        keyboard_rows.append([InlineKeyboardButton(text="✏️ Редактировать профиль специалиста", url=profile_edit_url)])
+    keyboard_rows.append(
+        [InlineKeyboardButton(text="✏️ Редактировать профиль специалиста", callback_data="owner_panel:profile_edit_link")]
+    )
     if public_page_url:
         keyboard_rows.append([InlineKeyboardButton(text="🌐 Открыть публичную страницу", url=public_page_url)])
     if include_reset_button:

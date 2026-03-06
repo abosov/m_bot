@@ -157,6 +157,120 @@ async def test_apply_defaults_cancel_sends_cancel_message(monkeypatch) -> None:
     assert captured["owner_panel"] == 1
 
 
+
+
+@pytest.mark.asyncio
+async def test_owner_panel_profile_edit_link_generates_fresh_url_each_tap(monkeypatch) -> None:
+    callback = DummyCallback()
+    callback.from_user = type("User", (), {"id": 123})()
+
+    calls = {"n": 0}
+
+    class _SessionCtx:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def fake_build_profile_edit_url_for_specialist(*, session, specialist_id, tg_user_id):
+        assert specialist_id == "sp-id"
+        assert tg_user_id == 123
+        calls["n"] += 1
+        return f"https://example.test/profile/edit#token=fresh-{calls['n']}"
+
+    monkeypatch.setattr(owner_panel, "async_session_factory", lambda: _SessionCtx())
+    monkeypatch.setattr(owner_panel, "build_profile_edit_url_for_specialist", fake_build_profile_edit_url_for_specialist)
+
+    await owner_panel.owner_panel_profile_edit_link(callback=callback, specialist_id="sp-id", owner_tg_user_id=123)
+    await owner_panel.owner_panel_profile_edit_link(callback=callback, specialist_id="sp-id", owner_tg_user_id=123)
+
+    assert calls["n"] == 2
+    assert callback.message.answers[0][0].startswith("Откройте редактор профиля по свежей ссылке")
+    first_button = callback.message.answers[0][1]["reply_markup"].inline_keyboard[0][0]
+    second_button = callback.message.answers[1][1]["reply_markup"].inline_keyboard[0][0]
+    assert first_button.url.endswith("fresh-1")
+    assert second_button.url.endswith("fresh-2")
+
+
+
+
+@pytest.mark.asyncio
+async def test_owner_panel_callback_provides_new_link_after_old_message_link_expired(monkeypatch) -> None:
+    callback = DummyCallback()
+    callback.from_user = type("User", (), {"id": 123})()
+
+    generated_urls: list[str] = []
+
+    class _SessionCtx:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def fake_build_profile_edit_url_for_specialist(*, session, specialist_id, tg_user_id):
+        token_idx = len(generated_urls) + 1
+        fresh_url = f"https://example.test/profile/edit#token=fresh-{token_idx}"
+        generated_urls.append(fresh_url)
+        return fresh_url
+
+    monkeypatch.setattr(owner_panel, "async_session_factory", lambda: _SessionCtx())
+    monkeypatch.setattr(owner_panel, "build_profile_edit_url_for_specialist", fake_build_profile_edit_url_for_specialist)
+
+    # old link from an earlier bot message is conceptually expired/used at this point;
+    # user taps callback again and must receive a fresh link
+    old_message_link = "https://example.test/profile/edit#token=expired-old"
+    assert old_message_link.endswith("expired-old")
+
+    await owner_panel.owner_panel_profile_edit_link(callback=callback, specialist_id="sp-id", owner_tg_user_id=123)
+
+    assert generated_urls == ["https://example.test/profile/edit#token=fresh-1"]
+    url_button = callback.message.answers[-1][1]["reply_markup"].inline_keyboard[0][0]
+    assert url_button.url == "https://example.test/profile/edit#token=fresh-1"
+
+@pytest.mark.asyncio
+async def test_owner_panel_profile_edit_link_denies_non_owner() -> None:
+    callback = DummyCallback()
+    callback.from_user = type("User", (), {"id": 999})()
+
+    await owner_panel.owner_panel_profile_edit_link(callback=callback, specialist_id="sp-id", owner_tg_user_id=123)
+
+    assert callback.answers[-1][0] == "Недостаточно прав"
+    assert callback.answers[-1][1].get("show_alert") is True
+    assert callback.message.answers == []
+
+
+@pytest.mark.asyncio
+async def test_owner_panel_profile_edit_link_allows_new_link_after_error(monkeypatch) -> None:
+    callback = DummyCallback()
+    callback.from_user = type("User", (), {"id": 123})()
+
+    calls = {"n": 0}
+
+    class _SessionCtx:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def fake_build_profile_edit_url_for_specialist(*, session, specialist_id, tg_user_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ValueError("PUBLIC_SITE_URL is missing")
+        return "https://example.test/profile/edit#token=fresh-2"
+
+    monkeypatch.setattr(owner_panel, "async_session_factory", lambda: _SessionCtx())
+    monkeypatch.setattr(owner_panel, "build_profile_edit_url_for_specialist", fake_build_profile_edit_url_for_specialist)
+
+    await owner_panel.owner_panel_profile_edit_link(callback=callback, specialist_id="sp-id", owner_tg_user_id=123)
+    await owner_panel.owner_panel_profile_edit_link(callback=callback, specialist_id="sp-id", owner_tg_user_id=123)
+
+    assert callback.answers[0][0] == "Ссылка временно недоступна"
+    assert callback.answers[0][1].get("show_alert") is True
+    assert callback.message.answers[-1][1]["reply_markup"].inline_keyboard[0][0].url.endswith("fresh-2")
+
 def test_format_intervals_for_ui_hides_null_intervals() -> None:
     row = type(
         "Row",
@@ -544,11 +658,15 @@ async def test_build_owner_panel_view_has_reset_and_stable_primary_button_order(
         async def get_working_intervals(self, _specialist_id):
             return {}
 
+    async def fake_load_public_page_url_for_settings(_specialist_id):
+        return None
+
     monkeypatch.setattr(owner_panel, "_load_profile_and_rows", fake_load_profile_and_rows)
     monkeypatch.setattr(owner_panel, "_load_calendar_settings", fake_load_calendar_settings)
+    monkeypatch.setattr(owner_panel, "_load_public_page_url_for_settings", fake_load_public_page_url_for_settings)
     monkeypatch.setattr(owner_panel, "WorkingIntervalsRepository", _Repo)
 
-    panel_view = await owner_panel._build_owner_panel_view(specialist_id="sp-id", public_name=None)
+    panel_view = await owner_panel._build_owner_panel_view(specialist_id="sp-id", public_name=None, owner_tg_user_id=123)
 
     assert panel_view is not None
     _text, keyboard = panel_view
@@ -570,7 +688,7 @@ async def test_send_owner_panel_always_sends_single_unified_main_screen_message(
     async def fake_ensure_defaults(*, specialist_id, owner_tg_user_id, public_name):
         return True
 
-    async def fake_build_view(*, specialist_id, public_name):
+    async def fake_build_view(*, specialist_id, public_name, owner_tg_user_id):
         keyboard = owner_panel.InlineKeyboardMarkup(
             inline_keyboard=[[owner_panel.InlineKeyboardButton(text="reset", callback_data="owner_panel:apply_defaults")]]
         )
@@ -601,7 +719,7 @@ async def test_first_open_and_back_render_identical_main_screen_callbacks(monkey
     async def fake_ensure_defaults(*, specialist_id, owner_tg_user_id, public_name):
         return False
 
-    async def fake_build_view(*, specialist_id, public_name):
+    async def fake_build_view(*, specialist_id, public_name, owner_tg_user_id):
         keyboard = owner_panel.InlineKeyboardMarkup(
             inline_keyboard=[
                 [owner_panel.InlineKeyboardButton(text="📅", callback_data="owner_panel:calendar_menu")],

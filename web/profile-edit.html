@@ -50,7 +50,7 @@
 
     <p id="auth-loading" class="status">Проверяем авторизацию...</p>
     <p id="auth-ok" class="status ok hidden">✅ Авторизовано</p>
-    <p id="auth-error" class="status error hidden">❌ Не удалось авторизоваться, откройте страницу из бота заново</p>
+    <p id="auth-error" class="status error hidden">❌ Не удалось авторизоваться</p>
 
     <div id="profile-form" class="hidden">
       <div class="section">
@@ -189,17 +189,41 @@
       }
 
       async function consumeToken(token) {
-        const { res, data } = await apiFetch('/auth/telegram/consume', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
-        });
-        return res.ok && !!(data && data.ok);
+        try {
+          const { res, data } = await apiFetch('/auth/telegram/consume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token }),
+          });
+          if (res.ok && !!(data && data.ok)) {
+            return { ok: true, error: null };
+          }
+          return { ok: false, error: (data && data.error) ? String(data.error) : 'consume_failed' };
+        } catch (_) {
+          return { ok: false, error: 'network_error' };
+        }
       }
 
       async function checkSession() {
-        const { res, data } = await apiFetch('/connect/status', { method: 'GET' });
-        return res.ok && !!(data && data.ok);
+        try {
+          const { res, data } = await apiFetch('/connect/status', { method: 'GET' });
+          return res.ok && !!(data && data.ok);
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function resolveAuthErrorText({ tokenPresent, consumeError }) {
+        if (!tokenPresent) {
+          return 'Ссылка для входа не найдена. Откройте страницу из бота.';
+        }
+        if (consumeError === 'expired_or_used') {
+          return 'Ссылка устарела или уже была использована. Вернитесь в бот и запросите новую.';
+        }
+        if (consumeError === 'token_required') {
+          return 'Ссылка для входа не найдена. Откройте страницу из бота.';
+        }
+        return 'Не удалось авторизоваться из-за ошибки сети или сервера. Попробуйте снова или запросите новую ссылку в боте.';
       }
 
       function trimValue(value) {
@@ -572,17 +596,24 @@
       async function init() {
         try {
           const token = getToken();
+          const tokenPresent = !!token;
+          let consumeError = null;
           let authorized = false;
 
-          if (token) {
-            authorized = await consumeToken(token);
-            if (authorized) clearHash();
+          if (tokenPresent) {
+            const consumeResult = await consumeToken(token);
+            authorized = consumeResult.ok;
+            consumeError = consumeResult.error;
+            if (consumeResult.ok) clearHash();
           }
 
-          if (!authorized) authorized = await checkSession();
+          if (!authorized) {
+            authorized = await checkSession();
+          }
 
           loading.classList.add('hidden');
           if (!authorized) {
+            error.textContent = `❌ ${resolveAuthErrorText({ tokenPresent, consumeError })}`;
             error.classList.remove('hidden');
             return;
           }
