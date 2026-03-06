@@ -198,7 +198,7 @@ def test_public_slug_route_reviews_rendering_uses_blocks_not_reviews_array():
 
     assert response.status_code == 200
     assert "const reviewsBlock = Array.isArray(blocks)" in response.text
-    assert "renderReviews(payload?.blocks);" in response.text
+    assert "renderReviews(blocksSource);" in response.text
     assert "renderReviews(payload?.reviews);" not in response.text
 
 
@@ -206,11 +206,22 @@ def test_public_slug_route_documents_rendering_uses_document_media_only():
     response = client.get("/TsarevaE_12")
 
     assert response.status_code == 200
-    assert "item?.media_type" in response.text
+    assert "(item && item.media_type)" in response.text
     assert "=== 'document'" in response.text
     assert "if (/^https?:\\/\\//i.test(item.url))" in response.text
     assert "Скоро будет доступно скачивание" in response.text
 
+
+
+
+def test_public_slug_route_runtime_bridge_avoids_optional_chaining_and_nullish_coalescing():
+    response = client.get("/TsarevaE_12")
+
+    assert response.status_code == 200
+    assert "?." not in response.text
+    assert "??" not in response.text
+    assert f'const apiBaseUrl = "{config.BASE_URL}";' in response.text
+    assert "bootstrap().catch(showNotFound);" in response.text
 
 def test_public_slug_route_keeps_reserved_paths_on_existing_pages():
     response = client.get("/pricing")

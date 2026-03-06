@@ -2775,8 +2775,11 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           }
 
           blocks.forEach((block) => {
-            const kind = String(block?.block_type || block?.kind || '').trim().toLowerCase();
-            const value = String(block?.content || '').trim();
+            const blockType = block && block.block_type ? block.block_type : '';
+            const blockKind = block && block.kind ? block.kind : '';
+            const kind = String(blockType || blockKind || '').trim().toLowerCase();
+            const blockContent = block && block.content ? block.content : '';
+            const value = String(blockContent || '').trim();
             if (!value) {
               return;
             }
@@ -2797,9 +2800,18 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             return;
           }
           const reviewsBlock = Array.isArray(blocks)
-            ? blocks.find((block) => String(block?.block_type || '').trim().toLowerCase() === 'reviews')
+            ? blocks.find((block) => String((block && block.block_type) || '').trim().toLowerCase() === 'reviews')
             : null;
-          const candidate = reviewsBlock?.items ?? reviewsBlock?.content ?? reviewsBlock?.body ?? reviewsBlock?.text;
+          let candidate = null;
+          if (reviewsBlock && reviewsBlock.items != null) {
+            candidate = reviewsBlock.items;
+          } else if (reviewsBlock && reviewsBlock.content != null) {
+            candidate = reviewsBlock.content;
+          } else if (reviewsBlock && reviewsBlock.body != null) {
+            candidate = reviewsBlock.body;
+          } else if (reviewsBlock && reviewsBlock.text != null) {
+            candidate = reviewsBlock.text;
+          }
 
           let lines = [];
           if (Array.isArray(candidate)) {
@@ -2819,16 +2831,19 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           documentsEl.innerHTML = '';
           const documentItems = Array.isArray(media)
             ? media
-              .filter((item) => String(item?.media_type || '').trim().toLowerCase() === 'document')
+              .filter((item) => String((item && item.media_type) || '').trim().toLowerCase() === 'document')
               .map((item) => ({
-                title: String(item?.title || '').trim(),
-                url: typeof item?.url === 'string' ? item.url.trim() : '',
+                title: String((item && item.title) || '').trim(),
+                url: typeof (item && item.url) === 'string' ? item.url.trim() : '',
               }))
               .filter((item) => item.title.length > 0)
             : [];
 
           if (documentItems.length === 0) {
-            documentsEl.closest('section')?.remove();
+            const documentsSectionEl = documentsEl.closest('section');
+            if (documentsSectionEl) {
+              documentsSectionEl.remove();
+            }
             return;
           }
 
@@ -2868,19 +2883,20 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             throw new Error(String(response.status));
           }
           const payload = await response.json();
+          const profile = payload && payload.profile ? payload.profile : {};
 
             loadingEl.style.display = 'none';
             specialistPageEl.style.display = 'block';
-            nameEl.textContent = payload?.profile?.display_name || 'Специалист';
-            specializationEl.textContent = payload?.profile?.specialization || '';
-            const heroQuote = String(payload?.profile?.hero_quote || '').trim();
+            nameEl.textContent = profile.display_name || 'Специалист';
+            specializationEl.textContent = profile.specialization || '';
+            const heroQuote = String(profile.hero_quote || '').trim();
             quoteEl.textContent = heroQuote;
             quoteEl.style.display = heroQuote ? 'block' : 'none';
             if (heroGridEl) {
               heroGridEl.style.gridTemplateAreas = heroQuote ? "'photo quote'" : "'photo photo'";
             }
 
-            const photoUrl = String(payload?.profile?.photo_url || '').trim();
+            const photoUrl = String(profile.photo_url || '').trim();
             if (photoUrl && /^https?:\\/\\//i.test(photoUrl)) {
               heroPhotoImageEl.src = photoUrl;
               heroPhotoImageEl.style.display = 'block';
@@ -2890,15 +2906,16 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
               heroPhotoFallbackEl.style.display = 'block';
             }
 
-            const blocks = collectBlocks(payload?.blocks);
+            const blocksSource = payload && payload.blocks ? payload.blocks : null;
+            const blocks = collectBlocks(blocksSource);
             setSectionText(aboutEl, blocks.about, 'Информация появится позже.');
             setSectionText(educationEl, blocks.education, 'Информация появится позже.');
             setSectionText(servicesEl, blocks.services, 'Информация появится позже.');
-            renderReviews(payload?.blocks);
-            renderDocuments(payload?.media);
+            renderReviews(blocksSource);
+            renderDocuments(payload && payload.media ? payload.media : null);
 
-            const clientBotUsername = String(payload?.profile?.client_bot_username || '').trim();
-            const specialistId = String(payload?.profile?.id || '').trim();
+            const clientBotUsername = String(profile.client_bot_username || '').trim();
+            const specialistId = String(profile.id || '').trim();
             if (clientBotUsername && specialistId) {
               bookingLinkEl.href = `https://t.me/${encodeURIComponent(clientBotUsername)}?start=book_${encodeURIComponent(specialistId)}`;
               bookingLinkEl.target = '_blank';
