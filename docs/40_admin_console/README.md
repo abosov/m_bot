@@ -153,6 +153,26 @@ This layered security prevents:
 - endpoint enumeration
 - unauthorized admin access
 
+### US-AD-10 — Test specialist identification
+Status: Planned
+Doc: [US-AD-10 specification](./us_ad_10_test_specialist_marking.md)
+
+### US-AD-11 — Safe deletion of one test specialist
+Status: Planned
+Doc: [US-AD-11 specification](./us_ad_11_delete_test_specialist.md)
+
+### US-AD-12 — Bulk delete all test accounts
+Status: Planned
+Doc: [US-AD-12 specification](./us_ad_12_bulk_delete_test_accounts.md)
+
+### US-AD-13 — Reset test specialist data without deleting specialist
+Status: Planned
+Doc: [US-AD-13 specification](./us_ad_13_reset_test_specialist_data.md)
+
+### US-AD-14 — Admin diagnostics / cleanup tools (read-only diagnostics)
+Status: Planned
+Doc: [US-AD-14 specification](./us_ad_14_admin_diagnostics_cleanup_tools.md)
+
 
 ---
 
