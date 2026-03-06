@@ -2817,10 +2817,10 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           if (Array.isArray(candidate)) {
             lines = candidate.map((item) => String(item || '').trim()).filter((text) => text.length > 0);
           } else if (typeof candidate === 'string') {
-            lines = candidate.split('\n').map((line) => line.trim()).filter((text) => text.length > 0);
+            lines = candidate.split('\\n').map((line) => line.trim()).filter((text) => text.length > 0);
           }
 
-          reviewsEl.textContent = lines.join('\n\n') || 'Отзывы скоро появятся.';
+          reviewsEl.textContent = lines.join('\\n\\n') || 'Отзывы скоро появятся.';
         };
 
         const renderDocuments = (media) => {
