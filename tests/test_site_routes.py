@@ -216,6 +216,9 @@ def test_profile_edit_page_contains_auth_status_and_working_form_sections():
     assert "Профиль специалиста" in response.text
     assert "✅ Авторизовано" in response.text
     assert "❌ Не удалось авторизоваться" in response.text
+    assert "Публичная страница" in response.text
+    assert "Опубликовать" in response.text
+    assert "Копировать" in response.text
     assert "Основное" in response.text
     assert "О себе" in response.text
     assert "Образование" in response.text

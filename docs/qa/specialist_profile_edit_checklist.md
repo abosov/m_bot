@@ -13,6 +13,18 @@
 - [ ] After auth, form fields are populated from `GET /api/specialist/profile`.
 - [ ] Empty values render as empty strings, no `null` shown in inputs.
 
+
+## Public page block
+- [ ] На странице есть секция **«Публичная страница»** сразу под статусом авторизации.
+- [ ] При `is_published=false` показан бейдж `Черновик` и подсказка `Пока видите только Вы`.
+- [ ] При `is_published=true` показан бейдж `Опубликовано`.
+- [ ] Если `public_slug` отсутствует, показан текст `Ссылка появится после создания slug`, кнопка `Копировать` disabled.
+- [ ] Если `public_slug` задан, отображается ссылка вида `https://zumbot.ru/<slug>` и активна кнопка `Копировать`.
+- [ ] Кнопка `Опубликовать` вызывает publish endpoint и меняет состояние на `Опубликовано`.
+- [ ] Кнопка `Снять с публикации` вызывает unpublish endpoint и меняет состояние на `Черновик`.
+- [ ] Во время запроса publish/unpublish кнопка публикации disabled.
+- [ ] `Копировать` работает через Clipboard API, при недоступности — через fallback.
+
 ## Block save behavior
 - [ ] Saving **Основное** updates name/specialization/quote.
 - [ ] Saving **О себе** updates only `about` in merged payload behavior.
@@ -21,6 +33,7 @@
 - [ ] Saving **Отзывы** updates only `reviews`.
 - [ ] During request, corresponding Save button is disabled.
 - [ ] On success, status `Сохранено ✅` appears and hides after ~2.5s.
+- [ ] Дополнительно появляется toast/label `Сохранено` на ~2.5s после успешного PUT.
 - [ ] On API error, user-friendly error text appears (no traceback).
 
 ## Uploads

@@ -27,6 +27,15 @@
     button[disabled] { opacity: .6; cursor: not-allowed; }
     .media-list { margin: 8px 0 0; padding-left: 18px; color: #334155; }
     .media-list li { margin-bottom: 4px; }
+    .public-status { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+    .public-status.draft { background: #e5e7eb; color: #374151; }
+    .public-status.published { background: #dcfce7; color: #166534; }
+    .public-link-wrap { display: flex; gap: 8px; align-items: center; margin: 10px 0 8px; flex-wrap: wrap; }
+    .public-link { font-size: 14px; color: #1d4ed8; text-decoration: none; word-break: break-all; }
+    .public-link.disabled { color: #6b7280; text-decoration: none; pointer-events: none; }
+    .public-hint { margin: 6px 0; font-size: 13px; color: #4b5563; }
+    .btn-secondary { background: #475569; }
+    .save-toast { position: fixed; right: 18px; bottom: 18px; background: #166534; color: #fff; border-radius: 8px; padding: 10px 12px; box-shadow: 0 8px 18px rgba(0,0,0,.2); font-size: 14px; }
     @media (max-width: 760px) {
       .row { grid-template-columns: 1fr; }
     }
@@ -42,6 +51,20 @@
     <p id="auth-error" class="status error hidden">❌ Не удалось авторизоваться, откройте страницу из бота заново</p>
 
     <div id="profile-form" class="hidden">
+      <div class="section">
+        <h3>Публичная страница</h3>
+        <p><span id="public-status-badge" class="public-status draft">Черновик</span></p>
+        <div class="public-link-wrap">
+          <a id="public-link" class="public-link disabled" href="#" target="_blank" rel="noopener">Ссылка появится после создания slug</a>
+          <button id="copy-public-link" type="button" class="btn-secondary" disabled>Копировать</button>
+        </div>
+        <p id="public-link-hint" class="public-hint">Ссылка появится после создания slug</p>
+        <p id="public-visibility-hint" class="public-hint">Пока видите только Вы</p>
+        <div class="actions">
+          <button id="toggle-publish" type="button">Опубликовать</button>
+        </div>
+        <p id="status-public" class="section-status"></p>
+      </div>
       <div class="section">
         <h3>Основное</h3>
         <div class="row">
@@ -98,6 +121,7 @@
         <ul id="documents-list" class="media-list"></ul>
       </div>
     </div>
+    <div id="save-toast" class="save-toast hidden">Сохранено</div>
   </main>
 
   <script>
@@ -110,7 +134,8 @@
       const state = {
         model: {
           first_name: '', middle_name: '', last_name: '', specialization: '', hero_quote: '',
-          about: '', education: '', services: '', reviews: ''
+          about: '', education: '', services: '', reviews: '',
+          public_slug: null, is_published: false
         }
       };
 
@@ -172,6 +197,102 @@
         });
       }
 
+      function buildPublicUrl() {
+        const slug = (state.model.public_slug || '').trim();
+        if (!slug) return '';
+        return `https://zumbot.ru/${encodeURIComponent(slug)}`;
+      }
+
+      function renderPublicProfile() {
+        const statusBadge = document.getElementById('public-status-badge');
+        const linkEl = document.getElementById('public-link');
+        const hintEl = document.getElementById('public-link-hint');
+        const visibilityHintEl = document.getElementById('public-visibility-hint');
+        const copyBtn = document.getElementById('copy-public-link');
+        const publishBtn = document.getElementById('toggle-publish');
+
+        const publicUrl = buildPublicUrl();
+        const isPublished = !!state.model.is_published;
+
+        statusBadge.textContent = isPublished ? 'Опубликовано' : 'Черновик';
+        statusBadge.classList.remove('draft', 'published');
+        statusBadge.classList.add(isPublished ? 'published' : 'draft');
+
+        if (publicUrl) {
+          linkEl.textContent = publicUrl;
+          linkEl.href = publicUrl;
+          linkEl.classList.remove('disabled');
+          hintEl.textContent = '';
+          copyBtn.disabled = false;
+          publishBtn.disabled = false;
+        } else {
+          linkEl.textContent = 'Ссылка появится после создания slug';
+          linkEl.href = '#';
+          linkEl.classList.add('disabled');
+          hintEl.textContent = 'Ссылка появится после создания slug';
+          copyBtn.disabled = true;
+          publishBtn.disabled = true;
+        }
+
+        visibilityHintEl.textContent = isPublished ? '' : 'Пока видите только Вы';
+        publishBtn.textContent = isPublished ? 'Снять с публикации' : 'Опубликовать';
+      }
+
+      function showSaveToast() {
+        const toast = document.getElementById('save-toast');
+        toast.classList.remove('hidden');
+        clearTimeout(showSaveToast._timer);
+        showSaveToast._timer = setTimeout(() => {
+          toast.classList.add('hidden');
+        }, 2500);
+      }
+
+      async function copyPublicLink() {
+        const publicUrl = buildPublicUrl();
+        if (!publicUrl) {
+          setStatus('status-public', 'Ссылка ещё не создана', 'error');
+          return;
+        }
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(publicUrl);
+          } else {
+            const input = document.createElement('textarea');
+            input.value = publicUrl;
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand('copy');
+            document.body.removeChild(input);
+          }
+          setStatus('status-public', 'Ссылка скопирована', 'ok');
+        } catch (_) {
+          setStatus('status-public', 'Не удалось скопировать ссылку', 'error');
+        }
+      }
+
+      async function togglePublish() {
+        const button = document.getElementById('toggle-publish');
+        const shouldPublish = !state.model.is_published;
+        button.disabled = true;
+        setStatus('status-public', '', null);
+        try {
+          const endpoint = shouldPublish ? '/api/specialist/profile/publish' : '/api/specialist/profile/unpublish';
+          const { res, data } = await apiFetch(endpoint, { method: 'POST' });
+          if (!res.ok || !data) {
+            const msg = data && data.detail ? String(data.detail) : 'Не удалось изменить статус публикации';
+            setStatus('status-public', `Ошибка: ${msg}`, 'error');
+            return;
+          }
+          state.model.is_published = !!data.is_published;
+          renderPublicProfile();
+          setStatus('status-public', state.model.is_published ? 'Профиль опубликован' : 'Профиль снят с публикации', 'ok');
+        } catch (_) {
+          setStatus('status-public', 'Ошибка сети, попробуйте снова', 'error');
+        } finally {
+          renderPublicProfile();
+        }
+      }
+
       async function loadProfile() {
         const { res, data } = await apiFetch('/api/specialist/profile', { method: 'GET' });
         if (!res.ok || !data) throw new Error('Не удалось загрузить профиль');
@@ -185,8 +306,11 @@
           education: data.education || '',
           services: data.services || '',
           reviews: data.reviews || '',
+          public_slug: data.public_slug || null,
+          is_published: !!data.is_published,
         };
         applyModelToForm();
+        renderPublicProfile();
       }
 
       function setStatus(id, text, type) {
@@ -208,6 +332,22 @@
         document.getElementById(buttonId).disabled = !!disabled;
       }
 
+
+      function buildDraftPayload(patch) {
+        const editablePayload = {
+          first_name: state.model.first_name,
+          middle_name: state.model.middle_name,
+          last_name: state.model.last_name,
+          specialization: state.model.specialization,
+          hero_quote: state.model.hero_quote,
+          about: state.model.about,
+          education: state.model.education,
+          services: state.model.services,
+          reviews: state.model.reviews,
+        };
+        return { ...editablePayload, ...patch };
+      }
+
       async function saveBlock(buttonId, statusId, patch) {
         toggleButton(buttonId, true);
         setStatus(statusId, '', null);
@@ -215,7 +355,7 @@
           Object.keys(patch).forEach((key) => {
             patch[key] = trimValue(patch[key]);
           });
-          const payload = { ...state.model, ...patch };
+          const payload = buildDraftPayload(patch);
           const { res, data } = await apiFetch('/api/specialist/profile', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -228,7 +368,9 @@
           }
           state.model = { ...state.model, ...data };
           applyModelToForm();
+          renderPublicProfile();
           setStatus(statusId, 'Сохранено ✅', 'ok');
+          showSaveToast();
         } catch (_) {
           setStatus(statusId, 'Ошибка сети, попробуйте снова', 'error');
         } finally {
@@ -276,6 +418,7 @@
           }
           input.value = '';
           setStatus('status-photo', 'Сохранено ✅', 'ok');
+          showSaveToast();
           await refreshMediaList();
         } catch (_) {
           setStatus('status-photo', 'Ошибка сети, попробуйте снова', 'error');
@@ -312,6 +455,7 @@
           }
           input.value = '';
           setStatus('status-documents', `Сохранено ✅ (${uploaded})`, 'ok');
+          showSaveToast();
           await refreshMediaList();
         } catch (_) {
           setStatus('status-documents', 'Ошибка сети, попробуйте снова', 'error');
@@ -364,6 +508,8 @@
           }));
           document.getElementById('upload-photo').addEventListener('click', uploadPhoto);
           document.getElementById('upload-documents').addEventListener('click', uploadDocuments);
+          document.getElementById('copy-public-link').addEventListener('click', copyPublicLink);
+          document.getElementById('toggle-publish').addEventListener('click', togglePublish);
         } catch (_) {
           loading.classList.add('hidden');
           form.classList.add('hidden');

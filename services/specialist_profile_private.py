@@ -159,7 +159,7 @@ async def _get_blocks_by_type(session: AsyncSession, profile_id) -> dict[str, di
     return {row["block_type"]: dict(row) for row in rows}
 
 
-async def read_specialist_profile_draft(session: AsyncSession, specialist_id) -> dict[str, str]:
+async def read_specialist_profile_draft(session: AsyncSession, specialist_id) -> dict[str, str | bool | None]:
     profile = await get_or_create_public_profile_for_specialist(session, specialist_id)
     blocks_by_type = await _get_blocks_by_type(session, profile["id"])
 
@@ -184,6 +184,8 @@ async def read_specialist_profile_draft(session: AsyncSession, specialist_id) ->
         "education": (blocks_by_type.get("education", {}).get("content") or "").strip(),
         "services": (blocks_by_type.get("services", {}).get("content") or "").strip(),
         "reviews": (blocks_by_type.get("reviews", {}).get("content") or "").strip(),
+        "public_slug": profile.get("public_slug"),
+        "is_published": bool(profile.get("is_published", False)),
     }
 
 
@@ -302,6 +304,52 @@ async def update_specialist_profile_draft(
         )
 
     return await read_specialist_profile_draft(session, specialist_id)
+
+
+async def publish_specialist_profile(session: AsyncSession, *, specialist_id) -> dict[str, bool]:
+    profile = await get_or_create_public_profile_for_specialist(session, specialist_id)
+    public_slug = (profile.get("public_slug") or "").strip()
+    if not public_slug:
+        raise ValueError("slug_missing")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    await session.execute(
+        text(
+            """
+            UPDATE specialist_public_profile
+               SET is_published = :is_published,
+                   updated_at = :updated_at
+             WHERE id = :id
+            """
+        ),
+        {
+            "id": profile["id"],
+            "is_published": True,
+            "updated_at": now,
+        },
+    )
+    return {"ok": True, "is_published": True}
+
+
+async def unpublish_specialist_profile(session: AsyncSession, *, specialist_id) -> dict[str, bool]:
+    profile = await get_or_create_public_profile_for_specialist(session, specialist_id)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    await session.execute(
+        text(
+            """
+            UPDATE specialist_public_profile
+               SET is_published = :is_published,
+                   updated_at = :updated_at
+             WHERE id = :id
+            """
+        ),
+        {
+            "id": profile["id"],
+            "is_published": False,
+            "updated_at": now,
+        },
+    )
+    return {"ok": True, "is_published": False}
 
 
 async def replace_specialist_profile_photo(

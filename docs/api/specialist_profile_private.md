@@ -20,13 +20,17 @@ Response DTO:
   "about": "",
   "education": "",
   "services": "",
-  "reviews": ""
+  "reviews": "",
+  "public_slug": null,
+  "is_published": false
 }
 ```
 
 Notes:
 - Returns only form fields; no internal fields (`file_key`, media raw storage keys, IDs of profile internals).
-- Empty values are returned as empty strings (`""`) consistently.
+- Empty text values are returned as empty strings (`""`) consistently.
+- `public_slug` is returned as `string | null` (if DB has `NULL`, API returns `null`).
+- `is_published` is always returned as boolean.
 - If draft profile does not exist, backend creates a minimal draft record.
 
 ### PUT `/api/specialist/profile`
@@ -37,6 +41,34 @@ Validation:
 - `hero_quote`: `0..200` chars after trim
 - `about`, `education`, `services`, `reviews`: `0..8000` chars after trim
 - derived `display_name` must be `<= 200`
+
+
+### POST `/api/specialist/profile/publish`
+Publishes specialist public profile (`is_published=true`).
+
+Rules:
+- specialist id is taken only from verified `web_auth_session` cookie.
+- profile can be published only when `public_slug` is set.
+
+Response:
+```json
+{ "ok": true, "is_published": true }
+```
+
+Errors:
+- `401 unauthorized` — missing/invalid web session.
+- `422 slug_missing` — profile slug is empty or missing.
+
+### POST `/api/specialist/profile/unpublish`
+Unpublishes specialist public profile (`is_published=false`).
+
+Response:
+```json
+{ "ok": true, "is_published": false }
+```
+
+Errors:
+- `401 unauthorized` — missing/invalid web session.
 
 ## Media upload endpoints
 
