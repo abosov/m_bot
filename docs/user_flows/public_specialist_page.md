@@ -88,6 +88,6 @@ Security guard:
 - `GET /{public_slug}` возвращает HTML со sticky header (`#specialist-sticky-header`) и пунктами меню: «О себе», «Образование», «Документы», «Услуги и цены», «Отзывы», «Записаться».
 - Страница делает fetch в `${BASE_URL}/api/public/specialists/{public_slug}` для загрузки контента.
 - Loading-state `Загружаем профиль специалиста...` всегда завершается: либо success (`#specialist-page`), либо not-found/error (`#public-specialist-not-found`).
-- Fail-safe: runtime JS errors и unhandled promise rejection переводят страницу в not-found/error state (без вечного loading).
+- Fail-safe: runtime JS errors и unhandled promise rejection переводят страницу в not-found/error state (без вечного loading); bootstrap обёрнут как `try { bootstrap().catch(showNotFound) } catch (_) { showNotFound() }`.
 - Reserved paths (`/pricing`, `/privacy`, `/terms`, `/revoke-access`, `/api`, `/static`, `/assets`) не перехватываются slug-route.
 - Невалидные slug по-прежнему дают 404 на site-route и 400 на API route.
