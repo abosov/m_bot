@@ -27,7 +27,7 @@ def build_personal_bot(telegram_bot: TelegramBot) -> Bot:
     return Bot(
         token=token,
         session=_build_session(),
-        default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
+        default=DefaultBotProperties(),
     )
 
 
