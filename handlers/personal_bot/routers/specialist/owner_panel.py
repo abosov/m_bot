@@ -639,19 +639,7 @@ async def _build_owner_panel_view(
 
     display_name = public_name or profile.public_name or "специалист"
     referral_link, invited_count = await _load_referral_program_stats(specialist_id)
-    profile_edit_url = None
     public_page_url = await _load_public_page_url_for_settings(specialist_id)
-    if owner_tg_user_id is not None:
-        async with async_session_factory() as session:
-            try:
-                profile_edit_url = await build_profile_edit_url_for_specialist(
-                    session=session,
-                    specialist_id=specialist_id,
-                    tg_user_id=owner_tg_user_id,
-                )
-            except ValueError:
-                logger.warning("Profile edit URL is unavailable due to PUBLIC_SITE_URL configuration")
-                profile_edit_url = None
     text, keyboard = build_specialist_settings_view(
         profile=profile,
         rows=rows,
@@ -660,7 +648,6 @@ async def _build_owner_panel_view(
         keep_callback_data=None,
         include_reset_button=True,
         working_intervals_by_idx=working_intervals_by_idx,
-        profile_edit_url=profile_edit_url,
         public_page_url=public_page_url,
         referral_link=referral_link,
         referrals_count=invited_count,
@@ -1042,6 +1029,39 @@ async def owner_wizard_limits_set(
     await callback.message.answer("✅ Мастер завершён. Базовые настройки сохранены.")
     await _render_owner_panel_inplace(callback.message, specialist_id=specialist_id, public_name=public_name, owner_tg_user_id=owner_tg_user_id)
 
+
+
+
+@router.callback_query(F.data == "owner_panel:profile_edit_link")
+async def owner_panel_profile_edit_link(
+    callback: CallbackQuery,
+    specialist_id,
+    owner_tg_user_id: int | None,
+) -> None:
+    if owner_tg_user_id is None or callback.from_user is None or callback.from_user.id != owner_tg_user_id:
+        await callback.answer("Недостаточно прав", show_alert=True)
+        return
+
+    async with async_session_factory() as session:
+        try:
+            profile_edit_url = await build_profile_edit_url_for_specialist(
+                session=session,
+                specialist_id=specialist_id,
+                tg_user_id=owner_tg_user_id,
+            )
+        except ValueError:
+            logger.warning("Profile edit URL is unavailable due to PUBLIC_SITE_URL configuration")
+            await callback.answer("Ссылка временно недоступна", show_alert=True)
+            return
+
+    await callback.answer()
+    await callback.message.answer(
+        "Откройте редактор профиля по свежей ссылке:\n\n"
+        "Ссылка одноразовая и действует ограниченное время.",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="Открыть редактор профиля", url=profile_edit_url)]]
+        ),
+    )
 
 @router.callback_query(F.data == "owner_panel:apply_defaults")
 async def owner_panel_apply_defaults(callback: CallbackQuery) -> None:

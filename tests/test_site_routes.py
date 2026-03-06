@@ -200,6 +200,33 @@ def test_auth_telegram_consume_sets_cookie_and_can_only_be_used_once(monkeypatch
     assert second.json() == {"ok": False, "error": "expired_or_used"}
 
 
+
+
+def test_old_telegram_link_token_is_single_use_and_then_returns_expired_or_used(monkeypatch):
+    old_token = "old-message-token"
+    specialist_id = "44444444-4444-4444-8444-444444444444"
+    tg_user_id = 777
+    consumed = {"done": False}
+
+    async def _consume_connect_token(_session, raw_token: str):
+        assert raw_token == old_token
+        if consumed["done"]:
+            return None
+        consumed["done"] = True
+        return specialist_id, tg_user_id
+
+    monkeypatch.setattr(web_server, "async_session_factory", lambda: _DummySessionContext())
+    monkeypatch.setattr(web_server.web_connect, "consume_connect_token", _consume_connect_token)
+
+    first = client.post("/auth/telegram/consume", json={"token": old_token})
+    second = client.post("/auth/telegram/consume", json={"token": old_token})
+
+    assert first.status_code == 200
+    assert first.json() == {"ok": True}
+    assert second.status_code == 400
+    assert second.json() == {"ok": False, "error": "expired_or_used"}
+
+
 def test_auth_telegram_consume_rejects_empty_token():
     response = client.post("/auth/telegram/consume", json={"token": "   "})
 
@@ -215,7 +242,7 @@ def test_profile_edit_page_contains_auth_status_and_working_form_sections():
     assert response.status_code == 200
     assert "Профиль специалиста" in response.text
     assert "✅ Авторизовано" in response.text
-    assert "❌ Не удалось авторизоваться" in response.text
+    assert 'id="auth-error"' in response.text
     assert "Публичная страница" in response.text
     assert "Опубликовать" in response.text
     assert "Копировать" in response.text
@@ -278,6 +305,37 @@ def test_profile_edit_quote_is_secondary_block_and_saved_separately():
     assert "specialization: fields.specialization.value," in response.text
     assert "specialization: fields.specialization.value,\n            hero_quote: fields.hero_quote.value," not in response.text
 
+
+
+
+
+
+def test_profile_edit_old_message_flow_shows_return_to_bot_guidance():
+    response = client.get("/profile/edit")
+
+    assert response.status_code == 200
+    assert "Ссылка устарела или уже была использована. Вернитесь в бот и запросите новую." in response.text
+    assert "Ссылка для входа не найдена. Откройте страницу из бота." in response.text
+
+
+def test_profile_edit_auth_error_messages_are_explicit_for_missing_and_expired_tokens():
+    response = client.get("/profile/edit")
+
+    assert response.status_code == 200
+    assert "Ссылка для входа не найдена. Откройте страницу из бота." in response.text
+    assert "Ссылка устарела или уже была использована. Вернитесь в бот и запросите новую." in response.text
+    assert "resolveAuthErrorText({ tokenPresent, consumeError })" in response.text
+    assert "consumeError === 'expired_or_used'" in response.text
+
+
+def test_profile_edit_uses_existing_session_when_token_consume_failed():
+    response = client.get("/profile/edit")
+
+    assert response.status_code == 200
+    assert "if (!authorized) {" in response.text
+    assert "authorized = await checkSession();" in response.text
+    assert "if (consumeResult.ok) clearHash();" in response.text
+    assert "error.textContent = `❌ ${resolveAuthErrorText({ tokenPresent, consumeError })}`;" in response.text
 
 def test_connect_page_contains_google_form_and_legal_links():
     response = client.get("/connect")

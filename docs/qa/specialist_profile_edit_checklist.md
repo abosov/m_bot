@@ -1,13 +1,23 @@
 # QA checklist: specialist profile edit (`/profile/edit`)
 
 ## Preconditions
-- Specialist has access link from personal bot (`/profile/edit#token=...`).
+- Specialist opens owner panel and taps callback **«✏️ Редактировать профиль специалиста»** to get a fresh link (`/profile/edit#token=...`).
+- Re-tapping callback issues a new one-time link without reopening owner panel.
 - Backend is running and private profile endpoints are available.
 
 ## Auth / session
 - [ ] Opening page from bot link shows `✅ Авторизовано`.
 - [ ] Opening page without valid token/session shows auth error message.
+- [ ] Для `expired_or_used` отображается текст: `Ссылка устарела или уже была использована. Вернитесь в бот и запросите новую.`
+- [ ] При отсутствии token/hash отображается текст: `Ссылка для входа не найдена. Откройте страницу из бота.`
+- [ ] Если hash-token невалиден, но `GET /connect/status` возвращает `ok=true`, страница открывается и профиль загружается.
 - [ ] Hash token is removed from URL after successful consume.
+
+
+## Сценарий: старая ссылка из Telegram
+- [ ] Открыть свежую ссылку из бота → авторизация успешна, страница профиля загружена.
+- [ ] Открыть ту же ссылку повторно в новой вкладке → отображается flow `expired_or_used` с понятным текстом про возврат в бот за новой ссылкой.
+- [ ] Вернуться в бот и нажать **«✏️ Редактировать профиль специалиста»** повторно → бот выдаёт новую одноразовую ссылку, переход по ней снова успешен.
 
 ## Data loading
 - [ ] After auth, form fields are populated from `GET /api/specialist/profile`.
