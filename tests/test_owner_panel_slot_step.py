@@ -271,6 +271,44 @@ async def test_owner_panel_profile_edit_link_allows_new_link_after_error(monkeyp
     assert callback.answers[0][1].get("show_alert") is True
     assert callback.message.answers[-1][1]["reply_markup"].inline_keyboard[0][0].url.endswith("fresh-2")
 
+
+@pytest.mark.asyncio
+async def test_owner_panel_profile_edit_link_sends_plain_text_without_raw_url_or_parse_mode(monkeypatch) -> None:
+    callback = DummyCallback()
+    callback.from_user = type("User", (), {"id": 123})()
+
+    class _SessionCtx:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    fresh_url = "https://example.test/profile/edit#token=fresh_1-abc=xyz"
+
+    async def fake_build_profile_edit_url_for_specialist(*, session, specialist_id, tg_user_id):
+        assert specialist_id == "sp-id"
+        assert tg_user_id == 123
+        return fresh_url
+
+    monkeypatch.setattr(owner_panel, "async_session_factory", lambda: _SessionCtx())
+    monkeypatch.setattr(owner_panel, "build_profile_edit_url_for_specialist", fake_build_profile_edit_url_for_specialist)
+
+    await owner_panel.owner_panel_profile_edit_link(callback=callback, specialist_id="sp-id", owner_tg_user_id=123)
+
+    text, kwargs = callback.message.answers[-1]
+    assert text == (
+        "Откройте редактор профиля по свежей ссылке.\n"
+        "Ссылка одноразовая и действует ограниченное время."
+    )
+    assert fresh_url not in text
+    assert "parse_mode" in kwargs
+    assert kwargs["parse_mode"] is None
+
+    keyboard = kwargs["reply_markup"]
+    url_button = keyboard.inline_keyboard[0][0]
+    assert url_button.url == fresh_url
+
 def test_format_intervals_for_ui_hides_null_intervals() -> None:
     row = type(
         "Row",

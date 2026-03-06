@@ -13,7 +13,7 @@
 
 1. **Frontend (website)** принимает запрос на путь `/{slug}`.
 2. **Router** использует `resolve_frontend_route(path)` и проверяет, что путь подходит под правила публичной страницы (валидный slug + не зарезервированный путь).
-3. **Frontend Page** (для `specialist_profile_page`) запрашивает данные страницы через **Public API** backend (`GET /api/public/specialists/{slug}`).
+3. **Frontend Page** (для `specialist_profile_page`) запрашивает данные страницы через **Public API** backend (`GET /api/public/specialists/{slug}`) по абсолютному origin из backend-конфига: `${BASE_URL}/api/public/specialists/{slug}`.
 4. **Public API** читает published-снимок из **Database** только через `specialist_public_profile`, `specialist_public_block`, `specialist_public_media`.
 5. Для изображений/файлов Public API не отдает `file_key`; публичная выдача использует только безопасные поля ответа.
 6. Frontend рендерит мини-лендинг и CTA для перехода в Telegram-бот записи.
@@ -47,9 +47,15 @@
 Поток данных:
 1. Frontend извлекает `slug` из пути.
 2. Проводит базовую проверку формата и reserved list (может быть дублирована backend-валидацией).
-3. Вызывает Public API.
+3. Вызывает Public API по backend origin из `config.BASE_URL`.
 4. Backend повторно валидирует slug и выполняет запрос в БД по уникальному полю `slug`.
 5. Backend возвращает DTO страницы (контент, данные специалиста, ссылки на медиа, deep-link в Telegram).
+
+Поведение runtime-bridge на `GET /{slug}`:
+- единый источник истины: route `web_server.py:@app.get("/{public_slug}")` с full-page bridge (sticky header + hero + sections);
+- bootstrap обёрнут в `try/catch`;
+- добавлены `window.error` и `window.unhandledrejection` fail-safe обработчики;
+- loading-state обязан завершаться в один из терминальных состояний: success (показ `#specialist-page`) или not-found/error (показ `#public-specialist-not-found`).
 
 ## 4) Правила slug
 Формат slug:

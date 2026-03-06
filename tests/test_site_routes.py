@@ -2,6 +2,7 @@ import re
 
 from fastapi.testclient import TestClient
 
+import config
 import web_server
 
 
@@ -124,7 +125,9 @@ def test_public_slug_route_returns_full_public_specialist_page_markup():
     assert ">Услуги и цены<" in response.text
     assert ">Отзывы<" in response.text
     assert ">Записаться<" in response.text
-    assert "fetch(`/api/public/specialists/${encodeURIComponent(slug)}`)" in response.text
+    assert "const apiBaseUrl = " in response.text
+    assert f'const apiBaseUrl = "{config.BASE_URL}";' in response.text
+    assert "const publicProfileApiUrl = `${apiBaseUrl.replace(/\\/$/, '')}/api/public/specialists/${encodeURIComponent(slug)}`;" in response.text
     assert 'const slug = "TsarevaE_12";' in response.text
 
 
@@ -134,6 +137,28 @@ def test_public_slug_route_keeps_not_found_container_markup():
     assert response.status_code == 200
     assert 'id="public-specialist-not-found"' in response.text
     assert "Профиль не найден" in response.text
+
+
+def test_public_slug_route_has_failsafe_handlers_for_runtime_errors():
+    response = client.get("/TsarevaE_12")
+
+    assert response.status_code == 200
+    assert "window.addEventListener('error', showNotFound);" in response.text
+    assert "window.addEventListener('unhandledrejection', showNotFound);" in response.text
+    assert "try {" in response.text
+    assert "bootstrap().catch(() => {" in response.text
+    assert "} catch (_) {" in response.text
+    assert "showNotFound();" in response.text
+
+
+def test_public_slug_route_hides_loading_when_api_returns_non_ok_status():
+    response = client.get("/TsarevaE_12")
+
+    assert response.status_code == 200
+    assert "if (!response.ok) {" in response.text
+    assert "throw new Error(String(response.status));" in response.text
+    assert "loadingEl.style.display = 'none';" in response.text
+    assert "notFoundEl.style.display = 'block';" in response.text
 
 
 

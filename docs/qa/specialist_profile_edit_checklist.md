@@ -18,6 +18,7 @@
 - [ ] Открыть свежую ссылку из бота → авторизация успешна, страница профиля загружена.
 - [ ] Открыть ту же ссылку повторно в новой вкладке → отображается flow `expired_or_used` с понятным текстом про возврат в бот за новой ссылкой.
 - [ ] Вернуться в бот и нажать **«✏️ Редактировать профиль специалиста»** повторно → бот выдаёт новую одноразовую ссылку, переход по ней снова успешен.
+- [ ] Повторные нажатия callback **«✏️ Редактировать профиль специалиста»** не вызывают Telegram alert `can't parse entities`.
 
 ## Data loading
 - [ ] After auth, form fields are populated from `GET /api/specialist/profile`.
@@ -65,4 +66,3 @@
 - [ ] Media list does not expose `file_key`.
 - [ ] Requests use cookie session (`credentials: include`).
 - [ ] No public endpoint exposes uploaded private media directly.
-

@@ -2728,6 +2728,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
     <script>
       (function() {
         const slug = __PUBLIC_SLUG_JSON__;
+        const apiBaseUrl = __PUBLIC_API_BASE_URL_JSON__;
         const specialistPageEl = document.getElementById('specialist-page');
         const loadingEl = document.getElementById('public-specialist-loading');
         const notFoundEl = document.getElementById('public-specialist-not-found');
@@ -2743,6 +2744,22 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
         const documentsEl = document.getElementById('specialist-documents-content');
         const servicesEl = document.getElementById('specialist-services-content');
         const reviewsEl = document.getElementById('specialist-reviews-content');
+        const publicProfileApiUrl = `${apiBaseUrl.replace(/\\/$/, '')}/api/public/specialists/${encodeURIComponent(slug)}`;
+
+        const showNotFound = () => {
+          if (loadingEl) {
+            loadingEl.style.display = 'none';
+          }
+          if (specialistPageEl) {
+            specialistPageEl.style.display = 'none';
+          }
+          if (notFoundEl) {
+            notFoundEl.style.display = 'block';
+          }
+        };
+
+        window.addEventListener('error', showNotFound);
+        window.addEventListener('unhandledrejection', showNotFound);
 
         const setSectionText = (el, value, fallback) => {
           if (!el) {
@@ -2845,14 +2862,13 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           }
         };
 
-        fetch(`/api/public/specialists/${encodeURIComponent(slug)}`)
-          .then(async (response) => {
-            if (!response.ok) {
-              throw new Error(String(response.status));
-            }
-            return await response.json();
-          })
-          .then((payload) => {
+        const bootstrap = async () => {
+          const response = await fetch(publicProfileApiUrl);
+          if (!response.ok) {
+            throw new Error(String(response.status));
+          }
+          const payload = await response.json();
+
             loadingEl.style.display = 'none';
             specialistPageEl.style.display = 'block';
             nameEl.textContent = payload?.profile?.display_name || 'Специалист';
@@ -2888,15 +2904,23 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
               bookingLinkEl.target = '_blank';
               bookingLinkEl.rel = 'noopener noreferrer';
             }
-          })
-          .catch(() => {
-            loadingEl.style.display = 'none';
-            notFoundEl.style.display = 'block';
+
+            window.removeEventListener('error', showNotFound);
+            window.removeEventListener('unhandledrejection', showNotFound);
+        };
+
+        try {
+          bootstrap().catch(() => {
+            showNotFound();
           });
+        } catch (_) {
+          showNotFound();
+        }
       })();
     </script>
   </body>
 </html>
 """
     html = html.replace("__PUBLIC_SLUG_JSON__", json.dumps(public_slug))
+    html = html.replace("__PUBLIC_API_BASE_URL_JSON__", json.dumps(config.BASE_URL))
     return HTMLResponse(content=html)
