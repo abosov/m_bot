@@ -475,3 +475,143 @@ python scripts/check_encoding.py
 ```bash
 python scripts/check_encoding.py --strict-warn
 ```
+
+## Ops utility: проверка orphan media
+
+Скрипт: `scripts/check_orphan_specialist_media.sh`.
+
+### Назначение
+
+Найти на VPS каталоги медиа специалистов, которые остались на диске,
+но больше не имеют соответствующей записи в БД.
+
+### Что считается orphan media
+
+Скрипт обходит директории вида:
+
+- `/opt/zumbot/backend/specialist/<specialist_id>`
+
+Для каждого `<specialist_id>` выполняется проверка в PostgreSQL:
+
+```sql
+SELECT 1 FROM specialist WHERE specialist_id='<specialist_id>';
+```
+
+Если запись в таблице `specialist` не найдена, каталог считается осиротевшим
+(orphan media) и выводится строка `ORPHAN MEDIA: ...`.
+
+### Зависимости
+
+- production layout с базовым путём `/opt/zumbot/backend/specialist`;
+- локальный PostgreSQL на VPS;
+- таблица `specialist` в БД `zumbot`;
+- доступ к `psql` от системного пользователя `postgres`
+  (внутри скрипта используется `sudo -u postgres psql -d zumbot`).
+
+### Пример запуска на VPS
+
+```bash
+sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/check_orphan_specialist_media.sh'
+```
+
+### Ожидаемый чистый результат
+
+```text
+Scanning specialist media folders...
+Done.
+```
+
+### Пример результата при наличии orphan-папок
+
+```text
+Scanning specialist media folders...
+ORPHAN MEDIA: /opt/zumbot/backend/specialist/91
+ORPHAN MEDIA: /opt/zumbot/backend/specialist/104
+Done.
+```
+
+### Ограничения и безопасность
+
+- скрипт только диагностирует состояние и **ничего не удаляет**;
+- удаление выполняется отдельно, вручную, после проверки ID и содержимого;
+- инструмент предназначен для ручного ops-использования на VPS,
+  не для локальной разработки.
+
+## Ops utility: локальная очистка dev-артефактов
+
+Скрипт: `scripts/clean_dev.sh`.
+
+### Назначение
+
+Утилита выполняет безопасную техническую очистку рабочего дерева проекта
+перед локальными проверками, коммитом или упаковкой артефактов.
+
+Это **dev/ops cleanup**, а не бизнес-операция.
+
+### Что удаляет
+
+Скрипт удаляет только технический мусор разработки:
+
+- директории `__pycache__` (с исключением `.venv`);
+- директории `.pytest_cache`;
+- файлы `.DS_Store`;
+- файлы `*.pyc`.
+
+### Что сознательно НЕ трогает
+
+- `.venv` (виртуальное окружение сохраняется);
+- PostgreSQL/данные БД;
+- реальные данные специалистов;
+- production uploads (медиа на VPS).
+
+### Пример запуска
+
+```bash
+bash scripts/clean_dev.sh
+```
+
+### Ожидаемый вывод
+
+```text
+Cleaning development artifacts...
+Removing __pycache__...
+Removing pytest cache...
+Removing macOS files...
+Removing Python bytecode...
+Done.
+```
+
+### Когда безопасно использовать
+
+- локальная разработка (`APP_ENV=local` или эквивалент);
+- подготовка репозитория перед `git status`, `pytest`, коммитом;
+- cleanup локальных/временных рабочих копий.
+
+Не использовать как замену production maintenance или процедур удаления бизнес-данных.
+
+
+## Smoke-check: ops utilities (`check_orphan_specialist_media.sh`, `clean_dev.sh`)
+
+Короткая проверка после запуска новых ops-инструментов:
+
+```bash
+# 1) orphan media check: для «чистого» кейса ожидаем только две служебные строки
+out=$(sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/check_orphan_specialist_media.sh')
+printf '%s\n' "$out"
+if [ "$out" != $'Scanning specialist media folders...
+Done.' ]; then
+  echo "[WARN] unexpected output (or orphan folders detected)"
+fi
+
+# 2) clean_dev: корректный проход без ошибок
+bash scripts/clean_dev.sh
+
+# 3) отсутствие побочного влияния на production runtime
+sudo systemctl status zumbot-backend --no-pager
+curl -fsS http://127.0.0.1:8000/readyz
+```
+
+Интерпретация:
+- для check-orphan «чистый» результат: только `Scanning specialist media folders...` и `Done.`;
+- для `clean_dev.sh` успешный smoke-check — завершение команды без ошибок;
+- `systemctl status` и `curl /readyz` подтверждают, что runtime backend не деградировал.

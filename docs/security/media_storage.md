@@ -34,3 +34,17 @@ Private specialist profile media uploads (`photo` and `document`) saved to local
 ## Public API isolation
 - Public API must not return `file_key`.
 - Public specialist endpoints remain unchanged and must not leak private media storage details.
+
+## Ops check: orphan specialist media
+
+Для операционной сверки диска и БД используется `scripts/check_orphan_specialist_media.sh`.
+
+Назначение:
+- обнаружить директории `specialist/<id>` на файловой системе,
+  для которых отсутствует строка в таблице `specialist`.
+
+Ограничения и безопасность:
+- скрипт только диагностирует (`ORPHAN MEDIA: ...`) и ничего не удаляет автоматически;
+- рассчитан на VPS-пути и локальный PostgreSQL, не является универсальным инструментом для произвольных окружений;
+- удаление orphan-каталогов выполняется только после ручной проверки,
+  чтобы исключить риск потери валидных медиа.
