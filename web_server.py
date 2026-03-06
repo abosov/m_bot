@@ -2684,28 +2684,166 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
     <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
-    <main class="wrap">
-      <section id="specialist-loading"><p>Загружаем профиль специалиста...</p></section>
-      <section id="specialist-not-found" style="display:none">
+    <main id="specialist-page" class="specialist-page" style="display:none" aria-live="polite">
+      <header id="specialist-sticky-header" class="specialist-header" aria-label="Specialist profile header">
+        <div class="specialist-header__identity">
+          <p id="public-specialist-display-name" class="specialist-header__display-name">Специалист</p>
+          <p id="public-specialist-specialization" class="specialist-header__specialization">Специализация</p>
+        </div>
+        <nav class="specialist-header__menu" aria-label="Меню специалиста">
+          <a href="#about" class="specialist-header__menu-link">О себе</a>
+          <a href="#education" class="specialist-header__menu-link">Образование</a>
+          <a href="#documents" class="specialist-header__menu-link">Документы</a>
+          <a href="#services" class="specialist-header__menu-link">Услуги и цены</a>
+          <a href="#reviews" class="specialist-header__menu-link">Отзывы</a>
+          <a id="specialist-booking-link" href="#booking" class="specialist-header__cta">Записаться</a>
+        </nav>
+      </header>
+
+      <section id="hero" class="specialist-page__section" aria-label="Hero специалиста">
+        <div id="public-specialist-hero-grid" style="display:grid;grid-template-columns:minmax(220px,1fr) minmax(320px,2fr);grid-template-areas:'photo quote';gap:16px;align-items:start;">
+          <div id="public-specialist-hero-photo" style="grid-area:photo">
+            <div id="public-specialist-hero-photo-fallback" aria-label="Фото специалиста недоступно">Фото специалиста</div>
+            <img id="public-specialist-hero-photo-image" alt="Фото специалиста" style="display:none;max-width:100%;height:auto;" />
+          </div>
+          <blockquote id="public-specialist-hero-quote" style="grid-area:quote;margin:0"></blockquote>
+        </div>
+      </section>
+      <section id="about" class="specialist-page__section" aria-label="О себе"><h2>О себе</h2><div id="specialist-about-content"></div></section>
+      <section id="education" class="specialist-page__section" aria-label="Образование"><h2>Образование</h2><div id="specialist-education-content"></div></section>
+      <section id="documents" class="specialist-page__section" aria-label="Документы"><h2>Документы</h2><div id="specialist-documents-content"></div></section>
+      <section id="services" class="specialist-page__section" aria-label="Услуги и цены"><h2>Услуги и цены</h2><div id="specialist-services-content"></div></section>
+      <section id="reviews" class="specialist-page__section" aria-label="Отзывы"><h2>Отзывы</h2><div id="specialist-reviews-content"></div></section>
+      <section id="booking" class="specialist-page__section" aria-label="Запись на консультацию"><h2>Записаться</h2><p>Выберите удобный способ связи со специалистом.</p></section>
+    </main>
+
+    <main id="public-specialist-loading" class="wrap"><section><p>Загружаем профиль специалиста...</p></section></main>
+    <main id="public-specialist-not-found" class="wrap" style="display:none">
+      <section>
         <h1>Профиль не найден</h1>
         <p>Проверьте ссылку или вернитесь на главную страницу.</p>
         <p><a class="button" href="/">На главную</a></p>
-      </section>
-      <section id="specialist-content" style="display:none">
-        <h1 id="specialist-display-name"></h1>
-        <p id="specialist-specialization"></p>
-        <blockquote id="specialist-hero-quote"></blockquote>
       </section>
     </main>
     <script>
       (function() {
         const slug = __PUBLIC_SLUG_JSON__;
-        const loadingEl = document.getElementById('specialist-loading');
-        const notFoundEl = document.getElementById('specialist-not-found');
-        const contentEl = document.getElementById('specialist-content');
-        const nameEl = document.getElementById('specialist-display-name');
-        const specializationEl = document.getElementById('specialist-specialization');
-        const quoteEl = document.getElementById('specialist-hero-quote');
+        const specialistPageEl = document.getElementById('specialist-page');
+        const loadingEl = document.getElementById('public-specialist-loading');
+        const notFoundEl = document.getElementById('public-specialist-not-found');
+        const nameEl = document.getElementById('public-specialist-display-name');
+        const specializationEl = document.getElementById('public-specialist-specialization');
+        const quoteEl = document.getElementById('public-specialist-hero-quote');
+        const heroGridEl = document.getElementById('public-specialist-hero-grid');
+        const heroPhotoImageEl = document.getElementById('public-specialist-hero-photo-image');
+        const heroPhotoFallbackEl = document.getElementById('public-specialist-hero-photo-fallback');
+        const bookingLinkEl = document.getElementById('specialist-booking-link');
+        const aboutEl = document.getElementById('specialist-about-content');
+        const educationEl = document.getElementById('specialist-education-content');
+        const documentsEl = document.getElementById('specialist-documents-content');
+        const servicesEl = document.getElementById('specialist-services-content');
+        const reviewsEl = document.getElementById('specialist-reviews-content');
+
+        const setSectionText = (el, value, fallback) => {
+          if (!el) {
+            return;
+          }
+          el.textContent = (value || '').trim() || fallback;
+        };
+
+        const collectBlocks = (blocks) => {
+          const acc = { about: '', education: '', services: '' };
+          if (!Array.isArray(blocks)) {
+            return acc;
+          }
+
+          blocks.forEach((block) => {
+            const kind = String(block?.block_type || block?.kind || '').trim().toLowerCase();
+            const value = String(block?.content || '').trim();
+            if (!value) {
+              return;
+            }
+            if (kind === 'about') {
+              acc.about = value;
+            } else if (kind === 'education') {
+              acc.education = value;
+            } else if (kind === 'services') {
+              acc.services = value;
+            }
+          });
+
+          return acc;
+        };
+
+        const renderReviews = (blocks) => {
+          if (!reviewsEl) {
+            return;
+          }
+          const reviewsBlock = Array.isArray(blocks)
+            ? blocks.find((block) => String(block?.block_type || '').trim().toLowerCase() === 'reviews')
+            : null;
+          const candidate = reviewsBlock?.items ?? reviewsBlock?.content ?? reviewsBlock?.body ?? reviewsBlock?.text;
+
+          let lines = [];
+          if (Array.isArray(candidate)) {
+            lines = candidate.map((item) => String(item || '').trim()).filter((text) => text.length > 0);
+          } else if (typeof candidate === 'string') {
+            lines = candidate.split('\n').map((line) => line.trim()).filter((text) => text.length > 0);
+          }
+
+          reviewsEl.textContent = lines.join('\n\n') || 'Отзывы скоро появятся.';
+        };
+
+        const renderDocuments = (media) => {
+          if (!documentsEl) {
+            return;
+          }
+
+          documentsEl.innerHTML = '';
+          const documentItems = Array.isArray(media)
+            ? media
+              .filter((item) => String(item?.media_type || '').trim().toLowerCase() === 'document')
+              .map((item) => ({
+                title: String(item?.title || '').trim(),
+                url: typeof item?.url === 'string' ? item.url.trim() : '',
+              }))
+              .filter((item) => item.title.length > 0)
+            : [];
+
+          if (documentItems.length === 0) {
+            documentsEl.closest('section')?.remove();
+            return;
+          }
+
+          const listEl = document.createElement('ul');
+          let hasUnavailableDocumentUrl = false;
+
+          documentItems.forEach((item) => {
+            const li = document.createElement('li');
+            if (/^https?:\\/\\//i.test(item.url)) {
+              const link = document.createElement('a');
+              link.href = item.url;
+              link.textContent = item.title;
+              link.target = '_blank';
+              link.rel = 'noopener noreferrer';
+              li.appendChild(link);
+            } else {
+              const title = document.createElement('span');
+              title.textContent = item.title;
+              li.appendChild(title);
+              hasUnavailableDocumentUrl = true;
+            }
+            listEl.appendChild(li);
+          });
+
+          documentsEl.appendChild(listEl);
+
+          if (hasUnavailableDocumentUrl) {
+            const hint = document.createElement('p');
+            hint.textContent = 'Скоро будет доступно скачивание';
+            documentsEl.appendChild(hint);
+          }
+        };
 
         fetch(`/api/public/specialists/${encodeURIComponent(slug)}`)
           .then(async (response) => {
@@ -2716,10 +2854,40 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           })
           .then((payload) => {
             loadingEl.style.display = 'none';
-            contentEl.style.display = 'block';
+            specialistPageEl.style.display = 'block';
             nameEl.textContent = payload?.profile?.display_name || 'Специалист';
             specializationEl.textContent = payload?.profile?.specialization || '';
-            quoteEl.textContent = payload?.profile?.hero_quote || '';
+            const heroQuote = String(payload?.profile?.hero_quote || '').trim();
+            quoteEl.textContent = heroQuote;
+            quoteEl.style.display = heroQuote ? 'block' : 'none';
+            if (heroGridEl) {
+              heroGridEl.style.gridTemplateAreas = heroQuote ? "'photo quote'" : "'photo photo'";
+            }
+
+            const photoUrl = String(payload?.profile?.photo_url || '').trim();
+            if (photoUrl && /^https?:\\/\\//i.test(photoUrl)) {
+              heroPhotoImageEl.src = photoUrl;
+              heroPhotoImageEl.style.display = 'block';
+              heroPhotoFallbackEl.style.display = 'none';
+            } else {
+              heroPhotoImageEl.style.display = 'none';
+              heroPhotoFallbackEl.style.display = 'block';
+            }
+
+            const blocks = collectBlocks(payload?.blocks);
+            setSectionText(aboutEl, blocks.about, 'Информация появится позже.');
+            setSectionText(educationEl, blocks.education, 'Информация появится позже.');
+            setSectionText(servicesEl, blocks.services, 'Информация появится позже.');
+            renderReviews(payload?.blocks);
+            renderDocuments(payload?.media);
+
+            const clientBotUsername = String(payload?.profile?.client_bot_username || '').trim();
+            const specialistId = String(payload?.profile?.id || '').trim();
+            if (clientBotUsername && specialistId) {
+              bookingLinkEl.href = `https://t.me/${encodeURIComponent(clientBotUsername)}?start=book_${encodeURIComponent(specialistId)}`;
+              bookingLinkEl.target = '_blank';
+              bookingLinkEl.rel = 'noopener noreferrer';
+            }
           })
           .catch(() => {
             loadingEl.style.display = 'none';

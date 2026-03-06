@@ -4,6 +4,7 @@ import Hero from "../components/specialist/Hero";
 import SectionAbout from "../components/specialist/SectionAbout";
 import SectionEducation from "../components/specialist/SectionEducation";
 import SectionReviews from "../components/specialist/SectionReviews";
+import SectionDocuments from "../components/specialist/SectionDocuments";
 import SectionServices from "../components/specialist/SectionServices";
 import SectionCTA from "../components/specialist/SectionCTA";
 import "../styles/specialist.css";
@@ -83,10 +84,6 @@ type SpecialistProfilePageProps = {
   slug: string;
   loader?: (slug: string) => Promise<PublicSpecialistPagePayload>;
 };
-
-function SectionDocuments() {
-  return <section id="documents" className="specialist-page__section">Документы</section>;
-}
 
 export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage }: SpecialistProfilePageProps) {
   const [error, setError] = useState<string | null>(null);
@@ -188,9 +185,9 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
       />
       <SectionAbout blocks={payload?.blocks} />
       <SectionEducation blocks={payload?.blocks} />
-      <SectionDocuments />
+      <SectionDocuments media={payload?.media} />
       <SectionServices blocks={payload?.blocks} />
-      <SectionReviews reviews={payload?.reviews} />
+      <SectionReviews blocks={payload?.blocks} />
       <SectionCTA clientBotUsername={clientBotUsername} specialistUuid={specialistUuid} />
     </main>
   );

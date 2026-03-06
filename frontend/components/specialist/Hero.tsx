@@ -38,6 +38,8 @@ export function Hero({
   email,
 }: SpecialistHeroProps) {
   const canRenderImage = isAllowedImageUrl(photoUrl);
+  const quoteText = (heroQuote ?? "").trim();
+  const hasQuote = quoteText.length > 0;
   const clientBotContactLink = buildClientBotLink(clientBotUsername, "contact_specialist", specialistUuid);
 
   return (
@@ -47,7 +49,7 @@ export function Hero({
         style={{
           display: "grid",
           gridTemplateColumns: "minmax(220px, 1fr) minmax(320px, 2fr)",
-          gridTemplateAreas: '"photo quote" "photo button"',
+          gridTemplateAreas: hasQuote ? '"photo quote" "photo button"' : '"photo button"',
           gap: "16px",
           alignItems: "start",
         }}
@@ -60,7 +62,7 @@ export function Hero({
           )}
         </div>
 
-        <blockquote style={{ gridArea: "quote", margin: 0 }}>{heroQuote ?? ""}</blockquote>
+        {hasQuote ? <blockquote style={{ gridArea: "quote", margin: 0 }}>{quoteText}</blockquote> : null}
 
         <div style={{ gridArea: "button" }}>
           {clientBotContactLink ? (

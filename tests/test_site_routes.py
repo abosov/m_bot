@@ -110,14 +110,61 @@ def test_site_health_returns_ok():
 
 
 
-def test_public_slug_route_returns_html_shell_for_specialist_page():
+def test_public_slug_route_returns_full_public_specialist_page_markup():
     response = client.get("/TsarevaE_12")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     assert "Профиль специалиста — Zumbot" in response.text
+    assert 'id="specialist-sticky-header"' in response.text
+    assert 'aria-label="Меню специалиста"' in response.text
+    assert ">О себе<" in response.text
+    assert ">Образование<" in response.text
+    assert ">Документы<" in response.text
+    assert ">Услуги и цены<" in response.text
+    assert ">Отзывы<" in response.text
+    assert ">Записаться<" in response.text
     assert "fetch(`/api/public/specialists/${encodeURIComponent(slug)}`)" in response.text
     assert 'const slug = "TsarevaE_12";' in response.text
+
+
+def test_public_slug_route_keeps_not_found_container_markup():
+    response = client.get("/TsarevaE_12")
+
+    assert response.status_code == 200
+    assert 'id="public-specialist-not-found"' in response.text
+    assert "Профиль не найден" in response.text
+
+
+
+
+def test_public_slug_route_hero_places_photo_left_and_quote_right():
+    response = client.get("/TsarevaE_12")
+
+    assert response.status_code == 200
+    assert 'id="public-specialist-hero-grid"' in response.text
+    assert "grid-template-areas:'photo quote'" in response.text
+    assert "heroGridEl.style.gridTemplateAreas = heroQuote ? \"'photo quote'\" : \"'photo photo'\";" in response.text
+    assert "quoteEl.style.display = heroQuote ? 'block' : 'none';" in response.text
+
+
+def test_public_slug_route_reviews_rendering_uses_blocks_not_reviews_array():
+    response = client.get("/TsarevaE_12")
+
+    assert response.status_code == 200
+    assert "const reviewsBlock = Array.isArray(blocks)" in response.text
+    assert "renderReviews(payload?.blocks);" in response.text
+    assert "renderReviews(payload?.reviews);" not in response.text
+
+
+def test_public_slug_route_documents_rendering_uses_document_media_only():
+    response = client.get("/TsarevaE_12")
+
+    assert response.status_code == 200
+    assert "item?.media_type" in response.text
+    assert "=== 'document'" in response.text
+    assert "if (/^https?:\\/\\//i.test(item.url))" in response.text
+    assert "Скоро будет доступно скачивание" in response.text
 
 
 def test_public_slug_route_keeps_reserved_paths_on_existing_pages():
@@ -287,10 +334,12 @@ def test_profile_edit_page_contains_auth_status_and_working_form_sections():
     assert "save-main" in response.text
     assert "О себе" in response.text
     assert "Образование" in response.text
+    assert "Документы" in response.text
     assert "Услуги и цены" in response.text
     assert "Отзывы" in response.text
     assert "Загрузить фото" in response.text
     assert "Загрузить документы" in response.text
+    assert response.text.index("Основное") < response.text.index("Фото") < response.text.index("Цитата") < response.text.index("О себе") < response.text.index("Образование") < response.text.index("Документы") < response.text.index("Услуги и цены") < response.text.index("Отзывы")
 
 
 

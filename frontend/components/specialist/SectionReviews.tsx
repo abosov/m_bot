@@ -1,57 +1,58 @@
-type SpecialistPublicReview = Record<string, unknown>;
-
-type ReviewCard = {
-  authorName: string;
-  content: string;
-};
+type SpecialistPublicBlock = Record<string, unknown>;
 
 type SectionReviewsProps = {
-  reviews?: SpecialistPublicReview[];
+  blocks?: SpecialistPublicBlock[];
 };
 
-function sanitizeHtml(input: string): string {
+function sanitizeText(input: string): string {
   return input
     .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
     .replace(/\son\w+=("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/javascript:/gi, "");
+    .replace(/javascript:/gi, "")
+    .trim();
 }
 
-function normalizeReview(value: SpecialistPublicReview): ReviewCard | null {
-  const authorRaw = value.author_name;
-  const contentRaw = value.content;
+function getReviewItems(blocks?: SpecialistPublicBlock[]): string[] {
+  const reviewsBlock = blocks?.find((block) => block.block_type === "reviews");
 
-  if (typeof authorRaw !== "string" || typeof contentRaw !== "string") {
-    return null;
+  if (!reviewsBlock) {
+    return [];
   }
 
-  const authorName = sanitizeHtml(authorRaw).trim();
-  const content = sanitizeHtml(contentRaw).trim();
+  const candidate = reviewsBlock.items ?? reviewsBlock.content ?? reviewsBlock.body ?? reviewsBlock.text;
 
-  if (!authorName || !content) {
-    return null;
+  if (Array.isArray(candidate)) {
+    return candidate
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => sanitizeText(item))
+      .filter(Boolean);
   }
 
-  return { authorName, content };
+  if (typeof candidate === "string") {
+    return candidate
+      .split("\n")
+      .map((line) => sanitizeText(line))
+      .filter(Boolean);
+  }
+
+  return [];
 }
 
-export function SectionReviews({ reviews }: SectionReviewsProps) {
-  const normalizedReviews = (reviews ?? []).map(normalizeReview).filter((review): review is ReviewCard => Boolean(review));
+export function SectionReviews({ blocks }: SectionReviewsProps) {
+  const reviewItems = getReviewItems(blocks);
 
-  if (!normalizedReviews.length) {
+  if (!reviewItems.length) {
     return null;
   }
 
   return (
     <section id="reviews" className="specialist-page__section" aria-label="Отзывы">
       <h2>Отзывы</h2>
-      <div>
-        {normalizedReviews.map((review, index) => (
-          <article key={`${review.authorName}-${index}`}>
-            <p>{review.authorName}</p>
-            <p>{review.content}</p>
-          </article>
+      <ul>
+        {reviewItems.map((item, index) => (
+          <li key={`${item}-${index}`}>{item}</li>
         ))}
-      </div>
+      </ul>
     </section>
   );
 }
