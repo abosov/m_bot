@@ -2901,7 +2901,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             services = candidate.map(toServiceItem).filter((item) => item !== null);
           } else if (typeof candidate === 'string') {
             services = candidate
-              .split('\n')
+              .split(/\\r?\\n/)
               .map((line) => toServiceItem(line))
               .filter((item) => item !== null);
           }
@@ -3027,7 +3027,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           if (Array.isArray(candidate)) {
             reviews = candidate.map((item) => normalizeReview(item)).filter((item) => item !== null);
           } else if (typeof candidate === 'string') {
-            reviews = candidate.split('\n').map((line) => normalizeReview(line)).filter((item) => item !== null);
+            reviews = candidate.split(/\\r?\\n/).map((line) => normalizeReview(line)).filter((item) => item !== null);
           }
 
           if (reviews.length === 0) {
@@ -3269,7 +3269,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             const blocksSource = payload && payload.blocks ? payload.blocks : null;
             const blocks = collectBlocks(blocksSource);
             setSectionHtml(aboutEl, blocks.about);
-            const educationItems = String(blocks.education || '').split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
+            const educationItems = String(blocks.education || '').split(/\\r?\\n/).map((line) => line.trim()).filter((line) => line.length > 0);
             renderSimpleList(educationEl, educationItems, 'specialist-list specialist-list--education', 'specialist-list__item');
             renderReviews(blocksSource);
             renderDocuments(payload && payload.media ? payload.media : null);
@@ -3341,10 +3341,22 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             window.removeEventListener('unhandledrejection', showNotFound);
         };
 
+        const bootstrapWatchdog = window.setTimeout(showNotFound, 15000);
+
         try {
           bootstrap().catch(showNotFound);
         } catch (_error) {
           showNotFound();
+        } finally {
+          if (runtimeState !== 'loading') {
+            window.clearTimeout(bootstrapWatchdog);
+          } else {
+            window.addEventListener('public-specialist-state-change', () => {
+              if (runtimeState !== 'loading') {
+                window.clearTimeout(bootstrapWatchdog);
+              }
+            }, { once: true });
+          }
         }
       })();
     </script>
