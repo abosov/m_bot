@@ -2693,6 +2693,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/assets/icons/favicon-16.png" />
     <link rel="stylesheet" href="/assets/styles.css" />
+    <link rel="stylesheet" href="/assets/specialist.css" />
   </head>
   <body>
     <main id="specialist-page" class="specialist-page specialist-page--hidden" aria-live="polite">
@@ -2784,6 +2785,10 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
         const documentsEl = document.getElementById('specialist-documents-content');
         const servicesEl = document.getElementById('specialist-services-content');
         const reviewsEl = document.getElementById('specialist-reviews-content');
+        const sectionNavEl = document.getElementById('specialist-section-nav');
+        const subnavListEl = sectionNavEl
+          ? sectionNavEl.querySelector('.specialist-subnav__list')
+          : null;
         const publicProfileApiUrl = `${apiBaseUrl.replace(/\\/$/, '')}/api/public/specialists/${encodeURIComponent(slug)}`;
 
         const setRuntimeState = (state) => {
