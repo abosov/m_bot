@@ -224,7 +224,11 @@ def test_profile_edit_page_contains_auth_status_and_working_form_sections():
     assert 'id="copy-public-link" type="button" class="btn-secondary" disabled' in response.text
     assert "Основное" in response.text
     assert "Цитата" in response.text
-    assert response.text.index("Специализация") < response.text.index("Цитата")
+    assert '<div class="subblock-secondary">' not in response.text
+    assert 'id="save-quote"' in response.text
+    assert 'id="status-quote"' in response.text
+    assert response.text.index("Основное") < response.text.index("Цитата")
+    assert response.text.index("Сначала сохраните основную информацию, чтобы создать ссылку профиля.") < response.text.index("Цитата")
     assert "Сначала сохраните основную информацию, чтобы создать ссылку профиля." in response.text
     assert "secondary-lock-hint" in response.text
     assert "setSecondarySectionsLocked" in response.text
@@ -246,7 +250,33 @@ def test_profile_edit_public_state_rendering_handles_no_slug_draft_and_published
     assert "linkEl.removeAttribute('href')" in response.text
     assert "copyBtn.disabled = true" in response.text
     assert "copyBtn.disabled = false" in response.text
+    assert "publishBtn.disabled = true" in response.text
+    assert "publishBtn.disabled = false" in response.text
     assert "statusBadge.textContent = isPublished ? 'Опубликовано' : 'Черновик'" in response.text
+
+
+def test_profile_edit_save_main_reloads_profile_meta_and_unlocks_secondary_sections():
+    response = client.get("/profile/edit")
+
+    assert response.status_code == 200
+    assert "currentProfileMeta" in response.text
+    assert "async function reloadProfileMeta()" in response.text
+    assert "await reloadProfileMeta();" in response.text
+    assert "setCurrentProfileMeta(data);" in response.text
+    assert "setSecondarySectionsLocked(!hasProfileSlug())" in response.text
+
+
+def test_profile_edit_quote_is_secondary_block_and_saved_separately():
+    response = client.get("/profile/edit")
+
+    assert response.status_code == 200
+    assert "'save-quote', 'save-about', 'save-education', 'save-services', 'save-reviews', 'upload-photo', 'upload-documents'" in response.text
+    assert "document.getElementById('save-quote').addEventListener('click'" in response.text
+    assert "saveBlock('save-quote', 'status-quote', {" in response.text
+    assert "hero_quote: fields.hero_quote.value" in response.text
+    assert "saveBlock('save-main', 'status-main', {" in response.text
+    assert "specialization: fields.specialization.value," in response.text
+    assert "specialization: fields.specialization.value,\n            hero_quote: fields.hero_quote.value," not in response.text
 
 
 def test_connect_page_contains_google_form_and_legal_links():

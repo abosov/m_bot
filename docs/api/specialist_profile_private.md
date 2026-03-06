@@ -29,18 +29,31 @@ Response DTO:
 Notes:
 - Returns only form fields; no internal fields (`file_key`, media raw storage keys, IDs of profile internals).
 - Empty text values are returned as empty strings (`""`) consistently.
-- `public_slug` is returned as `string | null` (if DB has `NULL`, API returns `null`).
+- `public_slug` is returned as `string | null`. Before first successful save of block "Основное" slug may be `null`; after first successful save, slug is generated and returned immediately.
 - `is_published` is always returned as boolean.
 - If draft profile does not exist, backend creates a minimal draft record.
 
 ### PUT `/api/specialist/profile`
 Updates draft profile text fields.
 
+UI usage note:
+- block "Основное" sends only `first_name`, `middle_name`, `last_name`, `specialization`;
+- `hero_quote` is edited in a separate "Цитата" block after `public_slug` appears.
+
 Validation:
 - `specialization`: `1..200` chars after trim (required)
 - `hero_quote`: `0..200` chars after trim
 - `about`, `education`, `services`, `reviews`: `0..8000` chars after trim
 - derived `display_name` must be `<= 200`
+
+Slug generation rules on first successful save of "Основное":
+- if `public_slug` is empty/`NULL`, backend generates slug and persists to `specialist_public_profile.public_slug`.
+- source for slug base: `first_name + last_name`; fallback: `display_name`.
+- normalization: predictable transliteration to latin (`а->a`, `б->b`, `в->v`, ..., `я->ya`), lowercase, remove spaces/special chars, enforce leading letter.
+- resulting format: `^[A-Za-z]+[A-Za-z0-9]*_[0-9]{2}$`, suffix range `10..30`.
+- collision handling: pick next free suffix in range.
+- if all suffixes occupied, API returns `409 slug_generation_failed`.
+- slug is stable: after first creation it is not regenerated on subsequent edits.
 
 
 ### POST `/api/specialist/profile/publish`

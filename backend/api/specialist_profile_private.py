@@ -76,6 +76,8 @@ async def put_specialist_profile(
             )
             await session.commit()
     except ValueError as exc:
+        if str(exc) == "slug_generation_failed":
+            raise HTTPException(status_code=409, detail="slug_generation_failed") from exc
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return SpecialistProfilePrivateResponse.model_validate(payload)

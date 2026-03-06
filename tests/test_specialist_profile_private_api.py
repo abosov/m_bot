@@ -1,9 +1,13 @@
 import asyncio
 import importlib
+import re
 import uuid
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+
+
+_PRIVATE_SLUG_RE = re.compile(r"^[A-Za-z]+[A-Za-z0-9]*_[0-9]{2}$")
 
 
 def _load_web_app(tmp_path, monkeypatch):
@@ -130,7 +134,10 @@ def test_put_then_get_returns_updated_values(tmp_path, monkeypatch):
     assert get_response.status_code == 200
     body = get_response.json()
     assert body["is_published"] is False
-    assert body["public_slug"] in (None, "")
+    assert isinstance(body["public_slug"], str)
+    assert _PRIVATE_SLUG_RE.fullmatch(body["public_slug"]) is not None
+    suffix = int(body["public_slug"].rsplit("_", maxsplit=1)[1])
+    assert 10 <= suffix <= 30
     assert {k: v for k, v in body.items() if k not in {"public_slug", "is_published"}} == payload
 
     async def _assert_blocks_saved():
@@ -281,7 +288,8 @@ def test_put_profile_server_trims_fields_and_builds_display_name(tmp_path, monke
     put_response = client.put("/api/specialist/profile", json=payload, cookies=cookies)
     assert put_response.status_code == 200
     body = put_response.json()
-    assert body["public_slug"] in (None, "")
+    assert isinstance(body["public_slug"], str)
+    assert _PRIVATE_SLUG_RE.fullmatch(body["public_slug"]) is not None
     assert body["is_published"] is False
     assert {k: v for k, v in body.items() if k not in {"public_slug", "is_published"}} == {
         "first_name": "Анна",
@@ -314,6 +322,131 @@ def test_put_profile_server_trims_fields_and_builds_display_name(tmp_path, monke
             assert profile["specialization"] == "Психолог"
 
     asyncio.run(_assert_profile_name_and_specialization_saved())
+
+
+def test_second_put_keeps_same_slug(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    cookies = {web_server.config.WEB_CONNECT_COOKIE_NAME: cookie}
+
+    payload = _valid_profile_payload()
+    first_response = client.put("/api/specialist/profile", json=payload, cookies=cookies)
+    assert first_response.status_code == 200
+    first_slug = first_response.json()["public_slug"]
+    assert isinstance(first_slug, str)
+
+    payload["hero_quote"] = "Обновлённая цитата"
+    second_response = client.put("/api/specialist/profile", json=payload, cookies=cookies)
+    assert second_response.status_code == 200
+    assert second_response.json()["public_slug"] == first_slug
+
+
+def test_slug_collision_picks_next_suffix(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    target_specialist_id = asyncio.run(_prepare_specialist(database))
+    occupied_specialist_id = uuid.uuid4()
+
+    async def _seed_occupied_slug():
+        async with database.async_session_factory() as session:
+            session.add(database.Specialist(specialist_id=occupied_specialist_id, status=database.SpecialistStatus.onboarding, specialization="Психолог"))
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO specialist_public_profile (
+                        id, specialist_id, public_slug, display_name, first_name, middle_name, last_name,
+                        specialization, hero_quote, contact_telegram, contact_whatsapp, contact_phone, contact_email,
+                        client_bot_username, is_published, created_at, updated_at
+                    ) VALUES (
+                        :id, :specialist_id, :public_slug, :display_name, :first_name, :middle_name, :last_name,
+                        :specialization, :hero_quote, :contact_telegram, :contact_whatsapp, :contact_phone, :contact_email,
+                        :client_bot_username, :is_published, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    )
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "specialist_id": str(occupied_specialist_id),
+                    "public_slug": "annapetrova_10",
+                    "display_name": "Анна Петрова",
+                    "first_name": "Анна",
+                    "middle_name": None,
+                    "last_name": "Петрова",
+                    "specialization": "Психолог",
+                    "hero_quote": "",
+                    "contact_telegram": None,
+                    "contact_whatsapp": None,
+                    "contact_phone": None,
+                    "contact_email": None,
+                    "client_bot_username": "",
+                    "is_published": False,
+                },
+            )
+            await session.commit()
+
+    asyncio.run(_seed_occupied_slug())
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(target_specialist_id, 777)
+    response = client.put("/api/specialist/profile", json=_valid_profile_payload(), cookies={web_server.config.WEB_CONNECT_COOKIE_NAME: cookie})
+
+    assert response.status_code == 200
+    assert response.json()["public_slug"] == "annapetrova_11"
+
+
+def test_slug_generation_failure_returns_409(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+
+    async def _seed_all_suffixes_taken():
+        async with database.async_session_factory() as session:
+            for suffix in range(10, 31):
+                sid = uuid.uuid4()
+                session.add(database.Specialist(specialist_id=sid, status=database.SpecialistStatus.onboarding, specialization="Психолог"))
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO specialist_public_profile (
+                            id, specialist_id, public_slug, display_name, first_name, middle_name, last_name,
+                            specialization, hero_quote, contact_telegram, contact_whatsapp, contact_phone, contact_email,
+                            client_bot_username, is_published, created_at, updated_at
+                        ) VALUES (
+                            :id, :specialist_id, :public_slug, :display_name, :first_name, :middle_name, :last_name,
+                            :specialization, :hero_quote, :contact_telegram, :contact_whatsapp, :contact_phone, :contact_email,
+                            :client_bot_username, :is_published, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                        )
+                        """
+                    ),
+                    {
+                        "id": str(uuid.uuid4()),
+                        "specialist_id": str(sid),
+                        "public_slug": f"annapetrova_{suffix:02d}",
+                        "display_name": "Анна Петрова",
+                        "first_name": "Анна",
+                        "middle_name": None,
+                        "last_name": "Петрова",
+                        "specialization": "Психолог",
+                        "hero_quote": "",
+                        "contact_telegram": None,
+                        "contact_whatsapp": None,
+                        "contact_phone": None,
+                        "contact_email": None,
+                        "client_bot_username": "",
+                        "is_published": False,
+                    },
+                )
+            await session.commit()
+
+    asyncio.run(_seed_all_suffixes_taken())
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    response = client.put("/api/specialist/profile", json=_valid_profile_payload(), cookies={web_server.config.WEB_CONNECT_COOKIE_NAME: cookie})
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "slug_generation_failed"}
 
 
 def test_publish_requires_cookie(tmp_path, monkeypatch):

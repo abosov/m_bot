@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+import re
+import unicodedata
 from datetime import datetime, timezone
 
 from sqlalchemy import select, text
@@ -19,6 +21,12 @@ _MAX_SPECIALIZATION_LEN = 200
 _MAX_HERO_QUOTE_LEN = 200
 _MAX_BLOCK_LEN = 8000
 _MAX_DISPLAY_NAME_LEN = 200
+_SLUG_SAFE_CHARS_RE = re.compile(r"[^A-Za-z0-9]+")
+_CYRILLIC_TO_LATIN = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh", "з": "z", "и": "i", "й": "i",
+    "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f",
+    "х": "h", "ц": "c", "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+}
 
 
 def _normalize_text(value: str | None) -> str:
@@ -59,6 +67,66 @@ def build_display_name(first_name: str, middle_name: str, last_name: str) -> str
 
 def _normalize_name_part(value: str | None) -> str:
     return _normalize_text(value)
+
+
+def _latinize_to_slug_base(value: str) -> str:
+    text_value = " ".join((value or "").split()).lower()
+    if not text_value:
+        return ""
+
+    transliterated = "".join(_CYRILLIC_TO_LATIN.get(ch, ch) for ch in text_value)
+    normalized = unicodedata.normalize("NFKD", transliterated)
+    ascii_only = normalized.encode("ascii", "ignore").decode("ascii")
+    compact = _SLUG_SAFE_CHARS_RE.sub("", ascii_only)
+    if not compact:
+        return ""
+
+    starts_with_alpha_index = next((idx for idx, ch in enumerate(compact) if ch.isalpha()), None)
+    if starts_with_alpha_index is None:
+        return ""
+    return compact[starts_with_alpha_index:]
+
+
+async def _generate_public_slug_for_profile(
+    session: AsyncSession,
+    *,
+    profile_id,
+    first_name: str,
+    last_name: str,
+    display_name: str,
+) -> str:
+    name_source = f"{first_name} {last_name}".strip() if (first_name or last_name) else display_name
+    base = _latinize_to_slug_base(name_source) or "specialist"
+
+    existing = (
+        await session.execute(
+            text(
+                """
+                SELECT public_slug
+                FROM specialist_public_profile
+                WHERE public_slug LIKE :prefix
+                  AND id != :profile_id
+                """
+            ),
+            {"prefix": f"{base}_%", "profile_id": profile_id},
+        )
+    ).scalars().all()
+
+    occupied_suffixes: set[int] = set()
+    for slug in existing:
+        slug_str = str(slug or "").strip()
+        if not slug_str.startswith(f"{base}_"):
+            continue
+        suffix_raw = slug_str.rsplit("_", maxsplit=1)[-1]
+        if len(suffix_raw) != 2 or not suffix_raw.isdigit():
+            continue
+        occupied_suffixes.add(int(suffix_raw))
+
+    for suffix in range(10, 31):
+        if suffix not in occupied_suffixes:
+            return f"{base}_{suffix:02d}"
+
+    raise ValueError("slug_generation_failed")
 
 
 async def _resolve_client_bot_username(session: AsyncSession, specialist_id) -> str:
@@ -139,6 +207,7 @@ async def get_or_create_public_profile_for_specialist(session: AsyncSession, spe
         "last_name": fallback_last_name or None,
         "specialization": specialization,
         "hero_quote": "",
+        "public_slug": "",
     }
 
 
@@ -184,7 +253,7 @@ async def read_specialist_profile_draft(session: AsyncSession, specialist_id) ->
         "education": (blocks_by_type.get("education", {}).get("content") or "").strip(),
         "services": (blocks_by_type.get("services", {}).get("content") or "").strip(),
         "reviews": (blocks_by_type.get("reviews", {}).get("content") or "").strip(),
-        "public_slug": profile.get("public_slug"),
+        "public_slug": ((profile.get("public_slug") or "").strip() or None),
         "is_published": bool(profile.get("is_published", False)),
     }
 
@@ -229,6 +298,16 @@ async def update_specialist_profile_draft(
         raise ValueError("display_name_too_long")
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    current_slug = (profile.get("public_slug") or "").strip()
+    if not current_slug:
+        current_slug = await _generate_public_slug_for_profile(
+            session,
+            profile_id=profile["id"],
+            first_name=normalized_first_name,
+            last_name=normalized_last_name,
+            display_name=display_name,
+        )
+
     await session.execute(
         text(
             """
@@ -239,6 +318,7 @@ async def update_specialist_profile_draft(
                    last_name = :last_name,
                    specialization = :specialization,
                    hero_quote = :hero_quote,
+                   public_slug = COALESCE(NULLIF(public_slug, ''), :public_slug),
                    updated_at = :updated_at
              WHERE id = :id
             """
@@ -251,6 +331,7 @@ async def update_specialist_profile_draft(
             "last_name": normalized_last_name or None,
             "specialization": normalized_specialization,
             "hero_quote": normalized_hero_quote or None,
+            "public_slug": current_slug,
             "updated_at": now,
         },
     )
