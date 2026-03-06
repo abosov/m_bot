@@ -66,6 +66,7 @@ def build_specialist_settings_view(
     working_intervals_by_idx: Mapping[int, tuple[int | None, int | None]] | None = None,
     later_button: tuple[str, str] | None = None,
     profile_edit_url: str | None = None,
+    public_page_url: str | None = None,
     referral_link: str | None = None,
     referrals_count: int = 0,
 ) -> tuple[str, InlineKeyboardMarkup]:
@@ -107,6 +108,8 @@ def build_specialist_settings_view(
         keyboard_rows.append([InlineKeyboardButton(text=keep_button_text, callback_data=keep_callback_data)])
     if profile_edit_url:
         keyboard_rows.append([InlineKeyboardButton(text="✏️ Редактировать профиль специалиста", url=profile_edit_url)])
+    if public_page_url:
+        keyboard_rows.append([InlineKeyboardButton(text="🌐 Открыть публичную страницу", url=public_page_url)])
     if include_reset_button:
         keyboard_rows.append([InlineKeyboardButton(text="♻️ Сбросить на дефолты", callback_data="owner_panel:apply_defaults")])
     if later_button is not None:

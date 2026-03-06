@@ -10,6 +10,7 @@ from backend.schemas.specialist_profile_private import (
     SpecialistProfileMediaListResponse,
     SpecialistProfilePrivateResponse,
     SpecialistProfilePrivateUpdateRequest,
+    SpecialistProfilePublishResponse,
     SpecialistProfileUploadResponse,
 )
 import database
@@ -19,7 +20,9 @@ from services.specialist_profile_private import (
     add_specialist_profile_document,
     list_specialist_profile_media,
     read_specialist_profile_draft,
+    publish_specialist_profile,
     replace_specialist_profile_photo,
+    unpublish_specialist_profile,
     update_specialist_profile_draft,
 )
 
@@ -77,6 +80,35 @@ async def put_specialist_profile(
 
     return SpecialistProfilePrivateResponse.model_validate(payload)
 
+
+
+@router.post("/publish", response_model=SpecialistProfilePublishResponse)
+async def post_specialist_profile_publish(
+    verified_session: tuple[UUID, int] = Depends(require_web_auth_session),
+) -> SpecialistProfilePublishResponse:
+    specialist_id, _tg_user_id = verified_session
+
+    try:
+        async with database.async_session_factory() as session:
+            payload = await publish_specialist_profile(session, specialist_id=specialist_id)
+            await session.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return SpecialistProfilePublishResponse.model_validate(payload)
+
+
+@router.post("/unpublish", response_model=SpecialistProfilePublishResponse)
+async def post_specialist_profile_unpublish(
+    verified_session: tuple[UUID, int] = Depends(require_web_auth_session),
+) -> SpecialistProfilePublishResponse:
+    specialist_id, _tg_user_id = verified_session
+
+    async with database.async_session_factory() as session:
+        payload = await unpublish_specialist_profile(session, specialist_id=specialist_id)
+        await session.commit()
+
+    return SpecialistProfilePublishResponse.model_validate(payload)
 
 def _assert_content_type(upload: UploadFile, allowed: set[str]) -> None:
     content_type = (upload.content_type or "").lower().strip()

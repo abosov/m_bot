@@ -133,3 +133,44 @@ def test_build_specialist_settings_view_omits_profile_edit_url_button_when_missi
 
     button_texts = [button.text for row in keyboard.inline_keyboard for button in row]
     assert "✏️ Редактировать профиль специалиста" not in button_texts
+
+
+def test_build_specialist_settings_view_includes_public_page_url_button_when_provided() -> None:
+    _, keyboard = build_specialist_settings_view(
+        profile=_Profile(),
+        rows=[_Row()],
+        calendar_settings=_Calendar(),
+        keep_button_text=None,
+        keep_callback_data=None,
+        include_reset_button=True,
+        working_intervals_by_idx={1: (540, 720), 2: (780, 1020), 3: (1020, 1260)},
+        profile_edit_url="https://example.test/profile/edit#token=abc",
+        public_page_url="https://zumbot.ru/Valid_Slug123",
+    )
+
+    all_buttons = [button for row in keyboard.inline_keyboard for button in row]
+    public_page_button = next((b for b in all_buttons if b.text == "🌐 Открыть публичную страницу"), None)
+    profile_button = next((b for b in all_buttons if b.text == "✏️ Редактировать профиль специалиста"), None)
+
+    assert profile_button is not None
+    assert public_page_button is not None
+    assert public_page_button.url == "https://zumbot.ru/Valid_Slug123"
+    assert public_page_button.callback_data is None
+    assert all_buttons.index(profile_button) < all_buttons.index(public_page_button)
+
+
+def test_build_specialist_settings_view_omits_public_page_url_button_when_missing() -> None:
+    _, keyboard = build_specialist_settings_view(
+        profile=_Profile(),
+        rows=[_Row()],
+        calendar_settings=_Calendar(),
+        keep_button_text=None,
+        keep_callback_data=None,
+        include_reset_button=True,
+        working_intervals_by_idx={1: (540, 720), 2: (780, 1020), 3: (1020, 1260)},
+        profile_edit_url="https://example.test/profile/edit#token=abc",
+        public_page_url=None,
+    )
+
+    button_texts = [button.text for row in keyboard.inline_keyboard for button in row]
+    assert "🌐 Открыть публичную страницу" not in button_texts

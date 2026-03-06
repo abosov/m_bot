@@ -1,4 +1,5 @@
 from datetime import datetime, time, timezone
+import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
 from typing import Sequence
@@ -16,6 +17,7 @@ from database import (
     SpecialistCalendarSettings,
     SpecialistCalendarSource,
     SpecialistProfile,
+    SpecialistPublicProfile,
     SpecialistWorkingHours,
     WeeklyAvailability,
     async_session_factory,
@@ -81,6 +83,8 @@ _WEEKDAY_LABELS = {
 }
 
 _DEFAULT_WORKING_HOURS = DEFAULT_WORKING_INTERVALS
+
+_PUBLIC_SLUG_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 class AvailabilityValidationError(ValueError):
@@ -598,6 +602,29 @@ async def _load_referral_program_stats(specialist_id) -> tuple[str, int]:
         return referral_link, invited_count
 
 
+async def _load_public_page_url_for_settings(specialist_id) -> str | None:
+    async with async_session_factory() as session:
+        public_profile = (
+            await session.execute(
+                select(SpecialistPublicProfile.public_slug, SpecialistPublicProfile.is_published)
+                .where(SpecialistPublicProfile.specialist_id == specialist_id)
+                .limit(1)
+            )
+        ).mappings().first()
+
+    if not public_profile:
+        return None
+
+    if not bool(public_profile.get("is_published")):
+        return None
+
+    slug = (public_profile.get("public_slug") or "").strip()
+    if not slug or not _PUBLIC_SLUG_RE.fullmatch(slug):
+        return None
+
+    return f"https://zumbot.ru/{slug}"
+
+
 async def _build_owner_panel_view(
     *,
     specialist_id,
@@ -613,6 +640,7 @@ async def _build_owner_panel_view(
     display_name = public_name or profile.public_name or "специалист"
     referral_link, invited_count = await _load_referral_program_stats(specialist_id)
     profile_edit_url = None
+    public_page_url = await _load_public_page_url_for_settings(specialist_id)
     if owner_tg_user_id is not None:
         async with async_session_factory() as session:
             try:
@@ -633,6 +661,7 @@ async def _build_owner_panel_view(
         include_reset_button=True,
         working_intervals_by_idx=working_intervals_by_idx,
         profile_edit_url=profile_edit_url,
+        public_page_url=public_page_url,
         referral_link=referral_link,
         referrals_count=invited_count,
     )

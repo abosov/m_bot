@@ -18,6 +18,8 @@ class SpecialistProfilePrivateResponse(BaseModel):
     education: str = ""
     services: str = ""
     reviews: str = ""
+    public_slug: str | None = None
+    is_published: bool = False
 
 
 class SpecialistProfilePrivateUpdateRequest(BaseModel):
@@ -64,3 +66,8 @@ class SpecialistProfileMediaListResponse(BaseModel):
 
 class SpecialistProfileUploadResponse(BaseModel):
     ok: bool = True
+
+
+class SpecialistProfilePublishResponse(BaseModel):
+    ok: bool = True
+    is_published: bool

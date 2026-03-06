@@ -81,6 +81,8 @@ def test_first_get_creates_draft_profile_and_returns_values(tmp_path, monkeypatc
         "education": "",
         "services": "",
         "reviews": "",
+        "public_slug": None,
+        "is_published": False,
     }
 
     async def _assert_profile_created():
@@ -126,7 +128,10 @@ def test_put_then_get_returns_updated_values(tmp_path, monkeypatch):
 
     get_response = client.get("/api/specialist/profile", cookies=cookies)
     assert get_response.status_code == 200
-    assert get_response.json() == payload
+    body = get_response.json()
+    assert body["is_published"] is False
+    assert body["public_slug"] in (None, "")
+    assert {k: v for k, v in body.items() if k not in {"public_slug", "is_published"}} == payload
 
     async def _assert_blocks_saved():
         async with database.async_session_factory() as session:
@@ -275,7 +280,10 @@ def test_put_profile_server_trims_fields_and_builds_display_name(tmp_path, monke
 
     put_response = client.put("/api/specialist/profile", json=payload, cookies=cookies)
     assert put_response.status_code == 200
-    assert put_response.json() == {
+    body = put_response.json()
+    assert body["public_slug"] in (None, "")
+    assert body["is_published"] is False
+    assert {k: v for k, v in body.items() if k not in {"public_slug", "is_published"}} == {
         "first_name": "Анна",
         "middle_name": "Сергеевна",
         "last_name": "Петрова",
@@ -306,3 +314,139 @@ def test_put_profile_server_trims_fields_and_builds_display_name(tmp_path, monke
             assert profile["specialization"] == "Психолог"
 
     asyncio.run(_assert_profile_name_and_specialization_saved())
+
+
+def test_publish_requires_cookie(tmp_path, monkeypatch):
+    web_server, _database = _load_web_app(tmp_path, monkeypatch)
+    client = TestClient(web_server.app)
+
+    response = client.post("/api/specialist/profile/publish")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "unauthorized"}
+
+
+def test_publish_sets_is_published_true(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    cookies = {web_server.config.WEB_CONNECT_COOKIE_NAME: cookie}
+
+    async def _seed_slug():
+        async with database.async_session_factory() as session:
+            await session.execute(
+                text("UPDATE specialist_public_profile SET public_slug = :slug WHERE specialist_id = :sid"),
+                {"slug": "anna-petrova", "sid": str(specialist_id)},
+            )
+            await session.commit()
+
+    client.get("/api/specialist/profile", cookies=cookies)
+    asyncio.run(_seed_slug())
+
+    response = client.post("/api/specialist/profile/publish", cookies=cookies)
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "is_published": True}
+
+    async def _assert_published():
+        async with database.async_session_factory() as session:
+            row = (
+                await session.execute(
+                    text("SELECT is_published FROM specialist_public_profile WHERE specialist_id = :sid"),
+                    {"sid": str(specialist_id)},
+                )
+            ).mappings().first()
+            assert row is not None
+            assert row["is_published"] in (True, 1)
+
+    asyncio.run(_assert_published())
+
+
+def test_unpublish_sets_is_published_false(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    cookies = {web_server.config.WEB_CONNECT_COOKIE_NAME: cookie}
+
+    client.get("/api/specialist/profile", cookies=cookies)
+
+    async def _seed_published():
+        async with database.async_session_factory() as session:
+            await session.execute(
+                text(
+                    "UPDATE specialist_public_profile "
+                    "SET public_slug = :slug, is_published = :published WHERE specialist_id = :sid"
+                ),
+                {"slug": "anna-petrova", "published": True, "sid": str(specialist_id)},
+            )
+            await session.commit()
+
+    asyncio.run(_seed_published())
+
+    response = client.post("/api/specialist/profile/unpublish", cookies=cookies)
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "is_published": False}
+
+    async def _assert_unpublished():
+        async with database.async_session_factory() as session:
+            row = (
+                await session.execute(
+                    text("SELECT is_published FROM specialist_public_profile WHERE specialist_id = :sid"),
+                    {"sid": str(specialist_id)},
+                )
+            ).mappings().first()
+            assert row is not None
+            assert row["is_published"] in (False, 0)
+
+    asyncio.run(_assert_unpublished())
+
+
+def test_publish_without_slug_returns_422_slug_missing(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    cookies = {web_server.config.WEB_CONNECT_COOKIE_NAME: cookie}
+
+    client.get("/api/specialist/profile", cookies=cookies)
+
+    response = client.post("/api/specialist/profile/publish", cookies=cookies)
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "slug_missing"}
+
+
+def test_get_returns_public_slug_and_is_published_fields(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    cookies = {web_server.config.WEB_CONNECT_COOKIE_NAME: cookie}
+
+    client.get("/api/specialist/profile", cookies=cookies)
+
+    async def _seed_profile_flags():
+        async with database.async_session_factory() as session:
+            await session.execute(
+                text(
+                    "UPDATE specialist_public_profile "
+                    "SET public_slug = :slug, is_published = :published WHERE specialist_id = :sid"
+                ),
+                {"slug": "ivan-ivanov", "published": True, "sid": str(specialist_id)},
+            )
+            await session.commit()
+
+    asyncio.run(_seed_profile_flags())
+
+    response = client.get("/api/specialist/profile", cookies=cookies)
+
+    assert response.status_code == 200
+    assert response.json()["public_slug"] == "ivan-ivanov"
+    assert response.json()["is_published"] is True
