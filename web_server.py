@@ -2926,11 +2926,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             window.removeEventListener('unhandledrejection', showNotFound);
         };
 
-        try {
-          bootstrap().catch(showNotFound);
-        } catch (_) {
-          showNotFound();
-        }
+        bootstrap().catch(showNotFound);
       })();
     </script>
   </body>

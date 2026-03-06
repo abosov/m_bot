@@ -7,6 +7,10 @@
 - Проверки выполняются на уже существующем specialist (existing account).
 - Backend is running and private profile endpoints are available.
 
+## Source of truth (runtime)
+- В проекте используется только один runtime callback для выдачи ссылки на редактирование: `owner_panel:profile_edit_link` в `handlers/personal_bot/routers/specialist/owner_panel.py`.
+- Сообщение callback отправляется только как plain text (`parse_mode=None`), raw URL/token не вставляется в текст, ссылка передаётся только через URL-кнопку `InlineKeyboardButton(url=...)`.
+
 ## Auth / session
 - [ ] Opening page from bot link shows `✅ Авторизовано`.
 - [ ] Opening page without valid token/session shows auth error message.
