@@ -127,7 +127,8 @@ def test_public_slug_route_returns_full_public_specialist_page_markup():
     assert ">Документы<" in response.text
     assert ">Услуги и цены<" in response.text
     assert ">Отзывы<" in response.text
-    assert ">Записаться<" in response.text
+    assert "data-section-id=\"booking\"" not in response.text
+    assert "id=\"specialist-subnav-booking-link\"" not in response.text
     assert "const apiBaseUrl = " in response.text
     assert f'const apiBaseUrl = "{config.BASE_URL}";' in response.text
     assert "const publicProfileApiUrl = `${apiBaseUrl.replace(/\\/$/, '')}/api/public/specialists/${encodeURIComponent(slug)}`;" in response.text

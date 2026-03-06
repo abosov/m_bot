@@ -2703,7 +2703,6 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             <p id="public-specialist-display-name" class="specialist-header__display-name"></p>
             <p id="public-specialist-specialization" class="specialist-header__specialization"></p>
           </div>
-          <a id="specialist-booking-link" href="#booking" class="specialist-button specialist-button--primary specialist-header__cta">Записаться</a>
         </div>
       </header>
 
@@ -2740,9 +2739,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             <a href="#documents" data-section-id="documents" class="specialist-subnav__link" role="tab">Документы</a>
             <a href="#services" data-section-id="services" class="specialist-subnav__link" role="tab">Услуги и цены</a>
             <a href="#reviews" data-section-id="reviews" class="specialist-subnav__link" role="tab">Отзывы</a>
-            <a href="#booking" data-section-id="booking" class="specialist-subnav__link" role="tab">Записаться</a>
           </div>
-          <a id="specialist-subnav-booking-link" href="#booking" class="specialist-button specialist-button--primary specialist-subnav__cta">Записаться</a>
         </div>
       </nav>
       <section id="about" class="specialist-page__section section" aria-label="О себе"><div class="container"><div class="section-card specialist-card specialist-content-card"><h2 class="section-title specialist-section-title">О себе</h2><div id="specialist-about-content" class="section-text specialist-rich-text"></div></div></div></section>
@@ -2775,9 +2772,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
         const quoteEl = document.getElementById('public-specialist-hero-quote');
         const heroPhotoImageEl = document.getElementById('public-specialist-hero-photo-image');
         const heroPhotoFallbackEl = document.getElementById('public-specialist-hero-photo-fallback');
-        const bookingLinkEl = document.getElementById('specialist-booking-link');
         const bookingCtaLinkEl = document.getElementById('specialist-booking-cta-link');
-        const subnavBookingLinkEl = document.getElementById('specialist-subnav-booking-link');
         const contactLinkEl = document.getElementById('specialist-contact-link');
         const contactsEl = document.getElementById('specialist-contacts');
         const aboutEl = document.getElementById('specialist-about-content');
@@ -2837,7 +2832,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           showNotFound();
         };
 
-        if (!specialistPageEl || !loadingEl || !notFoundEl || !nameEl || !specializationEl || !heroNameEl || !heroSpecializationEl || !quoteEl || !heroPhotoImageEl || !heroPhotoFallbackEl || !bookingLinkEl) {
+        if (!specialistPageEl || !loadingEl || !notFoundEl || !nameEl || !specializationEl || !heroNameEl || !heroSpecializationEl || !quoteEl || !heroPhotoImageEl || !heroPhotoFallbackEl) {
           showNotFound();
           return;
         }
@@ -3307,18 +3302,10 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             if (clientBotUsername && specialistId) {
               bookingHref = `https://t.me/${encodeURIComponent(clientBotUsername)}?start=book_${encodeURIComponent(specialistId)}`;
               const contactHref = `https://t.me/${encodeURIComponent(clientBotUsername)}?start=contact_specialist_${encodeURIComponent(specialistId)}`;
-              bookingLinkEl.href = bookingHref;
-              bookingLinkEl.target = '_blank';
-              bookingLinkEl.rel = 'noopener noreferrer';
               if (bookingCtaLinkEl) {
                 bookingCtaLinkEl.href = bookingHref;
                 bookingCtaLinkEl.target = '_blank';
                 bookingCtaLinkEl.rel = 'noopener noreferrer';
-              }
-              if (subnavBookingLinkEl) {
-                subnavBookingLinkEl.href = bookingHref;
-                subnavBookingLinkEl.target = '_blank';
-                subnavBookingLinkEl.rel = 'noopener noreferrer';
               }
               if (contactLinkEl) {
                 contactLinkEl.href = contactHref;

@@ -1,5 +1,4 @@
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import { buildClientBotLink } from "../../utils/telegram_links";
 
 type SectionNavItem = {
   id: string;
@@ -8,15 +7,12 @@ type SectionNavItem = {
 
 type SectionNavProps = {
   items: SectionNavItem[];
-  clientBotUsername?: string;
-  specialistUuid?: string;
 };
 
-export function SectionNav({ items, clientBotUsername, specialistUuid }: SectionNavProps) {
+export function SectionNav({ items }: SectionNavProps) {
   const [activeId, setActiveId] = useState<string | null>(items[0]?.id ?? null);
   const navListRef = useRef<HTMLDivElement | null>(null);
 
-  const bookingLink = buildClientBotLink(clientBotUsername, "book", specialistUuid);
 
   const navItems = useMemo(() => items.filter((item) => Boolean(item.id && item.label)), [items]);
 
@@ -118,12 +114,6 @@ export function SectionNav({ items, clientBotUsername, specialistUuid }: Section
             );
           })}
         </div>
-
-        {bookingLink ? (
-          <a href={bookingLink} target="_blank" rel="noopener noreferrer" className="specialist-button specialist-button--primary specialist-subnav__cta">
-            Записаться
-          </a>
-        ) : null}
       </div>
     </nav>
   );
