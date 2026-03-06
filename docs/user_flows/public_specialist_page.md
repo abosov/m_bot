@@ -14,6 +14,7 @@ Public page data is loaded from:
 - Route проходит через `frontend.router.resolve_frontend_route(path)`.
 - Если route resolved как `specialist_profile_page`, сайт рендерит полноценный HTML-мост публичной страницы специалиста (sticky header + hero + контентные секции + CTA) и frontend-логика запрашивает `GET /api/public/specialists/{public_slug}`.
 - Source of truth for this bridge: `web_server.py` route `@app.get("/{public_slug}")` (single full-page HTML bridge, legacy ветки отсутствуют).
+- В кодовой базе должен оставаться только browser-safe runtime bridge (без `?.` и `??`), legacy/browser-unsafe варианты удалены и не должны дублироваться в других route-ветках.
 - Legacy minimal-шаблон (только name/specialization/quote) больше не используется.
 - Legacy DOM IDs `specialist-loading`, `specialist-not-found`, `specialist-content` в runtime-странице отсутствуют; используются `public-specialist-loading`, `public-specialist-not-found`, `specialist-page`.
 - Если slug валиден, но профиль не найден/не опубликован, страница показывает site-level not found state.

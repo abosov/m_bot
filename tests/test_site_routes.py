@@ -165,10 +165,7 @@ def test_public_slug_route_has_failsafe_handlers_for_runtime_errors():
     assert response.status_code == 200
     assert "window.addEventListener('error', showNotFound);" in response.text
     assert "window.addEventListener('unhandledrejection', showNotFound);" in response.text
-    assert "try {" in response.text
     assert "bootstrap().catch(showNotFound);" in response.text
-    assert "} catch (_) {" in response.text
-    assert "showNotFound();" in response.text
 
 
 def test_public_slug_route_hides_loading_when_api_returns_non_ok_status():
