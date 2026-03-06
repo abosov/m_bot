@@ -236,12 +236,25 @@ def test_invalid_single_segment_path_is_not_hijacked_by_specialist_page_router()
 
 def test_site_assets_are_served():
     css = client.get("/assets/styles.css")
+    specialist_css = client.get("/assets/specialist.css")
     js = client.get("/assets/app.js")
 
     assert css.status_code == 200
     assert "hero" in css.text
+    assert specialist_css.status_code == 200
+    assert ".specialist-page" in specialist_css.text
     assert js.status_code == 200
     assert "contact-form" in js.text
+
+
+def test_public_slug_route_includes_specialist_stylesheet_and_safe_subnav_runtime_refs():
+    response = client.get("/TsarevaE_12")
+
+    assert response.status_code == 200
+    assert '<link rel="stylesheet" href="/assets/specialist.css" />' in response.text
+    assert "const sectionNavEl = document.getElementById('specialist-section-nav');" in response.text
+    assert "const subnavListEl = sectionNavEl" in response.text
+    assert "if (!sectionNavEl || !subnavListEl) {" in response.text
 
 
 def test_success_page_uses_site_chrome_and_contains_expected_text():

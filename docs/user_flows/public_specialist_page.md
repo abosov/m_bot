@@ -20,6 +20,43 @@ Public page data is loaded from:
 - Если slug валиден, но профиль не найден/не опубликован, страница показывает site-level not found state.
 - Невалидные slug и non-slug пути не перехватываются и обрабатываются обычным routing сайта.
 
+## Styles integration for `GET /{public_slug}`
+- Site base styles are served from static file `/assets/styles.css` (`web/assets/styles.css`).
+- Specialist landing styles are served from dedicated static file `/assets/specialist.css` (`web/assets/specialist.css`).
+- The specialist stylesheet is linked only on the slug bridge route in `web_server.py` (`@app.get("/{public_slug}")`), preserving single full-page bridge and avoiding inline CSS.
+- Current asset pipeline for specialist page is static-file based: `/assets/specialist.css` is assembled from:
+  - `frontend/styles/layout.css`
+  - `frontend/styles/specialist.css`
+
+### Mandatory specialist CSS selectors (runtime contract)
+`/assets/specialist.css` must contain rules for:
+- `.specialist-page`
+- `.specialist-page--hidden`
+- `.specialist-header`
+- `.specialist-header__inner`
+- `.specialist-hero`
+- `.hero-grid`
+- `.profile-photo`
+- `.specialist-subnav`
+- `.specialist-subnav__link`
+- `.specialist-subnav__link--active`
+- `.section`
+- `.container`
+- `.section-card`
+- `.services-grid`
+- `.service-card`
+- `.reviews-grid`
+- `.review-card`
+- `.cta-final`
+- `.specialist-hidden`
+
+### Mandatory runtime refs for sticky subnav
+Inline runtime bridge must define `sectionNavEl` and `subnavListEl` before usage:
+- `const sectionNavEl = document.getElementById('specialist-section-nav');`
+- `const subnavListEl = sectionNavEl ? sectionNavEl.querySelector('.specialist-subnav__list') : null;`
+
+Sticky-nav helpers must be guarded:
+- `if (!sectionNavEl || !subnavListEl) return;`
 
 ## Public page visual order
 1. Sticky header (identity + компактная CTA)
