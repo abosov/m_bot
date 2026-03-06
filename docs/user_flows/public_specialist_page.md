@@ -96,9 +96,12 @@ Sticky-nav helpers must be guarded:
   - `#public-specialist-loading` — loading;
   - `#public-specialist-not-found` — not-found/error.
 - Runtime script переключает state через единый `setRuntimeState(state)` и гарантирует взаимоисключаемость состояний (в каждый момент времени видим только один root-state).
+- Runtime bridge хранит явное состояние `let runtimeState = 'loading'`; `setRuntimeState(state)` всегда синхронно обновляет `runtimeState`, DOM visibility и диспатчит `public-specialist-state-change` c `detail.state`.
 - Initial state: visible только loading (`setRuntimeState('loading')`).
 - Success state: после `fetch(...).ok` выполняется `setRuntimeState('success')`.
-- Error state: при `!response.ok`, runtime exception, `window.error` или `unhandledrejection` выполняется `setRuntimeState('not-found')` через единый `showNotFound()`.
+- Error state: при `!response.ok`, runtime exception до success-state, `window.error` или `unhandledrejection` во время bootstrap выполняется `setRuntimeState('not-found')` через единый `showNotFound()`.
+- Watchdog используется только как защита от вечного loading: таймер стартует в начале bootstrap и очищается автоматически при любом терминальном состоянии (`success` или `not-found`).
+- Правило терминальности: `success` не должен самопроизвольно переходить в `not-found` без нового запроса/явного перезапуска bootstrap.
 - Bootstrap обязательно обёрнут в `try/catch`; аварийный fallback: `showNotFound()`.
 - Legacy minimal-template удалён и не должен сосуществовать с full-page bridge.
 
@@ -158,7 +161,7 @@ Security guard:
 - Страница делает fetch в `${BASE_URL}/api/public/specialists/{public_slug}` для загрузки контента.
 - Loading-state `Загружаем профиль специалиста...` всегда завершается: либо success (`#specialist-page`), либо not-found/error (`#public-specialist-not-found`).
 - Mobile smoke-check: открыть `/{public_slug}` в older mobile browser / embedded webview и убедиться, что runtime-bridge исполняется (страница уходит из loading в success/not-found), а inline script не содержит `?.` и `??`.
-- Fail-safe: runtime JS errors и unhandled promise rejection переводят страницу в not-found/error state (без вечного loading); bootstrap обёрнут как `try { bootstrap().catch(showNotFound) } catch (_) { showNotFound() }`.
+- Fail-safe: runtime JS errors и unhandled promise rejection переводят страницу в not-found/error state только пока runtime находится в `loading`; после `success` глобальный bootstrap fail-safe больше не должен скрывать профиль.
 - Browser compatibility requirement: inline runtime bridge для `GET /{public_slug}` должен использовать browser-safe синтаксис без optional chaining (`?.`) и nullish coalescing (`??`), чтобы не ломаться в older mobile browsers / embedded webviews на parse-time.
 - Reserved paths (`/pricing`, `/privacy`, `/terms`, `/revoke-access`, `/api`, `/static`, `/assets`) не перехватываются slug-route.
 - Невалидные slug по-прежнему дают 404 на site-route и 400 на API route.

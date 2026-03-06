@@ -2791,7 +2791,21 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           : null;
         const publicProfileApiUrl = `${apiBaseUrl.replace(/\\/$/, '')}/api/public/specialists/${encodeURIComponent(slug)}`;
 
+        let runtimeState = 'loading';
+        let bootstrapWatchdog = null;
+
+        const cleanupBootstrapFailSafe = () => {
+          if (bootstrapWatchdog !== null) {
+            window.clearTimeout(bootstrapWatchdog);
+            bootstrapWatchdog = null;
+          }
+          window.removeEventListener('error', handleBootstrapRuntimeError);
+          window.removeEventListener('unhandledrejection', handleBootstrapRuntimeError);
+        };
+
         const setRuntimeState = (state) => {
+          runtimeState = state;
+
           if (!specialistPageEl || !loadingEl || !notFoundEl) {
             return;
           }
@@ -2804,10 +2818,23 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
 
           notFoundEl.classList.toggle('specialist-hidden', state !== 'not-found');
           notFoundEl.setAttribute('aria-hidden', state === 'not-found' ? 'false' : 'true');
+
+          window.dispatchEvent(new CustomEvent('public-specialist-state-change', { detail: { state: state } }));
+
+          if (state !== 'loading') {
+            cleanupBootstrapFailSafe();
+          }
         };
 
         const showNotFound = () => {
+          if (runtimeState !== 'loading') {
+            return;
+          }
           setRuntimeState('not-found');
+        };
+
+        const handleBootstrapRuntimeError = () => {
+          showNotFound();
         };
 
         if (!specialistPageEl || !loadingEl || !notFoundEl || !nameEl || !specializationEl || !heroNameEl || !heroSpecializationEl || !quoteEl || !heroPhotoImageEl || !heroPhotoFallbackEl || !bookingLinkEl) {
@@ -2817,8 +2844,8 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
 
         setRuntimeState('loading');
 
-        window.addEventListener('error', showNotFound);
-        window.addEventListener('unhandledrejection', showNotFound);
+        window.addEventListener('error', handleBootstrapRuntimeError);
+        window.addEventListener('unhandledrejection', handleBootstrapRuntimeError);
 
         const setSectionHtml = (el, value) => {
           if (!el) {
@@ -3337,26 +3364,18 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             updateStickyOffsets();
             window.addEventListener('resize', updateStickyOffsets);
 
-            window.removeEventListener('error', showNotFound);
-            window.removeEventListener('unhandledrejection', showNotFound);
         };
 
-        const bootstrapWatchdog = window.setTimeout(showNotFound, 15000);
+        bootstrapWatchdog = window.setTimeout(() => {
+          if (runtimeState === 'loading') {
+            showNotFound();
+          }
+        }, 15000);
 
         try {
           bootstrap().catch(showNotFound);
         } catch (_error) {
           showNotFound();
-        } finally {
-          if (runtimeState !== 'loading') {
-            window.clearTimeout(bootstrapWatchdog);
-          } else {
-            window.addEventListener('public-specialist-state-change', () => {
-              if (runtimeState !== 'loading') {
-                window.clearTimeout(bootstrapWatchdog);
-              }
-            }, { once: true });
-          }
         }
       })();
     </script>
