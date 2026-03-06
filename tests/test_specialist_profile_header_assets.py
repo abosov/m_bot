@@ -20,14 +20,14 @@ def test_sticky_header_css_and_runtime_offset_present():
     assert 'document.documentElement.style.setProperty("--specialist-sticky-offset", offset);' in page
 
 
-def test_header_contains_identity_and_primary_cta():
+def test_header_contains_identity_without_sticky_cta():
     header = (ROOT / "frontend/components/specialist/Header.tsx").read_text(encoding="utf-8")
 
     assert "displayName" in header
     assert "specialization" in header
     assert 'className="specialist-header__identity"' in header
-    assert "Записаться" in header
-    assert 'className="specialist-button specialist-button--primary specialist-header__cta"' in header
+    assert "specialist-header__cta" not in header
+    assert "Записаться" not in header
 
 
 def test_section_nav_links_match_page_sections():
@@ -37,9 +37,8 @@ def test_section_nav_links_match_page_sections():
     reviews = (ROOT / "frontend/components/specialist/SectionReviews.tsx").read_text(encoding="utf-8")
     documents = (ROOT / "frontend/components/specialist/SectionDocuments.tsx").read_text(encoding="utf-8")
     services = (ROOT / "frontend/components/specialist/SectionServices.tsx").read_text(encoding="utf-8")
-    cta = (ROOT / "frontend/components/specialist/SectionCTA.tsx").read_text(encoding="utf-8")
 
-    for anchor in ("about", "education", "documents", "services", "reviews", "booking"):
+    for anchor in ("about", "education", "documents", "services", "reviews"):
         assert 'data-section-id' in section_nav
         if anchor == "about":
             assert f'id="{anchor}"' in about
@@ -49,8 +48,6 @@ def test_section_nav_links_match_page_sections():
             assert f'id="{anchor}"' in reviews
         elif anchor == "services":
             assert f'id="{anchor}"' in services
-        elif anchor == "booking":
-            assert f'id="{anchor}"' in cta
         elif anchor == "documents":
             assert f'id="{anchor}"' in documents
 

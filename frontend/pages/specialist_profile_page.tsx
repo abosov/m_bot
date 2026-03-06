@@ -211,7 +211,6 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
     hasDocumentMedia(payload?.media) ? { id: "documents", label: "Документы" } : null,
     hasBlockContent(payload?.blocks, "services") ? { id: "services", label: "Услуги и цены" } : null,
     hasBlockContent(payload?.blocks, "reviews") ? { id: "reviews", label: "Отзывы" } : null,
-    clientBotUsername && specialistUuid ? { id: "booking", label: "Записаться" } : null,
   ].filter((item): item is { id: string; label: string } => Boolean(item));
 
   if (error) {
@@ -223,8 +222,6 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
       <Header
         displayName={displayName}
         specialization={specialization}
-        clientBotUsername={clientBotUsername}
-        specialistUuid={specialistUuid}
       />
       <Hero
         displayName={displayName}
@@ -238,7 +235,7 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
         phone={heroContacts.phone}
         email={heroContacts.email}
       />
-      <SectionNav items={navItems} clientBotUsername={clientBotUsername} specialistUuid={specialistUuid} />
+      <SectionNav items={navItems} />
       <SectionAbout blocks={payload?.blocks} />
       <SectionEducation blocks={payload?.blocks} />
       <SectionDocuments media={payload?.media} />
