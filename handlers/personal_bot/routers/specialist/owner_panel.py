@@ -1056,8 +1056,9 @@ async def owner_panel_profile_edit_link(
 
     await callback.answer()
     await callback.message.answer(
-        "Откройте редактор профиля по свежей ссылке:\n\n"
+        "Откройте редактор профиля по свежей ссылке.\n"
         "Ссылка одноразовая и действует ограниченное время.",
+        parse_mode=None,
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="Открыть редактор профиля", url=profile_edit_url)]]
         ),
