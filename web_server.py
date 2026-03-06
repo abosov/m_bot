@@ -2695,41 +2695,65 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
     <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
-    <main id="specialist-page" class="specialist-page" style="display:none" aria-live="polite">
+    <main id="specialist-page" class="specialist-page specialist-page--hidden" aria-live="polite">
       <header id="specialist-sticky-header" class="specialist-header" aria-label="Specialist profile header">
-        <div class="specialist-header__identity">
-          <p id="public-specialist-display-name" class="specialist-header__display-name">Специалист</p>
-          <p id="public-specialist-specialization" class="specialist-header__specialization">Специализация</p>
+        <div class="specialist-header__inner container">
+          <div class="specialist-header__identity">
+            <p id="public-specialist-display-name" class="specialist-header__display-name">Специалист</p>
+            <p id="public-specialist-specialization" class="specialist-header__specialization">Специализация</p>
+          </div>
+          <a id="specialist-booking-link" href="#booking" class="specialist-button specialist-button--primary specialist-header__cta">Записаться</a>
         </div>
-        <nav class="specialist-header__menu" aria-label="Меню специалиста">
-          <a href="#about" class="specialist-header__menu-link">О себе</a>
-          <a href="#education" class="specialist-header__menu-link">Образование</a>
-          <a href="#documents" class="specialist-header__menu-link">Документы</a>
-          <a href="#services" class="specialist-header__menu-link">Услуги и цены</a>
-          <a href="#reviews" class="specialist-header__menu-link">Отзывы</a>
-          <a id="specialist-booking-link" href="#booking" class="specialist-header__cta">Записаться</a>
-        </nav>
       </header>
 
-      <section id="hero" class="specialist-page__section" aria-label="Hero специалиста">
-        <div id="public-specialist-hero-grid" style="display:grid;grid-template-columns:minmax(220px,1fr) minmax(320px,2fr);grid-template-areas:'photo quote';gap:16px;align-items:start;">
-          <div id="public-specialist-hero-photo" style="grid-area:photo">
-            <div id="public-specialist-hero-photo-fallback" aria-label="Фото специалиста недоступно">Фото специалиста</div>
-            <img id="public-specialist-hero-photo-image" alt="Фото специалиста" style="display:none;max-width:100%;height:auto;" />
+      <section id="hero" class="specialist-page__section specialist-page__section--hero section" aria-label="Hero специалиста">
+        <div class="container">
+          <div id="public-specialist-hero-grid" class="section-card specialist-hero hero-grid specialist-card">
+            <div id="public-specialist-hero-photo" class="specialist-hero__photo-wrap profile-photo">
+              <div id="public-specialist-hero-photo-fallback" class="specialist-hero__photo-placeholder" aria-label="Фото специалиста недоступно">
+                <span class="specialist-hero__photo-placeholder-icon" aria-hidden="true">⊚</span>
+                <p class="specialist-hero__photo-placeholder-title">Фото скоро появится</p>
+                <p class="specialist-hero__photo-placeholder-text">Пока можно познакомиться с профилем специалиста.</p>
+              </div>
+              <img id="public-specialist-hero-photo-image" class="specialist-hero__photo specialist-hidden" alt="Фото специалиста" />
+            </div>
+            <div class="specialist-hero__content">
+              <p class="specialist-hero__kicker">Публичный профиль специалиста</p>
+              <h1 id="public-specialist-hero-name" class="specialist-hero__title hero-name">Специалист</h1>
+              <p id="public-specialist-hero-specialization" class="specialist-hero__subtitle hero-specialization">Специализация</p>
+              <blockquote id="public-specialist-hero-quote" class="specialist-hero__quote hero-quote specialist-hidden"></blockquote>
+              <ul id="specialist-contacts" class="specialist-contacts specialist-hidden" aria-label="Контакты специалиста"></ul>
+              <div class="specialist-hero__actions hero-cta">
+                <a id="specialist-contact-link" href="#booking" class="specialist-button specialist-button--primary hero-button">Связаться со специалистом</a>
+              </div>
+            </div>
           </div>
-          <blockquote id="public-specialist-hero-quote" style="grid-area:quote;margin:0"></blockquote>
         </div>
       </section>
-      <section id="about" class="specialist-page__section" aria-label="О себе"><h2>О себе</h2><div id="specialist-about-content"></div></section>
-      <section id="education" class="specialist-page__section" aria-label="Образование"><h2>Образование</h2><div id="specialist-education-content"></div></section>
-      <section id="documents" class="specialist-page__section" aria-label="Документы"><h2>Документы</h2><div id="specialist-documents-content"></div></section>
-      <section id="services" class="specialist-page__section" aria-label="Услуги и цены"><h2>Услуги и цены</h2><div id="specialist-services-content"></div></section>
-      <section id="reviews" class="specialist-page__section" aria-label="Отзывы"><h2>Отзывы</h2><div id="specialist-reviews-content"></div></section>
-      <section id="booking" class="specialist-page__section" aria-label="Запись на консультацию"><h2>Записаться</h2><p>Выберите удобный способ связи со специалистом.</p></section>
+
+      <nav id="specialist-section-nav" class="specialist-subnav" aria-label="Навигация по разделам специалиста">
+        <div class="container specialist-subnav__inner">
+          <div class="specialist-subnav__list" role="tablist" aria-label="Разделы страницы">
+            <a href="#about" data-section-id="about" class="specialist-subnav__link" role="tab">О себе</a>
+            <a href="#education" data-section-id="education" class="specialist-subnav__link" role="tab">Образование</a>
+            <a href="#documents" data-section-id="documents" class="specialist-subnav__link" role="tab">Документы</a>
+            <a href="#services" data-section-id="services" class="specialist-subnav__link" role="tab">Услуги и цены</a>
+            <a href="#reviews" data-section-id="reviews" class="specialist-subnav__link" role="tab">Отзывы</a>
+            <a href="#booking" data-section-id="booking" class="specialist-subnav__link" role="tab">Записаться</a>
+          </div>
+          <a id="specialist-subnav-booking-link" href="#booking" class="specialist-button specialist-button--primary specialist-subnav__cta">Записаться</a>
+        </div>
+      </nav>
+      <section id="about" class="specialist-page__section section" aria-label="О себе"><div class="container"><div class="section-card specialist-card specialist-content-card"><h2 class="section-title specialist-section-title">О себе</h2><div id="specialist-about-content" class="section-text specialist-rich-text"></div></div></div></section>
+      <section id="education" class="specialist-page__section section" aria-label="Образование"><div class="container"><div class="section-card specialist-card specialist-content-card"><h2 class="section-title specialist-section-title">Образование</h2><div id="specialist-education-content"></div></div></div></section>
+      <section id="documents" class="specialist-page__section section" aria-label="Документы"><div class="container"><div class="section-card specialist-card specialist-content-card"><h2 class="section-title specialist-section-title">Документы</h2><div id="specialist-documents-content"></div></div></div></section>
+      <section id="services" class="specialist-page__section section" aria-label="Услуги и цены"><div class="container"><div class="section-card specialist-card specialist-content-card"><h2 class="section-title specialist-section-title">Услуги и цены</h2><div id="specialist-services-content"></div></div></div></section>
+      <section id="reviews" class="specialist-page__section section" aria-label="Отзывы"><div class="container"><div class="section-card specialist-card specialist-content-card"><h2 class="section-title specialist-section-title">Отзывы</h2><div id="specialist-reviews-content"></div></div></div></section>
+      <section id="booking" class="specialist-page__section section" aria-label="Запись на консультацию"><div class="container"><div class="section-card specialist-card specialist-cta-card cta-final"><h2 class="section-title specialist-section-title cta-final-title">Запишитесь на первую консультацию</h2><p class="section-text specialist-cta-card__text">Выберите удобное время и начните работу со специалистом уже сегодня.</p><a id="specialist-booking-cta-link" class="specialist-button specialist-button--primary specialist-button--large cta-final-button" href="#">Записаться на консультацию</a></div></div></section>
     </main>
 
     <main id="public-specialist-loading" class="wrap"><section><p>Загружаем профиль специалиста...</p></section></main>
-    <main id="public-specialist-not-found" class="wrap" style="display:none">
+    <main id="public-specialist-not-found" class="wrap specialist-hidden">
       <section>
         <h1>Профиль не найден</h1>
         <p>Проверьте ссылку или вернитесь на главную страницу.</p>
@@ -2745,11 +2769,15 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
         const notFoundEl = document.getElementById('public-specialist-not-found');
         const nameEl = document.getElementById('public-specialist-display-name');
         const specializationEl = document.getElementById('public-specialist-specialization');
+        const heroNameEl = document.getElementById('public-specialist-hero-name');
+        const heroSpecializationEl = document.getElementById('public-specialist-hero-specialization');
         const quoteEl = document.getElementById('public-specialist-hero-quote');
-        const heroGridEl = document.getElementById('public-specialist-hero-grid');
         const heroPhotoImageEl = document.getElementById('public-specialist-hero-photo-image');
         const heroPhotoFallbackEl = document.getElementById('public-specialist-hero-photo-fallback');
         const bookingLinkEl = document.getElementById('specialist-booking-link');
+        const bookingCtaLinkEl = document.getElementById('specialist-booking-cta-link');
+        const contactLinkEl = document.getElementById('specialist-contact-link');
+        const contactsEl = document.getElementById('specialist-contacts');
         const aboutEl = document.getElementById('specialist-about-content');
         const educationEl = document.getElementById('specialist-education-content');
         const documentsEl = document.getElementById('specialist-documents-content');
@@ -2762,21 +2790,156 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             loadingEl.style.display = 'none';
           }
           if (specialistPageEl) {
-            specialistPageEl.style.display = 'none';
+            specialistPageEl.classList.add('specialist-page--hidden');
           }
           if (notFoundEl) {
-            notFoundEl.style.display = 'block';
+            notFoundEl.classList.remove('specialist-hidden');
           }
         };
 
         window.addEventListener('error', showNotFound);
         window.addEventListener('unhandledrejection', showNotFound);
 
-        const setSectionText = (el, value, fallback) => {
+        const setSectionHtml = (el, value) => {
+          if (!el) {
+            return false;
+          }
+          const normalized = String(value || '').trim();
+          if (!normalized) {
+            const section = el.closest('section');
+            if (section) {
+              section.remove();
+            }
+            return false;
+          }
+          el.textContent = normalized;
+          return true;
+        };
+
+        const renderSimpleList = (el, items, listClass, itemClass) => {
           if (!el) {
             return;
           }
-          el.textContent = (value || '').trim() || fallback;
+          if (!Array.isArray(items) || items.length === 0) {
+            const section = el.closest('section');
+            if (section) {
+              section.remove();
+            }
+            return;
+          }
+          const listEl = document.createElement('ul');
+          listEl.className = listClass;
+          items.forEach((item) => {
+            const li = document.createElement('li');
+            li.className = itemClass;
+            li.textContent = String(item || '').trim();
+            listEl.appendChild(li);
+          });
+          el.innerHTML = '';
+          el.appendChild(listEl);
+        };
+
+        const renderServices = (blocks, bookingHref) => {
+          if (!servicesEl) {
+            return;
+          }
+
+          const servicesBlock = Array.isArray(blocks)
+            ? blocks.find((block) => String((block && block.block_type) || '').trim().toLowerCase() === 'services')
+            : null;
+
+          let candidate = null;
+          if (servicesBlock && servicesBlock.items != null) {
+            candidate = servicesBlock.items;
+          } else if (servicesBlock && servicesBlock.content != null) {
+            candidate = servicesBlock.content;
+          } else if (servicesBlock && servicesBlock.body != null) {
+            candidate = servicesBlock.body;
+          } else if (servicesBlock && servicesBlock.text != null) {
+            candidate = servicesBlock.text;
+          }
+
+          const toServiceItem = (item) => {
+            if (typeof item === 'string') {
+              const title = String(item || '').trim();
+              return title ? { name: title, price: '', description: '' } : null;
+            }
+            if (!item || typeof item !== 'object') {
+              return null;
+            }
+            const name = String((item && item.name) || '').trim();
+            const price = String((item && item.price) || '').trim();
+            const description = String((item && (item.description || item.body || item.text)) || '').trim();
+            if (!name && !price && !description) {
+              return null;
+            }
+            return { name, price, description };
+          };
+
+          let services = [];
+          if (Array.isArray(candidate)) {
+            services = candidate.map(toServiceItem).filter((item) => item !== null);
+          } else if (typeof candidate === 'string') {
+            services = candidate
+              .split('\n')
+              .map((line) => toServiceItem(line))
+              .filter((item) => item !== null);
+          }
+
+          if (services.length === 0) {
+            const section = servicesEl.closest('section');
+            if (section) {
+              section.remove();
+            }
+            return;
+          }
+
+          const listEl = document.createElement('ul');
+          listEl.className = 'services-grid';
+
+          services.forEach((item) => {
+            const card = document.createElement('li');
+            card.className = 'service-card';
+
+            if (item.name) {
+              const title = document.createElement('p');
+              title.className = 'service-title';
+              title.textContent = item.name;
+              card.appendChild(title);
+            }
+
+            if (item.price) {
+              const price = document.createElement('p');
+              price.className = 'service-price';
+              price.textContent = item.price;
+              card.appendChild(price);
+            }
+
+            if (item.description) {
+              const description = document.createElement('p');
+              description.className = 'service-description';
+              description.textContent = item.description;
+              card.appendChild(description);
+            }
+
+            const ctaWrap = document.createElement('div');
+            ctaWrap.className = 'service-cta';
+            const ctaLink = document.createElement('a');
+            ctaLink.className = 'specialist-button specialist-button--primary';
+            ctaLink.textContent = 'Записаться';
+            ctaLink.href = bookingHref || '#booking';
+            if (bookingHref) {
+              ctaLink.target = '_blank';
+              ctaLink.rel = 'noopener noreferrer';
+            }
+            ctaWrap.appendChild(ctaLink);
+            card.appendChild(ctaWrap);
+
+            listEl.appendChild(card);
+          });
+
+          servicesEl.innerHTML = '';
+          servicesEl.appendChild(listEl);
         };
 
         const collectBlocks = (blocks) => {
@@ -2824,14 +2987,59 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             candidate = reviewsBlock.text;
           }
 
-          let lines = [];
+          const normalizeReview = (raw) => {
+            if (typeof raw === 'string') {
+              const text = String(raw || '').trim();
+              return text ? { text, author: '' } : null;
+            }
+            if (!raw || typeof raw !== 'object') {
+              return null;
+            }
+            const text = String((raw && (raw.text || raw.content || raw.body)) || '').trim();
+            const author = String((raw && (raw.author || raw.name)) || '').trim();
+            if (!text) {
+              return null;
+            }
+            return { text, author };
+          };
+
+          let reviews = [];
           if (Array.isArray(candidate)) {
-            lines = candidate.map((item) => String(item || '').trim()).filter((text) => text.length > 0);
+            reviews = candidate.map((item) => normalizeReview(item)).filter((item) => item !== null);
           } else if (typeof candidate === 'string') {
-            lines = candidate.split('\\n').map((line) => line.trim()).filter((text) => text.length > 0);
+            reviews = candidate.split('\n').map((line) => normalizeReview(line)).filter((item) => item !== null);
           }
 
-          reviewsEl.textContent = lines.join('\\n\\n') || 'Отзывы скоро появятся.';
+          if (reviews.length === 0) {
+            const section = reviewsEl.closest('section');
+            if (section) {
+              section.remove();
+            }
+            return;
+          }
+
+          const listEl = document.createElement('ul');
+          listEl.className = 'reviews-grid';
+          reviews.forEach((item) => {
+            const card = document.createElement('li');
+            card.className = 'review-card';
+
+            const text = document.createElement('p');
+            text.className = 'review-text';
+            text.textContent = item.text;
+            card.appendChild(text);
+
+            if (item.author) {
+              const author = document.createElement('p');
+              author.className = 'review-author';
+              author.textContent = item.author;
+              card.appendChild(author);
+            }
+
+            listEl.appendChild(card);
+          });
+          reviewsEl.innerHTML = '';
+          reviewsEl.appendChild(listEl);
         };
 
         const renderDocuments = (media) => {
@@ -2859,23 +3067,31 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           }
 
           const listEl = document.createElement('ul');
+          listEl.className = 'specialist-grid specialist-grid--documents';
           let hasUnavailableDocumentUrl = false;
 
           documentItems.forEach((item) => {
             const li = document.createElement('li');
+            li.className = 'specialist-grid-card';
             if (/^https?:\\/\\//i.test(item.url)) {
               const link = document.createElement('a');
               link.href = item.url;
               link.textContent = item.title;
               link.target = '_blank';
               link.rel = 'noopener noreferrer';
+              link.className = 'specialist-grid-card__title';
               li.appendChild(link);
             } else {
               const title = document.createElement('span');
               title.textContent = item.title;
+              title.className = 'specialist-grid-card__title';
               li.appendChild(title);
               hasUnavailableDocumentUrl = true;
             }
+            const meta = document.createElement('p');
+            meta.className = 'specialist-grid-card__meta';
+            meta.textContent = 'Документ специалиста';
+            li.appendChild(meta);
             listEl.appendChild(li);
           });
 
@@ -2888,6 +3104,115 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           }
         };
 
+        const updateStickyOffsets = () => {
+          const headerHeight = document.getElementById('specialist-sticky-header')
+            ? document.getElementById('specialist-sticky-header').getBoundingClientRect().height
+            : 72;
+          const navHeight = sectionNavEl ? sectionNavEl.getBoundingClientRect().height : 0;
+          const totalOffset = Math.ceil(headerHeight + navHeight + 16);
+
+          document.documentElement.style.setProperty('--specialist-header-height', `${Math.ceil(headerHeight)}px`);
+          document.documentElement.style.setProperty('--specialist-subnav-height', `${Math.ceil(navHeight)}px`);
+          document.documentElement.style.setProperty('--specialist-sticky-offset', `${totalOffset}px`);
+        };
+
+        const syncSubnavVisibility = () => {
+          if (!sectionNavEl || !subnavListEl) {
+            return [];
+          }
+
+          const links = Array.from(subnavListEl.querySelectorAll('[data-section-id]'));
+          const visibleSectionIds = [];
+
+          links.forEach((link) => {
+            const sectionId = link.getAttribute('data-section-id');
+            const sectionEl = sectionId ? document.getElementById(sectionId) : null;
+            const isVisible = Boolean(sectionEl && sectionEl.parentElement);
+            if (isVisible) {
+              visibleSectionIds.push(sectionId);
+              link.classList.remove('specialist-hidden');
+            } else {
+              link.classList.add('specialist-hidden');
+            }
+          });
+
+          if (visibleSectionIds.length === 0) {
+            sectionNavEl.classList.add('specialist-hidden');
+          } else {
+            sectionNavEl.classList.remove('specialist-hidden');
+          }
+
+          return visibleSectionIds;
+        };
+
+        const setupSubnavActiveTracking = (sectionIds) => {
+          if (!subnavListEl || !Array.isArray(sectionIds) || sectionIds.length === 0) {
+            return;
+          }
+
+          let activeId = sectionIds[0];
+
+          const setActive = (id) => {
+            activeId = id;
+            Array.from(subnavListEl.querySelectorAll('[data-section-id]')).forEach((link) => {
+              const isActive = link.getAttribute('data-section-id') === id;
+              link.classList.toggle('specialist-subnav__link--active', isActive);
+              if (isActive) {
+                link.setAttribute('aria-current', 'true');
+                link.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+              } else {
+                link.removeAttribute('aria-current');
+              }
+            });
+          };
+
+          setActive(activeId);
+
+          Array.from(subnavListEl.querySelectorAll('a[data-section-id]')).forEach((link) => {
+            link.addEventListener('click', (event) => {
+              const targetId = link.getAttribute('data-section-id');
+              const target = targetId ? document.getElementById(targetId) : null;
+              if (!target) {
+                return;
+              }
+              event.preventDefault();
+              setActive(targetId);
+              target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              window.history.replaceState(null, '', `#${targetId}`);
+            });
+          });
+
+          const observer = new IntersectionObserver(
+            (entries) => {
+              const visible = entries.filter((entry) => entry.isIntersecting);
+              if (!visible.length) {
+                return;
+              }
+
+              const next = visible
+                .sort((a, b) => {
+                  if (b.intersectionRatio !== a.intersectionRatio) {
+                    return b.intersectionRatio - a.intersectionRatio;
+                  }
+                  return a.boundingClientRect.top - b.boundingClientRect.top;
+                })
+                .map((entry) => entry.target.id)[0];
+
+              if (next && next !== activeId) {
+                setActive(next);
+              }
+            },
+            { root: null, rootMargin: '-28% 0px -58% 0px', threshold: [0.1, 0.3, 0.6] },
+          );
+
+          sectionIds.forEach((id) => {
+            const section = document.getElementById(id);
+            if (section) {
+              observer.observe(section);
+            }
+          });
+        };
+
         const bootstrap = async () => {
           const response = await fetch(publicProfileApiUrl);
           if (!response.ok) {
@@ -2897,41 +3222,108 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           const profile = payload && payload.profile ? payload.profile : {};
 
             loadingEl.style.display = 'none';
-            specialistPageEl.style.display = 'block';
-            nameEl.textContent = profile.display_name || 'Специалист';
-            specializationEl.textContent = profile.specialization || '';
+            if (notFoundEl) {
+              notFoundEl.classList.add('specialist-hidden');
+            }
+            specialistPageEl.classList.remove('specialist-page--hidden');
+            const displayName = profile.display_name || 'Специалист';
+            const profileSpecialization = profile.specialization || 'Специализация';
+            nameEl.textContent = displayName;
+            specializationEl.textContent = profileSpecialization;
+            if (heroNameEl) {
+              heroNameEl.textContent = displayName;
+            }
+            if (heroSpecializationEl) {
+              heroSpecializationEl.textContent = profileSpecialization;
+            }
             const heroQuote = String(profile.hero_quote || '').trim();
             quoteEl.textContent = heroQuote;
-            quoteEl.style.display = heroQuote ? 'block' : 'none';
-            if (heroGridEl) {
-              heroGridEl.style.gridTemplateAreas = heroQuote ? "'photo quote'" : "'photo photo'";
+            if (heroQuote) {
+              quoteEl.classList.remove('specialist-hidden');
+            } else {
+              quoteEl.classList.add('specialist-hidden');
             }
 
             const photoUrl = String(profile.photo_url || '').trim();
             if (photoUrl && /^https?:\\/\\//i.test(photoUrl)) {
               heroPhotoImageEl.src = photoUrl;
-              heroPhotoImageEl.style.display = 'block';
-              heroPhotoFallbackEl.style.display = 'none';
+              heroPhotoImageEl.classList.remove('specialist-hidden');
+              heroPhotoFallbackEl.classList.add('specialist-hidden');
             } else {
-              heroPhotoImageEl.style.display = 'none';
-              heroPhotoFallbackEl.style.display = 'block';
+              heroPhotoImageEl.classList.add('specialist-hidden');
+              heroPhotoFallbackEl.classList.remove('specialist-hidden');
             }
 
             const blocksSource = payload && payload.blocks ? payload.blocks : null;
             const blocks = collectBlocks(blocksSource);
-            setSectionText(aboutEl, blocks.about, 'Информация появится позже.');
-            setSectionText(educationEl, blocks.education, 'Информация появится позже.');
-            setSectionText(servicesEl, blocks.services, 'Информация появится позже.');
+            setSectionHtml(aboutEl, blocks.about);
+            const educationItems = String(blocks.education || '').split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
+            renderSimpleList(educationEl, educationItems, 'specialist-list specialist-list--education', 'specialist-list__item');
             renderReviews(blocksSource);
             renderDocuments(payload && payload.media ? payload.media : null);
 
             const clientBotUsername = String(profile.client_bot_username || '').trim();
             const specialistId = String(profile.id || '').trim();
+            let bookingHref = '';
             if (clientBotUsername && specialistId) {
-              bookingLinkEl.href = `https://t.me/${encodeURIComponent(clientBotUsername)}?start=book_${encodeURIComponent(specialistId)}`;
+              bookingHref = `https://t.me/${encodeURIComponent(clientBotUsername)}?start=book_${encodeURIComponent(specialistId)}`;
+              const contactHref = `https://t.me/${encodeURIComponent(clientBotUsername)}?start=contact_specialist_${encodeURIComponent(specialistId)}`;
+              bookingLinkEl.href = bookingHref;
               bookingLinkEl.target = '_blank';
               bookingLinkEl.rel = 'noopener noreferrer';
+              if (bookingCtaLinkEl) {
+                bookingCtaLinkEl.href = bookingHref;
+                bookingCtaLinkEl.target = '_blank';
+                bookingCtaLinkEl.rel = 'noopener noreferrer';
+              }
+              if (subnavBookingLinkEl) {
+                subnavBookingLinkEl.href = bookingHref;
+                subnavBookingLinkEl.target = '_blank';
+                subnavBookingLinkEl.rel = 'noopener noreferrer';
+              }
+              if (contactLinkEl) {
+                contactLinkEl.href = contactHref;
+                contactLinkEl.target = '_blank';
+                contactLinkEl.rel = 'noopener noreferrer';
+              }
             }
+
+            renderServices(blocksSource, bookingHref);
+
+            if (contactsEl) {
+              const contacts = profile && profile.contacts ? profile.contacts : {};
+              const contactRows = [
+                { label: 'Telegram', value: String((contacts && contacts.telegram) || '').trim() },
+                { label: 'WhatsApp', value: String((contacts && contacts.whatsapp) || '').trim() },
+                { label: 'Телефон', value: String((contacts && contacts.phone) || '').trim() },
+                { label: 'Email', value: String((contacts && contacts.email) || '').trim() },
+              ].filter((item) => item.value.length > 0);
+
+              if (contactRows.length === 0) {
+                contactsEl.classList.add('specialist-hidden');
+              } else {
+                contactsEl.innerHTML = '';
+                contactRows.forEach((item) => {
+                  const li = document.createElement('li');
+                  li.className = 'specialist-contacts__item';
+                  const label = document.createElement('span');
+                  label.className = 'specialist-contacts__label';
+                  label.textContent = item.label;
+                  const value = document.createElement('span');
+                  value.className = 'specialist-contacts__value';
+                  value.textContent = item.value;
+                  li.appendChild(label);
+                  li.appendChild(value);
+                  contactsEl.appendChild(li);
+                });
+                contactsEl.classList.remove('specialist-hidden');
+              }
+            }
+
+            const visibleSectionIds = syncSubnavVisibility();
+            setupSubnavActiveTracking(visibleSectionIds);
+            updateStickyOffsets();
+            window.addEventListener('resize', updateStickyOffsets);
 
             window.removeEventListener('error', showNotFound);
             window.removeEventListener('unhandledrejection', showNotFound);

@@ -3,6 +3,7 @@ type SpecialistPublicBlock = Record<string, unknown>;
 type ServiceItem = {
   name: string;
   price: string;
+  description: string;
 };
 
 type SectionServicesProps = {
@@ -20,7 +21,7 @@ function sanitizeText(input: string): string {
 function normalizeServiceItem(raw: unknown): ServiceItem | null {
   if (typeof raw === "string") {
     const sanitized = sanitizeText(raw);
-    return sanitized ? { name: sanitized, price: "" } : null;
+    return sanitized ? { name: sanitized, price: "", description: "" } : null;
   }
 
   if (!raw || typeof raw !== "object") {
@@ -30,12 +31,14 @@ function normalizeServiceItem(raw: unknown): ServiceItem | null {
   const maybeItem = raw as Record<string, unknown>;
   const name = typeof maybeItem.name === "string" ? sanitizeText(maybeItem.name) : "";
   const price = typeof maybeItem.price === "string" ? sanitizeText(maybeItem.price) : "";
+  const descriptionCandidate = maybeItem.description ?? maybeItem.body ?? maybeItem.text;
+  const description = typeof descriptionCandidate === "string" ? sanitizeText(descriptionCandidate) : "";
 
-  if (!name && !price) {
+  if (!name && !price && !description) {
     return null;
   }
 
-  return { name, price };
+  return { name, price, description };
 }
 
 function getServiceItems(blocks?: SpecialistPublicBlock[]): ServiceItem[] {
@@ -69,16 +72,26 @@ export function SectionServices({ blocks }: SectionServicesProps) {
   }
 
   return (
-    <section id="services" className="specialist-page__section" aria-label="Услуги и цены">
-      <h2>Услуги и цены</h2>
-      <ul>
-        {serviceItems.map((item, index) => (
-          <li key={`${item.name}-${item.price}-${index}`}>
-            <span>{item.name}</span>
-            {item.price ? <span>{item.price}</span> : null}
-          </li>
-        ))}
-      </ul>
+    <section id="services" className="specialist-page__section section" aria-label="Услуги и цены">
+      <div className="container">
+        <div className="section-card specialist-card specialist-content-card">
+          <h2 className="section-title specialist-section-title">Услуги и цены</h2>
+          <ul className="services-grid" aria-label="Карточки услуг">
+            {serviceItems.map((item, index) => (
+              <li key={`${item.name}-${item.price}-${index}`} className="service-card">
+                {item.name ? <p className="service-title">{item.name}</p> : null}
+                {item.price ? <p className="service-price">{item.price}</p> : null}
+                {item.description ? <p className="service-description">{item.description}</p> : null}
+                <div className="service-cta">
+                  <a href="#booking" className="specialist-button specialist-button--primary">
+                    Записаться
+                  </a>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </section>
   );
 }

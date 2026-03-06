@@ -25,7 +25,7 @@ def test_documents_with_null_url_render_title_without_fake_link():
     assert "normalizeUrl" in documents
     assert "if (!/^https?:\\/\\//i.test(sanitized))" in documents
     assert "{item.url ? (" in documents
-    assert "<span>{item.title}</span>" in documents
+    assert '<span className="specialist-grid-card__title">{item.title}</span>' in documents
 
 
 def test_page_passes_media_to_documents_section_component():

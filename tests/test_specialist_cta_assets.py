@@ -10,6 +10,9 @@ def test_cta_uses_common_telegram_link_builder_and_label():
     assert "buildClientBotLink" in cta
     assert 'buildClientBotLink(clientBotUsername, "book", specialistUuid)' in cta
     assert "Записаться на консультацию" in cta
+    assert "className=\"section-card specialist-card specialist-cta-card cta-final\"" in cta
+    assert "className=\"section-title specialist-section-title cta-final-title\"" in cta
+    assert "className=\"specialist-button specialist-button--primary specialist-button--large cta-final-button\"" in cta
 
 
 def test_cta_hides_when_link_cannot_be_built():
@@ -25,3 +28,11 @@ def test_page_uses_section_cta_with_profile_id_uuid():
     assert 'import SectionCTA from "../components/specialist/SectionCTA";' in page
     assert "const specialistUuid = payload?.profile.id;" in page
     assert "<SectionCTA clientBotUsername={clientBotUsername} specialistUuid={specialistUuid} />" in page
+
+
+def test_bridge_cta_uses_final_cta_classes():
+    bridge = (ROOT / "web_server.py").read_text(encoding="utf-8")
+
+    assert "specialist-cta-card cta-final" in bridge
+    assert "cta-final-title" in bridge
+    assert "cta-final-button" in bridge

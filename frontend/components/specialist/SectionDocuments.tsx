@@ -72,22 +72,26 @@ export function SectionDocuments({ media }: SectionDocumentsProps) {
   }
 
   return (
-    <section id="documents" className="specialist-page__section" aria-label="Документы">
-      <h2>Документы</h2>
-      <ul>
-        {documentItems.map((item, index) => (
-          <li key={`${item.title}-${index}`}>
-            {item.url ? (
-              <a href={item.url} target="_blank" rel="noopener noreferrer">
-                {item.title}
-              </a>
-            ) : (
-              <span>{item.title}</span>
-            )}
-          </li>
-        ))}
-      </ul>
-      {documentItems.some((item) => !item.url) ? <p>Скоро будет доступно скачивание</p> : null}
+    <section id="documents" className="specialist-page__section section" aria-label="Документы">
+      <div className="container">
+        <div className="section-card specialist-card specialist-content-card">
+          <h2 className="section-title specialist-section-title">Документы</h2>
+          <ul className="specialist-grid specialist-grid--documents">
+          {documentItems.map((item, index) => (
+            <li key={`${item.title}-${index}`} className="specialist-grid-card">
+              {item.url ? (
+                <a href={item.url} target="_blank" rel="noopener noreferrer" className="specialist-grid-card__title">
+                  {item.title}
+                </a>
+              ) : (
+                <span className="specialist-grid-card__title">{item.title}</span>
+              )}
+              <p className="specialist-grid-card__meta">Документ специалиста</p>
+            </li>
+          ))}
+        </ul>
+        {documentItems.some((item) => !item.url) ? <p className="specialist-section-note">Скоро будет доступно скачивание</p> : null}
+      </div>
     </section>
   );
 }

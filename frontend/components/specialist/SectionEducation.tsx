@@ -44,13 +44,19 @@ export function SectionEducation({ blocks }: SectionEducationProps) {
   }
 
   return (
-    <section id="education" className="specialist-page__section" aria-label="Образование">
-      <h2>Образование</h2>
-      <ul>
-        {educationItems.map((item, index) => (
-          <li key={`${item}-${index}`}>{item}</li>
-        ))}
-      </ul>
+    <section id="education" className="specialist-page__section section" aria-label="Образование">
+      <div className="container">
+        <div className="section-card specialist-card specialist-content-card">
+          <h2 className="section-title specialist-section-title">Образование</h2>
+          <ul className="specialist-list specialist-list--education">
+          {educationItems.map((item, index) => (
+            <li key={`${item}-${index}`} className="specialist-list__item">
+              {item}
+            </li>
+          ))}
+          </ul>
+        </div>
+      </div>
     </section>
   );
 }
