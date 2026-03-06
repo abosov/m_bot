@@ -146,7 +146,7 @@ def test_public_slug_route_has_failsafe_handlers_for_runtime_errors():
     assert "window.addEventListener('error', showNotFound);" in response.text
     assert "window.addEventListener('unhandledrejection', showNotFound);" in response.text
     assert "try {" in response.text
-    assert "bootstrap().catch(() => {" in response.text
+    assert "bootstrap().catch(showNotFound);" in response.text
     assert "} catch (_) {" in response.text
     assert "showNotFound();" in response.text
 

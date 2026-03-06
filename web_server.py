@@ -2910,9 +2910,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
         };
 
         try {
-          bootstrap().catch(() => {
-            showNotFound();
-          });
+          bootstrap().catch(showNotFound);
         } catch (_) {
           showNotFound();
         }
