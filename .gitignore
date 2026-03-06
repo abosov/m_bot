@@ -1,30 +1,47 @@
 mvp.db
+
+# Python cache
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+
 services/__pycache__/
 handlers/__pycache__/
-.env
-.env.local
-*.pyc
-codex.patch
+
+# Virtual environments
 .venv/
 
+# Environment files
+.env
+.env.local
+
+# Test data
 config/test_accounts.yaml
-
 var/test_snapshots/
-
-# macOS
-.DS_Store
 
 # pytest
 .pytest_cache/
 
-# Python bytecode
-*.pyo
-*.pyd
+# Coverage
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
+# Patch files
+*.patch
+
+# Temporary files
+*.tmp
+*.bak
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
 
 # IDE
 .vscode/
 .idea/
-
-# Logs
-*.log
