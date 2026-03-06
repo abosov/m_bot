@@ -11,3 +11,20 @@ codex.patch
 config/test_accounts.yaml
 
 var/test_snapshots/
+
+# macOS
+.DS_Store
+
+# pytest
+.pytest_cache/
+
+# Python bytecode
+*.pyo
+*.pyd
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
