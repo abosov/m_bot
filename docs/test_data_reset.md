@@ -95,3 +95,14 @@ python3 scripts/test_data_reset.py --apply --registry /etc/zumbot/test_accounts.
 ```bash
 sudo -u zumbot -H bash -lc "cd /opt/zumbot/backend && /opt/zumbot/backend/.venv/bin/python3 scripts/test_data_reset.py --registry /etc/zumbot/test_accounts.yaml --format text --apply"
 ```
+
+## Dev utility: clean workspace artifacts
+
+Для локальной файловой cleanup-очистки используйте `scripts/clean_dev.sh`.
+
+Подробная операционная инструкция (что удаляет, что не трогает, пример вывода,
+когда безопасно запускать) ведётся в `docs/runbook_vps.md`, секция
+`Ops utility: локальная очистка dev-артефактов`.
+
+Важно для этого документа: `clean_dev.sh` не заменяет `zumbot-test-reset`
+и не выполняет логический reset тестовых аккаунтов.
