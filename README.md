@@ -257,6 +257,7 @@ Nginx security snippet: `docs/snippets/nginx_security.conf`.
 - `docs/runbook_vps.md`
 - `docs/runbook/contact-form.md` (форма `/contacts` и SMTP-настройка)
 - скрипт `scripts/vps_deploy_check.sh`
+- ручной workflow GitHub Actions: `.github/workflows/deploy_manual.yml` (только кнопка Run workflow, без автодеплоя)
 
 Основные команды:
 - checks: `sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/vps_deploy_check.sh'`

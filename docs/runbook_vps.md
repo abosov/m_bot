@@ -34,6 +34,41 @@ sudo bash -lc 'cd /opt/zumbot/backend && bash scripts/vps_deploy_check.sh --mode
 - запуск пост-проверок.
 
 
+## Ручной деплой по кнопке из GitHub Actions
+
+Workflow: `.github/workflows/deploy_manual.yml` (trigger только `workflow_dispatch`).
+
+Важно:
+- это **не автодеплой** и не запуск по `push`;
+- workflow только делает SSH-вызов на VPS и запускает существующие скрипты в `/opt/zumbot/backend`;
+- production env остаётся на VPS в `/etc/zumbot/backend.env` и не переносится в GitHub Actions.
+
+Нужные GitHub Secrets:
+- `VPS_HOST`
+- `VPS_PORT`
+- `VPS_USER`
+- `VPS_SSH_KEY`
+
+Как запускать из GitHub UI:
+1. Открыть **Actions** → **Manual VPS Deploy** → **Run workflow**.
+2. Указать `ref` (branch/tag/SHA, по умолчанию `main`).
+3. Для режима checks-only включить `run_checks_only=true`.
+
+Что выполняет workflow на VPS:
+- checks only (`run_checks_only=true`):
+
+```bash
+sudo bash -lc 'cd /opt/zumbot/backend && git fetch origin && git checkout <ref> && bash scripts/vps_deploy_check.sh'
+```
+
+- deploy (`run_checks_only=false`):
+
+```bash
+sudo bash -lc 'cd /opt/zumbot/backend && git fetch origin && git checkout <ref> && bash scripts/vps_deploy.sh'
+```
+
+Workflow не делает `SCP/rsync`, не выполняет deploy локально на runner и не требует env-файла в GitHub.
+
 ## Heartbeat throttling и интерпретация health/readiness
 
 `/readyz` может вызываться часто (monitoring, LB, ручные проверки), поэтому запись
