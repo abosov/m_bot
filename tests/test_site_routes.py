@@ -108,6 +108,31 @@ def test_site_health_returns_ok():
     assert response.text == "ok"
 
 
+
+
+def test_public_slug_route_returns_html_shell_for_specialist_page():
+    response = client.get("/TsarevaE_12")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "Профиль специалиста — Zumbot" in response.text
+    assert "fetch(`/api/public/specialists/${encodeURIComponent(slug)}`)" in response.text
+    assert 'const slug = "TsarevaE_12";' in response.text
+
+
+def test_public_slug_route_keeps_reserved_paths_on_existing_pages():
+    response = client.get("/pricing")
+
+    assert response.status_code == 200
+    assert "Тарифы" in response.text
+
+
+def test_invalid_single_segment_path_is_not_hijacked_by_specialist_page_router():
+    response = client.get("/invalid-slug")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+
 def test_site_assets_are_served():
     css = client.get("/assets/styles.css")
     js = client.get("/assets/app.js")

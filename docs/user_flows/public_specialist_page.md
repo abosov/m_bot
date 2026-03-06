@@ -8,6 +8,13 @@
 Public page data is loaded from:
 - `GET /api/public/specialists/{public_slug}`
 
+## Website routing
+- Реальный route на сайте: `GET /{public_slug}`.
+- Route проходит через `frontend.router.resolve_frontend_route(path)`.
+- Если route resolved как `specialist_profile_page`, сайт рендерит HTML публичной страницы и frontend вызывает `GET /api/public/specialists/{public_slug}`.
+- Если slug валиден, но профиль не найден/не опубликован, страница показывает site-level not found state.
+- Невалидные slug и non-slug пути не перехватываются и обрабатываются обычным routing сайта.
+
 ## Visibility rule
 Only records with `is_published=true` are visible publicly.
 If profile is missing or not published, API returns `404 not_found`.

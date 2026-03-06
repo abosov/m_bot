@@ -6,7 +6,7 @@
 - `GET /api/public/specialists/{public_slug}`
 - правила slug (формат `^[A-Za-z]+[A-Za-z0-9]*_[0-9]{2}$` и диапазон `10..30`)
 - published-only поведение
-- точная форма ответа `PublicSpecialistResponse` (`profile`, `blocks`, `media`)
+- точная форма ответа `PublicSpecialistResponse` (`profile`, `blocks`, `media`, `reviews`)
 - security notes (включая запрет на возврат `file_key`, токенов и внутренних полей)
 
 См. подробную спецификацию в `docs/api/public_specialist.md`.
@@ -14,3 +14,6 @@
 Ключевые поля контракта для frontend:
 - `profile.contacts.{telegram,whatsapp,phone,email}` — контакты специалиста;
 - `profile.id` (UUID) — идентификатор специалиста для client-bot deep-links.
+
+
+Source of truth для public read-side: `specialist_public_profile`, `specialist_public_block`, `specialist_public_media`.

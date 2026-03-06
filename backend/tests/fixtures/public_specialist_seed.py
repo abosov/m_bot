@@ -13,26 +13,22 @@ async def seed_public_specialist_tsareva_e12(session: AsyncSession) -> None:
     now = datetime.now(timezone.utc).isoformat()
 
     await session.execute(
-        text("DELETE FROM public_specialist_review WHERE profile_id IN (SELECT id FROM public_specialist_profile WHERE public_slug = :slug)"),
+        text("DELETE FROM specialist_public_media WHERE profile_id IN (SELECT id FROM specialist_public_profile WHERE public_slug = :slug)"),
         {"slug": "TsarevaE_12"},
     )
     await session.execute(
-        text("DELETE FROM public_specialist_media WHERE profile_id IN (SELECT id FROM public_specialist_profile WHERE public_slug = :slug)"),
+        text("DELETE FROM specialist_public_block WHERE profile_id IN (SELECT id FROM specialist_public_profile WHERE public_slug = :slug)"),
         {"slug": "TsarevaE_12"},
     )
     await session.execute(
-        text("DELETE FROM public_specialist_block WHERE profile_id IN (SELECT id FROM public_specialist_profile WHERE public_slug = :slug)"),
-        {"slug": "TsarevaE_12"},
-    )
-    await session.execute(
-        text("DELETE FROM public_specialist_profile WHERE public_slug = :slug"),
+        text("DELETE FROM specialist_public_profile WHERE public_slug = :slug"),
         {"slug": "TsarevaE_12"},
     )
 
     await session.execute(
         text(
             """
-            INSERT INTO public_specialist_profile (
+            INSERT INTO specialist_public_profile (
                 id, public_slug, display_name, specialization, hero_quote,
                 contact_telegram, contact_whatsapp, contact_phone, contact_email,
                 client_bot_username, is_published, created_at, updated_at
@@ -63,7 +59,7 @@ async def seed_public_specialist_tsareva_e12(session: AsyncSession) -> None:
     await session.execute(
         text(
             """
-            INSERT INTO public_specialist_block (id, profile_id, block_type, content, sort_order, updated_at)
+            INSERT INTO specialist_public_block (id, profile_id, block_type, content, sort_order, updated_at)
             VALUES
               (:about_id, :profile_id, 'about', 'Практикующий психолог. Работаю с тревогой и самооценкой.', 10, :updated_at),
               (:education_id, :profile_id, 'education', 'Психологическое образование и регулярная супервизия.', 20, :updated_at),
@@ -82,7 +78,7 @@ async def seed_public_specialist_tsareva_e12(session: AsyncSession) -> None:
     await session.execute(
         text(
             """
-            INSERT INTO public_specialist_media (id, profile_id, media_type, title, file_key, sort_order, created_at)
+            INSERT INTO specialist_public_media (id, profile_id, media_type, title, file_key, sort_order, created_at)
             VALUES (:m1, :profile_id, 'photo', 'Портрет', 'private/demo/tsareva-photo.jpg', 10, :created_at)
             """
         ),
@@ -93,19 +89,3 @@ async def seed_public_specialist_tsareva_e12(session: AsyncSession) -> None:
         },
     )
 
-    await session.execute(
-        text(
-            """
-            INSERT INTO public_specialist_review (id, profile_id, author_name, rating, content, sort_order, created_at)
-            VALUES
-              (:r1, :profile_id, 'Анна', 5, 'Очень бережная работа, стало спокойнее.', 10, :created_at),
-              (:r2, :profile_id, 'Ирина', 5, 'Понравилась структура встреч и домашние задания.', 20, :created_at)
-            """
-        ),
-        {
-            "r1": str(uuid.uuid4()),
-            "r2": str(uuid.uuid4()),
-            "profile_id": profile_id,
-            "created_at": now,
-        },
-    )
