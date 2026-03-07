@@ -1,4 +1,5 @@
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { resolveActiveSectionId } from "./sectionNavActiveResolver";
 
 type SectionNavItem = {
   id: string;
@@ -12,6 +13,21 @@ type SectionNavProps = {
 export function SectionNav({ items }: SectionNavProps) {
   const [activeId, setActiveId] = useState<string | null>(items[0]?.id ?? null);
   const navListRef = useRef<HTMLDivElement | null>(null);
+
+  const getStickyOffset = () => {
+    const rootStyles = window.getComputedStyle(document.documentElement);
+    const cssOffset = Number.parseFloat(rootStyles.getPropertyValue("--specialist-sticky-offset"));
+    if (Number.isFinite(cssOffset) && cssOffset > 0) {
+      return cssOffset;
+    }
+
+    const stickyHeader = document.getElementById("specialist-sticky-header");
+    const sectionNav = document.getElementById("specialist-section-nav");
+    const headerHeight = stickyHeader?.getBoundingClientRect().height ?? 72;
+    const sectionNavHeight = sectionNav?.getBoundingClientRect().height ?? 0;
+    return headerHeight + sectionNavHeight + 16;
+  };
+
 
 
   const navItems = useMemo(() => items.filter((item) => Boolean(item.id && item.label)), [items]);
@@ -33,37 +49,55 @@ export function SectionNav({ items }: SectionNavProps) {
       return;
     }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visibleEntries = entries.filter((entry) => entry.isIntersecting);
-        if (!visibleEntries.length) {
-          return;
-        }
+    let animationFrameId: number | null = null;
 
-        const next = visibleEntries
-          .sort((a, b) => {
-            if (b.intersectionRatio !== a.intersectionRatio) {
-              return b.intersectionRatio - a.intersectionRatio;
-            }
-            return a.boundingClientRect.top - b.boundingClientRect.top;
-          })
-          .map((entry) => entry.target.id)[0];
+    const updateActiveSection = () => {
+      const sectionGeometries = sections.map((section) => ({
+        id: section.id,
+        top: section.getBoundingClientRect().top + window.scrollY,
+      }));
 
-        if (next) {
-          setActiveId(next);
-        }
-      },
-      {
-        root: null,
-        rootMargin: "-28% 0px -58% 0px",
-        threshold: [0.1, 0.3, 0.6],
-      },
-    );
+      const nextId = resolveActiveSectionId(sectionGeometries, {
+        scrollY: window.scrollY,
+        viewportHeight: window.innerHeight || document.documentElement.clientHeight,
+        documentHeight: document.documentElement.scrollHeight,
+        stickyOffset: getStickyOffset(),
+      });
+      if (nextId) {
+        setActiveId((prevId) => (prevId === nextId ? prevId : nextId));
+      }
+    };
+
+    const scheduleUpdate = () => {
+      if (animationFrameId !== null) {
+        return;
+      }
+
+      animationFrameId = window.requestAnimationFrame(() => {
+        animationFrameId = null;
+        updateActiveSection();
+      });
+    };
+
+    const observer = new IntersectionObserver(scheduleUpdate, {
+      root: null,
+      rootMargin: "-10% 0px -40% 0px",
+      threshold: [0, 0.1, 0.25, 0.5, 0.75, 1],
+    });
 
     sections.forEach((section) => observer.observe(section));
+    updateActiveSection();
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
 
     return () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+
       observer.disconnect();
+      window.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
     };
   }, [navItems]);
 
@@ -73,7 +107,7 @@ export function SectionNav({ items }: SectionNavProps) {
     }
 
     const activeElement = navListRef.current.querySelector<HTMLElement>(`a[data-section-id="${activeId}"]`);
-    activeElement?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+    activeElement?.scrollIntoView({ inline: "center", block: "nearest", behavior: "auto" });
   }, [activeId]);
 
   const handleNavigate = (event: MouseEvent<HTMLAnchorElement>, targetId: string) => {
