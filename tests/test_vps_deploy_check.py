@@ -54,6 +54,9 @@ def test_telegram_smoke_checks_are_ipv4_safe_and_reuse_helper() -> None:
     content = SCRIPT_PATH.read_text(encoding="utf-8")
 
     assert 'curl -4 -sS --connect-timeout 3 --max-time 8 "https://api.telegram.org/bot${token}/getMe"' in content
+    assert "RESPONSE_JSON=\"${response}\" python3 - <<'PY'" in content
+    assert 'raw = os.getenv("RESPONSE_JSON", "")' in content
+    assert 'invalid json: {exc}' in content
     assert 'run_step "Smoke: master bot getMe" check_telegram_getme "master bot" "${MASTER_BOT_TOKEN}"' in content
     assert 'run_step "Smoke: test personal bot getMe" check_telegram_getme "test personal bot" "${TEST_PERSONAL_BOT_TOKEN}"' in content
     assert 'urllib.request' not in content
