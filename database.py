@@ -734,6 +734,32 @@ class NotificationLog(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class AdminBulkCleanupJob(Base):
+    __tablename__ = "admin_bulk_cleanup_job"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'completed', 'failed', 'partial')",
+            name="admin_bulk_cleanup_job_status_chk",
+        ),
+        CheckConstraint("total_specialists >= 0", name="admin_bulk_cleanup_job_total_specialists_nonnegative_chk"),
+        CheckConstraint("processed_specialists >= 0", name="admin_bulk_cleanup_job_processed_specialists_nonnegative_chk"),
+        CheckConstraint("error_count >= 0", name="admin_bulk_cleanup_job_error_count_nonnegative_chk"),
+        CheckConstraint(
+            "processed_specialists <= total_specialists",
+            name="admin_bulk_cleanup_job_processed_lte_total_chk",
+        ),
+        Index("ix_admin_bulk_cleanup_job_status", "status"),
+        Index("ix_admin_bulk_cleanup_job_created_at", "created_at"),
+    )
+
+    job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    total_specialists: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    processed_specialists: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+
 # --- Dependency Helper ---
 
 async def get_db_session() -> AsyncSession:

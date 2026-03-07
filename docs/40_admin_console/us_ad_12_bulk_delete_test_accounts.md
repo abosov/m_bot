@@ -26,9 +26,16 @@ Status: Planned
 
 Обоснование:
 
-- объём удаляемых данных может быть большим (timeouts/нестабильность при sync);
-- нужен прогресс, промежуточные статусы и повторная обработка ошибок;
-- post-commit очистка storage/файлов естественно ложится в job/workflow модель.
+- объём удаляемых данных может быть большим;
+- операция не должна упираться в HTTP timeout;
+- нужен прогресс, промежуточные статусы и возможность retry.
+
+### Workflow (high-level)
+
+1. **Preflight scan** — server-side snapshot кандидатов и счётчиков удаления.
+2. **Confirmation phrase** — super_admin вводит `DELETE ALL TEST ACCOUNTS` + подтверждает необратимость.
+3. **Create admin job** — backend создаёт job типа `bulk_delete_test_accounts` в статусе `pending`.
+4. **Worker delete phase** — worker переводит job в `running` и удаляет специалистов **последовательно** (one-by-one), фиксируя outcome.
 
 ---
 
@@ -49,7 +56,7 @@ Status: Planned
 - Явное подтверждение операции (multi-step).
 - Создание и запуск admin job на удаление.
 - Удаление сущностей по каждому test specialist согласно US-AD-11 (single-delete policy).
-- Агрегированный результат в UI: success/failed/partial + подробная статистика.
+- Агрегированный результат в UI: completed/failed/partial + подробная статистика.
 - Полный audit trail: запуск, прогресс, завершение, ошибки.
 
 ### Excluded (MVP)
@@ -172,11 +179,13 @@ Request:
 
 ## Ошибки и partial success
 
-### Модель результата job
+### Модель состояния job
 
-- `completed_success` — все кандидаты удалены и cleanup завершён.
-- `completed_partial` — часть кандидатов удалена, часть завершилась ошибкой и/или cleanup partial.
-- `failed` — критическая ошибка orchestration до meaningful progress.
+- `pending` — job создана и ожидает обработки worker.
+- `running` — выполняется последовательное удаление кандидатов.
+- `completed` — все кандидаты успешно обработаны.
+- `partial` — есть и успешные, и неуспешные item-результаты.
+- `failed` — job не смогла завершить процесс из-за критической ошибки.
 
 ### Retry стратегия
 
@@ -213,7 +222,7 @@ Request:
 - `bulk_delete_test_accounts_job_created`
 - `bulk_delete_test_accounts_item_deleted`
 - `bulk_delete_test_accounts_item_failed`
-- `bulk_delete_test_accounts_completed` / `completed_partial` / `failed`
+- `bulk_delete_test_accounts_completed` / `partial` / `failed`
 
 Минимальные поля:
 
@@ -238,7 +247,7 @@ Request:
 1. **Preview**: planned counts + candidate count + exclusions.
 2. **Confirmation**: phrase field + irreversible warning + apply button.
 3. **Job progress**:
-   - статус (`running`, `completed_success`, `completed_partial`, `failed`),
+   - статус (`pending`, `running`, `completed`, `partial`, `failed`),
    - прогресс-бар (processed/total),
    - counters: deleted/failed/skipped,
    - ссылка «Показать ошибки» (таблица failed items).
@@ -291,14 +300,14 @@ Request:
 - Candidate selector: только test && !system && !denylist.
 - Snapshot validator: stale snapshot отклоняется.
 - Confirmation validator: phrase/token/TTL/one-time-use.
-- Result aggregator: корректная модель `success/partial/failed`.
+- Result aggregator: корректная модель `completed/partial/failed`.
 
 ### Integration
 
-- Happy path: preflight -> execute -> job completed_success.
+- Happy path: preflight -> execute -> job completed.
 - Защита: non-test аккаунты не попадают в candidate set.
 - Защита: system аккаунты всегда excluded.
-- Partial path: часть items падает, job = completed_partial.
+- Partial path: часть items падает, job = partial.
 - Retry path: transient storage error -> retry -> success.
 - Execute replay with same snapshot -> тот же job_id / no duplicate job.
 
