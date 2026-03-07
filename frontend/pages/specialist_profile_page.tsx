@@ -197,7 +197,7 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
       document.documentElement.style.removeProperty("--specialist-subnav-height");
       document.documentElement.style.removeProperty("--specialist-sticky-offset");
     };
-  }, []);
+  }, [payload]);
 
   const displayName = (payload?.profile.display_name as string | undefined) ?? "Специалист";
   const specialization = (payload?.profile.specialization as string | undefined) ?? "Специализация";
