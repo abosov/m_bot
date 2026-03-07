@@ -190,6 +190,60 @@ Admin features must verify:
 
 ---
 
+# Backend QA and Verification Rules
+
+For backend implementation tasks, QA must explicitly verify the backend result against user story and architecture before sign-off.
+
+### Functional verification
+
+- backend behavior matches the user story and approved architecture/design
+- expected HTTP/status codes are implemented and tested
+- input validation and error handling are correct and explicit
+
+### Database verification
+
+- schema changes are done only through SQL migrations
+- migrations apply cleanly in the expected environment
+- ORM models match migration-defined schema
+- no duplicate schema source of truth is introduced
+
+### Automated tests
+
+- backend changes must include `pytest` coverage where applicable
+- new backend behavior must have new/updated automated tests
+- regression risks for existing backend flows must be identified and covered
+
+### Integration verification
+
+QA must verify backend changes do not break affected flows, including:
+
+- Telegram bot flows
+- public API routes
+- onboarding flows
+- admin/admin-console flows (when impacted)
+
+### Deployment safety checks
+
+- verify env/config assumptions for the change
+- verify startup/deploy compatibility (including migrations/restarts if needed)
+- define smoke-check expectations for production-impacting backend changes
+- for QA/verification/smoke/diagnostic commands, explicitly specify execution environment: local machine or VPS
+
+### Documentation verification
+
+If backend behavior, API contracts, deployment procedures, admin flows, or architecture changed, related markdown docs must be updated.
+
+### QA output expectations
+
+QA output must explicitly confirm:
+
+- tests passed (or required tests still pending with reason)
+- migrations are correct and consistent with ORM
+- backend behavior matches approved design
+- deployment and smoke-check impact is identified
+
+---
+
 # Security Requirements
 
 Security review is mandatory for:

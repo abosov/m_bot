@@ -1,6 +1,6 @@
 # US-AD-11 — Безопасное удаление одного тестового специалиста
 
-Status: Planned
+Status: Designed (System Architect)
 
 ## Роль
 
@@ -21,7 +21,12 @@ Status: Planned
 
 ### Главный инвариант безопасности
 
-Удаление разрешено **только** для `is_test=true`, где `is_test` определяется канонически через `test accounts registry` (US-AD-10), а не через эвристики и не через локальный UI state.
+Удаление разрешено **только** при одновременном выполнении условий:
+
+- `is_test=true`;
+- `is_system=false`.
+
+`is_test` определяется канонически через `test accounts registry` (US-AD-10), а не через эвристики и не через локальный UI state.
 
 Если специалист не подтверждён как тестовый на сервере в момент выполнения действия — операция должна быть отклонена.
 
@@ -62,11 +67,11 @@ Status: Planned
 ## Data-flow (high level)
 
 1. Admin UI открывает карточку специалиста и инициирует `Delete test specialist`.
-2. UI запрашивает preflight summary (`dry-run`) и получает:
-   - подтверждение `is_test=true` по registry;
+2. UI выполняет preflight scan (`dry-run`) и получает:
+   - подтверждение eligibility (`is_test=true`, `is_system=false`);
    - счётчики сущностей к удалению;
    - deletion token (одноразовый, короткоживущий).
-3. Admin вводит явное подтверждение (например, `DELETE <specialist_id>`).
+3. Admin вводит явное подтверждение `DELETE TEST SPECIALIST`.
 4. UI отправляет execute-запрос с CSRF + deletion token + confirmation phrase.
 5. Backend повторно валидирует guardrails и запускает deletion flow:
    - транзакционный этап DB-delete (строгий порядок);
@@ -77,9 +82,22 @@ Status: Planned
 
 ## Endpoint contract (proposal)
 
-### 1) Preflight
+`POST /admin/ui/specialists/{id}/delete-test`
 
-`POST /admin/ui/specialists/{id}/delete-test/preflight`
+Один endpoint обслуживает двухшаговый workflow:
+
+- `mode=preflight` — только сканирование и возврат счётчиков;
+- `mode=execute` — подтверждённое удаление в транзакции.
+
+### 1) Preflight (`mode=preflight`)
+
+Request:
+
+```json
+{
+  "mode": "preflight"
+}
+```
 
 Response (пример):
 
@@ -87,30 +105,32 @@ Response (пример):
 {
   "ok": true,
   "specialist_id": "uuid",
-  "is_test": true,
   "eligible": true,
+  "flags": {
+    "is_test": true,
+    "is_system": false
+  },
   "counts": {
     "clients": 3,
     "appointments": 18,
-    "oauth_rows": 1,
-    "uploads": 7
+    "media": 7,
+    "oauth_tokens": 1
   },
   "deletion_token": "opaque-short-lived-token",
   "expires_in_sec": 300,
-  "confirmation_phrase": "DELETE uuid"
+  "confirmation_phrase": "DELETE TEST SPECIALIST"
 }
 ```
 
-### 2) Execute
-
-`POST /admin/ui/specialists/{id}/delete-test/execute`
+### 2) Execute (`mode=execute`)
 
 Request:
 
 ```json
 {
+  "mode": "execute",
   "deletion_token": "...",
-  "confirmation_phrase": "DELETE uuid"
+  "confirmation_phrase": "DELETE TEST SPECIALIST"
 }
 ```
 
@@ -128,6 +148,7 @@ Success response:
 Failure classes:
 
 - `403 FORBIDDEN_NOT_TEST` — специалист не test.
+- `403 FORBIDDEN_SYSTEM` — системная учётка (`is_system=true`).
 - `409 PRECONDITION_FAILED` — token истёк/невалиден, stale preflight.
 - `422 VALIDATION` — некорректная phrase.
 - `500 INTERNAL` — ошибка удаления (должен быть rollback DB-транзакции).
@@ -206,7 +227,7 @@ Auth/security:
 Обязательные стоп-факторы перед execute:
 
 1. `is_test=true` только по registry membership.
-2. Нельзя выполнять действие для `is_system=true` (системные учётки не удаляются этим сценарием).
+2. `is_system=false` обязательно (системные учётки не удаляются этим сценарием).
 3. Двухфазное подтверждение: preflight token + ручной ввод confirmation phrase.
 4. Короткий TTL deletion token (например, 5 минут).
 5. Повторная server-side проверка всех preconditions непосредственно перед DB transaction.
@@ -227,6 +248,8 @@ Auth/security:
 - `delete_test_specialist_execute_requested`;
 - `delete_test_specialist_db_committed` или `delete_test_specialist_db_rolled_back`;
 - `delete_test_specialist_cleanup_completed` / `cleanup_partial` / `cleanup_failed`.
+
+Ключевой доменный event для журнала аудита: `admin_test_specialist_deleted` (пишется при успешном commit DB-фазы; в payload включается cleanup status).
 
 Обязательные поля audit:
 
@@ -270,7 +293,7 @@ UI-модалка должна включать:
 
 - явный warning: «Удаление необратимо»;
 - specialist id + ключевые счётчики сущностей;
-- поле ручного ввода phrase `DELETE <specialist_id>`;
+- поле ручного ввода phrase `DELETE TEST SPECIALIST`;
 - отображение, что операция разрешена только для test account;
 - чекбокс подтверждения понимания последствий.
 
