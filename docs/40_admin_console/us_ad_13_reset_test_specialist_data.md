@@ -1,89 +1,58 @@
-# US-AD-13 — Очистка тестового специалиста без удаления specialist
+# US-AD-13 — Reset test specialist runtime data
 
 Status: Planned
 
-## Роль
+## Role
 
-Системный архитектор + архитектор данных + UX дизайнер.
-
-## Архитектурный анализ
-
-### Контекст
-
-Для тестовых сценариев нужен безопасный «сброс данных» специалиста, при котором:
-
-- сама запись `specialist` сохраняется;
-- удаляются рабочие данные клиентов/записей, чтобы вернуть аккаунт в «чистое» состояние;
-- не ломаются каналы авторизации и профильные настройки, чтобы тестовый специалист мог продолжать использовать аккаунт после reset.
-
-Это функциональный аналог «очистить тестовый контур специалиста», но **без destructive удаления identity**.
-
-### Главный инвариант
-
-Операция доступна только для `is_test=true`, где `is_test` определяется server-side по каноническому `test accounts registry` (US-AD-10).
-
-Если `is_test=false`, операция всегда отклоняется.
-
----
+System Architect
 
 ## User Story
 
-Как `super_admin`  
-Я хочу очистить данные тестового специалиста без удаления его аккаунта  
-Чтобы быстро переиспользовать тестового специалиста для нового цикла проверки.
+As `super_admin`  
+I want to reset runtime data for a test specialist  
+without deleting specialist identity.
+
+## Goal
+
+Provide a **safe, repeatable reset** for test specialists that removes operational/test traces while preserving the specialist account and configuration needed to continue testing immediately.
 
 ---
 
-## Scope операции (архитектурно корректный)
+## Scope
 
-### Included (MVP)
+### Delete (runtime data)
 
-- Сохранение root-identity специалиста (`specialist` не удаляется).
-- Удаление всех appointments специалиста и зависимых appointment-данных.
-- Удаление client-specialist связей для этого specialist.
-- Удаление клиентов, которые остались без других specialist-связей (non-shared clients).
-- Удаление reminder/outbox/notification сущностей, завязанных на удаляемые appointments/clients.
-- Dry-run preview + execute с подтверждением.
-- Audit trail по шагам операции.
+1. `clients` of the target specialist.
+2. `appointments` of the target specialist.
+3. `notifications` tied to deleted appointments/clients/specialist runtime flows.
+4. `media` generated as runtime/test artifacts for the specialist (e.g., appointment/client uploads, runtime content blobs).
 
-### Explicitly preserved (must NOT be touched)
+### Preserve (identity/config)
 
-- `specialist` root row.
-- `specialist_profile` (owner profile сохраняется).
-- `specialist_auth_telegram` / bot identity.
-- `google_oauth` и calendar integration settings/state.
-- `telegram_bot` настройки, не привязанные к appointments/clients.
-
-### Excluded (MVP)
-
-- Очистка медиаконтента профиля (аватар/публичные блоки), если он не связан с appointments/clients.
-- Массовая очистка нескольких специалистов одной операцией (покрывается отдельными US).
+1. `specialist`.
+2. `profile`.
+3. `oauth`.
+4. `calendar` integration/settings/state.
+5. `bot config`.
 
 ---
 
-## Что удаляется (data scope)
+## Guardrails
 
-Удаляются только runtime-данные тестовой работы специалиста:
-
-1. `appointments` специалиста.
-2. Appointment-dependent entities:
-   - reminders,
-   - confirmation rows,
-   - notification log/outbox events, где `entity_ref` указывает на удаляемые appointments,
-   - любые denorm/aux записи по appointment id.
-3. `client` связи специалиста.
-4. `clients` без других активных specialist-связей.
-5. Client-dependent reminders/notifications, если они принадлежат удаляемым clients.
-
-Не удаляются сущности identity/config слоя специалиста.
+1. Operation is allowed only for `is_test=true` specialists.
+2. Server re-validates eligibility during execute (not only from preflight snapshot).
+3. Two-phase flow: **preflight** then **execute**.
+4. Short-lived one-time confirmation token.
+5. Explicit confirmation phrase (`RESET RUNTIME DATA <specialist_id>`).
+6. Full admin audit trail for requested/committed/rolled-back outcomes.
 
 ---
 
-## Endpoint contract (proposal)
+## API design
 
 ### 1) Preflight
 
-`POST /admin/ui/specialists/{id}/reset-test-data/preflight`
+`POST /admin/ui/specialists/{specialist_id}/reset-runtime-data/preflight`
 
 Response:
 
@@ -93,51 +62,57 @@ Response:
   "specialist_id": "uuid",
   "is_test": true,
   "eligible": true,
-  "counts": {
+  "delete_counts": {
+    "clients": 12,
     "appointments": 24,
-    "appointment_children": 52,
-    "clients_to_detach": 12,
-    "clients_to_delete": 9,
-    "outbox_notifications_to_delete": 17
+    "notifications": 49,
+    "media": 15
   },
-  "preserved": [
+  "preserve_scope": [
     "specialist",
-    "specialist_profile",
-    "specialist_auth_telegram",
-    "google_oauth",
-    "calendar_settings"
+    "profile",
+    "oauth",
+    "calendar",
+    "bot_config"
   ],
-  "confirmation_token": "opaque-short-lived-token",
+  "confirmation_token": "opaque-token",
   "expires_in_sec": 300,
-  "confirmation_phrase": "RESET TEST DATA uuid"
+  "confirmation_phrase": "RESET RUNTIME DATA <specialist_id>"
 }
 ```
 
 ### 2) Execute
 
-`POST /admin/ui/specialists/{id}/reset-test-data/execute`
+`POST /admin/ui/specialists/{specialist_id}/reset-runtime-data/execute`
 
 Request:
 
 ```json
 {
-  "confirmation_token": "...",
-  "confirmation_phrase": "RESET TEST DATA uuid"
+  "confirmation_token": "opaque-token",
+  "confirmation_phrase": "RESET RUNTIME DATA <specialist_id>"
 }
 ```
 
-Success response:
+Success:
 
 ```json
 {
   "ok": true,
   "specialist_id": "uuid",
-  "status": "reset_completed",
+  "status": "completed",
   "deleted": {
+    "clients": 12,
     "appointments": 24,
-    "clients": 9,
-    "relations": 12,
-    "dependent_rows": 69
+    "notifications": 49,
+    "media": 15
+  },
+  "preserved": {
+    "specialist": true,
+    "profile": true,
+    "oauth": true,
+    "calendar": true,
+    "bot_config": true
   }
 }
 ```
@@ -145,168 +120,106 @@ Success response:
 Errors:
 
 - `403 FORBIDDEN_NOT_TEST`
-- `403 FORBIDDEN_SYSTEM` (если `is_system=true`, операция блокируется)
-- `409 PRECONDITION_FAILED` (stale/expired token)
+- `409 PRECONDITION_FAILED` (expired/used token)
 - `422 VALIDATION` (phrase mismatch)
 
 ---
 
-## Строгий порядок очистки (DB)
+## Deletion order (transactional)
 
-1. Appointment-dependent children (reminder/confirmation/outbox/notification refs).
-2. Appointments.
-3. Client-dependent children (если есть отдельные таблицы ссылок/уведомлений).
-4. Specialist-client relation rows.
-5. Clients without remaining relations.
+Inside one DB transaction:
 
-Причина: сначала удалить самые зависимые записи, затем родительские.
+1. Delete notification dependencies.
+2. Delete appointments.
+3. Delete clients.
+4. Delete media references/metadata in DB.
 
----
+Then commit.
 
-## Транзакционность и post-commit
+After commit (idempotent, retryable):
 
-### Транзакционно (single DB transaction)
+5. Delete physical media blobs/files by collected keys.
 
-- Повторная проверка eligibility: `is_test=true`, `is_system=false`.
-- Валидация confirmation token + phrase.
-- DB-cleanup по строгому порядку.
-- Запись audit результата DB-фазы.
-
-Если ошибка внутри DB-фазы -> полный rollback.
-
-### Post-commit
-
-В MVP post-commit cleanup минимален, т.к. операция не трогает профильные uploads специалиста.
-
-Допустимы post-commit задачи:
-
-- очистка вторичных кэшей/read-model projections;
-- cleanup orphan outbox links, если они не могут быть удалены в той же транзакции.
-
-Post-commit шаги должны быть idempotent и retryable.
+Reasoning: DB consistency first; external file/object storage cleanup should not break transaction atomicity.
 
 ---
 
-## Защита от затрагивания боевых данных
+## Idempotency
 
-Обязательные guardrails:
-
-1. Только test specialists по registry.
-2. Запрет для `is_system=true`.
-3. Двухфазная схема: preflight + execute.
-4. Одноразовый token с коротким TTL.
-5. Явная confirmation phrase.
-6. Execute использует server-side актуальную проверку, а не только preflight snapshot.
+- Re-running execute after successful reset is valid and returns `ok=true` with zero deleted counters.
+- Missing runtime rows are treated as already-clean state, not as an error.
 
 ---
 
-## UX (UI-текст и предупреждение)
+## Audit events
 
-### Название действия
+- `reset_runtime_data_preflight_requested`
+- `reset_runtime_data_execute_requested`
+- `reset_runtime_data_committed`
+- `reset_runtime_data_rolled_back`
 
-`Reset test specialist data`
+Audit payload fields:
 
-### Warning text (в модалке)
-
-- RU: `Будут удалены все клиенты, записи и связанные уведомления этого тестового специалиста. Аккаунт специалиста, профиль и OAuth/календарь останутся.`
-- RU: `Операция необратима для удаляемых данных.`
-
-### Confirmation UI
-
-- Показать summary counts из preflight.
-- Отдельный блок `Сохраняется:` со списком preserved сущностей.
-- Поле ручного ввода: `RESET TEST DATA <specialist_id>`.
-- Кнопка execute активна только при валидной phrase + checkbox «Подтверждаю».
-
-### Result UI
-
-- Success toast: `Test data reset completed`.
-- Detail panel: фактические deleted counters.
-- Partial/error: безопасное сообщение + reference на audit/request id.
+- actor admin id
+- target specialist id
+- eligibility flags (`is_test`)
+- requested delete counts (preflight)
+- actual deleted counts (execute)
+- preserved scope
+- outcome/error code
+- request id / trace id
+- UTC timestamp
 
 ---
 
-## Audit trail
+## UX notes
 
-События:
+Modal title: `Reset test specialist runtime data`
 
-- `reset_test_data_preflight_requested`
-- `reset_test_data_execute_requested`
-- `reset_test_data_committed`
-- `reset_test_data_rolled_back`
+Warning text:
 
-Поля:
+- `Будут удалены clients, appointments, notifications и media этого тестового специалиста.`
+- `specialist, profile, oauth, calendar и bot config будут сохранены.`
+- `Операция необратима.`
 
-- actor_admin_id
-- target_specialist_id
-- target_flags (`is_test`, `is_system`)
-- deleted_counts
-- preserved_scope
-- outcome/error_code
-- request_id/trace_id
-- timestamp UTC
+Controls:
+
+- show preflight counters;
+- show explicit preserved list;
+- require typed confirmation phrase;
+- execute button enabled only when phrase is valid.
 
 ---
 
-## Error / partial semantics
-
-- DB-phase fail => `rolled_back`, данных не удалено.
-- Если post-commit cache cleanup fail => `completed_with_warnings`, бизнес-данные уже очищены.
-- Повтор execute после успешного reset должен быть идемпотентным (`nothing_to_delete` как успешный исход).
-
----
-
-## Security impact
-
-- Операция ограничена admin auth + CSRF + anti-enumeration policy.
-- Уменьшение риска «удалили аккаунт по ошибке»: specialist identity не удаляется в этом сценарии.
-- Защита от misuse через строгую проверку test-only eligibility.
-
----
-
-## Data impact
-
-- Новые бизнес-флаги в `specialist` не добавляются.
-- Возможно использование ephemeral confirmation token storage (TTL).
-- Потенциально потребуется расширение mapping таблиц для корректной очистки notification/outbox зависимостей.
-
----
-
-## Tests required
+## Test plan
 
 ### Unit
 
-- Eligibility validator (`is_test=true`, `is_system=false`).
-- Deletion planner order validation.
-- Token/phrase validation.
-- Shared client rule (delete relation vs delete client).
-- Idempotent re-run (`nothing_to_delete`).
+- Eligibility check: only `is_test=true`.
+- Deletion planner produces correct buckets (`clients`, `appointments`, `notifications`, `media`).
+- Confirmation token + phrase validation.
+- Idempotent second run returns zero counters.
 
 ### Integration
 
-- Happy path reset: specialist/profile/oauth/bot/calendar сохранены, runtime data удалены.
-- Non-test specialist reset attempt -> `403 FORBIDDEN_NOT_TEST`.
-- System specialist reset attempt -> `403 FORBIDDEN_SYSTEM`.
-- Mid-transaction DB error -> rollback.
-- Outbox/notification dependent cleanup correctness.
+- Happy path: runtime data deleted; specialist/profile/oauth/calendar/bot config remain.
+- Non-test specialist attempt returns `403`.
+- DB failure during execute triggers rollback (no partial DB deletion).
+- Media blob cleanup failures are reported as post-commit warnings without DB rollback.
 
 ### UI
 
-- Preflight counters and preserved list rendered correctly.
-- Warning texts and confirmation phrase gate execute button.
-- Result panel shows deleted counters.
-
----
-
-## Documentation required
-
-- Добавить US-AD-13 в `docs/40_admin_console/README.md`.
-- При реализации обновить runbook по безопасному reset тестовых аккаунтов.
+- Preflight counters rendered.
+- Preserved scope rendered.
+- Confirmation phrase gating works.
+- Final result shows actual deleted counters.
 
 ---
 
 ## Definition of Done
 
-- Создана спецификация US-AD-13.
-- Архитектурно зафиксирован корректный scope: очищаем runtime-данные, сохраняем specialist identity/profile/oauth.
-- Определены UI warning/confirmation, guardrails и audit semantics.
+1. Admin API supports preflight + execute for runtime reset.
+2. Runtime entities are deleted: clients, appointments, notifications, media.
+3. Identity/config entities are preserved: specialist, profile, oauth, calendar, bot config.
+4. Audit trail and guardrails are implemented.
+5. Idempotency and rollback semantics are covered by tests.

@@ -9,6 +9,7 @@ import time
 import uuid
 from email.message import EmailMessage
 from pathlib import Path
+from threading import Lock
 from urllib.parse import parse_qs
 import requests
 from contextlib import asynccontextmanager
@@ -19,7 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import Text, cast, delete, func, select, update
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -27,6 +28,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from database import (
     Appointment,
+    AppointmentReminder,
     BookingState,
     BillingPeriod,
     Client,
@@ -47,6 +49,8 @@ from database import (
     ServiceHeartbeat,
     AdminAuditLog,
     AdminBulkCleanupJob,
+    NotificationLog,
+    OutboxEvent,
     TelegramBot,
     TelegramBotStatus,
 )
@@ -139,6 +143,117 @@ async def _run_storage_cleanup_job(payload: dict) -> None:
 
 def _schedule_storage_cleanup(payload: dict) -> None:
     asyncio.create_task(_run_storage_cleanup_job(payload))
+
+
+def _reset_confirmation_phrase(specialist_id: uuid.UUID) -> str:
+    return f"RESET TEST DATA {specialist_id}"
+
+
+def _issue_reset_token(specialist_id: uuid.UUID) -> tuple[str, datetime]:
+    token = secrets.token_urlsafe(24)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=RESET_TEST_DATA_CONFIRMATION_TTL_SECONDS)
+    with _reset_test_data_tokens_lock:
+        _reset_test_data_tokens[token] = {
+            "specialist_id": specialist_id,
+            "expires_at": expires_at,
+            "confirmed": False,
+            "used": False,
+        }
+    return token, expires_at
+
+
+def _get_reset_token_state(token: str) -> dict[str, object] | None:
+    with _reset_test_data_tokens_lock:
+        state = _reset_test_data_tokens.get(token)
+        if state is None:
+            return None
+
+        expires_at = state.get("expires_at")
+        if isinstance(expires_at, datetime) and expires_at < datetime.now(timezone.utc):
+            _reset_test_data_tokens.pop(token, None)
+            return None
+        return dict(state)
+
+
+def _set_reset_token_confirmed(token: str) -> bool:
+    with _reset_test_data_tokens_lock:
+        state = _reset_test_data_tokens.get(token)
+        if state is None:
+            return False
+        expires_at = state.get("expires_at")
+        if isinstance(expires_at, datetime) and expires_at < datetime.now(timezone.utc):
+            _reset_test_data_tokens.pop(token, None)
+            return False
+        if state.get("used"):
+            return False
+        state["confirmed"] = True
+        return True
+
+
+def _consume_reset_token(token: str, specialist_id: uuid.UUID) -> bool:
+    with _reset_test_data_tokens_lock:
+        state = _reset_test_data_tokens.get(token)
+        if state is None:
+            return False
+        expires_at = state.get("expires_at")
+        if isinstance(expires_at, datetime) and expires_at < datetime.now(timezone.utc):
+            _reset_test_data_tokens.pop(token, None)
+            return False
+        if state.get("used") or not state.get("confirmed"):
+            return False
+        if state.get("specialist_id") != specialist_id:
+            return False
+        state["used"] = True
+        return True
+
+
+def _cleanup_reset_tokens_for_specialist(specialist_id: uuid.UUID) -> None:
+    now = datetime.now(timezone.utc)
+    with _reset_test_data_tokens_lock:
+        to_delete = []
+        for token, state in _reset_test_data_tokens.items():
+            expires_at = state.get("expires_at")
+            if isinstance(expires_at, datetime) and expires_at < now:
+                to_delete.append(token)
+                continue
+            if state.get("specialist_id") == specialist_id:
+                to_delete.append(token)
+        for token in to_delete:
+            _reset_test_data_tokens.pop(token, None)
+
+
+async def _count_reset_test_data(session, specialist_id: uuid.UUID) -> dict[str, int]:
+    clients = int((await session.execute(select(func.count()).select_from(Client).where(Client.specialist_id == specialist_id))).scalar_one())
+    appointments = int((await session.execute(select(func.count()).select_from(Appointment).where(Appointment.specialist_id == specialist_id))).scalar_one())
+
+    notification_like = f"%{specialist_id}%"
+    notifications = int(
+        (
+            await session.execute(
+                select(func.count(NotificationLog.id))
+                .select_from(NotificationLog)
+                .join(OutboxEvent, OutboxEvent.id == NotificationLog.outbox_event_id)
+                .where(cast(OutboxEvent.payload_json, Text).like(notification_like))
+            )
+        ).scalar_one()
+    )
+
+    media = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(SpecialistPublicMedia)
+                .join(SpecialistPublicProfile, SpecialistPublicProfile.id == SpecialistPublicMedia.profile_id)
+                .where(SpecialistPublicProfile.specialist_id == specialist_id)
+            )
+        ).scalar_one()
+    )
+    return {
+        "clients": clients,
+        "appointments": appointments,
+        "notifications": notifications,
+        "media": media,
+    }
 
 
 def build_calendar_switch_keyboard(*, has_selected_calendar: bool) -> InlineKeyboardMarkup:
@@ -578,10 +693,20 @@ ADMIN_UI_CSRF_COOKIE_NAME = "admin_csrf"
 ADMIN_UI_CSRF_HEADER_NAME = "X-CSRF-Token"
 ADMIN_UI_SESSION_TTL_HOURS = config.ADMIN_SESSION_TTL_HOURS
 BULK_DELETE_TEST_ACCOUNTS_CONFIRMATION_PHRASE = "DELETE ALL TEST ACCOUNTS"
+RESET_TEST_DATA_CONFIRMATION_TTL_SECONDS = 300
+
+_reset_test_data_tokens: dict[str, dict[str, object]] = {}
+_reset_test_data_tokens_lock = Lock()
 
 
 class AdminBulkDeleteAllRequest(BaseModel):
     confirmation_phrase: str
+
+
+class AdminResetTestDataRequest(BaseModel):
+    step: str = Field(pattern="^(preflight|confirm|execute)$")
+    confirmation_token: str | None = None
+    confirmation_phrase: str | None = None
 
 
 def _admin_ui_enabled() -> bool:
@@ -925,6 +1050,220 @@ async def admin_ui_delete_test_specialist_preflight(specialist_id: str, request:
             "media": media_count,
         },
     }
+
+
+@app.post("/admin/ui/specialists/{specialist_id}/reset-test-data")
+async def admin_ui_reset_test_specialist_data(
+    specialist_id: str,
+    payload: AdminResetTestDataRequest,
+    request: Request,
+):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    try:
+        specialist_uuid = uuid.UUID(specialist_id)
+    except ValueError:
+        _raise_not_found()
+
+    request_id = _request_id_from_request(request)
+
+    async with async_session_factory() as session:
+        specialist = await session.get(Specialist, specialist_uuid)
+        if specialist is None:
+            _raise_not_found()
+
+        if specialist.is_system:
+            if payload.step == "preflight":
+                await write_admin_audit_log(
+                    session,
+                    request_id=request_id,
+                    admin_subject="cookie_session",
+                    action="reset_test_data_preflight_requested",
+                    target_type="specialist",
+                    target_id=specialist_uuid,
+                    success=False,
+                    payload={},
+                    error_code="FORBIDDEN_SYSTEM",
+                    error_message="Cannot reset runtime data for system specialist",
+                )
+                await session.commit()
+            raise HTTPException(status_code=403, detail="FORBIDDEN_SYSTEM")
+
+        if not specialist.is_test:
+            if payload.step == "preflight":
+                await write_admin_audit_log(
+                    session,
+                    request_id=request_id,
+                    admin_subject="cookie_session",
+                    action="reset_test_data_preflight_requested",
+                    target_type="specialist",
+                    target_id=specialist_uuid,
+                    success=False,
+                    payload={},
+                    error_code="FORBIDDEN_NOT_TEST",
+                    error_message="Reset is allowed only for test specialists",
+                )
+                await session.commit()
+            raise HTTPException(status_code=403, detail="FORBIDDEN_NOT_TEST")
+
+        if payload.step == "preflight":
+            counts = await _count_reset_test_data(session, specialist_uuid)
+            token, expires_at = _issue_reset_token(specialist_uuid)
+            response_payload = {
+                "ok": True,
+                "specialist_id": str(specialist_uuid),
+                "flow_step": "preflight",
+                "eligible": True,
+                "delete_counts": counts,
+                "confirmation_token": token,
+                "confirmation_phrase": _reset_confirmation_phrase(specialist_uuid),
+                "expires_in_sec": RESET_TEST_DATA_CONFIRMATION_TTL_SECONDS,
+                "expires_at": expires_at.isoformat(),
+            }
+            await write_admin_audit_log(
+                session,
+                request_id=request_id,
+                admin_subject="cookie_session",
+                action="reset_test_data_preflight_requested",
+                target_type="specialist",
+                target_id=specialist_uuid,
+                success=True,
+                payload={"delete_counts": counts},
+            )
+            await session.commit()
+            return response_payload
+
+        if payload.step == "confirm":
+            if not payload.confirmation_token:
+                raise HTTPException(status_code=400, detail="CONFIRMATION_TOKEN_REQUIRED")
+            expected_phrase = _reset_confirmation_phrase(specialist_uuid)
+            if payload.confirmation_phrase != expected_phrase:
+                raise HTTPException(status_code=422, detail="VALIDATION")
+            token_state = _get_reset_token_state(payload.confirmation_token)
+            if not token_state or token_state.get("specialist_id") != specialist_uuid:
+                raise HTTPException(status_code=409, detail="PRECONDITION_FAILED")
+            if not _set_reset_token_confirmed(payload.confirmation_token):
+                raise HTTPException(status_code=409, detail="PRECONDITION_FAILED")
+            return {
+                "ok": True,
+                "specialist_id": str(specialist_uuid),
+                "flow_step": "confirmation",
+                "confirmed": True,
+            }
+
+        if payload.step != "execute":
+            raise HTTPException(status_code=400, detail="UNKNOWN_STEP")
+
+        if not payload.confirmation_token:
+            raise HTTPException(status_code=400, detail="CONFIRMATION_TOKEN_REQUIRED")
+
+        if payload.confirmation_phrase != _reset_confirmation_phrase(specialist_uuid):
+            raise HTTPException(status_code=422, detail="VALIDATION")
+
+        if not _consume_reset_token(payload.confirmation_token, specialist_uuid):
+            raise HTTPException(status_code=409, detail="PRECONDITION_FAILED")
+
+        planned_counts = await _count_reset_test_data(session, specialist_uuid)
+
+        await write_admin_audit_log(
+            session,
+            request_id=request_id,
+            admin_subject="cookie_session",
+            action="reset_test_data_execute_requested",
+            target_type="specialist",
+            target_id=specialist_uuid,
+            success=True,
+            payload={"planned_delete_counts": planned_counts},
+        )
+        await session.commit()
+
+        try:
+            async with session.begin():
+                deleted_counts: dict[str, int] = {
+                    "appointments": 0,
+                    "appointment_reminders": 0,
+                    "clients": 0,
+                    "notifications": 0,
+                    "outbox_events": 0,
+                    "media": 0,
+                }
+
+                appointment_ids = (
+                    await session.execute(select(Appointment.appointment_id).where(Appointment.specialist_id == specialist_uuid))
+                ).scalars().all()
+
+                if appointment_ids:
+                    deleted_reminders = await session.execute(
+                        delete(AppointmentReminder).where(AppointmentReminder.appointment_id.in_(appointment_ids))
+                    )
+                    deleted_counts["appointment_reminders"] = int(deleted_reminders.rowcount or 0)
+
+                deleted_appointments = await session.execute(delete(Appointment).where(Appointment.specialist_id == specialist_uuid))
+                deleted_counts["appointments"] = int(deleted_appointments.rowcount or 0)
+
+                deleted_clients = await session.execute(delete(Client).where(Client.specialist_id == specialist_uuid))
+                deleted_counts["clients"] = int(deleted_clients.rowcount or 0)
+
+                payload_like = f"%{specialist_uuid}%"
+                outbox_ids = (
+                    await session.execute(select(OutboxEvent.id).where(cast(OutboxEvent.payload_json, Text).like(payload_like)))
+                ).scalars().all()
+                if outbox_ids:
+                    deleted_notifications = await session.execute(
+                        delete(NotificationLog).where(NotificationLog.outbox_event_id.in_(outbox_ids))
+                    )
+                    deleted_counts["notifications"] = int(deleted_notifications.rowcount or 0)
+
+                    deleted_outbox = await session.execute(delete(OutboxEvent).where(OutboxEvent.id.in_(outbox_ids)))
+                    deleted_counts["outbox_events"] = int(deleted_outbox.rowcount or 0)
+
+                media_profile_subquery = select(SpecialistPublicProfile.id).where(
+                    SpecialistPublicProfile.specialist_id == specialist_uuid
+                )
+                deleted_media = await session.execute(
+                    delete(SpecialistPublicMedia).where(SpecialistPublicMedia.profile_id.in_(media_profile_subquery))
+                )
+                deleted_counts["media"] = int(deleted_media.rowcount or 0)
+
+                await write_admin_audit_log(
+                    session,
+                    request_id=request_id,
+                    admin_subject="cookie_session",
+                    action="reset_test_data_committed",
+                    target_type="specialist",
+                    target_id=specialist_uuid,
+                    success=True,
+                    payload={"deleted_counts": deleted_counts},
+                )
+
+            _cleanup_reset_tokens_for_specialist(specialist_uuid)
+            return {
+                "ok": True,
+                "specialist_id": str(specialist_uuid),
+                "status": "reset_completed",
+                "deleted_counts": deleted_counts,
+            }
+        except Exception as exc:
+            await session.rollback()
+            await write_admin_audit_log(
+                session,
+                request_id=request_id,
+                admin_subject="cookie_session",
+                action="reset_test_data_rolled_back",
+                target_type="specialist",
+                target_id=specialist_uuid,
+                success=False,
+                payload={"planned_delete_counts": planned_counts},
+                error_code="RESET_TEST_DATA_FAILED",
+                error_message=str(exc),
+            )
+            await session.commit()
+            raise HTTPException(status_code=500, detail="RESET_TEST_DATA_FAILED") from exc
 
 
 @app.post("/admin/ui/specialists/{specialist_id}/delete-test")
