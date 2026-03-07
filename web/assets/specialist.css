@@ -519,6 +519,14 @@
   font-weight: 600;
 }
 
+.specialist-page__section--reviews {
+  padding-bottom: clamp(36px, 6vh, 64px);
+}
+
+.specialist-page__section--reviews .specialist-content-card {
+  min-height: clamp(320px, 44vh, 460px);
+}
+
 
 .specialist-grid {
   list-style: none;
@@ -655,5 +663,17 @@
   .specialist-header__cta,
   .specialist-button {
     font-size: 0.92rem;
+  }
+
+  .specialist-page__section--services .specialist-content-card {
+    min-height: 340px;
+  }
+
+  .specialist-page__section--reviews {
+    padding-bottom: 48px;
+  }
+
+  .specialist-page__section--reviews .specialist-content-card {
+    min-height: 360px;
   }
 }

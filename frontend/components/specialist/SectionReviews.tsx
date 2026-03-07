@@ -71,7 +71,7 @@ export function SectionReviews({ blocks }: SectionReviewsProps) {
   }
 
   return (
-    <section className="specialist-page__section section" aria-label="Отзывы">
+    <section className="specialist-page__section section specialist-page__section--reviews" aria-label="Отзывы">
       <div id="reviews" className="specialist-section-anchor" aria-hidden="true" />
       <div className="container">
         <div className="section-card specialist-card specialist-content-card">
