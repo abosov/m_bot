@@ -226,12 +226,15 @@ check_telegram_getme() {
     die "${bot_name}: telegram getMe request failed"
   }
 
-  printf '%s\n' "${response}" | python3 -c '
+  # NOTE: use env + heredoc to avoid shell-quoting bugs from nested quotes in inline Python.
+  RESPONSE_JSON="${response}" python3 - <<'PY' || die "${bot_name}: telegram getMe returned non-ok"
 import json
+import os
 import sys
 
+raw = os.getenv("RESPONSE_JSON", "")
 try:
-    payload = json.loads(sys.stdin.read())
+    payload = json.loads(raw)
 except json.JSONDecodeError as exc:
     print(f"invalid json: {exc}")
     sys.exit(1)
@@ -241,8 +244,9 @@ if payload.get("ok") is not True:
     sys.exit(1)
 
 result = payload.get("result") or {}
-print(f"ok=true username={result.get('username')} id={result.get('id')}")
-' || die "${bot_name}: telegram getMe returned non-ok"
+# Use double quotes inside Python to avoid breaking shell single-quoted block
+print(f"ok=true username={result.get(\"username\")} id={result.get(\"id\")}")
+PY
 
   pass "${bot_name}: telegram getMe"
 }
