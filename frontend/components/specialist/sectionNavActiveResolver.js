@@ -16,30 +16,29 @@ export function resolveActiveSectionId(sections, options) {
   }
 
   const bottomThreshold = options.bottomThreshold ?? 24;
+  const switchThreshold = options.switchThreshold ?? 8;
   const reachedBottom = options.scrollY + options.viewportHeight >= options.documentHeight - bottomThreshold;
   if (reachedBottom) {
     return sections[sections.length - 1].id;
   }
 
   const probeY = options.scrollY + Math.max(options.stickyOffset, 0) + 12;
+  const activationY = probeY - Math.max(switchThreshold, 0);
 
-  if (probeY <= sections[0].top) {
+  if (activationY <= sections[0].top) {
     return sections[0].id;
   }
 
-  for (let index = 0; index < sections.length; index += 1) {
+  let activeId = sections[0].id;
+  for (let index = 1; index < sections.length; index += 1) {
     const current = sections[index];
-    const next = sections[index + 1];
-
-    if (!next) {
-      return current.id;
+    if (current.top <= activationY) {
+      activeId = current.id;
+      continue;
     }
 
-    const switchBoundary = current.top + (next.top - current.top) / 2;
-    if (probeY < switchBoundary) {
-      return current.id;
-    }
+    break;
   }
 
-  return sections[sections.length - 1].id;
+  return activeId;
 }
