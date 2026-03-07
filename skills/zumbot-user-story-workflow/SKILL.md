@@ -71,6 +71,8 @@ Database schema **must only change via SQL migrations**.
 
 SQL migrations are the **single source of truth** for the database schema **and database-level defaults**.
 
+All database defaults must be defined through SQL migrations.
+
 ORM models must follow migrations and **must not define DB defaults via `server_default`**.
 
 Python-side `default=...` is allowed only for application behavior and **must not replace migration-defined DB defaults**.
