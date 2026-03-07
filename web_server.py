@@ -256,6 +256,55 @@ async def _count_reset_test_data(session, specialist_id: uuid.UUID) -> dict[str,
     }
 
 
+async def _delete_reset_test_data_runtime_rows(session, specialist_id: uuid.UUID) -> dict[str, int]:
+    deleted_counts: dict[str, int] = {
+        "appointments": 0,
+        "appointment_reminders": 0,
+        "clients": 0,
+        "notifications": 0,
+        "outbox_events": 0,
+        "media": 0,
+    }
+
+    appointment_ids = (
+        await session.execute(select(Appointment.appointment_id).where(Appointment.specialist_id == specialist_id))
+    ).scalars().all()
+
+    if appointment_ids:
+        deleted_reminders = await session.execute(
+            delete(AppointmentReminder).where(AppointmentReminder.appointment_id.in_(appointment_ids))
+        )
+        deleted_counts["appointment_reminders"] = int(deleted_reminders.rowcount or 0)
+
+    deleted_appointments = await session.execute(delete(Appointment).where(Appointment.specialist_id == specialist_id))
+    deleted_counts["appointments"] = int(deleted_appointments.rowcount or 0)
+
+    deleted_clients = await session.execute(delete(Client).where(Client.specialist_id == specialist_id))
+    deleted_counts["clients"] = int(deleted_clients.rowcount or 0)
+
+    payload_like = f"%{specialist_id}%"
+    outbox_ids = (
+        await session.execute(select(OutboxEvent.id).where(cast(OutboxEvent.payload_json, Text).like(payload_like)))
+    ).scalars().all()
+    if outbox_ids:
+        deleted_notifications = await session.execute(
+            delete(NotificationLog).where(NotificationLog.outbox_event_id.in_(outbox_ids))
+        )
+        deleted_counts["notifications"] = int(deleted_notifications.rowcount or 0)
+
+        deleted_outbox = await session.execute(delete(OutboxEvent).where(OutboxEvent.id.in_(outbox_ids)))
+        deleted_counts["outbox_events"] = int(deleted_outbox.rowcount or 0)
+
+    media_profile_subquery = select(SpecialistPublicProfile.id).where(
+        SpecialistPublicProfile.specialist_id == specialist_id
+    )
+    deleted_media = await session.execute(
+        delete(SpecialistPublicMedia).where(SpecialistPublicMedia.profile_id.in_(media_profile_subquery))
+    )
+    deleted_counts["media"] = int(deleted_media.rowcount or 0)
+    return deleted_counts
+
+
 def build_calendar_switch_keyboard(*, has_selected_calendar: bool) -> InlineKeyboardMarkup:
     button_text = "📅 Сменить календарь" if has_selected_calendar else "📅 Выбрать календарь"
     return InlineKeyboardMarkup(
@@ -1184,51 +1233,7 @@ async def admin_ui_reset_test_specialist_data(
 
         try:
             async with session.begin():
-                deleted_counts: dict[str, int] = {
-                    "appointments": 0,
-                    "appointment_reminders": 0,
-                    "clients": 0,
-                    "notifications": 0,
-                    "outbox_events": 0,
-                    "media": 0,
-                }
-
-                appointment_ids = (
-                    await session.execute(select(Appointment.appointment_id).where(Appointment.specialist_id == specialist_uuid))
-                ).scalars().all()
-
-                if appointment_ids:
-                    deleted_reminders = await session.execute(
-                        delete(AppointmentReminder).where(AppointmentReminder.appointment_id.in_(appointment_ids))
-                    )
-                    deleted_counts["appointment_reminders"] = int(deleted_reminders.rowcount or 0)
-
-                deleted_appointments = await session.execute(delete(Appointment).where(Appointment.specialist_id == specialist_uuid))
-                deleted_counts["appointments"] = int(deleted_appointments.rowcount or 0)
-
-                deleted_clients = await session.execute(delete(Client).where(Client.specialist_id == specialist_uuid))
-                deleted_counts["clients"] = int(deleted_clients.rowcount or 0)
-
-                payload_like = f"%{specialist_uuid}%"
-                outbox_ids = (
-                    await session.execute(select(OutboxEvent.id).where(cast(OutboxEvent.payload_json, Text).like(payload_like)))
-                ).scalars().all()
-                if outbox_ids:
-                    deleted_notifications = await session.execute(
-                        delete(NotificationLog).where(NotificationLog.outbox_event_id.in_(outbox_ids))
-                    )
-                    deleted_counts["notifications"] = int(deleted_notifications.rowcount or 0)
-
-                    deleted_outbox = await session.execute(delete(OutboxEvent).where(OutboxEvent.id.in_(outbox_ids)))
-                    deleted_counts["outbox_events"] = int(deleted_outbox.rowcount or 0)
-
-                media_profile_subquery = select(SpecialistPublicProfile.id).where(
-                    SpecialistPublicProfile.specialist_id == specialist_uuid
-                )
-                deleted_media = await session.execute(
-                    delete(SpecialistPublicMedia).where(SpecialistPublicMedia.profile_id.in_(media_profile_subquery))
-                )
-                deleted_counts["media"] = int(deleted_media.rowcount or 0)
+                deleted_counts = await _delete_reset_test_data_runtime_rows(session, specialist_uuid)
 
                 await write_admin_audit_log(
                     session,
