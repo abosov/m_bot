@@ -36,7 +36,8 @@ export function SectionAbout({ blocks }: SectionAboutProps) {
   }
 
   return (
-    <section id="about" className="specialist-page__section section" aria-label="О себе">
+    <section className="specialist-page__section section" aria-label="О себе">
+      <div id="about" className="specialist-section-anchor" aria-hidden="true" />
       <div className="container">
         <div className="section-card specialist-card specialist-content-card">
           <h2 className="section-title specialist-section-title">О себе</h2>

@@ -44,7 +44,8 @@ export function SectionEducation({ blocks }: SectionEducationProps) {
   }
 
   return (
-    <section id="education" className="specialist-page__section section" aria-label="Образование">
+    <section className="specialist-page__section section" aria-label="Образование">
+      <div id="education" className="specialist-section-anchor" aria-hidden="true" />
       <div className="container">
         <div className="section-card specialist-card specialist-content-card">
           <h2 className="section-title specialist-section-title">Образование</h2>

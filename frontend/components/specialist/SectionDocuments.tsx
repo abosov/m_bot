@@ -72,7 +72,8 @@ export function SectionDocuments({ media }: SectionDocumentsProps) {
   }
 
   return (
-    <section id="documents" className="specialist-page__section section" aria-label="Документы">
+    <section className="specialist-page__section section" aria-label="Документы">
+      <div id="documents" className="specialist-section-anchor" aria-hidden="true" />
       <div className="container">
         <div className="section-card specialist-card specialist-content-card">
           <h2 className="section-title specialist-section-title">Документы</h2>
@@ -91,6 +92,7 @@ export function SectionDocuments({ media }: SectionDocumentsProps) {
           ))}
         </ul>
         {documentItems.some((item) => !item.url) ? <p className="specialist-section-note">Скоро будет доступно скачивание</p> : null}
+        </div>
       </div>
     </section>
   );
