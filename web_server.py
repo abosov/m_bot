@@ -4048,25 +4048,113 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             return;
           }
 
-          let activeId = sectionIds[0];
+          const navLinks = Array.from(subnavListEl.querySelectorAll('a[data-section-id]'));
+          const trackedSections = sectionIds
+            .map((id) => {
+              const sectionEl = document.getElementById(id);
+              if (!sectionEl || !sectionEl.parentElement) {
+                return null;
+              }
+              return { id, sectionEl };
+            })
+            .filter((item) => Boolean(item));
+
+          if (trackedSections.length === 0) {
+            return;
+          }
+
+          let activeId = trackedSections[0].id;
+          let ticking = false;
+
+          const readStickyOffset = () => {
+            updateStickyOffsets();
+            const rawValue = window.getComputedStyle(document.documentElement).getPropertyValue('--specialist-sticky-offset') || '';
+            const parsed = Number.parseFloat(rawValue);
+            if (Number.isFinite(parsed)) {
+              return parsed;
+            }
+            const headerEl = document.getElementById('specialist-sticky-header');
+            const headerHeight = headerEl ? headerEl.getBoundingClientRect().height : 72;
+            const navHeight = sectionNavEl ? sectionNavEl.getBoundingClientRect().height : 0;
+            return Math.ceil(headerHeight + navHeight + 16);
+          };
 
           const setActive = (id) => {
+            if (!id || id === activeId) {
+              return;
+            }
             activeId = id;
-            Array.from(subnavListEl.querySelectorAll('[data-section-id]')).forEach((link) => {
+            navLinks.forEach((link) => {
               const isActive = link.getAttribute('data-section-id') === id;
               link.classList.toggle('specialist-subnav__link--active', isActive);
               if (isActive) {
                 link.setAttribute('aria-current', 'true');
-                link.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+                link.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'auto' });
               } else {
                 link.removeAttribute('aria-current');
               }
             });
           };
 
-          setActive(activeId);
+          const applyInitialActive = () => {
+            navLinks.forEach((link) => {
+              const isActive = link.getAttribute('data-section-id') === activeId;
+              link.classList.toggle('specialist-subnav__link--active', isActive);
+              if (isActive) {
+                link.setAttribute('aria-current', 'true');
+              } else {
+                link.removeAttribute('aria-current');
+              }
+            });
+          };
 
-          Array.from(subnavListEl.querySelectorAll('a[data-section-id]')).forEach((link) => {
+          const resolveActiveSectionId = () => {
+            const visibleTrackedSections = trackedSections.filter((item) => item.sectionEl && item.sectionEl.parentElement);
+            if (visibleTrackedSections.length === 0) {
+              return null;
+            }
+
+            const stickyOffset = readStickyOffset();
+            const probeY = window.scrollY + stickyOffset + 12;
+            let candidateId = visibleTrackedSections[0].id;
+
+            visibleTrackedSections.forEach((item) => {
+              const absoluteTop = item.sectionEl.getBoundingClientRect().top + window.scrollY;
+              if (absoluteTop <= probeY) {
+                candidateId = item.id;
+              }
+            });
+
+            const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+            if (nearBottom) {
+              return visibleTrackedSections[visibleTrackedSections.length - 1].id;
+            }
+
+            return candidateId;
+          };
+
+          const updateActiveFromScroll = () => {
+            const nextId = resolveActiveSectionId();
+            if (nextId) {
+              setActive(nextId);
+            }
+          };
+
+          const scheduleUpdate = () => {
+            if (ticking) {
+              return;
+            }
+            ticking = true;
+            window.requestAnimationFrame(() => {
+              ticking = false;
+              updateActiveFromScroll();
+            });
+          };
+
+          applyInitialActive();
+          scheduleUpdate();
+
+          navLinks.forEach((link) => {
             link.addEventListener('click', (event) => {
               const targetId = link.getAttribute('data-section-id');
               const target = targetId ? document.getElementById(targetId) : null;
@@ -4080,35 +4168,8 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             });
           });
 
-          const observer = new IntersectionObserver(
-            (entries) => {
-              const visible = entries.filter((entry) => entry.isIntersecting);
-              if (!visible.length) {
-                return;
-              }
-
-              const next = visible
-                .sort((a, b) => {
-                  if (b.intersectionRatio !== a.intersectionRatio) {
-                    return b.intersectionRatio - a.intersectionRatio;
-                  }
-                  return a.boundingClientRect.top - b.boundingClientRect.top;
-                })
-                .map((entry) => entry.target.id)[0];
-
-              if (next && next !== activeId) {
-                setActive(next);
-              }
-            },
-            { root: null, rootMargin: '-28% 0px -58% 0px', threshold: [0.1, 0.3, 0.6] },
-          );
-
-          sectionIds.forEach((id) => {
-            const section = document.getElementById(id);
-            if (section) {
-              observer.observe(section);
-            }
-          });
+          window.addEventListener('scroll', scheduleUpdate, { passive: true });
+          window.addEventListener('resize', scheduleUpdate);
         };
 
         const bootstrap = async () => {
@@ -4149,7 +4210,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             setSectionHtml(aboutEl, blocks.about);
             const educationItems = String(blocks.education || '').split(/\\r?\\n/).map((line) => line.trim()).filter((line) => line.length > 0);
             renderSimpleList(educationEl, educationItems, 'specialist-list specialist-list--education', 'specialist-list__item');
-            renderReviews(blocksSource);
+            renderReviews(payload && Array.isArray(payload.reviews) ? payload.reviews : []);
             renderDocuments(payload && payload.media ? payload.media : null);
 
             const clientBotUsername = String(profile.client_bot_username || '').trim();
