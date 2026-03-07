@@ -244,8 +244,7 @@ if payload.get("ok") is not True:
     sys.exit(1)
 
 result = payload.get("result") or {}
-# Use double quotes inside Python to avoid breaking shell single-quoted block
-print(f"ok=true username={result.get(\"username\")} id={result.get(\"id\")}")
+print(f"ok=true username={result.get('username')} id={result.get('id')}")
 PY
 
   pass "${bot_name}: telegram getMe"
