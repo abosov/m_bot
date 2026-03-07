@@ -10,58 +10,86 @@ So that internal admin endpoints cannot be brute-forced or discovered.
 
 ## Scope
 
-Infrastructure hardening for `/admin/*` routes.
+Infrastructure hardening for admin entrypoints (no application logic changes):
 
-Features:
+- `/admin`
+- `/admin/*`
+- `/admin/ui/*`
+- `/admin/api/*`
 
-- Nginx Basic Auth
-- Rate limiting
-- protection against brute-force attempts
+## Security Architecture
 
-## Architecture
+Defense-in-depth layers for Admin Console:
 
-Security layers:
+1. **SSH tunnel (preferred access)**
+2. **Nginx Basic Auth**
+3. **Admin login form** (`/admin/login`)
+4. **`admin_session` cookie authentication**
+5. **CSRF protection** (POST)
+6. **`ADMIN_API_KEY`** (JSON API)
 
-1. SSH tunnel
-2. Nginx Basic Auth
-3. Admin session cookie
-4. CSRF protection
-5. ADMIN_API_KEY for API endpoints
+### Architecture Diagram
 
-## Nginx protection
+```mermaid
+flowchart TD
+    A[Operator browser] --> B[SSH tunnel<br/>127.0.0.1:18000]
+    B --> C[Nginx edge]
+    C --> D[Nginx Basic Auth]
+    D --> E[Admin login form<br/>/admin/login]
+    E --> F[admin_session cookie]
+    F --> G[CSRF token check<br/>POST /admin/ui/*]
+    G --> H[ADMIN_API_KEY check<br/>/admin/api/*]
+    H --> I[Admin handlers + audit logging]
+```
 
-Paths:
+## Nginx Implementation
 
-/admin
-/admin/*
-/admin/ui/*
-/admin/api/*
+### 1) Rate-limit zones (http context)
 
-Must require:
+Use `deploy/nginx/admin_rate_limit.conf` in nginx `http {}` context.
 
-Basic Auth
+- `admin_console_per_ip`: baseline throttling for `/admin*`
+- `admin_login`: strict throttling for `/admin/login`
 
-## Rate limiting
+### 2) Admin server protection (server context)
 
-Apply rate limit for:
+Use `deploy/nginx/admin_basic_auth.conf` inside target `server {}`.
 
-/admin/login
+This snippet enforces:
 
-Suggested limits:
+- Basic Auth on all admin routes
+- dedicated brute-force limits on `/admin/login`
+- proxying to backend only after edge checks
 
-10 requests per minute per IP.
+## Brute-force protection
+
+Brute-force mitigation is applied on two levels:
+
+- **Global admin pressure control**: `60 req/min/IP` for `/admin*`
+- **Login endpoint protection**: `10 req/min/IP` for `/admin/login`, with low burst
 
 ## Acceptance Criteria
 
-- `/admin/*` protected by Nginx Basic Auth
-- brute-force attempts limited
-- admin endpoints still accessible via SSH tunnel
-- no secrets logged
+- `/admin*` routes require Nginx Basic Auth before reaching backend
+- Brute-force attempts are throttled by Nginx rate limits
+- Admin UI remains accessible via SSH tunnel
+- No changes in application logic
 
-## Tests
+## QA Check
 
-Manual verification required:
+Manual smoke test via SSH tunnel:
 
-- request without Basic Auth → 401
-- valid Basic Auth → allowed
-- rate limit exceeded → 429
+1. Establish tunnel to the server and bind local admin port:
+   - `ssh -L 18000:127.0.0.1:80 <user>@<host>`
+2. Open:
+   - `http://127.0.0.1:18000/admin`
+3. Validate:
+   - no credentials → `401 Unauthorized`
+   - valid Basic Auth → admin login form renders
+   - repeated login attempts trigger `429 Too Many Requests`
+
+## Operational Notes
+
+- Keep htpasswd file on server only: `/etc/nginx/.htpasswd_admin`
+- Rotate Basic Auth credentials periodically
+- Keep Nginx access logs enabled for admin locations to support incident review

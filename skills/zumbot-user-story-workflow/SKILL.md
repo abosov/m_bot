@@ -63,6 +63,13 @@ The architect must explicitly state:
 - why this layer is correct
 - which layers must NOT be modified
 
+### Infrastructure configuration rules
+
+- Infrastructure changes (Nginx, systemd, VPS configuration) must be minimal and targeted.
+- Do not redesign infrastructure unless explicitly requested.
+- Update related documentation when infrastructure configuration behavior changes.
+- Deliver all infrastructure configuration changes through a pull request.
+
 ---
 
 ### Database rules

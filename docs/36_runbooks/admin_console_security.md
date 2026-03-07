@@ -10,11 +10,20 @@ Admin Console is protected by:
 4. CSRF token
 5. ADMIN_API_KEY
 
-## Creating admin password
+## Create htpasswd for nginx Basic Auth
 
-Command:
+```bash
+sudo apt-get install -y apache2-utils
+sudo htpasswd -c /etc/nginx/.htpasswd_admin adminops
+sudo chown root:www-data /etc/nginx/.htpasswd_admin
+sudo chmod 640 /etc/nginx/.htpasswd_admin
+```
 
-htpasswd -c /etc/nginx/.admin_htpasswd admin
+Expected permissions:
+
+- owner/group: `root:www-data`
+- mode: `640`
+- non-root users cannot read the file
 
 ## Reload nginx
 
