@@ -215,6 +215,7 @@ P0/MUST: для production запрещён релиз, если `webhook_secret
 - `Smoke: service journal scan` → за последние 5 минут нет `priority=err` и `Traceback`;
 - `Smoke: webhook log masking` → в nginx access log есть только маскированный путь `/tg/webhook/<bot_id>/***`, а сырой `/tg/webhook/<bot_id>/<secret>` отсутствует;
 - `Smoke: master bot getMe` → `ok=true` (IPv4-safe проверка: на VPS с нерабочим IPv6 smoke не должен падать, если по IPv4 Telegram доступен);
+  парсинг JSON в скрипте выполняется через `RESPONSE_JSON` + `python3` heredoc (не `python -c`), чтобы избежать падений из-за shell quoting на полях `username`/`id`;
 - опционально `Smoke: test personal bot getMe` (если задан `TEST_PERSONAL_BOT_TOKEN`).
 - smoke-check публичного specialist route: `GET /{slug}` содержит актуальный bridge-маркер `const apiBaseUrl = ...`, а `GET /api/public/specialists/{slug}` отвечает 200 для опубликованного slug.
 
