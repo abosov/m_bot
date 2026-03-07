@@ -1,6 +1,6 @@
 ---
 name: zumbot-user-story-workflow
-description: Standard development workflow for Zumbot features, admin console tasks, architectural specifications, and atomic Codex prompts.
+description: Mandatory workflow for all Zumbot engineering tasks, including backend implementation, architectural/user-story/admin-console work, database and migration rules, QA verification design, behavior-impacting documentation updates, infrastructure/deployment rules, and architecture/data-model-impacting refactoring.
 ---
 
 # Zumbot Development Skill
