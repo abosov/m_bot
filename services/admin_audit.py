@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AdminAuditLog
@@ -136,27 +136,26 @@ async def write_admin_audit_log(
         sanitized_payload = _sanitize_payload(payload or {})
         sanitized_error_message = _sanitize_error_message(error_message)
 
-        async with session.begin_nested():
-            session.add(
-                AdminAuditLog(
-                    request_id=request_id,
-                    admin_subject=admin_subject,
-                    action=action,
-                    target_type=target_type,
-                    target_id=target_id,
-                    success=success,
-                    payload_json=sanitized_payload,
-                    error_code=error_code,
-                    error_message=sanitized_error_message,
-                )
+        await session.execute(
+            insert(AdminAuditLog.__table__).values(
+                request_id=request_id,
+                admin_subject=admin_subject,
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                success=success,
+                payload_json=sanitized_payload,
+                error_code=error_code,
+                error_message=sanitized_error_message,
             )
-            await session.flush()
+        )
     except Exception as exc:
         log_event(
             logger,
             logging.WARNING,
             event="admin_audit_log_failed",
             exception_class=exc.__class__.__name__,
+            exception_message=str(exc),
             action=action,
             target_type=target_type,
             request_id=request_id,

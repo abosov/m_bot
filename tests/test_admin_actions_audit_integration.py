@@ -64,7 +64,7 @@ async def test_disable_normal_specialist_writes_success_audit(tmp_path, monkeypa
     normal_id = uuid.uuid4()
 
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=normal_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=normal_id, status=database.SpecialistStatus.active, is_test=True))
         await session.commit()
 
     client = TestClient(app)
@@ -149,7 +149,7 @@ async def test_reset_oauth_deletes_row_and_audits_deleted_rows(tmp_path, monkeyp
     normal_id = uuid.uuid4()
 
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=normal_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=normal_id, status=database.SpecialistStatus.active, is_test=True))
         session.add(
             database.GoogleOAuth(
                 specialist_id=normal_id,
@@ -199,7 +199,7 @@ async def test_change_tariff_valid_and_invalid_with_audit(tmp_path, monkeypatch)
     normal_id = uuid.uuid4()
 
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=normal_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=normal_id, status=database.SpecialistStatus.active, is_test=True))
         session.add(
             database.SpecialistProfile(
                 specialist_id=normal_id,

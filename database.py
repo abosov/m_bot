@@ -112,6 +112,12 @@ class BillingPurchaseStatus(str, enum.Enum):
 
 class Specialist(Base):
     __tablename__ = "specialist"
+    __table_args__ = (
+        CheckConstraint(
+            "NOT (is_system AND is_test)",
+            name="specialist_test_system_exclusive",
+        ),
+    )
 
     specialist_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     status: Mapped[SpecialistStatus] = mapped_column(SAEnum(SpecialistStatus), nullable=False)
@@ -120,7 +126,8 @@ class Specialist(Base):
     onboarding_master_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     onboarding_personal_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     referral_code: Mapped[str] = mapped_column(String(16), unique=True, nullable=False, default=lambda: secrets.token_hex(4).upper())
-    is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_test: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     specialization: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     referrer_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=True, index=True)
     referral_bonus_awarded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
