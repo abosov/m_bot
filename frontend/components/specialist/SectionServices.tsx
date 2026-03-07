@@ -72,7 +72,8 @@ export function SectionServices({ blocks }: SectionServicesProps) {
   }
 
   return (
-    <section id="services" className="specialist-page__section section" aria-label="Услуги и цены">
+    <section className="specialist-page__section section" aria-label="Услуги и цены">
+      <div id="services" className="specialist-section-anchor" aria-hidden="true" />
       <div className="container">
         <div className="section-card specialist-card specialist-content-card">
           <h2 className="section-title specialist-section-title">Услуги и цены</h2>

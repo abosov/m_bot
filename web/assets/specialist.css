@@ -76,6 +76,16 @@
   scroll-margin-top: var(--specialist-sticky-offset, 120px);
 }
 
+.specialist-section-anchor {
+  position: relative;
+  display: block;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  scroll-margin-top: calc(var(--specialist-sticky-offset, 120px) + 8px);
+  pointer-events: none;
+}
+
 .specialist-page__section--hero {
   padding-top: 28px;
 }
