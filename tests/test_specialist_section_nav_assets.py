@@ -13,10 +13,13 @@ def test_section_nav_component_has_accessible_wrapper_and_geometry_based_active_
     assert 'import { resolveActiveSectionId } from "./sectionNavActiveResolver"' in nav
     assert "resolveActiveSectionId" in nav
     assert "sectionGeometries" in nav
-    assert "section.getBoundingClientRect().top + window.scrollY" in nav
+    assert "section.trackingTarget.getBoundingClientRect().top + window.scrollY" in nav
     assert 'rootMargin: "-10% 0px -40% 0px"' in nav
     assert "specialist-subnav__link--active" in nav
     assert "window.addEventListener(\"scroll\", scheduleUpdate, { passive: true })" in nav
+    assert "resolveTrackingTarget" in nav
+    assert 'section.querySelector<HTMLElement>(".section-card")' in nav
+    assert 'section.querySelector<HTMLElement>("h2.section-title")' in nav
 
 
 def test_section_nav_keeps_smooth_scroll_only_for_user_click_and_mobile_list_is_scrollable():
