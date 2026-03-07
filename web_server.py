@@ -704,6 +704,7 @@ async def admin_ui_specialists(
     oauth_missing: bool = Query(default=False),
     calendar_missing: bool = Query(default=False),
     inactive_days_gt: int | None = Query(default=None, ge=1),
+    test_only: bool = Query(default=False),
 ):
     if not _admin_ui_enabled():
         _raise_not_found()
@@ -724,6 +725,7 @@ async def admin_ui_specialists(
         oauth_missing=oauth_missing,
         calendar_missing=calendar_missing,
         inactive_days_gt=inactive_days_gt,
+        test_only=test_only,
     )
 
 
@@ -804,6 +806,22 @@ async def admin_ui_disable_specialist(specialist_id: str, request: Request):
             )
             await session.commit()
             raise HTTPException(status_code=403, detail="Cannot disable system specialist")
+
+        if not specialist.is_test:
+            await write_admin_audit_log(
+                session,
+                request_id=request_id,
+                admin_subject="cookie_session",
+                action="disable_specialist",
+                target_type="specialist",
+                target_id=specialist.specialist_id,
+                success=False,
+                payload=payload,
+                error_code="FORBIDDEN_NOT_TEST",
+                error_message="Destructive action allowed only for test specialists",
+            )
+            await session.commit()
+            raise HTTPException(status_code=403, detail="Cannot disable non-test specialist")
 
         if specialist.status != SpecialistStatus.suspended:
             specialist.status = SpecialistStatus.suspended
@@ -907,6 +925,22 @@ async def admin_ui_reset_specialist_oauth(specialist_id: str, request: Request):
             await session.commit()
             raise HTTPException(status_code=403, detail="Cannot reset oauth for system specialist")
 
+        if not specialist.is_test:
+            await write_admin_audit_log(
+                session,
+                request_id=request_id,
+                admin_subject="cookie_session",
+                action="reset_oauth",
+                target_type="specialist",
+                target_id=specialist.specialist_id,
+                success=False,
+                payload={"deleted_rows": 0},
+                error_code="FORBIDDEN_NOT_TEST",
+                error_message="Destructive action allowed only for test specialists",
+            )
+            await session.commit()
+            raise HTTPException(status_code=403, detail="Cannot reset oauth for non-test specialist")
+
         result = await session.execute(
             delete(GoogleOAuth).where(GoogleOAuth.specialist_id == specialist.specialist_id)
         )
@@ -973,6 +1007,22 @@ async def admin_ui_change_specialist_tariff(specialist_id: str, request: Request
             )
             await session.commit()
             raise HTTPException(status_code=403, detail="Cannot change tariff for system specialist")
+
+        if not specialist.is_test:
+            await write_admin_audit_log(
+                session,
+                request_id=request_id,
+                admin_subject="cookie_session",
+                action="change_tariff",
+                target_type="specialist",
+                target_id=specialist.specialist_id,
+                success=False,
+                payload={"old_tariff": None, "new_tariff": raw_tariff_plan},
+                error_code="FORBIDDEN_NOT_TEST",
+                error_message="Destructive action allowed only for test specialists",
+            )
+            await session.commit()
+            raise HTTPException(status_code=403, detail="Cannot change tariff for non-test specialist")
 
         profile = await session.get(SpecialistProfile, specialist.specialist_id)
         if profile is None:
@@ -1274,6 +1324,10 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
     .pill {{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }}
     .pill.ok {{ background:#dcfce7; color:#166534; }}
     .pill.err {{ background:#fee2e2; color:#991b1b; }}
+    .badge {{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; margin-right:6px; }}
+    .badge-test {{ background:#ffedd5; color:#c2410c; border:1px solid #fdba74; }}
+    .badge-system {{ background:#e5e7eb; color:#374151; border:1px solid #d1d5db; }}
+    tr.row-test {{ background:#fff7ed; }}
   </style>
 </head>
 <body>
@@ -1312,11 +1366,12 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
         <label for='oauth-missing-filter'>oauth_missing</label><input id='oauth-missing-filter' type='checkbox' />
         <label for='calendar-missing-filter'>calendar_missing</label><input id='calendar-missing-filter' type='checkbox' />
         <label for='inactive-days-filter'>inactive_days_gt</label><input id='inactive-days-filter' type='number' min='1' step='1' style='width:90px;' />
+        <label for='test-only-filter'>test_only</label><input id='test-only-filter' type='checkbox' />
         <button id='apply-filter' class='btn' type='button'>Apply</button>
       </div>
       <p id='specialists-state' class='state'>Загрузка...</p>
       <table id='specialists-table' class='hidden'>
-        <thead><tr><th>Имя</th><th>Статус</th><th>Timezone</th><th>Onboarding</th><th>OAuth</th><th>Calendar</th><th>Active_7d</th><th>Клиенты</th><th>Тариф</th><th>Последняя активность</th></tr></thead>
+        <thead><tr><th>Имя</th><th>Flags</th><th>Статус</th><th>Timezone</th><th>Onboarding</th><th>OAuth</th><th>Calendar</th><th>Active_7d</th><th>Клиенты</th><th>Тариф</th><th>Последняя активность</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
@@ -1398,6 +1453,7 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
     const oauthMissingEl=document.getElementById('oauth-missing-filter');
     const calendarMissingEl=document.getElementById('calendar-missing-filter');
     const inactiveDaysEl=document.getElementById('inactive-days-filter');
+    const testOnlyEl=document.getElementById('test-only-filter');
 
     const logsStateEl=document.getElementById('logs-state');
     const logsTableEl=document.getElementById('logs-table');
@@ -1461,7 +1517,12 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
       const active=item.active_7d?'yes':'no';
       const timezone=item.timezone||'—';
       const lastActivity=item.last_activity_at||'—';
-      row.innerHTML='<td>'+((item.public_name||''))+'</td><td>'+((item.status||''))+'</td><td>'+timezone+'</td><td>'+onboarding+'</td><td>'+oauth+'</td><td>'+calendar+'</td><td>'+active+'</td><td>'+String(item.clients_count??0)+'</td><td>'+((item.tariff_plan||''))+'</td><td>'+lastActivity+'</td>';
+      if(item.is_test){{row.classList.add('row-test');}}
+      const flags=[];
+      if(item.is_test)flags.push('<span class="badge badge-test">TEST</span>');
+      if(item.is_system)flags.push('<span class="badge badge-system">SYSTEM</span>');
+      const flagsCell=flags.length?flags.join(' '):'—';
+      row.innerHTML='<td>'+((item.public_name||''))+'</td><td>'+flagsCell+'</td><td>'+((item.status||''))+'</td><td>'+timezone+'</td><td>'+onboarding+'</td><td>'+oauth+'</td><td>'+calendar+'</td><td>'+active+'</td><td>'+String(item.clients_count??0)+'</td><td>'+((item.tariff_plan||''))+'</td><td>'+lastActivity+'</td>';
       tbodyEl.appendChild(row);}});}}
 
     async function loadSpecialists(){{
@@ -1471,6 +1532,7 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
       if(status)params.set('status',status);
       if(oauthMissingEl.checked)params.set('oauth_missing','1');
       if(calendarMissingEl.checked)params.set('calendar_missing','1');
+      if(testOnlyEl.checked)params.set('test_only','1');
       const inactiveDaysRaw=(inactiveDaysEl.value||'').trim(); if(inactiveDaysRaw)params.set('inactive_days_gt',inactiveDaysRaw);
       try{{const res=await fetch('/admin/ui/specialists?'+params.toString(),{{credentials:'same-origin'}}); if(!res.ok)throw new Error('HTTP '+res.status);
         const payload=await res.json(); const items=payload.items||[]; if(items.length===0){{setState('empty');return;}} renderRows(items); setState('ready');}}

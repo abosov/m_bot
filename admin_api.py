@@ -146,6 +146,7 @@ async def build_admin_specialists_payload(
     oauth_missing: bool = False,
     calendar_missing: bool = False,
     inactive_days_gt: int | None = None,
+    test_only: bool = False,
 ) -> dict[str, object]:
     limit_value = clamp_limit(limit)
     now_utc = datetime.now(timezone.utc)
@@ -216,6 +217,8 @@ async def build_admin_specialists_payload(
                 )
             )
         )
+    if test_only:
+        conditions.append(Specialist.is_test.is_(True))
 
     async with async_session_factory() as session:
         total_stmt = select(func.count()).select_from(Specialist)
@@ -232,6 +235,8 @@ async def build_admin_specialists_payload(
                     cast(Specialist.specialist_id, Text),
                 ).label("public_name"),
                 Specialist.status,
+                Specialist.is_system,
+                Specialist.is_test,
                 Specialist.created_at,
                 SpecialistProfile.tariff_plan,
                 SpecialistProfile.specialist_timezone.label("timezone"),
@@ -268,7 +273,10 @@ async def build_admin_specialists_payload(
         {
             "specialist_id": str(row.specialist_id),
             "public_name": row.public_name,
+            "email": None,
             "status": row.status.value if row.status is not None else None,
+            "is_system": bool(row.is_system),
+            "is_test": bool(row.is_test),
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "tariff_plan": row.tariff_plan.value if row.tariff_plan is not None else None,
             "timezone": row.timezone,
@@ -454,6 +462,7 @@ async def admin_specialists(
     oauth_missing: bool = Query(default=False),
     calendar_missing: bool = Query(default=False),
     inactive_days_gt: int | None = Query(default=None, ge=1),
+    test_only: bool = Query(default=False),
     _auth: None = Depends(require_admin_key),
 ):
     return await build_admin_specialists_payload(
@@ -464,6 +473,7 @@ async def admin_specialists(
         oauth_missing=oauth_missing,
         calendar_missing=calendar_missing,
         inactive_days_gt=inactive_days_gt,
+        test_only=test_only,
     )
 
 

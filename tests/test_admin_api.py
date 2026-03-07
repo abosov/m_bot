@@ -287,7 +287,7 @@ async def test_admin_ui_disable_specialist_happy_path(tmp_path, monkeypatch):
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
         await session.commit()
 
     client = TestClient(app)
@@ -330,7 +330,7 @@ async def test_admin_ui_disable_specialist_idempotent_second_call(tmp_path, monk
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.suspended))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.suspended, is_test=True))
         await session.commit()
 
     client = TestClient(app)
@@ -357,6 +357,44 @@ async def test_admin_ui_disable_specialist_idempotent_second_call(tmp_path, monk
         specialist = await session.get(database.Specialist, specialist_id)
         assert specialist is not None
         assert specialist.status == database.SpecialistStatus.suspended
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_disable_specialist_forbidden_for_non_test_account(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=False))
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        f"/admin/ui/specialists/{specialist_id}/disable",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        headers={"X-CSRF-Token": csrf_cookie},
+    )
+
+    assert response.status_code == 403
+
+    async with database.async_session_factory() as session:
+        audit_row = (
+            await session.execute(
+                select(database.AdminAuditLog).where(
+                    database.AdminAuditLog.target_id == specialist_id,
+                    database.AdminAuditLog.action == "disable_specialist",
+                )
+            )
+        ).scalars().one()
+        assert audit_row.success is False
+        assert audit_row.error_code == "FORBIDDEN_NOT_TEST"
 
 
 @pytest.mark.asyncio
@@ -416,7 +454,7 @@ async def test_admin_ui_disable_specialist_requires_csrf(tmp_path, monkeypatch):
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
         await session.commit()
 
     client = TestClient(app)
@@ -443,7 +481,7 @@ async def test_admin_ui_enable_specialist_after_disable(tmp_path, monkeypatch):
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.suspended))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.suspended, is_test=True))
         await session.commit()
 
     client = TestClient(app)
@@ -486,7 +524,7 @@ async def test_admin_ui_enable_specialist_idempotent(tmp_path, monkeypatch):
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
         await session.commit()
 
     client = TestClient(app)
@@ -519,7 +557,7 @@ async def test_admin_ui_enable_specialist_requires_csrf(tmp_path, monkeypatch):
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.suspended))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.suspended, is_test=True))
         await session.commit()
 
     client = TestClient(app)
@@ -546,7 +584,7 @@ async def test_admin_ui_reset_oauth_removes_google_oauth_and_detail_shows_discon
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
         session.add(
             database.GoogleOAuth(
                 specialist_id=specialist_id,
@@ -614,7 +652,7 @@ async def test_admin_ui_reset_oauth_requires_csrf(tmp_path, monkeypatch):
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
         await session.commit()
 
     client = TestClient(app)
@@ -628,6 +666,53 @@ async def test_admin_ui_reset_oauth_requires_csrf(tmp_path, monkeypatch):
     )
 
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_reset_oauth_forbidden_for_non_test_specialist(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=False))
+        session.add(
+            database.GoogleOAuth(
+                specialist_id=specialist_id,
+                refresh_token_encrypted="encrypted-token",
+                scopes="scope-a",
+                status=database.GoogleOAuthStatus.connected,
+                token_updated_at=datetime.now(timezone.utc),
+            )
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        f"/admin/ui/specialists/{specialist_id}/reset-oauth",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        headers={"X-CSRF-Token": csrf_cookie},
+    )
+
+    assert response.status_code == 403
+
+    async with database.async_session_factory() as session:
+        audit_row = (
+            await session.execute(
+                select(database.AdminAuditLog).where(
+                    database.AdminAuditLog.target_id == specialist_id,
+                    database.AdminAuditLog.action == "reset_oauth",
+                )
+            )
+        ).scalars().one()
+        assert audit_row.success is False
+        assert audit_row.error_code == "FORBIDDEN_NOT_TEST"
 
 
 @pytest.mark.asyncio
@@ -697,7 +782,7 @@ async def test_admin_ui_change_tariff_valid_plan(tmp_path, monkeypatch):
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
         session.add(
             database.SpecialistProfile(
                 specialist_id=specialist_id,
@@ -754,7 +839,7 @@ async def test_admin_ui_change_tariff_invalid_plan_returns_422_and_audits_valida
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
         session.add(
             database.SpecialistProfile(
                 specialist_id=specialist_id,
@@ -798,6 +883,54 @@ async def test_admin_ui_change_tariff_invalid_plan_returns_422_and_audits_valida
 
 
 @pytest.mark.asyncio
+async def test_admin_ui_change_tariff_forbidden_for_non_test_specialist(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=False))
+        session.add(
+            database.SpecialistProfile(
+                specialist_id=specialist_id,
+                public_name="Tariff Specialist",
+                owner_tg_user_id=12345,
+                specialist_timezone="UTC",
+                tariff_plan=database.TariffPlan.start,
+            )
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        f"/admin/ui/specialists/{specialist_id}/tariff",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        headers={"X-CSRF-Token": csrf_cookie},
+        json={"tariff_plan": database.TariffPlan.pro.value},
+    )
+
+    assert response.status_code == 403
+
+    async with database.async_session_factory() as session:
+        audit_row = (
+            await session.execute(
+                select(database.AdminAuditLog).where(
+                    database.AdminAuditLog.target_id == specialist_id,
+                    database.AdminAuditLog.action == "change_tariff",
+                )
+            )
+        ).scalars().one()
+        assert audit_row.success is False
+        assert audit_row.error_code == "FORBIDDEN_NOT_TEST"
+
+
+@pytest.mark.asyncio
 async def test_admin_ui_change_tariff_requires_csrf(tmp_path, monkeypatch):
     app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
 
@@ -806,7 +939,7 @@ async def test_admin_ui_change_tariff_requires_csrf(tmp_path, monkeypatch):
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
         session.add(
             database.SpecialistProfile(
                 specialist_id=specialist_id,
@@ -853,6 +986,10 @@ async def test_admin_page_returns_200_with_valid_cookie(tmp_path, monkeypatch):
     assert "Loading overview…" in response.text
     assert "const url='/admin/ui/overview?'+params.toString();" in response.text
     assert "id='specialists-table'" in response.text
+    assert "<th>Flags</th>" in response.text
+    assert "badge-test" in response.text
+    assert "badge-system" in response.text
+    assert "row-test" in response.text
     assert "<a href='#logs'>Logs</a>" in response.text
     assert "<a href='#heartbeats'>Heartbeats</a>" in response.text
     assert "<a href='#audit-log'>Audit Log</a>" in response.text
@@ -869,8 +1006,10 @@ async def test_admin_page_returns_200_with_valid_cookie(tmp_path, monkeypatch):
     assert "id='oauth-missing-filter'" in response.text
     assert "id='calendar-missing-filter'" in response.text
     assert "id='inactive-days-filter'" in response.text
+    assert "id='test-only-filter'" in response.text
     assert "params.set('oauth_missing','1')" in response.text
     assert "params.set('calendar_missing','1')" in response.text
+    assert "params.set('test_only','1')" in response.text
     assert "params.set('inactive_days_gt',inactiveDaysRaw)" in response.text
 
 
@@ -921,6 +1060,9 @@ async def test_admin_ui_specialists_returns_items_with_valid_cookie(tmp_path, mo
     assert payload["total"] == 1
     assert len(payload["items"]) == 1
     assert payload["items"][0]["public_name"] == "UI Specialist"
+    assert payload["items"][0]["email"] is None
+    assert payload["items"][0]["is_system"] is False
+    assert payload["items"][0]["is_test"] is False
 
 
 
@@ -944,7 +1086,7 @@ async def test_admin_specialist_detail_page_renders_html_with_valid_cookie(tmp_p
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
         await session.commit()
 
     client = TestClient(app)
@@ -1297,7 +1439,7 @@ async def test_admin_ui_specialist_detail_logs_access_event(tmp_path, monkeypatc
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
         await session.commit()
 
     client = TestClient(app)
@@ -1324,7 +1466,7 @@ async def test_admin_specialist_detail_requires_api_key(tmp_path, monkeypatch):
 
     specialist_id = uuid.uuid4()
     async with database.async_session_factory() as session:
-        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active))
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
         await session.commit()
 
     client = TestClient(app)
@@ -2569,6 +2711,7 @@ async def test_admin_specialists_operational_fields_and_filters(tmp_path, monkey
                     specialist_id=specialist_b,
                     status=database.SpecialistStatus.onboarding,
                     is_system=False,
+                    is_test=True,
                 ),
                 database.SpecialistAuthTelegram(specialist_id=specialist_b, tg_user_id=8102, tg_username="b"),
                 database.Specialist(
@@ -2641,6 +2784,14 @@ async def test_admin_specialists_operational_fields_and_filters(tmp_path, monkey
     assert item_b["oauth_connected"] is False
     assert item_b["calendar_selected"] is False
     assert item_b["active_7d"] is False
+    assert item_a["is_test"] is False
+    assert item_b["is_test"] is True
+
+    response_test_only = client.get("/admin/specialists?test_only=1", headers={"X-API-Key": "secret"})
+    assert response_test_only.status_code == 200
+    payload_test_only = response_test_only.json()
+    assert payload_test_only["total"] == 1
+    assert {item["specialist_id"] for item in payload_test_only["items"]} == {str(specialist_b)}
 
     response_oauth_missing = client.get("/admin/specialists?oauth_missing=1", headers={"X-API-Key": "secret"})
     assert response_oauth_missing.status_code == 200
@@ -2744,6 +2895,7 @@ async def test_admin_ui_specialists_operational_payload_and_filters(tmp_path, mo
                     specialist_id=specialist_b,
                     status=database.SpecialistStatus.onboarding,
                     is_system=False,
+                    is_test=True,
                 ),
                 database.SpecialistAuthTelegram(specialist_id=specialist_b, tg_user_id=9102, tg_username="b"),
                 database.Specialist(
@@ -2776,6 +2928,9 @@ async def test_admin_ui_specialists_operational_payload_and_filters(tmp_path, mo
         assert "oauth_connected" in item
         assert "calendar_selected" in item
         assert "active_7d" in item
+        assert "email" in item
+        assert "is_system" in item
+        assert "is_test" in item
 
     item_a = items_by_id[str(specialist_a)]
     item_b = items_by_id[str(specialist_b)]
@@ -2789,6 +2944,17 @@ async def test_admin_ui_specialists_operational_payload_and_filters(tmp_path, mo
     assert item_b["calendar_selected"] is False
     assert item_b["timezone"] is None
     assert item_b["active_7d"] is False
+    assert item_a["is_test"] is False
+    assert item_b["is_test"] is True
+
+    response_test_only = client.get(
+        "/admin/ui/specialists?test_only=1",
+        cookies={"admin_session": session_cookie},
+    )
+    assert response_test_only.status_code == 200
+    payload_test_only = response_test_only.json()
+    assert payload_test_only["total"] == 1
+    assert {item["specialist_id"] for item in payload_test_only["items"]} == {str(specialist_b)}
 
     response_oauth_missing = client.get(
         "/admin/ui/specialists?oauth_missing=1",

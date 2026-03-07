@@ -4,72 +4,65 @@ Status: Planned
 
 ## Архитектурный анализ
 
-### Контекст проблемы
+### Контекст и целевое поведение
 
-В Admin Console уже существует флаг `is_system`, который отделяет служебные аккаунты от реальных специалистов.
-Для следующего уровня качества аналитики и операционного управления нужен отдельный признак `test specialist`:
+US-AD-10 вводит явную классификацию тестовых специалистов на уровне основной модели специалиста. Для безопасных destructive admin-операций нужен детерминированный и быстро проверяемый признак, доступный в БД, API и UI.
 
-- тестовые учётки искажают продуктовые метрики (активность, конверсия, воронка);
-- по ним не должны запускаться часть будущих admin actions (или должен требоваться явный override);
-- оператору нужна визуальная прозрачность в списке специалистов.
+Ключевой операционный сценарий: массовые/разрушительные admin-действия должны быть разрешены только для тестовых, не-системных аккаунтов.
 
-Ключевой риск: появление **двух несогласованных источников истины** (например, флаг в БД и отдельный registry-файл, которые расходятся).
+### Архитектурные решения (фиксированные)
 
-### Варианты источника истины
+1. В модель `specialist` добавляется флаг:
 
-1. **Отдельный флаг в БД (`specialist.is_test`)**
-   - Плюсы: быстрые фильтры, простые SQL-условия, предсказуемое поведение в API.
-   - Минусы: ручная поддержка, риск забыть проставить флаг при создании тестового аккаунта.
+   - `is_test BOOLEAN NOT NULL DEFAULT FALSE`
 
-2. **Вычисляемый признак (по username/email/шаблону)**
-   - Плюсы: не требует миграции схемы.
-   - Минусы: неустойчивость правил, ложные срабатывания, сложный аудит изменений критериев.
+2. Для запрета некорректного состояния добавляется инвариант:
 
-3. **Существующий registry test accounts (реестр тестовых аккаунтов) как единственный источник**
-   - Плюсы: централизованный контроль, auditability правил, возможность cross-service reuse.
-   - Минусы: нужен надёжный runtime-доступ и синхронизация с admin read-моделью.
+   - `CHECK NOT (is_system AND is_test)`
 
-4. **Комбинация (registry + кэш/денормализация в БД)**
-   - Плюсы: и центральная политика, и быстрый read-path.
-   - Минусы: риск двойного источника истины, если не зафиксировать иерархию приоритета.
+3. Изменение `is_test=true` разрешено только:
 
-### Принятое архитектурное решение
+   - admin workflow (приватный admin-контур);
+   - миграции/скрипты сопровождения данных.
 
-**Source of truth:** `test accounts registry` (канонический список идентификаторов аккаунтов).
+4. Для destructive admin-операций вводится обязательный guard:
 
-**Read-модель для Admin Console:** вычисляемый в backend признак `is_test` на основе membership в registry, без хранения независимого флага `specialist.is_test` в продуктовой БД.
+   - `is_test = true`;
+   - `is_system = false`.
 
-Почему так:
+5. Admin UI обязан явно маркировать тестовых специалистов (`TEST` badge).
 
-- исключаем конфликт «ручной DB-флаг vs внешний реестр»;
-- единые правила для admin-аналитики и будущих действий;
-- управляемость: изменение статуса тестового аккаунта проходит через один процесс обновления registry.
+### Слой данных
 
-### Правила классификации `test specialist`
+- Миграция схемы добавляет колонку `specialist.is_test` с `NOT NULL DEFAULT FALSE`.
+- Миграция также добавляет `CHECK NOT (is_system AND is_test)`.
+- На существующих данных backfill не требуется, т.к. default безопасно выставляет `false`.
+- Все новые записи `specialist` получают `is_test=false`, если флаг не установлен в разрешённом admin-потоке.
 
-Специалист считается тестовым, если выполняется хотя бы одно правило membership в registry:
+### Слой API
 
-1. `specialist_id` присутствует в registry (приоритет №1, immutable идентификатор).
-2. Если `specialist_id` ещё не известен в момент регистрации записи registry — допускается временный ключ по `telegram_user_id`/`tg_username`, но после появления `specialist_id` запись должна быть нормализована до `specialist_id`.
+- `admin` API включает поле `is_test` в DTO специалиста (включая `GET /admin/ui/specialists`).
+- Production/public API не принимает и не изменяет `is_test` (поле исключено из input-моделей и update-handlers).
+- Любые попытки изменения `is_test` вне admin-контура трактуются как нарушение контракта API (валидационная ошибка/игнорирование поля по текущему стандарту сервиса).
 
-Ограничения правил:
+### Слой бизнес-логики и прав доступа
 
-- шаблоны вида `*test*` в username **не используются** как source-of-truth;
-- эвристики могут применяться только как QA-алерт/подсказка, но не как финальное решение.
+- Установка `is_test=true` доступна только при наличии admin-прав и только через явно выделенные admin use-cases.
+- Для system-аккаунтов попытка установить `is_test=true` должна отклоняться на двух уровнях:
+  - приложение: domain validation;
+  - БД: `CHECK`-constraint как защита целостности.
+- Все destructive операции должны проверять guard-условие до выполнения side effects.
 
-### Как избежать двойного источника истины
+### Слой UI (Admin Console)
 
-Запрещается:
+- В таблице специалистов отображается заметный, но нейтральный badge `TEST`.
+- Маркировка `TEST` должна быть независимой от `SYSTEM` и не скрывать системный статус.
+- В списках/деталях, где доступны destructive операции, статус `TEST` должен быть визуально очевиден до подтверждения действия.
 
-- вводить отдельный персистентный бизнес-флаг `specialist.is_test` как независимую правду;
-- дублировать registry в нескольких вручную редактируемых местах.
+### Наблюдаемость и аудит
 
-Разрешается:
-
-- технический кэш/материализация только как read-оптимизация, при условии:
-  - явного TTL/процедуры invalidate;
-  - строгого приоритета registry при рассинхроне;
-  - запрета ручного редактирования кэша.
+- Изменения `is_test` должны попадать в audit log admin-действий (`actor`, `target_specialist_id`, old/new `is_test`, timestamp).
+- Отклонённые destructive операции из-за guard (`is_test=false` или `is_system=true`) логируются как policy denials.
 
 ### Какие слои можно и нельзя менять
 
@@ -107,22 +100,22 @@ Status: Planned
 
 - Добавление признака `is_test` в response модели списка специалистов (`GET /admin/ui/specialists`).
 - Отрисовка в таблице явного индикатора `TEST` (badge/колонка).
-- Документирование источника истины: `test accounts registry`.
+- Документирование источника истины: флаг `specialist.is_test` с admin-only управлением.
 - Фиксация policy для future admin actions (warning/explicit confirm для test аккаунтов).
 
 ### Excluded (MVP)
 
 - Массовое редактирование test-статуса из UI.
-- Автоматическое изменение registry из admin-консоли.
+- Массовое автоматическое переключение `is_test` вне выделенных admin workflow.
 - Изменение Overview-метрик (выносится в отдельную US, если потребуется фильтр `include_test`).
 
 ## Acceptance Criteria
 
-- Для каждого специалиста в `GET /admin/ui/specialists` возвращается `is_test: boolean`.
-- `is_test` вычисляется только по membership в `test accounts registry`.
-- В таблице специалистов присутствует явная визуальная маркировка тестовых аккаунтов.
-- Отсутствует второй независимый источник истины (`specialist.is_test` как отдельный business-флаг не вводится).
-- Документация фиксирует ограничения по слоям и policy для будущих admin actions.
+- В `specialist` добавлено поле `is_test` (`BOOLEAN NOT NULL DEFAULT FALSE`).
+- Невозможно сохранить состояние `is_system=true` и `is_test=true` одновременно.
+- Admin API возвращает `is_test` в моделях специалистов.
+- Admin UI показывает явный `TEST` badge для `is_test=true`.
+- Production/public API не позволяет менять `is_test`.
 
 ## API impact
 
@@ -130,7 +123,23 @@ Status: Planned
 
 Расширение ответа:
 
-- `is_test: boolean` — вычисляемый сервером признак на основе registry.
+- `is_test: boolean` — персистентный признак из поля `specialist.is_test`.
+- `is_system: boolean` — признак системного аккаунта для безопасной фильтрации и визуальной маркировки.
+
+Минимальный контракт item (добавочные поля допускаются):
+
+```json
+{
+  "specialist_id": "...",
+  "email": "...",
+  "is_system": false,
+  "is_test": false
+}
+```
+
+Фильтрация:
+
+- Query param `test_only=1` применяет условие `WHERE is_test = TRUE`.
 
 Совместимость:
 
@@ -138,17 +147,26 @@ Status: Planned
 
 ## Data impact
 
-- Продуктовая таблица `specialist` не получает новый флаг `is_test`.
-- Канонический реестр тестовых аккаунтов остаётся единственным хранилищем решения «test/non-test».
-- При необходимости допускается non-authoritative cache для производительности (не источник истины).
+- Таблица `specialist` получает поле `is_test BOOLEAN NOT NULL DEFAULT FALSE`.
+- Добавляется `CHECK NOT (is_system AND is_test)` для защиты целостности данных.
+- Потребуются migration + rollback-стратегия для схемы БД.
 
 ## UX impact (таблица специалистов)
 
 Рекомендованный паттерн:
 
 - Колонка `Flags` или `Type` с badge `TEST`.
-- Для `is_system=true` и `is_test=true` отображаются разные badge (например, `SYSTEM` и `TEST`) без смешивания семантики.
+- Для `is_system=true` отображается `SYSTEM`, для `is_test=true` отображается `TEST`; совместное состояние недопустимо по DB-constraint.
 - Badge `TEST` визуально нейтральный (не как error), но заметный.
+
+## Security decision
+
+`is_test` is a safe classification attribute for admin operations.
+
+Security constraints:
+- `is_test` must never be user-controlled from public/production API.
+- Only admin workflows and migrations may set `is_test=true`.
+- Secrets/tokens must never be returned in admin specialists payload.
 
 ## Security impact
 
@@ -156,20 +174,27 @@ Status: Planned
 - Anti-enumeration и текущая admin auth-модель не изменяются.
 - Признак `is_test` считается операционным metadata-полем и не должен использоваться для обхода авторизации.
 
+Destructive admin operations must require:
+
+- `is_test=true`
+- `is_system=false`
+
 ## Tests required
 
-- Unit: resolver `is_test` корректно возвращает `true/false` по registry membership.
-- Unit: при конфликте cache vs registry приоритет у registry.
-- Integration: `GET /admin/ui/specialists` возвращает `is_test` и корректные badge-данные для mixed выборки (`normal`, `system`, `test`, `system+test`).
+- Migration test: колонка `is_test` и `CHECK NOT (is_system AND is_test)` успешно создаются.
+- Unit: попытка выставить `is_test=true` для `is_system=true` блокируется.
+- Unit: production/public handlers не принимают изменение `is_test`.
+- Integration: `GET /admin/ui/specialists` возвращает `is_test` для смешанной выборки (`normal`, `system`, `test`).
+- Integration: destructive admin-операция отклоняется для (`is_test=false` или `is_system=true`) и разрешается только при (`is_test=true` и `is_system=false`).
 - UI test: таблица корректно отображает `TEST` badge и не ломает существующие фильтры/сортировку.
 
 ## Documentation required
 
 - Добавить US-AD-10 в `docs/40_admin_console/README.md`.
-- При реализации update для runbook/operational docs по процессу ведения `test accounts registry`.
+- При реализации update для runbook/operational docs по процессу маркировки test-аккаунтов.
 
 ## Definition of Done
 
-- Создана спецификация US-AD-10 с архитектурным анализом и явным выбором source-of-truth.
-- Зафиксировано, что источник истины для `test specialist` — только `test accounts registry`.
-- Определены API/UX последствия и guardrails для future admin actions.
+- Создана и согласована архитектурная секция по US-AD-10 с явным контрактом `is_test`.
+- Зафиксированы ограничения на сочетание `is_system` и `is_test`, а также на изменение `is_test` только через admin/migration.
+- Определены API/UX последствия и guardrails для destructive admin-операций.

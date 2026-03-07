@@ -157,6 +157,35 @@ This layered security prevents:
 Status: Planned
 Doc: [US-AD-10 specification](./us_ad_10_test_specialist_marking.md)
 
+User Story:
+- As `super_admin`, I want test specialists to be explicitly marked so destructive admin operations target only test accounts.
+
+Acceptance Criteria:
+- specialist has new field `is_test`
+- system specialist cannot be test
+- admin API returns `is_test`
+- admin UI shows `TEST` badge
+- production API cannot change `is_test`
+
+Data impact:
+- `specialist.is_test BOOLEAN NOT NULL DEFAULT FALSE`
+- `CHECK NOT (is_system AND is_test)`
+- index for filtering by test flag
+
+API impact:
+- `GET /admin/ui/specialists` returns `is_test` and `is_system`
+- supports `test_only=1` (`WHERE is_test = TRUE`)
+- backward compatible: response extended with extra fields
+
+Security impact:
+- destructive admin operations must require `is_test=true` and `is_system=false`
+- public/production API cannot mutate `is_test`
+
+Tests required:
+- migration/schema tests for `is_test` + constraint
+- API tests for `is_test` in payload and `test_only=1`
+- UI tests for `TEST` badge rendering and test-only filter behavior
+
 ### US-AD-11 — Safe deletion of one test specialist
 Status: Planned
 Doc: [US-AD-11 specification](./us_ad_11_delete_test_specialist.md)
