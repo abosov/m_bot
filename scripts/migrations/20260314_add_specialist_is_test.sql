@@ -31,7 +31,7 @@ BEGIN
     ) THEN
         ALTER TABLE specialist
         ADD CONSTRAINT specialist_test_system_exclusive
-        CHECK NOT (is_system AND is_test) NOT VALID;
+        CHECK (NOT (is_system AND is_test)) NOT VALID;
     END IF;
 END
 $$;
