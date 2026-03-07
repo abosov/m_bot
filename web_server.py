@@ -29,8 +29,11 @@ from database import (
     Appointment,
     BookingState,
     BillingPeriod,
+    Client,
     LogDirection,
     Specialist,
+    SpecialistPublicMedia,
+    SpecialistPublicProfile,
     SpecialistStatus,
     TariffPlan,
     async_session_factory, 
@@ -127,6 +130,14 @@ def _csrf_protected_admin_ui_post(request: Request) -> bool:
 
 def _request_id_from_request(request: Request) -> str:
     return getattr(request.state, "request_id", get_request_id())
+
+
+async def _run_storage_cleanup_job(payload: dict) -> None:
+    logger.info("event=admin_test_specialist_storage_cleanup_scheduled payload=%s", payload)
+
+
+def _schedule_storage_cleanup(payload: dict) -> None:
+    asyncio.create_task(_run_storage_cleanup_job(payload))
 
 
 def build_calendar_switch_keyboard(*, has_selected_calendar: bool) -> InlineKeyboardMarkup:
@@ -765,6 +776,145 @@ async def admin_ui_specialist_detail(
     return payload
 
 
+@app.get("/admin/ui/specialists/{specialist_id}/delete-test/preflight")
+async def admin_ui_delete_test_specialist_preflight(specialist_id: str, request: Request):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    try:
+        specialist_uuid = uuid.UUID(specialist_id)
+    except ValueError:
+        _raise_not_found()
+
+    async with async_session_factory() as session:
+        specialist = await session.get(Specialist, specialist_uuid)
+        if specialist is None:
+            _raise_not_found()
+
+        if specialist.is_system:
+            raise HTTPException(status_code=403, detail="FORBIDDEN_SYSTEM")
+
+        if not specialist.is_test:
+            raise HTTPException(status_code=403, detail="FORBIDDEN_NOT_TEST")
+
+        clients_count = int(
+            (
+                await session.execute(
+                    select(func.count()).select_from(Client).where(Client.specialist_id == specialist_uuid)
+                )
+            ).scalar_one()
+        )
+        appointments_count = int(
+            (
+                await session.execute(
+                    select(func.count()).select_from(Appointment).where(Appointment.specialist_id == specialist_uuid)
+                )
+            ).scalar_one()
+        )
+        media_count = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(SpecialistPublicMedia)
+                    .join(SpecialistPublicProfile, SpecialistPublicMedia.profile_id == SpecialistPublicProfile.id)
+                    .where(SpecialistPublicProfile.specialist_id == specialist_uuid)
+                )
+            ).scalar_one()
+        )
+
+    return {
+        "specialist_id": str(specialist_uuid),
+        "eligible": True,
+        "counts": {
+            "clients": clients_count,
+            "appointments": appointments_count,
+            "media": media_count,
+        },
+    }
+
+
+@app.post("/admin/ui/specialists/{specialist_id}/delete-test")
+async def admin_ui_delete_test_specialist(specialist_id: str, request: Request):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    try:
+        specialist_uuid = uuid.UUID(specialist_id)
+    except ValueError:
+        _raise_not_found()
+
+    deleted_counts = {
+        "appointments": 0,
+        "clients": 0,
+        "media": 0,
+        "oauth_tokens": 0,
+        "specialist": 0,
+    }
+
+    async with async_session_factory() as session:
+        async with session.begin():
+            specialist = await session.get(Specialist, specialist_uuid)
+            if specialist is None:
+                _raise_not_found()
+
+            if specialist.is_system:
+                raise HTTPException(status_code=403, detail="FORBIDDEN_SYSTEM")
+
+            if not specialist.is_test:
+                raise HTTPException(status_code=403, detail="FORBIDDEN_NOT_TEST")
+
+            deleted_appointments = await session.execute(
+                delete(Appointment).where(Appointment.specialist_id == specialist_uuid)
+            )
+            deleted_counts["appointments"] = int(deleted_appointments.rowcount or 0)
+
+            deleted_clients = await session.execute(
+                delete(Client).where(Client.specialist_id == specialist_uuid)
+            )
+            deleted_counts["clients"] = int(deleted_clients.rowcount or 0)
+
+            media_profile_subquery = select(SpecialistPublicProfile.id).where(
+                SpecialistPublicProfile.specialist_id == specialist_uuid
+            )
+            deleted_media = await session.execute(
+                delete(SpecialistPublicMedia).where(
+                    SpecialistPublicMedia.profile_id.in_(media_profile_subquery)
+                )
+            )
+            deleted_counts["media"] = int(deleted_media.rowcount or 0)
+
+            deleted_oauth = await session.execute(
+                delete(GoogleOAuth).where(GoogleOAuth.specialist_id == specialist_uuid)
+            )
+            deleted_counts["oauth_tokens"] = int(deleted_oauth.rowcount or 0)
+
+            deleted_specialist = await session.execute(
+                delete(Specialist).where(Specialist.specialist_id == specialist_uuid)
+            )
+            deleted_counts["specialist"] = int(deleted_specialist.rowcount or 0)
+
+            if deleted_counts["specialist"] == 0:
+                _raise_not_found()
+
+    _schedule_storage_cleanup(
+        {
+            "specialist_id": str(specialist_uuid),
+            "deleted_counts": deleted_counts,
+        }
+    )
+
+    return {
+        "status": "deleted",
+        "deleted_counts": deleted_counts,
+    }
 
 
 @app.post("/admin/ui/specialists/{specialist_id}/disable")

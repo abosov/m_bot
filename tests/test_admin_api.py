@@ -6,7 +6,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 pytest.importorskip("aiosqlite")
 
@@ -1456,6 +1456,624 @@ async def test_admin_ui_specialist_detail_logs_access_event(tmp_path, monkeypatc
     assert response.status_code == 200
     assert "event=admin_ui_specialist_detail_access request_id=req-log-1" in caplog.text
     assert str(specialist_id) in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_delete_test_specialist_preflight_returns_counts(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    profile_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    async with database.async_session_factory() as session:
+        client_a = database.Client(
+            specialist_id=specialist_id,
+            tg_user_id=111,
+            client_code="C001",
+            client_timezone="UTC",
+            timezone_source=database.ClientTimezoneSource.default_from_specialist,
+        )
+        client_b = database.Client(
+            specialist_id=specialist_id,
+            tg_user_id=112,
+            client_code="C002",
+            client_timezone="UTC",
+            timezone_source=database.ClientTimezoneSource.default_from_specialist,
+        )
+
+        session.add(
+            database.Specialist(
+                specialist_id=specialist_id,
+                status=database.SpecialistStatus.active,
+                is_test=True,
+                is_system=False,
+            )
+        )
+        session.add(
+            database.SpecialistPublicProfile(
+                id=profile_id,
+                specialist_id=specialist_id,
+                public_slug="spec-a",
+                display_name="Spec A",
+                specialization="Psychology",
+                client_bot_username="spec_a_bot",
+                is_published=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add_all([client_a, client_b])
+        await session.flush()
+
+        session.add_all(
+            [
+                database.Appointment(
+                    specialist_id=specialist_id,
+                    client_id=client_a.client_id,
+                    start_at_utc=now,
+                    end_at_utc=now + timedelta(minutes=30),
+                    booking_state=database.BookingState.pending,
+                    idempotency_key="pref-appt-1",
+                ),
+                database.Appointment(
+                    specialist_id=specialist_id,
+                    client_id=client_b.client_id,
+                    start_at_utc=now + timedelta(hours=1),
+                    end_at_utc=now + timedelta(hours=1, minutes=30),
+                    booking_state=database.BookingState.pending,
+                    idempotency_key="pref-appt-2",
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                database.SpecialistPublicMedia(
+                    profile_id=profile_id,
+                    media_type="image",
+                    file_key="media/1.jpg",
+                    sort_order=1,
+                    created_at=now,
+                ),
+                database.SpecialistPublicMedia(
+                    profile_id=profile_id,
+                    media_type="image",
+                    file_key="media/2.jpg",
+                    sort_order=2,
+                    created_at=now,
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        f"/admin/ui/specialists/{specialist_id}/delete-test/preflight",
+        cookies={"admin_session": session_cookie},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["specialist_id"] == str(specialist_id)
+    assert payload["eligible"] is True
+    assert payload["counts"] == {"clients": 2, "appointments": 2, "media": 2}
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_delete_test_specialist_preflight_forbidden_not_test(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(
+            database.Specialist(
+                specialist_id=specialist_id,
+                status=database.SpecialistStatus.active,
+                is_test=False,
+                is_system=False,
+            )
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        f"/admin/ui/specialists/{specialist_id}/delete-test/preflight",
+        cookies={"admin_session": session_cookie},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "FORBIDDEN_NOT_TEST"}
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_delete_test_specialist_preflight_forbidden_system(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(
+            database.Specialist(
+                specialist_id=specialist_id,
+                status=database.SpecialistStatus.active,
+                is_test=False,
+                is_system=True,
+            )
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        f"/admin/ui/specialists/{specialist_id}/delete-test/preflight",
+        cookies={"admin_session": session_cookie},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "FORBIDDEN_SYSTEM"}
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_delete_test_specialist_preflight_requires_cookie(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
+        await session.commit()
+
+    client = TestClient(app)
+    response = client.get(f"/admin/ui/specialists/{specialist_id}/delete-test/preflight")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_delete_test_specialist_deletes_entities_and_schedules_cleanup(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    profile_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    async with database.async_session_factory() as session:
+        client_a = database.Client(
+            specialist_id=specialist_id,
+            tg_user_id=301,
+            client_code="D001",
+            client_timezone="UTC",
+            timezone_source=database.ClientTimezoneSource.default_from_specialist,
+        )
+        client_b = database.Client(
+            specialist_id=specialist_id,
+            tg_user_id=302,
+            client_code="D002",
+            client_timezone="UTC",
+            timezone_source=database.ClientTimezoneSource.default_from_specialist,
+        )
+        session.add(
+            database.Specialist(
+                specialist_id=specialist_id,
+                status=database.SpecialistStatus.active,
+                is_test=True,
+                is_system=False,
+            )
+        )
+        session.add(
+            database.SpecialistPublicProfile(
+                id=profile_id,
+                specialist_id=specialist_id,
+                public_slug="delete-spec",
+                display_name="Delete Spec",
+                specialization="Psychology",
+                client_bot_username="delete_spec_bot",
+                is_published=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            database.GoogleOAuth(
+                specialist_id=specialist_id,
+                refresh_token_encrypted="encrypted",
+                scopes="scope",
+                status=database.GoogleOAuthStatus.connected,
+                token_updated_at=now,
+            )
+        )
+        session.add_all([client_a, client_b])
+        await session.flush()
+
+        session.add_all(
+            [
+                database.Appointment(
+                    specialist_id=specialist_id,
+                    client_id=client_a.client_id,
+                    start_at_utc=now,
+                    end_at_utc=now + timedelta(minutes=30),
+                    booking_state=database.BookingState.pending,
+                    idempotency_key="delete-appt-1",
+                ),
+                database.Appointment(
+                    specialist_id=specialist_id,
+                    client_id=client_b.client_id,
+                    start_at_utc=now + timedelta(hours=1),
+                    end_at_utc=now + timedelta(hours=1, minutes=30),
+                    booking_state=database.BookingState.pending,
+                    idempotency_key="delete-appt-2",
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                database.SpecialistPublicMedia(
+                    profile_id=profile_id,
+                    media_type="image",
+                    file_key="delete/1.jpg",
+                    sort_order=1,
+                    created_at=now,
+                ),
+                database.SpecialistPublicMedia(
+                    profile_id=profile_id,
+                    media_type="image",
+                    file_key="delete/2.jpg",
+                    sort_order=2,
+                    created_at=now,
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        f"/admin/ui/specialists/{specialist_id}/delete-test",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        headers={"X-CSRF-Token": csrf_cookie},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "deleted",
+        "deleted_counts": {
+            "appointments": 2,
+            "clients": 2,
+            "media": 2,
+            "oauth_tokens": 1,
+            "specialist": 1,
+        },
+    }
+
+    async with database.async_session_factory() as session:
+        specialist = await session.get(database.Specialist, specialist_id)
+        appointments_count = (
+            await session.execute(select(func.count()).select_from(database.Appointment).where(database.Appointment.specialist_id == specialist_id))
+        ).scalar_one()
+        clients_count = (
+            await session.execute(select(func.count()).select_from(database.Client).where(database.Client.specialist_id == specialist_id))
+        ).scalar_one()
+        media_count = (
+            await session.execute(
+                select(func.count())
+                .select_from(database.SpecialistPublicMedia)
+                .join(database.SpecialistPublicProfile, database.SpecialistPublicMedia.profile_id == database.SpecialistPublicProfile.id)
+                .where(database.SpecialistPublicProfile.specialist_id == specialist_id)
+            )
+        ).scalar_one()
+        oauth_count = (
+            await session.execute(select(func.count()).select_from(database.GoogleOAuth).where(database.GoogleOAuth.specialist_id == specialist_id))
+        ).scalar_one()
+
+    assert specialist is None
+    assert appointments_count == 0
+    assert clients_count == 0
+    assert media_count == 0
+    assert oauth_count == 0
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_delete_test_specialist_forbidden_not_test(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(
+            database.Specialist(
+                specialist_id=specialist_id,
+                status=database.SpecialistStatus.active,
+                is_test=False,
+                is_system=False,
+            )
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        f"/admin/ui/specialists/{specialist_id}/delete-test",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        headers={"X-CSRF-Token": csrf_cookie},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "FORBIDDEN_NOT_TEST"}
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_delete_test_specialist_forbidden_system(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(
+            database.Specialist(
+                specialist_id=specialist_id,
+                status=database.SpecialistStatus.active,
+                is_test=False,
+                is_system=True,
+            )
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        f"/admin/ui/specialists/{specialist_id}/delete-test",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        headers={"X-CSRF-Token": csrf_cookie},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "FORBIDDEN_SYSTEM"}
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_delete_test_specialist_requires_csrf(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        f"/admin/ui/specialists/{specialist_id}/delete-test",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_delete_test_specialist_allowed(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True, is_system=False))
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        f"/admin/ui/specialists/{specialist_id}/delete-test",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        headers={"X-CSRF-Token": csrf_cookie},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "deleted"
+
+
+@pytest.mark.asyncio
+async def test_delete_non_test_specialist_forbidden(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=False, is_system=False))
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        f"/admin/ui/specialists/{specialist_id}/delete-test",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        headers={"X-CSRF-Token": csrf_cookie},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "FORBIDDEN_NOT_TEST"}
+
+
+@pytest.mark.asyncio
+async def test_delete_system_specialist_forbidden(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=False, is_system=True))
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        f"/admin/ui/specialists/{specialist_id}/delete-test",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        headers={"X-CSRF-Token": csrf_cookie},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "FORBIDDEN_SYSTEM"}
+
+
+@pytest.mark.asyncio
+async def test_execute_deletes_data(tmp_path, monkeypatch):
+    await test_admin_ui_delete_test_specialist_deletes_entities_and_schedules_cleanup(tmp_path, monkeypatch)
+
+
+@pytest.mark.asyncio
+async def test_preflight_returns_counts(tmp_path, monkeypatch):
+    await test_admin_ui_delete_test_specialist_preflight_returns_counts(tmp_path, monkeypatch)
+
+
+@pytest.mark.asyncio
+async def test_missing_csrf_403(tmp_path, monkeypatch):
+    await test_admin_ui_delete_test_specialist_requires_csrf(tmp_path, monkeypatch)
+
+
+@pytest.mark.asyncio
+async def test_no_auth_404(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
+        await session.commit()
+
+    client = TestClient(app)
+    response = client.post(f"/admin/ui/specialists/{specialist_id}/delete-test")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_rollback_on_db_error(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    async with database.async_session_factory() as session:
+        client_obj = database.Client(
+            specialist_id=specialist_id,
+            tg_user_id=901,
+            client_code="RB001",
+            client_timezone="UTC",
+            timezone_source=database.ClientTimezoneSource.default_from_specialist,
+        )
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True, is_system=False))
+        session.add(client_obj)
+        await session.flush()
+        session.add(
+            database.Appointment(
+                specialist_id=specialist_id,
+                client_id=client_obj.client_id,
+                start_at_utc=now,
+                end_at_utc=now + timedelta(minutes=30),
+                booking_state=database.BookingState.pending,
+                idempotency_key="rollback-appt-1",
+            )
+        )
+        await session.commit()
+
+    import sqlalchemy.ext.asyncio
+
+    original_execute = sqlalchemy.ext.asyncio.AsyncSession.execute
+
+    async def failing_execute(self, statement, *args, **kwargs):
+        table_name = getattr(getattr(statement, "table", None), "name", None)
+        if table_name == "client":
+            raise RuntimeError("forced delete failure")
+        return await original_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(sqlalchemy.ext.asyncio.AsyncSession, "execute", failing_execute)
+
+    client = TestClient(app, raise_server_exceptions=False)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        f"/admin/ui/specialists/{specialist_id}/delete-test",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        headers={"X-CSRF-Token": csrf_cookie},
+    )
+
+    assert response.status_code == 500
+
+    async with database.async_session_factory() as session:
+        specialist = await session.get(database.Specialist, specialist_id)
+        appointments_count = (
+            await session.execute(select(func.count()).select_from(database.Appointment).where(database.Appointment.specialist_id == specialist_id))
+        ).scalar_one()
+        clients_count = (
+            await session.execute(select(func.count()).select_from(database.Client).where(database.Client.specialist_id == specialist_id))
+        ).scalar_one()
+
+    assert specialist is not None
+    assert appointments_count == 1
+    assert clients_count == 1
+
 
 @pytest.mark.asyncio
 async def test_admin_specialist_detail_requires_api_key(tmp_path, monkeypatch):
