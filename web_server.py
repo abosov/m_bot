@@ -3590,11 +3590,11 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
       <nav id="specialist-section-nav" class="specialist-subnav" aria-label="Навигация по разделам специалиста">
         <div class="container specialist-subnav__inner">
           <div class="specialist-subnav__list" role="tablist" aria-label="Разделы страницы">
-            <a href="#about" data-section-id="about" class="specialist-subnav__link" role="tab">О себе</a>
-            <a href="#education" data-section-id="education" class="specialist-subnav__link" role="tab">Образование</a>
-            <a href="#documents" data-section-id="documents" class="specialist-subnav__link" role="tab">Документы</a>
-            <a href="#services" data-section-id="services" class="specialist-subnav__link" role="tab">Услуги и цены</a>
-            <a href="#reviews" data-section-id="reviews" class="specialist-subnav__link" role="tab">Отзывы</a>
+            <div class="specialist-subnav__item" role="presentation"><a href="#about" data-section-id="about" class="specialist-subnav__link" role="tab">О себе</a></div>
+            <div class="specialist-subnav__item" role="presentation"><a href="#education" data-section-id="education" class="specialist-subnav__link" role="tab">Образование</a></div>
+            <div class="specialist-subnav__item" role="presentation"><a href="#documents" data-section-id="documents" class="specialist-subnav__link" role="tab">Документы</a></div>
+            <div class="specialist-subnav__item" role="presentation"><a href="#services" data-section-id="services" class="specialist-subnav__link" role="tab">Услуги и цены</a></div>
+            <div class="specialist-subnav__item" role="presentation"><a href="#reviews" data-section-id="reviews" class="specialist-subnav__link" role="tab">Отзывы</a></div>
           </div>
         </div>
       </nav>
