@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import re
+import fnmatch
 import smtplib
 import secrets
 import time
@@ -758,6 +759,10 @@ class AdminResetTestDataRequest(BaseModel):
     confirmation_phrase: str | None = None
 
 
+class AdminDiagnosticRunRequest(BaseModel):
+    check_type: str = Field(pattern="^(orphan_specialist_media_scan|server_clutter_scan)$")
+
+
 def _admin_ui_enabled() -> bool:
     return bool(config.ADMIN_UI_PASSWORD)
 
@@ -768,6 +773,172 @@ def _admin_ui_cookie_secure() -> bool:
 
 def _raise_not_found() -> None:
     raise HTTPException(status_code=404, detail="Not found")
+
+
+def _count_severity(findings: list[dict[str, object]], severity: str) -> int:
+    return sum(1 for finding in findings if finding.get("severity") == severity)
+
+
+async def _run_orphan_specialist_media_scan() -> dict[str, object]:
+    findings: list[dict[str, object]] = []
+    db_keys: set[str] = set()
+    uploads_root = Path(config.PROFILE_UPLOADS_DIR)
+
+    async with async_session_factory() as session:
+        rows = (await session.execute(select(SpecialistPublicMedia.file_key))).scalars().all()
+
+    for raw_key in rows:
+        key = str(raw_key or "").lstrip("/")
+        if not key:
+            continue
+        db_keys.add(key)
+        if not (uploads_root / key).is_file():
+            findings.append(
+                {
+                    "severity": "high",
+                    "code": "MISSING_MEDIA_FILE",
+                    "entity_ref": f"db:file_key:{key}",
+                    "message": "DB reference points to missing storage file",
+                    "recommended_action": "Restore file or remove stale reference in dedicated remediation flow",
+                }
+            )
+
+    storage_keys: set[str] = set()
+    specialist_root = uploads_root / "specialist"
+    if specialist_root.exists():
+        for path in specialist_root.rglob("*"):
+            if not path.is_file():
+                continue
+            storage_key = path.relative_to(uploads_root).as_posix()
+            storage_keys.add(storage_key)
+
+    for storage_key in sorted(storage_keys - db_keys):
+        findings.append(
+            {
+                "severity": "medium",
+                "code": "ORPHAN_MEDIA_OBJECT",
+                "entity_ref": f"storage:{storage_key}",
+                "message": "Storage file has no DB reference",
+                "recommended_action": "Review and remove in a separate cleanup workflow",
+            }
+        )
+
+    scanned = len(db_keys) + len(storage_keys)
+    return {
+        "summary": {
+            "scanned": scanned,
+            "findings_total": len(findings),
+            "high": _count_severity(findings, "high"),
+            "medium": _count_severity(findings, "medium"),
+            "low": _count_severity(findings, "low"),
+        },
+        "findings": findings,
+    }
+
+
+def _is_path_allowed(path: Path, allowlisted_roots: list[Path]) -> bool:
+    resolved = path.resolve()
+    for root in allowlisted_roots:
+        root_resolved = root.resolve()
+        if resolved == root_resolved or root_resolved in resolved.parents:
+            return True
+    return False
+
+
+def _build_server_clutter_allowlist() -> list[Path]:
+    roots = [Path(config.PROFILE_UPLOADS_DIR)]
+    if config.LOG_DIR:
+        roots.append(Path(config.LOG_DIR))
+    uniq: dict[str, Path] = {}
+    for root in roots:
+        uniq[str(root.resolve())] = root
+    return list(uniq.values())
+
+
+def _safe_entity_ref(path: Path, *, root: Path) -> str:
+    try:
+        rel = path.relative_to(root)
+        return f"{root.name}/{rel.as_posix()}"
+    except ValueError:
+        return path.name
+
+
+def _run_server_clutter_scan() -> dict[str, object]:
+    findings: list[dict[str, object]] = []
+    allowlisted_roots = _build_server_clutter_allowlist()
+    patterns: list[tuple[str, str, str]] = [
+        ("*.bak", "high", "STRAY_BACKUP_FILE"),
+        ("*.old", "high", "STRAY_BACKUP_FILE"),
+        ("*.tmp", "medium", "TEMP_ARTIFACT"),
+        ("*.swp", "medium", "EDITOR_SWAP_ARTIFACT"),
+        ("*~", "low", "EDITOR_BACKUP_ARTIFACT"),
+        ("*.sql.dump", "high", "DB_DUMP_ARTIFACT"),
+        ("*.sqlite3", "medium", "SQLITE_DEV_ARTIFACT"),
+    ]
+
+    scanned = 0
+    max_findings = 200
+    for root in allowlisted_roots:
+        if not root.exists() or not root.is_dir():
+            continue
+        for current_root, dirnames, filenames in os.walk(root, followlinks=False):
+            current_root_path = Path(current_root)
+            dirnames[:] = [d for d in dirnames if not (current_root_path / d).is_symlink()]
+            for filename in filenames:
+                path = current_root_path / filename
+                if path.is_symlink() or not path.is_file() or not _is_path_allowed(path, allowlisted_roots):
+                    continue
+                scanned += 1
+                name = path.name
+                for pattern, severity, code in patterns:
+                    if fnmatch.fnmatch(name, pattern):
+                        findings.append(
+                            {
+                                "severity": severity,
+                                "code": code,
+                                "entity_ref": _safe_entity_ref(path, root=root),
+                                "message": f"Matched server clutter pattern {pattern}",
+                                "recommended_action": "Review and remove via dedicated remediation process",
+                            }
+                        )
+                        break
+
+                if len(findings) >= max_findings:
+                    findings.append(
+                        {
+                            "severity": "low",
+                            "code": "RESULT_TRUNCATED",
+                            "entity_ref": root.name,
+                            "message": "Findings truncated at safety limit",
+                            "recommended_action": "Narrow scan scope in next run",
+                        }
+                    )
+                    break
+
+            if len(findings) >= max_findings:
+                break
+
+        if len(findings) >= max_findings:
+            break
+
+    return {
+        "summary": {
+            "scanned": scanned,
+            "findings_total": len(findings),
+            "high": _count_severity(findings, "high"),
+            "medium": _count_severity(findings, "medium"),
+            "low": _count_severity(findings, "low"),
+        },
+        "findings": findings,
+    }
+
+
+async def _execute_diagnostic(check_type: str) -> dict[str, object]:
+    if check_type == "orphan_specialist_media_scan":
+        return await _run_orphan_specialist_media_scan()
+    if check_type == "server_clutter_scan":
+        return _run_server_clutter_scan()
+    raise ValueError("unsupported_check_type")
 
 
 @app.middleware("http")
@@ -972,6 +1143,45 @@ async def admin_ui_test_accounts_preflight_delete(request: Request):
         "clients": clients,
         "appointments": appointments,
     }
+
+
+@app.post("/admin/ui/diagnostics/run")
+async def admin_ui_run_diagnostic(payload: AdminDiagnosticRunRequest, request: Request):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    try:
+        result = await _execute_diagnostic(payload.check_type)
+        return {
+            "status": "completed",
+            "summary": result["summary"],
+            "findings": result["findings"],
+        }
+    except Exception as exc:
+        logger.exception("event=admin_diagnostic_run_failed check_type=%s", payload.check_type)
+        return {
+            "status": "failed",
+            "summary": {
+                "scanned": 0,
+                "findings_total": 1,
+                "high": 1,
+                "medium": 0,
+                "low": 0,
+            },
+            "findings": [
+            {
+                "severity": "high",
+                "code": "DIAGNOSTIC_JOB_FAILED",
+                "entity_ref": payload.check_type,
+                "message": f"Diagnostic failed: {exc.__class__.__name__}",
+                "recommended_action": "Check server logs and retry",
+            }
+            ],
+        }
 
 
 @app.post("/admin/ui/test-accounts/delete-all")

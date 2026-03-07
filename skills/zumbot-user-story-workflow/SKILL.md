@@ -81,6 +81,64 @@ Never introduce duplicate schema definitions.
 
 ---
 
+### Database Schema Source of Truth
+
+Rule:
+
+SQL migrations are the **only source of truth** for database schema and database-level defaults.
+
+ORM models must only describe the mapping layer and must NOT introduce database defaults.
+
+Allowed in SQL migrations:
+
+- DEFAULT NOW()
+- DEFAULT 0
+- DEFAULT TRUE / FALSE
+- CHECK constraints
+- indexes
+- foreign keys
+
+Forbidden in ORM models:
+
+- server_default=...
+- implicit database defaults defined via ORM
+
+Allowed in ORM:
+
+- nullable
+- type declarations
+- python-side default=... (optional)
+- relationships
+
+Example
+
+Correct:
+
+SQL migration:
+
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    error_count INTEGER NOT NULL DEFAULT 0
+
+ORM model:
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+Incorrect (forbidden):
+
+    created_at = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+Reason
+
+This prevents schema drift and ensures:
+
+- database schema is versioned via migrations
+- ORM remains a pure mapping layer
+- CI rules remain stable
+- Codex does not introduce forbidden schema defaults
+
+---
+
 ### Source of truth rules
 
 Avoid duplicate sources of truth.
