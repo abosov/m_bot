@@ -77,21 +77,6 @@ ORM models must follow migrations and **must not define DB defaults via `server_
 
 Python-side `default=...` is allowed only for application behavior and **must not replace migration-defined DB defaults**.
 
-Forbidden ORM patterns (must not be generated):
-- `server_default="0"`
-- `server_default="false"`
-- `server_default=func.now()`
-
-Required approach:
-- define DB defaults in SQL migration files;
-- keep ORM models free of `server_default`.
-
-Common mistake:
-- Adding `server_default` in `database.py` after creating a migration default.
-
-Correct approach:
-- Put/adjust default in SQL migration and leave ORM without `server_default`.
-
 Never introduce duplicate schema definitions.
 
 ---
