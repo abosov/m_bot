@@ -357,7 +357,7 @@ class CalendarSyncState(Base):
     last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_enqueued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -415,7 +415,7 @@ class SpecialistWorkingHours(Base):
     weekday: Mapped[int] = mapped_column(Integer, nullable=False)
     start_time: Mapped[time] = mapped_column(Time, nullable=False)
     end_time: Mapped[time] = mapped_column(Time, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -550,7 +550,7 @@ class AppointmentCalendarLink(Base):
     event_etag: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     event_updated: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -753,11 +753,11 @@ class AdminBulkCleanupJob(Base):
     )
 
     job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
-    total_specialists: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    processed_specialists: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    total_specialists: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    processed_specialists: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 # --- Dependency Helper ---
