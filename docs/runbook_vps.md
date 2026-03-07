@@ -214,7 +214,7 @@ P0/MUST: для production запрещён релиз, если `webhook_secret
 - `Smoke: /readyz` → HTTP 200;
 - `Smoke: service journal scan` → за последние 5 минут нет `priority=err` и `Traceback`;
 - `Smoke: webhook log masking` → в nginx access log есть только маскированный путь `/tg/webhook/<bot_id>/***`, а сырой `/tg/webhook/<bot_id>/<secret>` отсутствует;
-- `Smoke: master bot getMe` → `ok=true`;
+- `Smoke: master bot getMe` → `ok=true` (IPv4-safe проверка: на VPS с нерабочим IPv6 smoke не должен падать, если по IPv4 Telegram доступен);
 - опционально `Smoke: test personal bot getMe` (если задан `TEST_PERSONAL_BOT_TOKEN`).
 - smoke-check публичного specialist route: `GET /{slug}` содержит актуальный bridge-маркер `const apiBaseUrl = ...`, а `GET /api/public/specialists/{slug}` отвечает 200 для опубликованного slug.
 
@@ -239,9 +239,9 @@ if sudo grep -F -- "/tg/webhook/${TEST_PERSONAL_BOT_ID}/${TEST_PERSONAL_WEBHOOK_
   exit 1
 fi
 
-# 5) master-bot getMe (токен из /etc/zumbot/backend.env)
+# 5) master-bot getMe (токен из /etc/zumbot/backend.env, IPv4-safe)
 source /etc/zumbot/backend.env
-curl -fsS --max-time 8 "https://api.telegram.org/bot${MASTER_BOT_TOKEN}/getMe"
+curl -4 -fsS --max-time 8 "https://api.telegram.org/bot${MASTER_BOT_TOKEN}/getMe"
 
 # 6) public specialist bridge + API smoke (для опубликованного slug)
 slug="TsarevaE_12"  # замените на реальный опубликованный slug
@@ -256,7 +256,7 @@ sudo journalctl -u zumbot-backend.service --since "10 minutes ago" --no-pager   
 - `RESULT=OK` в конце лога `/tmp/zumbot_deploy_*.log`;
 - `/healthz` и `/readyz` отвечают 200;
 - в `journalctl` нет свежих ERROR/Traceback;
-- Telegram `getMe` возвращает JSON с `"ok": true`;
+- Telegram `getMe` возвращает JSON с `"ok": true` (если `curl -6` не работает, `curl -4` должен оставаться рабочим);
 - webhook path в nginx логируется только в маскированном виде (`***`), без `webhook_secret`.
 - `curl -s https://zumbot.ru/{slug} | grep "const apiBaseUrl"` показывает актуальный bridge-маркер;
 - `curl -i https://api.zumbot.ru/api/public/specialists/{slug}` возвращает HTTP 200 для опубликованного slug;

@@ -151,6 +151,10 @@
   display: none;
 }
 
+.specialist-subnav__item {
+  display: flex;
+}
+
 .specialist-subnav__link {
   text-decoration: none;
   color: #334155;
