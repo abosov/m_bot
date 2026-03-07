@@ -36,15 +36,21 @@ All future Codex prompts and resulting changes must follow this document.
 ## Database Rules
 1. **SQL migrations are the single source of truth for schema**.
 2. ORM models must mirror schema but must not redefine DB defaults inconsistently.
-3. **ORM must not introduce `server_default` if it already exists in SQL migrations**.
-4. Production schema creation/updates must run via migrations only.
-5. **Production schema must never depend on `metadata.create_all`**.
-6. Any schema change requires:
+3. **ORM models must not define database-level defaults via `server_default`**.
+4. **DB defaults must be defined only in SQL migrations** (single source of truth).
+5. Python-side `default=...` may be used for application behavior but must not replace migration-defined DB defaults.
+6. Production schema creation/updates must run via migrations only.
+7. **Production schema must never depend on `metadata.create_all`**.
+8. Any schema change requires:
    - forward migration,
    - rollback strategy,
    - documentation update.
 
 ---
+
+### Common mistake vs correct approach (DB defaults)
+- Common mistake (forbidden): add `server_default="0"` / `server_default="false"` / `server_default=func.now()` in ORM models.
+- Correct approach (required): define DB defaults in SQL migrations and keep ORM models free of `server_default`.
 
 ## Atomic Prompt Format
 Every Codex prompt must use the following structure:
@@ -100,6 +106,7 @@ Stop and revise the prompt/change if any of the following appears:
 - Missing constraints or allowed-file list.
 - Changes require schema evolution but no migration plan is provided.
 - ORM and SQL migration defaults diverge.
+- Any `server_default` is introduced in ORM models.
 - Production workflow relies on `metadata.create_all`.
 - Documentation is skipped for behavior or process changes.
 - Security-sensitive data appears in docs, code, logs, or examples.

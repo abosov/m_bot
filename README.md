@@ -74,7 +74,9 @@ All Codex prompts must follow the rules defined in:
 `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
 
 Key principles:
-- SQL migrations are the single source of truth for database schema
+- SQL migrations are the single source of truth for database schema and DB defaults
+- ORM models must not define DB defaults via `server_default`
+- Python `default=...` is app-level behavior only and must not replace DB migration defaults
 - One prompt = one atomic change
 - Role-based development workflow
 - Mandatory documentation updates
