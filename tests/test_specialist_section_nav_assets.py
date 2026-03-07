@@ -10,7 +10,8 @@ def test_section_nav_component_has_accessible_wrapper_and_geometry_based_active_
     assert 'id="specialist-section-nav"' in nav
     assert 'aria-label="Навигация по разделам специалиста"' in nav
     assert "IntersectionObserver" in nav
-    assert "getBoundingClientRect" in nav
+    assert "resolveActiveSectionId" in nav
+    assert "section.getBoundingClientRect().top + window.scrollY" in nav
     assert "specialist-subnav__link--active" in nav
     assert "window.addEventListener(\"scroll\", scheduleUpdate, { passive: true })" in nav
 

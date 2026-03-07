@@ -1,4 +1,5 @@
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { resolveActiveSectionId } from "./sectionNavActiveResolver";
 
 type SectionNavItem = {
   id: string;
@@ -27,47 +28,6 @@ export function SectionNav({ items }: SectionNavProps) {
     return headerHeight + sectionNavHeight + 16;
   };
 
-  const resolveActiveSection = (sections: HTMLElement[]) => {
-    if (!sections.length) {
-      return null;
-    }
-
-    const stickyOffset = getStickyOffset();
-    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-    const docHeight = document.documentElement.scrollHeight;
-    const isNearPageBottom = window.scrollY + viewportHeight >= docHeight - 2;
-
-    if (isNearPageBottom) {
-      return sections[sections.length - 1]?.id ?? null;
-    }
-
-    const anchorY = Math.min(Math.max(stickyOffset + 8, 0), viewportHeight * 0.75);
-    let containingId: string | null = null;
-    let nearestAboveId: string | null = null;
-    let nearestAboveTop = Number.NEGATIVE_INFINITY;
-    let nearestBelowId: string | null = null;
-    let nearestBelowTop = Number.POSITIVE_INFINITY;
-
-    sections.forEach((section) => {
-      const rect = section.getBoundingClientRect();
-
-      if (rect.top <= anchorY && rect.bottom > anchorY) {
-        containingId = section.id;
-      }
-
-      if (rect.top <= anchorY && rect.top > nearestAboveTop) {
-        nearestAboveTop = rect.top;
-        nearestAboveId = section.id;
-      }
-
-      if (rect.top > anchorY && rect.top < nearestBelowTop) {
-        nearestBelowTop = rect.top;
-        nearestBelowId = section.id;
-      }
-    });
-
-    return containingId ?? nearestAboveId ?? nearestBelowId ?? sections[0]?.id ?? null;
-  };
 
 
   const navItems = useMemo(() => items.filter((item) => Boolean(item.id && item.label)), [items]);
@@ -92,7 +52,17 @@ export function SectionNav({ items }: SectionNavProps) {
     let animationFrameId: number | null = null;
 
     const updateActiveSection = () => {
-      const nextId = resolveActiveSection(sections);
+      const sectionGeometries = sections.map((section) => ({
+        id: section.id,
+        top: section.getBoundingClientRect().top + window.scrollY,
+      }));
+
+      const nextId = resolveActiveSectionId(sectionGeometries, {
+        scrollY: window.scrollY,
+        viewportHeight: window.innerHeight || document.documentElement.clientHeight,
+        documentHeight: document.documentElement.scrollHeight,
+        stickyOffset: getStickyOffset(),
+      });
       if (nextId) {
         setActiveId((prevId) => (prevId === nextId ? prevId : nextId));
       }
@@ -111,7 +81,7 @@ export function SectionNav({ items }: SectionNavProps) {
 
     const observer = new IntersectionObserver(scheduleUpdate, {
       root: null,
-      rootMargin: "-20% 0px -70% 0px",
+      rootMargin: "-10% 0px -40% 0px",
       threshold: [0, 0.1, 0.25, 0.5, 0.75, 1],
     });
 
