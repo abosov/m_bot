@@ -17,15 +17,17 @@ export function SectionNav({ items }: SectionNavProps) {
   const getStickyOffset = () => {
     const rootStyles = window.getComputedStyle(document.documentElement);
     const cssOffset = Number.parseFloat(rootStyles.getPropertyValue("--specialist-sticky-offset"));
-    if (Number.isFinite(cssOffset) && cssOffset > 0) {
-      return cssOffset;
-    }
-
     const stickyHeader = document.getElementById("specialist-sticky-header");
     const sectionNav = document.getElementById("specialist-section-nav");
     const headerHeight = stickyHeader?.getBoundingClientRect().height ?? 72;
     const sectionNavHeight = sectionNav?.getBoundingClientRect().height ?? 0;
-    return headerHeight + sectionNavHeight + 16;
+    const measuredOffset = headerHeight + sectionNavHeight + 16;
+
+    if (Number.isFinite(cssOffset) && cssOffset > 0) {
+      return Math.max(cssOffset, measuredOffset);
+    }
+
+    return measuredOffset;
   };
 
 
@@ -55,6 +57,8 @@ export function SectionNav({ items }: SectionNavProps) {
       const sectionGeometries = sections.map((section) => ({
         id: section.id,
         top: section.getBoundingClientRect().top + window.scrollY,
+        bottom: section.getBoundingClientRect().bottom + window.scrollY,
+        height: section.getBoundingClientRect().height,
       }));
 
       const nextId = resolveActiveSectionId(sectionGeometries, {

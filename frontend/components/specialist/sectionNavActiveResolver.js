@@ -1,5 +1,5 @@
 /**
- * @typedef {{ id: string; top: number }} SectionGeometry
+ * @typedef {{ id: string; top: number; bottom?: number; height?: number }} SectionGeometry
  */
 
 /**
@@ -7,7 +7,7 @@
  * The section list must be in visual order.
  *
  * @param {SectionGeometry[]} sections
- * @param {{ scrollY: number; viewportHeight: number; documentHeight: number; stickyOffset: number; bottomThreshold?: number }} options
+ * @param {{ scrollY: number; viewportHeight: number; documentHeight: number; stickyOffset: number; bottomThreshold?: number; switchThreshold?: number; viewportBottomInset?: number }} options
  * @returns {string | null}
  */
 export function resolveActiveSectionId(sections, options) {
@@ -16,28 +16,57 @@ export function resolveActiveSectionId(sections, options) {
   }
 
   const bottomThreshold = options.bottomThreshold ?? 24;
-  const switchThreshold = options.switchThreshold ?? 8;
+  const switchThreshold = Math.max(options.switchThreshold ?? 8, 0);
   const reachedBottom = options.scrollY + options.viewportHeight >= options.documentHeight - bottomThreshold;
   if (reachedBottom) {
     return sections[sections.length - 1].id;
   }
 
-  const probeY = options.scrollY + Math.max(options.stickyOffset, 0) + 12;
-  const activationY = probeY - Math.max(switchThreshold, 0);
+  const normalizedSections = sections.map((section, index) => {
+    const nextTop = sections[index + 1]?.top;
+    const fallbackBottom = Number.isFinite(nextTop) ? nextTop : section.top + Math.max(section.height ?? 1, 1);
+    const rawBottom = section.bottom;
+    const bottom = Number.isFinite(rawBottom) && rawBottom > section.top ? rawBottom : Math.max(fallbackBottom, section.top + 1);
 
-  if (activationY <= sections[0].top) {
-    return sections[0].id;
+    return {
+      id: section.id,
+      top: section.top,
+      bottom,
+    };
+  });
+
+  const viewportBottomInset = Math.max(options.viewportBottomInset ?? 24, 0);
+  const stickyOffset = Math.max(options.stickyOffset, 0);
+  const viewportTop = options.scrollY + stickyOffset + 12 - switchThreshold;
+  const viewportBottom = options.scrollY + Math.max(options.viewportHeight - viewportBottomInset, 0);
+
+  if (viewportTop <= normalizedSections[0].top) {
+    return normalizedSections[0].id;
   }
 
-  let activeId = sections[0].id;
-  for (let index = 1; index < sections.length; index += 1) {
-    const current = sections[index];
-    if (current.top <= activationY) {
-      activeId = current.id;
-      continue;
+  const lastSection = normalizedSections[normalizedSections.length - 1];
+  const lastVisibleOverlap = Math.min(lastSection.bottom, viewportBottom) - Math.max(lastSection.top, viewportTop);
+  const lastActivationOverlap = Math.max(Math.min(lastSection.bottom - lastSection.top, 48), 1);
+  if (lastVisibleOverlap >= lastActivationOverlap) {
+    return lastSection.id;
+  }
+
+  let activeId = normalizedSections[0].id;
+  let bestOverlap = -1;
+
+  for (const section of normalizedSections) {
+    if (viewportTop >= section.top) {
+      activeId = section.id;
     }
 
-    break;
+    const overlapStart = Math.max(section.top, viewportTop);
+    const overlapEnd = Math.min(section.bottom, viewportBottom);
+    const overlap = Math.max(0, overlapEnd - overlapStart);
+
+    if (overlap > 0 && overlap >= bestOverlap) {
+      bestOverlap = overlap;
+      activeId = section.id;
+    }
   }
 
   return activeId;
