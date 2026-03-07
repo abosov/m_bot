@@ -4,51 +4,32 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 from typing import Iterator
 
-EXCLUDED_DIRS = {
+TEXT_EXTENSIONS = {
+    ".py",
+    ".sql",
+    ".md",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".env",
+    ".txt",
+}
+
+IGNORE_DIRS = {
+    "specialist",
+    "media",
+    "static",
     ".git",
     ".venv",
-    "venv",
     "__pycache__",
-    ".mypy_cache",
-    ".pytest_cache",
-    "node_modules",
-    "dist",
-    "build",
-    ".idea",
-    ".vscode",
 }
 
 EXCLUDED_FILENAMES = {
     ".DS_Store",
-}
-
-EXCLUDED_EXTENSIONS = {
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".webp",
-    ".pdf",
-    ".zip",
-    ".7z",
-    ".tar",
-    ".gz",
-    ".bz2",
-    ".xz",
-    ".mp3",
-    ".mp4",
-    ".mov",
-    ".avi",
-    ".woff",
-    ".woff2",
-    ".ttf",
-    ".eot",
-    ".ico",
 }
 
 MOJIBAKE_PATTERNS = (
@@ -74,25 +55,20 @@ def iter_files(repo_root: Path, requested_paths: list[str] | None = None) -> Ite
     seen: set[Path] = set()
     for root in roots:
         if root.is_file():
-            if should_skip_file(root):
-                continue
             resolved = root.resolve()
             if resolved not in seen:
                 seen.add(resolved)
                 yield root
             continue
 
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS]
-            for filename in filenames:
-                path = Path(dirpath) / filename
-                if should_skip_file(path):
-                    continue
-                resolved = path.resolve()
-                if resolved in seen:
-                    continue
-                seen.add(resolved)
-                yield path
+        for path in root.rglob("*"):
+            if not path.is_file() or path.name in EXCLUDED_FILENAMES:
+                continue
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            yield path
 
 
 def resolve_requested_path(repo_root: Path, raw_path: str) -> Path:
@@ -104,11 +80,14 @@ def resolve_requested_path(repo_root: Path, raw_path: str) -> Path:
 
 
 def should_skip_file(path: Path) -> bool:
-    if any(part in EXCLUDED_DIRS for part in path.parts):
+    if any(part in IGNORE_DIRS for part in path.parts):
         return True
     if path.name in EXCLUDED_FILENAMES:
         return True
-    return path.suffix.lower() in EXCLUDED_EXTENSIONS
+    suffix = path.suffix.lower()
+    if path.name == ".env":
+        return False
+    return suffix not in TEXT_EXTENSIONS
 
 
 def rel_path(path: Path, repo_root: Path) -> str:
@@ -171,10 +150,14 @@ def scan_file(path: Path, repo_root: Path) -> tuple[list[str], list[str]]:
 
 def run_scan(repo_root: Path, paths: list[str] | None, strict_warn: bool) -> int:
     total_files = 0
+    skipped_files = 0
     all_fails: list[str] = []
     all_warns: list[str] = []
 
     for file_path in iter_files(repo_root=repo_root, requested_paths=paths):
+        if should_skip_file(file_path):
+            skipped_files += 1
+            continue
         total_files += 1
         fails, warns = scan_file(file_path, repo_root=repo_root)
         all_fails.extend(fails)
@@ -186,7 +169,7 @@ def run_scan(repo_root: Path, paths: list[str] | None, strict_warn: bool) -> int
         print(warn)
 
     print(
-        f"SUMMARY scanned={total_files} fail={len(all_fails)} warn={len(all_warns)} strict_warn={strict_warn}"
+        f"SUMMARY scanned={total_files} skipped={skipped_files} fail={len(all_fails)} warn={len(all_warns)} strict_warn={strict_warn}"
     )
 
     if all_fails:
