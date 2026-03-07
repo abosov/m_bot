@@ -46,6 +46,7 @@ from database import (
     CalendarSyncState,
     ServiceHeartbeat,
     AdminAuditLog,
+    AdminBulkCleanupJob,
     TelegramBot,
     TelegramBotStatus,
 )
@@ -576,6 +577,11 @@ ADMIN_UI_COOKIE_NAME = "admin_session"
 ADMIN_UI_CSRF_COOKIE_NAME = "admin_csrf"
 ADMIN_UI_CSRF_HEADER_NAME = "X-CSRF-Token"
 ADMIN_UI_SESSION_TTL_HOURS = config.ADMIN_SESSION_TTL_HOURS
+BULK_DELETE_TEST_ACCOUNTS_CONFIRMATION_PHRASE = "DELETE ALL TEST ACCOUNTS"
+
+
+class AdminBulkDeleteAllRequest(BaseModel):
+    confirmation_phrase: str
 
 
 def _admin_ui_enabled() -> bool:
@@ -740,6 +746,90 @@ async def admin_ui_specialists(
     )
 
 
+
+
+@app.get("/admin/ui/test-accounts/preflight-delete")
+async def admin_ui_test_accounts_preflight_delete(request: Request):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    accept_header = request.headers.get("accept", "")
+    if "text/html" in accept_header:
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    test_specialist_filter = (
+        Specialist.is_test.is_(True),
+        Specialist.is_system.is_(False),
+    )
+
+    async with async_session_factory() as session:
+        test_specialists = int(
+            (await session.execute(select(func.count()).select_from(Specialist).where(*test_specialist_filter))).scalar_one()
+        )
+
+        clients = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(Client)
+                    .join(Specialist, Specialist.specialist_id == Client.specialist_id)
+                    .where(*test_specialist_filter)
+                )
+            ).scalar_one()
+        )
+
+        appointments = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(Appointment)
+                    .join(Specialist, Specialist.specialist_id == Appointment.specialist_id)
+                    .where(*test_specialist_filter)
+                )
+            ).scalar_one()
+        )
+
+    return {
+        "test_specialists": test_specialists,
+        "clients": clients,
+        "appointments": appointments,
+    }
+
+
+@app.post("/admin/ui/test-accounts/delete-all")
+async def admin_ui_test_accounts_delete_all(
+    payload: AdminBulkDeleteAllRequest,
+    request: Request,
+):
+    if not _admin_ui_enabled():
+        _raise_not_found()
+
+    cookie_value = request.cookies.get(ADMIN_UI_COOKIE_NAME, "")
+    if not admin_ui_session.verify_admin_session_cookie(cookie_value):
+        _raise_not_found()
+
+    if payload.confirmation_phrase != BULK_DELETE_TEST_ACCOUNTS_CONFIRMATION_PHRASE:
+        raise HTTPException(status_code=400, detail="INVALID_CONFIRMATION_PHRASE")
+
+    async with async_session_factory() as session:
+        job = AdminBulkCleanupJob(
+            status="pending",
+            total_specialists=0,
+            processed_specialists=0,
+            error_count=0,
+        )
+        session.add(job)
+        await session.commit()
+        await session.refresh(job)
+
+    return {
+        "job_id": str(job.job_id),
+        "status": job.status,
+    }
 
 
 @app.get("/admin/ui/specialists/{specialist_id}")

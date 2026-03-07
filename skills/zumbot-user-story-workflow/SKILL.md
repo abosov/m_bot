@@ -1,6 +1,6 @@
 ---
 name: zumbot-user-story-workflow
-description: Standard development workflow for Zumbot features, admin console tasks, architectural specifications, and atomic Codex prompts.
+description: Mandatory workflow for all Zumbot engineering tasks, including backend implementation, architectural/user-story/admin-console work, database and migration rules, QA verification design, behavior-impacting documentation updates, infrastructure/deployment rules, and architecture/data-model-impacting refactoring.
 ---
 
 # Zumbot Development Skill
@@ -69,9 +69,13 @@ The architect must explicitly state:
 
 Database schema **must only change via SQL migrations**.
 
-SQL migrations are the **single source of truth** for the database schema.
+SQL migrations are the **single source of truth** for the database schema **and database-level defaults**.
 
-ORM models must follow the migration, not define the schema independently.
+All database defaults must be defined through SQL migrations.
+
+ORM models must follow migrations and **must not define DB defaults via `server_default`**.
+
+Python-side `default=...` is allowed only for application behavior and **must not replace migration-defined DB defaults**.
 
 Never introduce duplicate schema definitions.
 

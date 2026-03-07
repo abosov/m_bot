@@ -1459,6 +1459,251 @@ async def test_admin_ui_specialist_detail_logs_access_event(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_admin_ui_test_accounts_preflight_delete_returns_aggregate_counts(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    test_specialist_a = uuid.uuid4()
+    test_specialist_b = uuid.uuid4()
+    non_test_specialist = uuid.uuid4()
+    system_specialist = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    async with database.async_session_factory() as session:
+        session.add_all(
+            [
+                database.Specialist(
+                    specialist_id=test_specialist_a,
+                    status=database.SpecialistStatus.active,
+                    is_test=True,
+                    is_system=False,
+                ),
+                database.Specialist(
+                    specialist_id=test_specialist_b,
+                    status=database.SpecialistStatus.active,
+                    is_test=True,
+                    is_system=False,
+                ),
+                database.Specialist(
+                    specialist_id=non_test_specialist,
+                    status=database.SpecialistStatus.active,
+                    is_test=False,
+                    is_system=False,
+                ),
+                database.Specialist(
+                    specialist_id=system_specialist,
+                    status=database.SpecialistStatus.active,
+                    is_test=False,
+                    is_system=True,
+                ),
+            ]
+        )
+
+        test_client_1 = database.Client(
+            specialist_id=test_specialist_a,
+            tg_user_id=4101,
+            client_code="TC001",
+            client_timezone="UTC",
+            timezone_source=database.ClientTimezoneSource.default_from_specialist,
+        )
+        test_client_2 = database.Client(
+            specialist_id=test_specialist_b,
+            tg_user_id=4102,
+            client_code="TC002",
+            client_timezone="UTC",
+            timezone_source=database.ClientTimezoneSource.default_from_specialist,
+        )
+        non_test_client = database.Client(
+            specialist_id=non_test_specialist,
+            tg_user_id=5101,
+            client_code="NC001",
+            client_timezone="UTC",
+            timezone_source=database.ClientTimezoneSource.default_from_specialist,
+        )
+
+        session.add_all([test_client_1, test_client_2, non_test_client])
+        await session.flush()
+
+        session.add_all(
+            [
+                database.Appointment(
+                    specialist_id=test_specialist_a,
+                    client_id=test_client_1.client_id,
+                    start_at_utc=now,
+                    end_at_utc=now + timedelta(minutes=30),
+                    booking_state=database.BookingState.pending,
+                    idempotency_key="bulk-pref-test-1",
+                ),
+                database.Appointment(
+                    specialist_id=test_specialist_b,
+                    client_id=test_client_2.client_id,
+                    start_at_utc=now + timedelta(hours=1),
+                    end_at_utc=now + timedelta(hours=1, minutes=30),
+                    booking_state=database.BookingState.pending,
+                    idempotency_key="bulk-pref-test-2",
+                ),
+                database.Appointment(
+                    specialist_id=non_test_specialist,
+                    client_id=non_test_client.client_id,
+                    start_at_utc=now + timedelta(hours=2),
+                    end_at_utc=now + timedelta(hours=2, minutes=30),
+                    booking_state=database.BookingState.pending,
+                    idempotency_key="bulk-pref-non-test",
+                ),
+            ]
+        )
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        "/admin/ui/test-accounts/preflight-delete",
+        cookies={"admin_session": session_cookie},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "test_specialists": 2,
+        "clients": 2,
+        "appointments": 2,
+    }
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_test_accounts_preflight_delete_requires_cookie(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    client = TestClient(app)
+    response = client.get("/admin/ui/test-accounts/preflight-delete")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_test_accounts_preflight_delete_rejects_html_accept(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(
+        "/admin/ui/test-accounts/preflight-delete",
+        cookies={"admin_session": session_cookie},
+        headers={"accept": "text/html"},
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_test_accounts_delete_all_creates_pending_job(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        "/admin/ui/test-accounts/delete-all",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        headers={"X-CSRF-Token": csrf_cookie},
+        json={"confirmation_phrase": "DELETE ALL TEST ACCOUNTS"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "pending"
+    uuid.UUID(payload["job_id"])
+
+    async with database.async_session_factory() as session:
+        job = await session.get(database.AdminBulkCleanupJob, uuid.UUID(payload["job_id"]))
+
+    assert job is not None
+    assert job.status == "pending"
+    assert int(job.total_specialists) == 0
+    assert int(job.processed_specialists) == 0
+    assert int(job.error_count) == 0
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_test_accounts_delete_all_requires_csrf(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        "/admin/ui/test-accounts/delete-all",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        json={"confirmation_phrase": "DELETE ALL TEST ACCOUNTS"},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "CSRF validation failed"}
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_test_accounts_delete_all_requires_confirmation_phrase(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+    csrf_cookie = login_response.cookies.get("admin_csrf")
+
+    response = client.post(
+        "/admin/ui/test-accounts/delete-all",
+        cookies={"admin_session": session_cookie, "admin_csrf": csrf_cookie},
+        headers={"X-CSRF-Token": csrf_cookie},
+        json={"confirmation_phrase": "DELETE EVERYTHING"},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "INVALID_CONFIRMATION_PHRASE"}
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_test_accounts_delete_all_requires_cookie(tmp_path, monkeypatch):
+    app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    client = TestClient(app)
+    response = client.post(
+        "/admin/ui/test-accounts/delete-all",
+        json={"confirmation_phrase": "DELETE ALL TEST ACCOUNTS"},
+        headers={"X-CSRF-Token": "any"},
+        cookies={"admin_csrf": "any"},
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_admin_ui_delete_test_specialist_preflight_returns_counts(tmp_path, monkeypatch):
     app, database = load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
 
