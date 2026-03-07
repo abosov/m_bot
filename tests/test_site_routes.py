@@ -192,13 +192,13 @@ def test_public_slug_route_hero_places_photo_left_and_quote_right():
     assert "quoteEl.classList.add('specialist-hidden');" in response.text
 
 
-def test_public_slug_route_reviews_rendering_uses_blocks_not_reviews_array():
+def test_public_slug_route_reviews_rendering_uses_reviews_array_payload_source():
     response = client.get("/TsarevaE_12")
 
     assert response.status_code == 200
     assert "const reviewsBlock = Array.isArray(blocks)" in response.text
-    assert "renderReviews(blocksSource);" in response.text
-    assert "renderReviews(payload?.reviews);" not in response.text
+    assert "renderReviews(payload && Array.isArray(payload.reviews) ? payload.reviews : []);" in response.text
+    assert "renderReviews(blocksSource);" not in response.text
 
 
 def test_public_slug_route_documents_rendering_uses_document_media_only():
