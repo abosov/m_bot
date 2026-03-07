@@ -9,9 +9,10 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import config
+from services.redaction import redact_text
 
 SECRET_KEY_PATTERN = re.compile(
-    r"(token|secret|password|passwd|authorization|api[_-]?key|webhook)",
+    r"(token|secret|password|passwd|authorization|api[_-]?key|webhook|admin_session)",
     re.IGNORECASE,
 )
 
@@ -39,8 +40,13 @@ class SafeLogFilter(logging.Filter):
             record.args = ()
             return True
 
+        message = redact_text(message)
+
         if len(message) > self.max_len:
             record.msg = f"{message[: self.max_len]}... [TRUNCATED]"
+            record.args = ()
+        else:
+            record.msg = message
             record.args = ()
 
         return True
@@ -51,10 +57,10 @@ def _sanitize_value(key: str | None, value: object, max_len: int) -> object:
     if key_name and SECRET_KEY_PATTERN.search(key_name):
         return "[REDACTED]"
 
-    as_text = str(value)
+    as_text = redact_text(str(value))
     if len(as_text) > max_len:
         return f"{as_text[:max_len]}... [TRUNCATED]"
-    return value
+    return as_text
 
 
 class KVFormatter(logging.Formatter):
