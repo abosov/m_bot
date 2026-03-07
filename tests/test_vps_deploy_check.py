@@ -48,3 +48,12 @@ def test_deploy_contains_webhook_log_masking_smoke_check() -> None:
     assert "TEST_PERSONAL_WEBHOOK_SECRET is required for webhook log masking smoke-check" in content
     assert "webhook masking marker not found in nginx access log" in content
     assert "raw webhook path detected in nginx access log" in content
+
+
+def test_telegram_smoke_checks_are_ipv4_safe_and_reuse_helper() -> None:
+    content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert 'curl -4 -sS --connect-timeout 3 --max-time 8 "https://api.telegram.org/bot${token}/getMe"' in content
+    assert 'run_step "Smoke: master bot getMe" check_telegram_getme "master bot" "${MASTER_BOT_TOKEN}"' in content
+    assert 'run_step "Smoke: test personal bot getMe" check_telegram_getme "test personal bot" "${TEST_PERSONAL_BOT_TOKEN}"' in content
+    assert 'urllib.request' not in content
