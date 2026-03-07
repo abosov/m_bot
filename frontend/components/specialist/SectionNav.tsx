@@ -162,17 +162,18 @@ export function SectionNav({ items }: SectionNavProps) {
             const isActive = activeId === item.id;
 
             return (
-              <a
-                key={item.id}
-                href={`#${item.id}`}
-                data-section-id={item.id}
-                className={`specialist-subnav__link${isActive ? " specialist-subnav__link--active" : ""}`}
-                onClick={(event) => handleNavigate(event, item.id)}
-                aria-current={isActive ? "true" : undefined}
-                role="tab"
-              >
-                {item.label}
-              </a>
+              <div key={item.id} className="specialist-subnav__item" role="presentation">
+                <a
+                  href={`#${item.id}`}
+                  data-section-id={item.id}
+                  className={`specialist-subnav__link${isActive ? " specialist-subnav__link--active" : ""}`}
+                  onClick={(event) => handleNavigate(event, item.id)}
+                  aria-current={isActive ? "true" : undefined}
+                  role="tab"
+                >
+                  {item.label}
+                </a>
+              </div>
             );
           })}
         </div>
