@@ -34,6 +34,20 @@ export function SectionNav({ items }: SectionNavProps) {
 
   const navItems = useMemo(() => items.filter((item) => Boolean(item.id && item.label)), [items]);
 
+  const resolveTrackingTarget = (section: HTMLElement) => {
+    const sectionCard = section.querySelector<HTMLElement>(".section-card");
+    if (sectionCard) {
+      return sectionCard;
+    }
+
+    const sectionTitle = section.querySelector<HTMLElement>("h2.section-title");
+    if (sectionTitle) {
+      return sectionTitle;
+    }
+
+    return section;
+  };
+
   useEffect(() => {
     setActiveId(navItems[0]?.id ?? null);
   }, [navItems]);
@@ -44,8 +58,18 @@ export function SectionNav({ items }: SectionNavProps) {
     }
 
     const sections = navItems
-      .map((item) => document.getElementById(item.id))
-      .filter((section): section is HTMLElement => Boolean(section));
+      .map((item) => {
+        const section = document.getElementById(item.id);
+        if (!section) {
+          return null;
+        }
+
+        return {
+          id: item.id,
+          trackingTarget: resolveTrackingTarget(section),
+        };
+      })
+      .filter((section): section is { id: string; trackingTarget: HTMLElement } => Boolean(section));
 
     if (!sections.length) {
       return;
@@ -56,9 +80,9 @@ export function SectionNav({ items }: SectionNavProps) {
     const updateActiveSection = () => {
       const sectionGeometries = sections.map((section) => ({
         id: section.id,
-        top: section.getBoundingClientRect().top + window.scrollY,
-        bottom: section.getBoundingClientRect().bottom + window.scrollY,
-        height: section.getBoundingClientRect().height,
+        top: section.trackingTarget.getBoundingClientRect().top + window.scrollY,
+        bottom: section.trackingTarget.getBoundingClientRect().bottom + window.scrollY,
+        height: section.trackingTarget.getBoundingClientRect().height,
       }));
 
       const nextId = resolveActiveSectionId(sectionGeometries, {
@@ -89,7 +113,7 @@ export function SectionNav({ items }: SectionNavProps) {
       threshold: [0, 0.1, 0.25, 0.5, 0.75, 1],
     });
 
-    sections.forEach((section) => observer.observe(section));
+    sections.forEach((section) => observer.observe(section.trackingTarget));
     updateActiveSection();
     window.addEventListener("scroll", scheduleUpdate, { passive: true });
     window.addEventListener("resize", scheduleUpdate);
