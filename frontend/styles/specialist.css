@@ -96,6 +96,22 @@
   text-overflow: ellipsis;
 }
 
+
+.header-cta-book {
+  background: #2b7cff;
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.header-cta-book:hover {
+  opacity: 0.9;
+}
+
 .specialist-header__menu {
   display: flex;
   justify-content: center;
@@ -551,6 +567,13 @@
 .specialist-cta-card {
   background: linear-gradient(150deg, #eef2ff, #ffffff);
   text-align: left;
+}
+
+@media (max-width: 640px) {
+  .header-cta-book {
+    padding: 8px 14px;
+    font-size: 14px;
+  }
 }
 
 @media (max-width: 1199px) {

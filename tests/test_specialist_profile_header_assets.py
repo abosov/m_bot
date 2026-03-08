@@ -15,19 +15,25 @@ def test_sticky_header_css_and_runtime_offset_present():
     assert "padding-top: var(--specialist-header-height);" not in css
     assert "scroll-padding-top: var(--specialist-sticky-offset, 120px);" in css
     assert "scroll-margin-top: var(--specialist-sticky-offset, 120px);" in css
+    assert ".header-cta-book" in css
+    assert "white-space: nowrap;" in css
     assert 'className="specialist-page"' in page
+    assert "clientBotUsername={clientBotUsername}" in page
     assert 'document.getElementById("specialist-sticky-header")' in page
     assert 'document.documentElement.style.setProperty("--specialist-sticky-offset", offset);' in page
 
 
-def test_header_contains_identity_without_sticky_cta():
+def test_header_contains_identity_and_book_cta():
     header = (ROOT / "frontend/components/specialist/Header.tsx").read_text(encoding="utf-8")
 
     assert "displayName" in header
     assert "specialization" in header
     assert 'className="specialist-header__identity"' in header
-    assert "specialist-header__cta" not in header
-    assert "Записаться" not in header
+    assert "clientBotUsername" in header
+    assert "header-book-button" in header
+    assert "header-cta-book" in header
+    assert "https://t.me/${clientBotUsername}?start=book" in header
+    assert "Записаться" in header
 
 
 def test_section_nav_links_match_page_sections():
