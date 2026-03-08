@@ -1,11 +1,10 @@
 type SpecialistHeaderProps = {
   displayName: string;
   specialization: string;
-  clientBotUsername?: string;
+  bookingHref?: string;
 };
 
-export function Header({ displayName, specialization, clientBotUsername }: SpecialistHeaderProps) {
-  const headerBookLink = clientBotUsername ? `https://t.me/${clientBotUsername}?start=book` : null;
+export function Header({ displayName, specialization, bookingHref }: SpecialistHeaderProps) {
 
   return (
     <header id="specialist-sticky-header" className="specialist-header" aria-label="Specialist profile header">
@@ -14,17 +13,17 @@ export function Header({ displayName, specialization, clientBotUsername }: Speci
           <p className="specialist-header__display-name">{displayName}</p>
           <p className="specialist-header__specialization">{specialization}</p>
         </div>
-        {headerBookLink ? (
+        <div className="specialist-header__actions">
           <a
-            id="header-book-button"
-            className="header-cta-book"
-            href={headerBookLink}
+            id="specialist-header-book-link"
+            className={`specialist-button specialist-button--primary specialist-header__book-button${bookingHref ? '' : ' specialist-hidden'}`}
+            href={bookingHref || '#'}
             target="_blank"
-            rel="noopener"
+            rel="noopener noreferrer"
           >
             Записаться
           </a>
-        ) : null}
+        </div>
       </div>
     </header>
   );
