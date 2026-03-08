@@ -204,6 +204,10 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
   const heroContacts = mapProfileToHeroContacts(payload?.profile);
   const clientBotUsername = payload?.profile.client_bot_username;
   const specialistUuid = payload?.profile.id;
+  const bookingHref =
+    clientBotUsername && specialistUuid
+      ? `https://t.me/${encodeURIComponent(clientBotUsername)}?start=book_${encodeURIComponent(specialistUuid)}`
+      : undefined;
 
   const navItems = [
     hasBlockContent(payload?.blocks, "about") ? { id: "about", label: "О себе" } : null,
@@ -222,7 +226,7 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
       <Header
         displayName={displayName}
         specialization={specialization}
-        clientBotUsername={clientBotUsername}
+        bookingHref={bookingHref}
       />
       <Hero
         displayName={displayName}

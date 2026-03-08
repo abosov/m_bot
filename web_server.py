@@ -3559,6 +3559,17 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             <p id="public-specialist-display-name" class="specialist-header__display-name"></p>
             <p id="public-specialist-specialization" class="specialist-header__specialization"></p>
           </div>
+          <div class="specialist-header__actions">
+            <a
+              id="specialist-header-book-link"
+              class="specialist-button specialist-button--primary specialist-header__book-button specialist-hidden"
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Записаться
+            </a>
+          </div>
         </div>
       </header>
 
@@ -3629,6 +3640,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
         const heroPhotoImageEl = document.getElementById('public-specialist-hero-photo-image');
         const heroPhotoFallbackEl = document.getElementById('public-specialist-hero-photo-fallback');
         const bookingCtaLinkEl = document.getElementById('specialist-booking-cta-link');
+        const headerBookLinkEl = document.getElementById('specialist-header-book-link');
         const contactLinkEl = document.getElementById('specialist-contact-link');
         const contactsEl = document.getElementById('specialist-contacts');
         const aboutEl = document.getElementById('specialist-about-content');
@@ -4239,6 +4251,17 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
                 contactLinkEl.href = contactHref;
                 contactLinkEl.target = '_blank';
                 contactLinkEl.rel = 'noopener noreferrer';
+              }
+            }
+
+            if (headerBookLinkEl) {
+              if (bookingHref) {
+                headerBookLinkEl.href = bookingHref;
+                headerBookLinkEl.target = '_blank';
+                headerBookLinkEl.rel = 'noopener noreferrer';
+                headerBookLinkEl.classList.remove('specialist-hidden');
+              } else {
+                headerBookLinkEl.classList.add('specialist-hidden');
               }
             }
 

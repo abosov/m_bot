@@ -121,6 +121,7 @@ def test_public_slug_route_returns_full_public_specialist_page_markup():
     assert 'id="public-specialist-not-found"' in response.text
     assert 'id="specialist-page"' in response.text
     assert 'id="specialist-sticky-header"' in response.text
+    assert 'id="specialist-header-book-link"' in response.text
     assert 'aria-label="Навигация по разделам специалиста"' in response.text
     assert ">О себе<" in response.text
     assert ">Образование<" in response.text
