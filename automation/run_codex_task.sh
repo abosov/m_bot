@@ -122,10 +122,10 @@ run_pytest() {
   set +e
   if [[ -n "$PYTEST_TARGET" ]]; then
     info "Running pytest target: $PYTEST_TARGET"
-    pytest $PYTEST_TARGET >"$TEST_FILE" 2>&1
+    python3 -m pytest $PYTEST_TARGET >"$TEST_FILE" 2>&1
   else
     info "Running pytest"
-    pytest >"$TEST_FILE" 2>&1
+    python3 -m pytest >"$TEST_FILE" 2>&1
   fi
   local exit_code=$?
   set -e
