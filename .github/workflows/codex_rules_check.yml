@@ -2,6 +2,12 @@ name: Codex Rules Check
 
 on:
   pull_request:
+    paths:
+      - 'backend/**'
+      - 'migrations/**'
+      - 'README.md'
+      - 'docs/90_codex/**'
+      - 'database.py'
 
 jobs:
   codex-rules-check:
