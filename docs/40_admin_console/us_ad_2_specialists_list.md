@@ -81,12 +81,16 @@
 Список формируется от таблицы `specialist`; запись в `specialist_profile` опциональна и не исключает специалиста из ответа.
 Значение `public_name` вычисляется по fallback-цепочке:
 `specialist_profile.public_name -> specialist_auth_telegram.tg_username -> specialist_auth_telegram.tg_first_name -> specialist.specialist_id`.
-Поле `total` возвращает общее количество специалистов с учётом применённого фильтра `status` (без влияния `limit/offset`).
+Поле `total` возвращает общее количество специалистов с учётом применённых фильтров (`status`, `test_only`) без влияния `limit/offset`.
 
 **Endpoint (UI):** `GET /admin/ui/specialists`
-- Query params: `limit`, `offset`, `status`
+- Query params: `limit`, `offset`, `status`, `test_only`
 - Auth: cookie `admin_session` (browser login)
 - Возвращает тот же payload, что и `GET /admin/specialists`, используя ту же backend-агрегацию.
+
+Дополнительно для US-AD-10:
+- `is_test: boolean` возвращается в каждом элементе списка как явный маркер тестового специалиста.
+- Query param `test_only=1` добавляет фильтр `WHERE specialist.is_test = TRUE`.
 
 ### Data model impact
 
@@ -174,7 +178,7 @@
 
 Текущее backend-исполнение endpoint `GET /admin/specialists` реализовано в MVP-варианте со следующими параметрами и полями:
 
-- Query params: `limit`, `offset`, `status`.
+- Query params: `limit`, `offset`, `status`, `test_only`.
 - Response item fields:
   - `specialist_id`
   - `public_name`
@@ -194,3 +198,11 @@
 - **Anti-enumeration:** admin endpoint-ы не публикуются наружу; входная точка `/admin` скрывается через `404` при неуспешной авторизации; API endpoint-ы требуют `X-API-Key`.
 - **Logging:** значения API-ключей (`X-API-Key` / `ADMIN_API_KEY`) не должны попадать в логи приложения, прокси и диагностических инструментов.
 - **Future risks:** при добавлении PII-полей (например, phone/email) требуется отдельная ревизия безопасности, явное редактирование чувствительных данных и минимизация экспозиции полей в ответе.
+
+
+### US-AD-10 extension: test specialist marker
+
+- Список специалистов (`GET /admin/ui/specialists`) включает поле `is_test` без изменения остальных существующих полей ответа.
+- Детальная карточка (`GET /admin/ui/specialists/{specialist_id}`) в блоке `basic` также возвращает `is_test`.
+- Фильтр `test_only=1` применяется опционально и возвращает только записи с `is_test=true`.
+

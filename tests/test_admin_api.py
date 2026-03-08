@@ -989,7 +989,7 @@ async def test_admin_page_returns_200_with_valid_cookie(tmp_path, monkeypatch):
     assert "<th>Flags</th>" in response.text
     assert "badge-test" in response.text
     assert "badge-system" in response.text
-    assert "row-test" in response.text
+    assert "Test specialist. Used for admin test-account workflows." in response.text
     assert "<a href='#logs'>Logs</a>" in response.text
     assert "<a href='#heartbeats'>Heartbeats</a>" in response.text
     assert "<a href='#audit-log'>Audit Log</a>" in response.text
@@ -1098,6 +1098,11 @@ async def test_admin_specialist_detail_page_renders_html_with_valid_cookie(tmp_p
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "← Back to specialists" in response.text
+    assert "id='title-test-badge'" in response.text
+    assert "TEST ACCOUNT" in response.text
+    assert "Test specialist. Used for admin test-account workflows." in response.text
+    assert "id='title-system-badge'" in response.text
+    assert "SYSTEM ACCOUNT" in response.text
     assert "Loading specialist…" in response.text
     assert "Failed to load" in response.text
     assert f"const specialistId='{specialist_id}'" in response.text
@@ -1132,6 +1137,7 @@ async def _seed_specialist_detail_fixture(database):
                     status=database.SpecialistStatus.active,
                     created_at=now,
                     is_system=False,
+                    is_test=True,
                     onboarding_master_completed_at=now,
                     onboarding_personal_completed_at=now,
                 ),
@@ -1233,6 +1239,7 @@ async def test_specialist_detail_ui_endpoint_security_payload(tmp_path, monkeypa
     assert "activity" in payload
     assert payload["activity"]["clients_count"] == 2
     assert len(payload["activity"]["recent_events"]) >= 2
+    assert payload["basic"]["is_test"] is True
 
     response_text = response.text
     assert "refresh_token" not in response_text

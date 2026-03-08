@@ -154,37 +154,19 @@ This layered security prevents:
 - unauthorized admin access
 
 ### US-AD-10 — Test specialist identification
-Status: Planned
+Status: Implemented (marker + visibility)
 Doc: [US-AD-10 specification](./us_ad_10_test_specialist_marking.md)
 
-User Story:
-- As `super_admin`, I want test specialists to be explicitly marked so destructive admin operations target only test accounts.
+Implemented scope:
+- `specialist.is_test` marker in schema (single source of truth)
+- incompatibility guard for `is_system` + `is_test`
+- admin payload visibility (`GET /admin/ui/specialists`, `GET /admin/ui/specialists/{id}`)
+- `test_only=1` filter in specialists list
+- UI `TEST` marker in specialists list/detail
 
-Acceptance Criteria:
-- specialist has new field `is_test`
-- system specialist cannot be test
-- admin API returns `is_test`
-- admin UI shows `TEST` badge
-- production API cannot change `is_test`
-
-Data impact:
-- `specialist.is_test BOOLEAN NOT NULL DEFAULT FALSE`
-- `CHECK NOT (is_system AND is_test)`
-- index for filtering by test flag
-
-API impact:
-- `GET /admin/ui/specialists` returns `is_test` and `is_system`
-- supports `test_only=1` (`WHERE is_test = TRUE`)
-- backward compatible: response extended with extra fields
-
-Security impact:
-- destructive admin operations must require `is_test=true` and `is_system=false`
-- public/production API cannot mutate `is_test`
-
-Tests required:
-- migration/schema tests for `is_test` + constraint
-- API tests for `is_test` in payload and `test_only=1`
-- UI tests for `TEST` badge rendering and test-only filter behavior
+Boundary clarification:
+- US-AD-10 introduces classification/visibility/filtering only.
+- Destructive test-only guards and destructive workflows are implemented in follow-up stories (US-AD-11 / US-AD-12 / US-AD-13), not fully in US-AD-10.
 
 ### US-AD-11 — Safe deletion of one test specialist
 Status: Planned

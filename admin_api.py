@@ -320,6 +320,7 @@ async def build_admin_specialist_detail_payload(
                 Specialist.specialist_id,
                 Specialist.status,
                 Specialist.is_system,
+                Specialist.is_test,
                 Specialist.created_at,
                 Specialist.onboarding_master_completed_at,
                 Specialist.onboarding_personal_completed_at,
@@ -383,6 +384,7 @@ async def build_admin_specialist_detail_payload(
             "public_name": row.public_name or str(row.specialist_id),
             "status": row.status.value if row.status else None,
             "is_system": bool(row.is_system),
+            "is_test": bool(row.is_test),
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "tariff_plan": row.tariff_plan.value if row.tariff_plan else None,
             "telegram_username": row.tg_username,
@@ -506,7 +508,17 @@ async def admin_specialist_detail(
         return HTMLResponse(
             content=f"""<html><body>
                 <p><a href='/admin#specialists'>← Back to specialists</a></p>
-                <h1 id='title'>Specialist: ...</h1>
+                <style>
+                  .detail-title-wrap {{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }}
+                  .badge {{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; }}
+                  .badge-test {{ background:#ffedd5; color:#c2410c; border:1px solid #fdba74; }}
+                  .badge-system {{ background:#e5e7eb; color:#374151; border:1px solid #d1d5db; }}
+                </style>
+                <div class='detail-title-wrap'>
+                  <h1 id='title' style='margin:0;'>Specialist: ...</h1>
+                  <span id='title-test-badge' class='badge badge-test' title='Test specialist. Used for admin test-account workflows.' style='display:none;'>TEST ACCOUNT</span>
+                  <span id='title-system-badge' class='badge badge-system' title='System account. Protected from destructive admin operations.' style='display:none;'>SYSTEM ACCOUNT</span>
+                </div>
                 <p id='state'>Loading specialist…</p>
                 <section id='admin-actions' style='display:none; border:1px solid #ddd; padding:12px; margin:12px 0;'>
                   <h2>Admin Actions</h2>
@@ -533,6 +545,8 @@ async def admin_specialist_detail(
                 const specialistId='{specialist_id_str}';
                 const stateEl=document.getElementById('state');
                 const titleEl=document.getElementById('title');
+                const titleTestBadgeEl=document.getElementById('title-test-badge');
+                const titleSystemBadgeEl=document.getElementById('title-system-badge');
                 const basicBodyEl=document.getElementById('basic-body');
                 const integrationListEl=document.getElementById('integration-list');
                 const activityMetricsEl=document.getElementById('activity-metrics');
@@ -644,6 +658,8 @@ async def admin_specialist_detail(
                     const data=await res.json();
                     const publicName=(data.basic&&data.basic.public_name)?data.basic.public_name:specialistId;
                     titleEl.textContent='Specialist: '+publicName;
+                    titleTestBadgeEl.style.display=(data.basic&&data.basic.is_test)?'inline-block':'none';
+                    titleSystemBadgeEl.style.display=(data.basic&&data.basic.is_system)?'inline-block':'none';
                     stateEl.style.display='none';
                     addBasicRow('specialist_id',data.basic.specialist_id);
                     addBasicRow('public_name',data.basic.public_name);
