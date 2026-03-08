@@ -44,4 +44,6 @@ htmlcov/
 
 # IDE
 .vscode/
-.idea/
+.idea/automation/output/
+
+/automation/output/*
