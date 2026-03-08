@@ -1,7 +1,6 @@
 name: No placeholder paths
 
 on:
-  push:
   pull_request:
 
 jobs:
