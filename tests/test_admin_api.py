@@ -33,13 +33,25 @@ def load_app(tmp_path, monkeypatch, admin_key: str | None, admin_ui_password: st
 
     import config
     import database
+
+    importlib.reload(config)
+    database = importlib.reload(database)
+
+    import services.specialist_profile_private as specialist_profile_private_service
+    import backend.api.specialist_profile_private as specialist_profile_private_api
+    import services.admin_audit as admin_audit_service
+    import services.test_data_reset as test_data_reset_service
+
+    importlib.reload(specialist_profile_private_service)
+    importlib.reload(specialist_profile_private_api)
+    importlib.reload(admin_audit_service)
+    importlib.reload(test_data_reset_service)
+
     import admin_api
     import web_server
 
-    importlib.reload(config)
-    importlib.reload(database)
-    importlib.reload(admin_api)
-    importlib.reload(web_server)
+    admin_api = importlib.reload(admin_api)
+    web_server = importlib.reload(web_server)
     return web_server.app, database
 
 
