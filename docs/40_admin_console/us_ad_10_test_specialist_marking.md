@@ -1,14 +1,14 @@
 # US-AD-10 — Test specialist identification in Admin Console
 
-Status: Planned
+Status: Implemented (marker + visibility)
 
 ## Архитектурный анализ
 
 ### Контекст и целевое поведение
 
-US-AD-10 вводит явную классификацию тестовых специалистов на уровне основной модели специалиста. Для безопасных destructive admin-операций нужен детерминированный и быстро проверяемый признак, доступный в БД, API и UI.
+US-AD-10 вводит явную классификацию тестовых специалистов на уровне основной модели специалиста. История покрывает источник истины в БД, видимость маркера в admin API/UI и фильтрацию.
 
-Ключевой операционный сценарий: массовые/разрушительные admin-действия должны быть разрешены только для тестовых, не-системных аккаунтов.
+Ключевой операционный сценарий: маркировка и фильтрация test-аккаунтов как базовый слой для последующих admin-safe workflow.
 
 ### Архитектурные решения (фиксированные)
 
@@ -25,10 +25,7 @@ US-AD-10 вводит явную классификацию тестовых с�
    - admin workflow (приватный admin-контур);
    - миграции/скрипты сопровождения данных.
 
-4. Для destructive admin-операций вводится обязательный guard:
-
-   - `is_test = true`;
-   - `is_system = false`.
+4. Маркер `is_test` используется как входной сигнал для последующих destructive guard-правил в US-AD-11/12/13.
 
 5. Admin UI обязан явно маркировать тестовых специалистов (`TEST` badge).
 
@@ -36,7 +33,7 @@ US-AD-10 вводит явную классификацию тестовых с�
 
 - Миграция схемы добавляет колонку `specialist.is_test` с `NOT NULL DEFAULT FALSE`.
 - Миграция также добавляет `CHECK NOT (is_system AND is_test)`.
-- На существующих данных backfill не требуется, т.к. default безопасно выставляет `false`.
+- На существующих данных выполняется backfill `NULL -> FALSE` в рамках миграции.
 - Все новые записи `specialist` получают `is_test=false`, если флаг не установлен в разрешённом admin-потоке.
 
 ### Слой API
@@ -51,7 +48,7 @@ US-AD-10 вводит явную классификацию тестовых с�
 - Для system-аккаунтов попытка установить `is_test=true` должна отклоняться на двух уровнях:
   - приложение: domain validation;
   - БД: `CHECK`-constraint как защита целостности.
-- Все destructive операции должны проверять guard-условие до выполнения side effects.
+- Проверки destructive guard-условий реализуются в follow-up историях (US-AD-11/12/13).
 
 ### Слой UI (Admin Console)
 
@@ -62,7 +59,7 @@ US-AD-10 вводит явную классификацию тестовых с�
 ### Наблюдаемость и аудит
 
 - Изменения `is_test` должны попадать в audit log admin-действий (`actor`, `target_specialist_id`, old/new `is_test`, timestamp).
-- Отклонённые destructive операции из-за guard (`is_test=false` или `is_system=true`) логируются как policy denials.
+- Логирование policy denials по destructive guard относится к follow-up историям (US-AD-11/12/13).
 
 ### Какие слои можно и нельзя менять
 
@@ -174,10 +171,7 @@ Security constraints:
 - Anti-enumeration и текущая admin auth-модель не изменяются.
 - Признак `is_test` считается операционным metadata-полем и не должен использоваться для обхода авторизации.
 
-Destructive admin operations must require:
-
-- `is_test=true`
-- `is_system=false`
+Destructive guards based on this marker are specified for follow-up stories (US-AD-11/12/13).
 
 ## Tests required
 
@@ -185,7 +179,7 @@ Destructive admin operations must require:
 - Unit: попытка выставить `is_test=true` для `is_system=true` блокируется.
 - Unit: production/public handlers не принимают изменение `is_test`.
 - Integration: `GET /admin/ui/specialists` возвращает `is_test` для смешанной выборки (`normal`, `system`, `test`).
-- Integration: destructive admin-операция отклоняется для (`is_test=false` или `is_system=true`) и разрешается только при (`is_test=true` и `is_system=false`).
+- Integration (follow-up stories): destructive guard behavior is validated in US-AD-11/12/13 test sets.
 - UI test: таблица корректно отображает `TEST` badge и не ломает существующие фильтры/сортировку.
 
 ## Documentation required
@@ -197,4 +191,46 @@ Destructive admin operations must require:
 
 - Создана и согласована архитектурная секция по US-AD-10 с явным контрактом `is_test`.
 - Зафиксированы ограничения на сочетание `is_system` и `is_test`, а также на изменение `is_test` только через admin/migration.
-- Определены API/UX последствия и guardrails для destructive admin-операций.
+- Определены API/UX последствия для маркера и фильтрации; destructive guardrails зафиксированы как follow-up (US-AD-11/12/13).
+
+
+## Data model impact
+
+- Single source of truth for test specialist classification is `specialist.is_test` in the DB schema.
+- The schema contract is enforced by migration:
+  - `is_test BOOLEAN NOT NULL DEFAULT FALSE`;
+  - `CHECK (NOT (is_system = TRUE AND is_test = TRUE))` via `specialist_test_system_exclusive`;
+  - index `idx_specialist_is_test` for deterministic filtering in admin flows.
+- ORM reflects this as a non-nullable boolean field without ORM-side `server_default` as the source of truth.
+
+## Security notes
+
+- `is_test` is admin-operational metadata and must not be writable from public/production APIs.
+- `is_system=true` accounts are explicitly excluded from test classification at DB level by `specialist_test_system_exclusive`.
+- Marker semantics are consumed by follow-up destructive workflows (US-AD-11/12/13).
+
+## Operational usage
+
+- Admin specialists payloads must expose `is_test` so operators can reliably identify test accounts.
+- Admin actions that can mutate or delete data must use `specialist.is_test` as the deterministic guard input.
+- Test data reset and cleanup utilities should treat `specialist.is_test` as canonical account classification when deciding destructive scope.
+
+
+## UI section
+
+- В таблице специалистов Admin Console в колонке `Flags` отображается badge `TEST` для `is_test=true`.
+- Badge `TEST` выполнен в виде небольшого pill-label (amber/orange), чтобы быть заметным, но не доминировать над строкой таблицы.
+- Для badge `TEST` добавлен tooltip: `Test specialist. Used for admin test-account workflows.`
+- Для `is_system=true` по-прежнему отображается отдельный badge `SYSTEM` с отличающимся нейтральным стилем.
+- На странице деталей специалиста в заголовке отображается маркер `TEST ACCOUNT` (и отдельно `SYSTEM ACCOUNT` для системных записей), без изменения основной структуры layout.
+
+
+## Scope clarification (implementation boundary)
+
+US-AD-10 implementation scope is limited to:
+- marker in data model (`specialist.is_test`),
+- visibility in admin payloads/UI,
+- filtering via `test_only=1`.
+
+Destructive operations and strict destructive guards that consume this marker are part of follow-up stories (US-AD-11 / US-AD-12 / US-AD-13).
+US-AD-10 itself does not expand destructive action surface.

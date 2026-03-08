@@ -16,7 +16,7 @@ REQUIRED_STATEMENTS = (
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_specialist_is_test",
     "ON specialist (is_test);",
     "ADD CONSTRAINT specialist_test_system_exclusive",
-    "CHECK NOT (is_system AND is_test) NOT VALID;",
+    "CHECK (NOT (is_system AND is_test)) NOT VALID;",
     "VALIDATE CONSTRAINT specialist_test_system_exclusive;",
 )
 

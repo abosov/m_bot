@@ -1,7 +1,7 @@
 -- US-AD-10: explicit test specialist marking.
 -- Online migration strategy:
 -- 1) Add nullable column first (metadata-only).
--- 2) Backfill NULL -> FALSE in batches handled by a single statement for existing data volume.
+-- 2) Backfill NULL -> FALSE.
 -- 3) Set DEFAULT FALSE and NOT NULL.
 -- 4) Add index concurrently.
 -- 5) Add CHECK constraint as NOT VALID, then VALIDATE.

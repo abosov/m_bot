@@ -2121,7 +2121,6 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
     .badge {{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; margin-right:6px; }}
     .badge-test {{ background:#ffedd5; color:#c2410c; border:1px solid #fdba74; }}
     .badge-system {{ background:#e5e7eb; color:#374151; border:1px solid #d1d5db; }}
-    tr.row-test {{ background:#fff7ed; }}
   </style>
 </head>
 <body>
@@ -2311,10 +2310,9 @@ async def admin_console_entry(request: Request) -> HTMLResponse:
       const active=item.active_7d?'yes':'no';
       const timezone=item.timezone||'—';
       const lastActivity=item.last_activity_at||'—';
-      if(item.is_test){{row.classList.add('row-test');}}
       const flags=[];
-      if(item.is_test)flags.push('<span class="badge badge-test">TEST</span>');
-      if(item.is_system)flags.push('<span class="badge badge-system">SYSTEM</span>');
+      if(item.is_test)flags.push('<span class="badge badge-test" title="Test specialist. Used for admin test-account workflows.">TEST</span>');
+      if(item.is_system)flags.push('<span class="badge badge-system" title="System account. Protected from destructive admin operations.">SYSTEM</span>');
       const flagsCell=flags.length?flags.join(' '):'—';
       row.innerHTML='<td>'+((item.public_name||''))+'</td><td>'+flagsCell+'</td><td>'+((item.status||''))+'</td><td>'+timezone+'</td><td>'+onboarding+'</td><td>'+oauth+'</td><td>'+calendar+'</td><td>'+active+'</td><td>'+String(item.clients_count??0)+'</td><td>'+((item.tariff_plan||''))+'</td><td>'+lastActivity+'</td>';
       tbodyEl.appendChild(row);}});}}

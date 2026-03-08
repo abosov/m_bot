@@ -3,6 +3,8 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 pytest.importorskip("aiosqlite")
 
@@ -192,3 +194,74 @@ def test_production_endpoints_cannot_update_is_test():
 
     dumped = payload.model_dump()
     assert "is_test" not in dumped
+
+
+@pytest.mark.asyncio
+async def test_admin_ui_specialist_detail_returns_is_test_field(tmp_path, monkeypatch):
+    app, database, _web_server = _load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(database.Specialist(specialist_id=specialist_id, status=database.SpecialistStatus.active, is_test=True))
+        await session.commit()
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get(f"/admin/ui/specialists/{specialist_id}", cookies={"admin_session": session_cookie})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["basic"]["specialist_id"] == str(specialist_id)
+    assert payload["basic"]["is_test"] is True
+
+
+@pytest.mark.asyncio
+async def test_system_account_cannot_be_marked_as_test_by_direct_update(tmp_path, monkeypatch):
+    _app, database, _web_server = _load_app(tmp_path, monkeypatch, admin_key="secret")
+
+    async with database.engine.begin() as conn:
+        await conn.run_sync(database.Base.metadata.create_all)
+
+    specialist_id = uuid.uuid4()
+    async with database.async_session_factory() as session:
+        session.add(
+            database.Specialist(
+                specialist_id=specialist_id,
+                status=database.SpecialistStatus.active,
+                is_system=True,
+                is_test=False,
+            )
+        )
+        await session.commit()
+
+    async with database.async_session_factory() as session:
+        with pytest.raises(IntegrityError):
+            await session.execute(
+                text(
+                    """
+                    UPDATE specialist
+                    SET is_test = TRUE
+                    WHERE is_system = TRUE
+                    """
+                )
+            )
+            await session.commit()
+
+
+def test_admin_ui_html_renders_test_badge_conditionally(tmp_path, monkeypatch):
+    app, _database, _web_server = _load_app(tmp_path, monkeypatch, admin_key="secret", admin_ui_password="ui-secret")
+
+    client = TestClient(app)
+    login_response = client.post("/admin/login", data={"password": "ui-secret"}, follow_redirects=False)
+    session_cookie = login_response.cookies.get("admin_session")
+
+    response = client.get("/admin", cookies={"admin_session": session_cookie})
+    assert response.status_code == 200
+    assert "if(item.is_test)flags.push('<span class=\"badge badge-test\"" in response.text
+    assert "if(item.is_system)flags.push('<span class=\"badge badge-system\"" in response.text
+    assert 'Test specialist. Used for admin test-account workflows.' in response.text
