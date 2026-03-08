@@ -4065,6 +4065,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
 
           let activeId = trackedSections[0].id;
           let ticking = false;
+          let suppressAutoTrackingUntil = 0;
 
           const readStickyOffset = () => {
             updateStickyOffsets();
@@ -4134,6 +4135,9 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           };
 
           const updateActiveFromScroll = () => {
+            if (Date.now() < suppressAutoTrackingUntil) {
+              return;
+            }
             const nextId = resolveActiveSectionId();
             if (nextId) {
               setActive(nextId);
@@ -4163,7 +4167,11 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
               }
               event.preventDefault();
               setActive(targetId);
-              target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              const stickyOffset = readStickyOffset();
+              const absoluteTop = target.getBoundingClientRect().top + window.scrollY;
+              const targetScrollTop = Math.max(0, absoluteTop - stickyOffset + 1);
+              suppressAutoTrackingUntil = Date.now() + 450;
+              window.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
               window.history.replaceState(null, '', `#${targetId}`);
             });
           });
