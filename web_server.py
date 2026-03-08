@@ -3867,23 +3867,11 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           return acc;
         };
 
-        const renderReviews = (blocks) => {
+        const renderReviews = (reviewsData, blocks) => {
           if (!reviewsEl) {
             return;
           }
-          const reviewsBlock = Array.isArray(blocks)
-            ? blocks.find((block) => String((block && block.block_type) || '').trim().toLowerCase() === 'reviews')
-            : null;
           let candidate = null;
-          if (reviewsBlock && reviewsBlock.items != null) {
-            candidate = reviewsBlock.items;
-          } else if (reviewsBlock && reviewsBlock.content != null) {
-            candidate = reviewsBlock.content;
-          } else if (reviewsBlock && reviewsBlock.body != null) {
-            candidate = reviewsBlock.body;
-          } else if (reviewsBlock && reviewsBlock.text != null) {
-            candidate = reviewsBlock.text;
-          }
 
           const normalizeReview = (raw) => {
             if (typeof raw === 'string') {
@@ -3902,10 +3890,25 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           };
 
           let reviews = [];
-          if (Array.isArray(candidate)) {
-            reviews = candidate.map((item) => normalizeReview(item)).filter((item) => item !== null);
-          } else if (typeof candidate === 'string') {
-            reviews = candidate.split(/\\r?\\n/).map((line) => normalizeReview(line)).filter((item) => item !== null);
+          if (Array.isArray(reviewsData) && reviewsData.length > 0) {
+            reviews = reviewsData.map((item) => normalizeReview(item)).filter((item) => item !== null);
+          } else if (Array.isArray(blocks)) {
+            const reviewsBlock = blocks.find((block) => String((block && block.block_type) || '').trim().toLowerCase() === 'reviews');
+            if (reviewsBlock && reviewsBlock.items != null) {
+              candidate = reviewsBlock.items;
+            } else if (reviewsBlock && reviewsBlock.content != null) {
+              candidate = reviewsBlock.content;
+            } else if (reviewsBlock && reviewsBlock.body != null) {
+              candidate = reviewsBlock.body;
+            } else if (reviewsBlock && reviewsBlock.text != null) {
+              candidate = reviewsBlock.text;
+            }
+
+            if (Array.isArray(candidate)) {
+              reviews = candidate.map((item) => normalizeReview(item)).filter((item) => item !== null);
+            } else if (typeof candidate === 'string') {
+              reviews = candidate.split(/\\r?\\n/).map((line) => normalizeReview(line)).filter((item) => item !== null);
+            }
           }
 
           if (reviews.length === 0) {
@@ -4218,7 +4221,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             setSectionHtml(aboutEl, blocks.about);
             const educationItems = String(blocks.education || '').split(/\\r?\\n/).map((line) => line.trim()).filter((line) => line.length > 0);
             renderSimpleList(educationEl, educationItems, 'specialist-list specialist-list--education', 'specialist-list__item');
-            renderReviews(payload && Array.isArray(payload.reviews) ? payload.reviews : []);
+            renderReviews(payload && Array.isArray(payload.reviews) ? payload.reviews : [], blocksSource);
             renderDocuments(payload && payload.media ? payload.media : null);
 
             const clientBotUsername = String(profile.client_bot_username || '').trim();
