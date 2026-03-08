@@ -23,7 +23,9 @@ fail() {
 }
 
 info() {
-  echo "[INFO] $*"
+  info() {
+  echo "[INFO] $*" >&2
+  }
 }
 
 warn() {
