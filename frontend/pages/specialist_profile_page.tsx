@@ -222,6 +222,7 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
       <Header
         displayName={displayName}
         specialization={specialization}
+        clientBotUsername={clientBotUsername}
       />
       <Hero
         displayName={displayName}
