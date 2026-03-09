@@ -1049,7 +1049,9 @@ async def owner_panel_profile_edit_link(
                 specialist_id=specialist_id,
                 tg_user_id=owner_tg_user_id,
             )
-            await session.commit()
+            commit = getattr(session, "commit", None)
+            if callable(commit):
+                await commit()
         except ValueError:
             logger.warning("Profile edit URL is unavailable due to PUBLIC_SITE_URL configuration")
             await callback.answer("Ссылка временно недоступна", show_alert=True)

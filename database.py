@@ -875,3 +875,9 @@ async def get_latest_billing_purchase_for_tg_user(
     )
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
+
+
+# --- ensure all SQLAlchemy mappers are configured after model declarations ---
+from sqlalchemy.orm import configure_mappers
+
+configure_mappers()
