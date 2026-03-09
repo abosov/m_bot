@@ -36,6 +36,17 @@ def test_site_pages_are_available():
         assert title in response.text
 
 
+def test_profile_edit_page_omits_marketing_chrome():
+    response = client.get("/profile/edit")
+
+    assert response.status_code == 200
+    assert '<header class="site-header">' not in response.text
+    assert '<footer class="site-footer">' not in response.text
+    assert 'alt="Zumbot logo"' not in response.text
+    assert "Профиль специалиста" in response.text
+    assert 'id="profile-form"' in response.text
+
+
 def test_pricing_page_cta_links_open_bot_in_new_tab():
     response = client.get("/pricing")
 
