@@ -4266,15 +4266,21 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
         };
 
         const showHeroPhoto = () => {
-          console.log('[hero-photo] showHeroPhoto');
           heroPhotoImageEl.classList.remove('specialist-hidden');
+          heroPhotoImageEl.hidden = false;
+          heroPhotoImageEl.style.display = 'block';
           heroPhotoFallbackEl.classList.add('specialist-hidden');
+          heroPhotoFallbackEl.hidden = true;
+          heroPhotoFallbackEl.style.display = 'none';
         };
 
         const showHeroFallback = () => {
-          console.log('[hero-photo] showHeroFallback');
           heroPhotoImageEl.classList.add('specialist-hidden');
+          heroPhotoImageEl.hidden = true;
+          heroPhotoImageEl.style.display = 'none';
           heroPhotoFallbackEl.classList.remove('specialist-hidden');
+          heroPhotoFallbackEl.hidden = false;
+          heroPhotoFallbackEl.style.display = 'grid';
         };
 
         const removeHeroPhotoListeners = () => {
@@ -4290,10 +4296,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
 
         const renderHeroPhoto = (profile) => {
           const rawPhotoUrl = String(profile.profile_photo_url || profile.photo_url || '').trim();
-          const beforeSrc = heroPhotoImageEl.getAttribute('src');
-
           if (!rawPhotoUrl) {
-            console.log('[hero-photo] no rawPhotoUrl');
             removeHeroPhotoListeners();
             showHeroFallback();
             heroPhotoImageEl.removeAttribute('src');
@@ -4304,18 +4307,14 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             ? rawPhotoUrl
             : `${apiBaseUrl.replace(/\/$/, '')}${rawPhotoUrl.startsWith('/') ? rawPhotoUrl : `/${rawPhotoUrl}`}`;
 
-          console.log('[hero-photo] renderHeroPhoto called', { rawPhotoUrl, resolvedPhotoUrl, beforeSrc });
-
           removeHeroPhotoListeners();
 
           showHeroFallback();
 
           const onHeroPhotoLoad = () => {
-            console.log('[hero-photo] load event');
             showHeroPhoto();
           };
           const onHeroPhotoError = () => {
-            console.log('[hero-photo] error event');
             showHeroFallback();
           };
 
@@ -4326,18 +4325,6 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           heroPhotoImageEl.addEventListener('error', onHeroPhotoError, { once: true });
 
           heroPhotoImageEl.src = resolvedPhotoUrl;
-          const afterSrc = heroPhotoImageEl.getAttribute('src');
-          console.log('[hero-photo] renderHeroPhoto called', {
-            rawPhotoUrl,
-            resolvedPhotoUrl,
-            beforeSrc,
-            afterSrc,
-          });
-          console.log('[hero-photo] img state after src set', {
-            srcAttribute: heroPhotoImageEl.getAttribute('src'),
-            currentSrc: heroPhotoImageEl.currentSrc,
-            complete: heroPhotoImageEl.complete,
-          });
 
           if (heroPhotoImageEl.complete) {
             if (heroPhotoImageEl.naturalWidth > 0) {
