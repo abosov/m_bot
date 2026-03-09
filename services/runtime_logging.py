@@ -57,6 +57,15 @@ def _sanitize_value(key: str | None, value: object, max_len: int) -> object:
     if key_name and SECRET_KEY_PATTERN.search(key_name):
         return "[REDACTED]"
 
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+
+    if isinstance(value, str):
+        as_text = redact_text(value)
+        if len(as_text) > max_len:
+            return f"{as_text[:max_len]}... [TRUNCATED]"
+        return as_text
+
     as_text = redact_text(str(value))
     if len(as_text) > max_len:
         return f"{as_text[:max_len]}... [TRUNCATED]"
