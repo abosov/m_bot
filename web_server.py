@@ -3875,7 +3875,8 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           return acc;
         };
 
-        const renderReviews = (reviewsData, blocks) => {
+        // Legacy signature reference: const renderReviews = (reviewsData, blocks) => {
+        const renderReviews = (blocks) => {
           if (!reviewsEl) {
             return;
           }
@@ -3897,11 +3898,17 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             return { text, author };
           };
 
+          const payload = blocks && typeof blocks === 'object' && !Array.isArray(blocks) ? blocks : null;
+          const reviewsData = payload && Array.isArray(payload.reviews) ? payload.reviews : (Array.isArray(blocks) ? blocks : []);
+          const blocksSource = payload && Array.isArray(payload.blocks) ? payload.blocks : (Array.isArray(blocks) ? blocks : null);
+
           let reviews = [];
           if (Array.isArray(reviewsData) && reviewsData.length > 0) {
             reviews = reviewsData.map((item) => normalizeReview(item)).filter((item) => item !== null);
-          } else if (Array.isArray(blocks)) {
-            const reviewsBlock = blocks.find((block) => String((block && block.block_type) || '').trim().toLowerCase() === 'reviews');
+          // Legacy branch reference: } else if (Array.isArray(blocks)) {
+          } else if (Array.isArray(blocksSource)) {
+            // Legacy branch reference: const reviewsBlock = blocks.find((block) => String((block && block.block_type) || '').trim().toLowerCase() === 'reviews');
+            const reviewsBlock = blocksSource.find((block) => String((block && block.block_type) || '').trim().toLowerCase() === 'reviews');
             if (reviewsBlock && reviewsBlock.items != null) {
               candidate = reviewsBlock.items;
             } else if (reviewsBlock && reviewsBlock.content != null) {
@@ -4229,7 +4236,8 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             setSectionHtml(aboutEl, blocks.about);
             const educationItems = String(blocks.education || '').split(/\\r?\\n/).map((line) => line.trim()).filter((line) => line.length > 0);
             renderSimpleList(educationEl, educationItems, 'specialist-list specialist-list--education', 'specialist-list__item');
-            renderReviews(payload && Array.isArray(payload.reviews) ? payload.reviews : [], blocksSource);
+            // Legacy call reference: renderReviews(payload && Array.isArray(payload.reviews) ? payload.reviews : [], blocksSource);
+            renderReviews(payload);
             renderDocuments(payload && payload.media ? payload.media : null);
 
             const clientBotUsername = String(profile.client_bot_username || '').trim();
