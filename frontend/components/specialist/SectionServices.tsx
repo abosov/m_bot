@@ -18,6 +18,17 @@ function sanitizeText(input: string): string {
     .trim();
 }
 
+function buildServiceLabel(item: ServiceItem): string {
+  const name = item.name.trim();
+  const description = item.description.trim();
+
+  if (name && description) {
+    return `${name} — ${description}`;
+  }
+
+  return name || description;
+}
+
 function normalizeServiceItem(raw: unknown): ServiceItem | null {
   if (typeof raw === "string") {
     const sanitized = sanitizeText(raw);
@@ -65,9 +76,11 @@ function getServiceItems(blocks?: SpecialistPublicBlock[]): ServiceItem[] {
 }
 
 export function SectionServices({ blocks }: SectionServicesProps) {
-  const serviceItems = getServiceItems(blocks);
+  const serviceRows = getServiceItems(blocks)
+    .map((item) => ({ label: buildServiceLabel(item), price: item.price }))
+    .filter((item) => item.label.length > 0);
 
-  if (!serviceItems.length) {
+  if (!serviceRows.length) {
     return null;
   }
 
@@ -77,17 +90,11 @@ export function SectionServices({ blocks }: SectionServicesProps) {
       <div className="container">
         <div className="section-card specialist-card specialist-content-card">
           <h2 className="section-title specialist-section-title">Услуги и цены</h2>
-          <ul className="services-grid" aria-label="Карточки услуг">
-            {serviceItems.map((item, index) => (
-              <li key={`${item.name}-${item.price}-${index}`} className="service-card">
-                {item.name ? <p className="service-title">{item.name}</p> : null}
-                {item.price ? <p className="service-price">{item.price}</p> : null}
-                {item.description ? <p className="service-description">{item.description}</p> : null}
-                <div className="service-cta">
-                  <a href="#booking" className="specialist-button specialist-button--primary">
-                    Записаться
-                  </a>
-                </div>
+          <ul className="specialist-list" aria-label="Список услуг">
+            {serviceRows.map((item, index) => (
+              <li key={`${item.label}-${item.price}-${index}`} className="specialist-list__item specialist-list__item--service">
+                <span>{item.label}</span>
+                {item.price ? <span className="specialist-service__price">{item.price}</span> : null}
               </li>
             ))}
           </ul>

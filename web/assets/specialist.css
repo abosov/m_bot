@@ -445,43 +445,6 @@
 }
 
 
-.services-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 24px;
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.service-card {
-  border: 1px solid #eee;
-  border-radius: 16px;
-  padding: 28px;
-  background: #fff;
-}
-
-.service-title {
-  margin: 0;
-  font-weight: 600;
-  font-size: 18px;
-}
-
-.service-price {
-  margin: 12px 0 0;
-  font-size: 26px;
-  font-weight: 700;
-}
-
-.service-description {
-  margin: 10px 0 0;
-  color: #555;
-}
-
-.service-cta {
-  margin-top: 18px;
-}
-
 
 .specialist-list {
   list-style: none;
