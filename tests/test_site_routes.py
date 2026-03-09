@@ -202,6 +202,9 @@ def test_public_slug_route_hero_places_photo_left_and_quote_right():
     assert 'class="specialist-hero__photo-wrap profile-photo"' in response.text
     assert "quoteEl.classList.remove('specialist-hidden');" in response.text
     assert "quoteEl.classList.add('specialist-hidden');" in response.text
+    assert "const rawPhotoUrl = String(profile.profile_photo_url || profile.photo_url || '').trim();" in response.text
+    assert "const resolvedPhotoUrl = /^https?:\\/\\//i.test(rawPhotoUrl)" in response.text
+    assert "heroPhotoImageEl.src = resolvedPhotoUrl;" in response.text
 
 
 def test_public_slug_route_reviews_rendering_supports_payload_reviews_and_blocks_fallback():

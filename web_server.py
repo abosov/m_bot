@@ -4283,10 +4283,12 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             } else {
               quoteEl.classList.add('specialist-hidden');
             }
-
-            const photoUrl = String(profile.photo_url || '').trim();
-            if (photoUrl && /^https?:\\/\\//i.test(photoUrl)) {
-              heroPhotoImageEl.src = photoUrl;
+            const rawPhotoUrl = String(profile.profile_photo_url || profile.photo_url || '').trim();
+            if (rawPhotoUrl) {
+              const resolvedPhotoUrl = /^https?:\\/\\//i.test(rawPhotoUrl)
+                ? rawPhotoUrl
+                : `${apiBaseUrl.replace(/\\/$/, '')}${rawPhotoUrl.startsWith('/') ? rawPhotoUrl : `/${rawPhotoUrl}`}`;
+              heroPhotoImageEl.src = resolvedPhotoUrl;
               heroPhotoImageEl.classList.remove('specialist-hidden');
               heroPhotoFallbackEl.classList.add('specialist-hidden');
             } else {
