@@ -45,9 +45,13 @@ export function resolveActiveSectionId(sections, options) {
   }
 
   const lastSection = normalizedSections[normalizedSections.length - 1];
-  const lastVisibleOverlap = Math.min(lastSection.bottom, viewportBottom) - Math.max(lastSection.top, viewportTop);
-  const lastActivationOverlap = Math.max(Math.min(lastSection.bottom - lastSection.top, 48), 1);
-  if (lastVisibleOverlap >= lastActivationOverlap) {
+  const lastSectionHeight = lastSection.bottom - lastSection.top;
+  const lastVisibleOverlap = Math.max(0, Math.min(lastSection.bottom, viewportBottom) - Math.max(lastSection.top, viewportTop));
+  const distance = lastSection.top - viewportTop;
+  if (distance >= 0 && distance <= 48) {
+    return lastSection.id;
+  }
+  if (lastSectionHeight >= 24 && lastVisibleOverlap >= lastSectionHeight) {
     return lastSection.id;
   }
 
