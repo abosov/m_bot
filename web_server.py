@@ -4261,6 +4261,39 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           window.addEventListener('resize', scheduleUpdate);
         };
 
+        const renderHeroPhoto = (profile) => {
+          const rawPhotoUrl = String(profile.profile_photo_url || profile.photo_url || '').trim();
+          const hidePhotoShowFallback = () => {
+            heroPhotoImageEl.classList.add('specialist-hidden');
+            heroPhotoFallbackEl.classList.remove('specialist-hidden');
+            heroPhotoImageEl.removeAttribute('src');
+          };
+
+          if (!rawPhotoUrl) {
+            hidePhotoShowFallback();
+            return;
+          }
+
+          const resolvedPhotoUrl = /^https?:\/\//i.test(rawPhotoUrl)
+            ? rawPhotoUrl
+            : `${apiBaseUrl.replace(/\/$/, '')}${rawPhotoUrl.startsWith('/') ? rawPhotoUrl : `/${rawPhotoUrl}`}`;
+
+          heroPhotoImageEl.classList.add('specialist-hidden');
+          heroPhotoFallbackEl.classList.remove('specialist-hidden');
+          heroPhotoImageEl.removeAttribute('src');
+
+          heroPhotoImageEl.addEventListener('load', () => {
+            heroPhotoImageEl.classList.remove('specialist-hidden');
+            heroPhotoFallbackEl.classList.add('specialist-hidden');
+          }, { once: true });
+
+          heroPhotoImageEl.addEventListener('error', () => {
+            hidePhotoShowFallback();
+          }, { once: true });
+
+          heroPhotoImageEl.src = resolvedPhotoUrl;
+        };
+
         const bootstrap = async () => {
           const response = await fetch(publicProfileApiUrl);
           if (!response.ok) {
@@ -4283,18 +4316,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             } else {
               quoteEl.classList.add('specialist-hidden');
             }
-            const rawPhotoUrl = String(profile.profile_photo_url || profile.photo_url || '').trim();
-            if (rawPhotoUrl) {
-              const resolvedPhotoUrl = /^https?:\\/\\//i.test(rawPhotoUrl)
-                ? rawPhotoUrl
-                : `${apiBaseUrl.replace(/\\/$/, '')}${rawPhotoUrl.startsWith('/') ? rawPhotoUrl : `/${rawPhotoUrl}`}`;
-              heroPhotoImageEl.src = resolvedPhotoUrl;
-              heroPhotoImageEl.classList.remove('specialist-hidden');
-              heroPhotoFallbackEl.classList.add('specialist-hidden');
-            } else {
-              heroPhotoImageEl.classList.add('specialist-hidden');
-              heroPhotoFallbackEl.classList.remove('specialist-hidden');
-            }
+            renderHeroPhoto(profile);
 
             const blocksSource = payload && payload.blocks ? payload.blocks : null;
             const blocks = collectBlocks(blocksSource);

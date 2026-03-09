@@ -143,7 +143,8 @@ def test_public_slug_route_returns_full_public_specialist_page_markup():
     assert "id=\"specialist-subnav-booking-link\"" not in response.text
     assert "const apiBaseUrl = " in response.text
     assert f'const apiBaseUrl = "{config.BASE_URL}";' in response.text
-    assert "const publicProfileApiUrl = `${apiBaseUrl.replace(/\\/$/, '')}/api/public/specialists/${encodeURIComponent(slug)}`;" in response.text
+    assert r"const publicProfileApiUrl = `${apiBaseUrl.replace(/\/$/, '')}/api/public/specialists/${encodeURIComponent(slug)}`;" in response.text
+    assert r"`${apiBaseUrl.replace(/\/$/, '')}${rawPhotoUrl.startsWith('/') ? rawPhotoUrl : `/${rawPhotoUrl}`}`" in response.text
     assert 'const slug = "TsarevaE_12";' in response.text
     assert "bootstrap().catch(showNotFound);" in response.text
     assert 'id="specialist-loading"' not in response.text
@@ -202,9 +203,18 @@ def test_public_slug_route_hero_places_photo_left_and_quote_right():
     assert 'class="specialist-hero__photo-wrap profile-photo"' in response.text
     assert "quoteEl.classList.remove('specialist-hidden');" in response.text
     assert "quoteEl.classList.add('specialist-hidden');" in response.text
+    assert "const renderHeroPhoto = (profile) => {" in response.text
     assert "const rawPhotoUrl = String(profile.profile_photo_url || profile.photo_url || '').trim();" in response.text
-    assert "const resolvedPhotoUrl = /^https?:\\/\\//i.test(rawPhotoUrl)" in response.text
-    assert "heroPhotoImageEl.src = resolvedPhotoUrl;" in response.text
+    assert r"const resolvedPhotoUrl = /^https?:\/\//i.test(rawPhotoUrl)" in response.text
+    assert r"`${apiBaseUrl.replace(/\/$/, '')}${rawPhotoUrl.startsWith('/') ? rawPhotoUrl : `/${rawPhotoUrl}`}`" in response.text
+    assert "heroPhotoImageEl.addEventListener('load', () => {" in response.text
+    assert "heroPhotoImageEl.addEventListener('error', () => {" in response.text
+    assert "heroPhotoImageEl.classList.add('specialist-hidden');" in response.text
+    assert "heroPhotoFallbackEl.classList.remove('specialist-hidden');" in response.text
+    assert "heroPhotoImageEl.classList.remove('specialist-hidden');" in response.text
+    assert "heroPhotoFallbackEl.classList.add('specialist-hidden');" in response.text
+    assert "heroPhotoImageEl.removeAttribute('src');" in response.text
+    assert "renderHeroPhoto(profile);" in response.text
 
 
 def test_public_slug_route_reviews_rendering_supports_payload_reviews_and_blocks_fallback():
