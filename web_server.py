@@ -3660,8 +3660,8 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             window.clearTimeout(bootstrapWatchdog);
             bootstrapWatchdog = null;
           }
-          window.removeEventListener('error', handleBootstrapRuntimeError);
-          window.removeEventListener('unhandledrejection', handleBootstrapRuntimeError);
+          window.removeEventListener('error', showNotFound);
+          window.removeEventListener('unhandledrejection', showNotFound);
         };
 
         const setRuntimeState = (state) => {
@@ -3691,11 +3691,9 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           if (runtimeState !== 'loading') {
             return;
           }
+          if (loadingEl) { loadingEl.style.display = 'none'; }
+          if (notFoundEl) { notFoundEl.classList.remove('specialist-hidden'); }
           setRuntimeState('not-found');
-        };
-
-        const handleBootstrapRuntimeError = () => {
-          showNotFound();
         };
 
         if (!specialistPageEl || !loadingEl || !notFoundEl || !nameEl || !specializationEl || !heroNameEl || !heroSpecializationEl || !quoteEl || !heroPhotoImageEl || !heroPhotoFallbackEl) {
@@ -3705,8 +3703,8 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
 
         setRuntimeState('loading');
 
-        window.addEventListener('error', handleBootstrapRuntimeError);
-        window.addEventListener('unhandledrejection', handleBootstrapRuntimeError);
+        window.addEventListener('error', showNotFound);
+        window.addEventListener('unhandledrejection', showNotFound);
 
         const setSectionHtml = (el, value) => {
           if (!el) {
