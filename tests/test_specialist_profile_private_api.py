@@ -23,11 +23,16 @@ def _load_web_app(tmp_path, monkeypatch):
 
     import config
     import database
-    import web_server
+    import services.specialist_profile_private as specialist_profile_private_service
+    import backend.api.specialist_profile_private as specialist_profile_private_api
 
     importlib.reload(config)
-    importlib.reload(database)
-    importlib.reload(web_server)
+    database = importlib.reload(database)
+    importlib.reload(specialist_profile_private_service)
+    importlib.reload(specialist_profile_private_api)
+
+    import web_server
+    web_server = importlib.reload(web_server)
     return web_server, database
 
 

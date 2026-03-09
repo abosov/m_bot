@@ -26,6 +26,7 @@ def test_resolve_bot_registration_action(existing_specialist, current_specialist
     monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     if existing_specialist is None:
         existing_bot = None
@@ -50,11 +51,26 @@ def _load_web_app(tmp_path, monkeypatch):
 
     import config
     import database
-    import web_server
 
     importlib.reload(config)
-    importlib.reload(database)
-    importlib.reload(web_server)
+    database = importlib.reload(database)
+
+    import services.specialist_profile_private as specialist_profile_private_service
+    import backend.api.specialist_profile_private as specialist_profile_private_api
+    import services.admin_audit as admin_audit_service
+    import services.test_data_reset as test_data_reset_service
+    import services.referrals as referrals_service
+    import handlers.master_onboarding as master_onboarding
+
+    importlib.reload(specialist_profile_private_service)
+    importlib.reload(specialist_profile_private_api)
+    importlib.reload(admin_audit_service)
+    importlib.reload(test_data_reset_service)
+    importlib.reload(referrals_service)
+    importlib.reload(master_onboarding)
+
+    import web_server
+    web_server = importlib.reload(web_server)
     return web_server, database
 
 
@@ -168,6 +184,7 @@ async def test_notify_personal_bot_welcome_picks_most_recent_active_bot(tmp_path
     _, database = _load_web_app(tmp_path, monkeypatch)
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     async with database.engine.begin() as conn:
         await conn.run_sync(database.Base.metadata.create_all)
@@ -238,6 +255,7 @@ async def test_notify_personal_bot_welcome_returns_username_on_send_error(tmp_pa
     _, database = _load_web_app(tmp_path, monkeypatch)
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     async with database.engine.begin() as conn:
         await conn.run_sync(database.Base.metadata.create_all)
@@ -547,6 +565,7 @@ def test_calendar_select_keyboard_and_text_navigation(monkeypatch):
     monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     items = [
         {"id": f"cal-{i}", "summary": f"Calendar {i}", "timeZone": "UTC", "primary": False, "accessRole": "owner"}
@@ -597,6 +616,7 @@ async def test_calendar_pick_success_sets_selected_and_smoke_ok(tmp_path, monkey
     _, database = _load_web_app(tmp_path, monkeypatch)
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     async with database.engine.begin() as conn:
         await conn.run_sync(database.Base.metadata.create_all)
@@ -703,6 +723,7 @@ async def test_send_safe_html_message_fallbacks_to_plain_text(monkeypatch):
     monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     calls: list[dict] = []
 
@@ -728,6 +749,7 @@ async def test_calendar_pick_success_message_falls_back_to_plain_text_on_bad_ent
     _, database = _load_web_app(tmp_path, monkeypatch)
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     async with database.engine.begin() as conn:
         await conn.run_sync(database.Base.metadata.create_all)
@@ -831,6 +853,7 @@ async def test_calendar_pick_post_success_exception_shows_final_step_warning(tmp
     _, database = _load_web_app(tmp_path, monkeypatch)
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     async with database.engine.begin() as conn:
         await conn.run_sync(database.Base.metadata.create_all)
@@ -917,6 +940,7 @@ async def test_calendar_create_post_success_exception_shows_final_step_warning(t
     _, database = _load_web_app(tmp_path, monkeypatch)
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     async with database.engine.begin() as conn:
         await conn.run_sync(database.Base.metadata.create_all)
@@ -994,6 +1018,7 @@ async def test_calendar_create_uses_answer_plain_for_final_deep_link_message_to_
     _, database = _load_web_app(tmp_path, monkeypatch)
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     async with database.engine.begin() as conn:
         await conn.run_sync(database.Base.metadata.create_all)
@@ -1087,6 +1112,7 @@ async def test_process_bot_token_sends_connect_page_button_with_fragment_token(t
     _, database = _load_web_app(tmp_path, monkeypatch)
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     async with database.engine.begin() as conn:
         await conn.run_sync(database.Base.metadata.create_all)
@@ -1184,6 +1210,7 @@ async def test_calendar_cancel_select_returns_to_onboarding_menu(monkeypatch):
     monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     called = {"start": False}
 
@@ -1222,6 +1249,7 @@ async def test_master_calendar_switch_stub_starts_selection(monkeypatch):
     monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     called = {"select": False}
 
@@ -1248,6 +1276,7 @@ async def test_cmd_video_does_not_change_fsm_state(monkeypatch):
     monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     async def _noop_async(*args, **kwargs):
         return None
@@ -1294,6 +1323,7 @@ async def test_video_continue_returns_step_one_text(monkeypatch):
     monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     async def _noop_async(*args, **kwargs):
         return None
@@ -1329,7 +1359,7 @@ async def test_video_continue_returns_step_one_text(monkeypatch):
     assert callback.answered == 1
     assert callback.message.sent
     text, _ = callback.message.sent[-1]
-    assert "Шаг 1 из 4" in text
+    assert "Шаг 1 из 5" in text
     assert "Посмотреть видео-инструкцию: /video" in text
 
 
@@ -1340,6 +1370,7 @@ async def test_video_continue_with_empty_fsm_infers_step_three_oauth(monkeypatch
     monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     async def _noop_async(*args, **kwargs):
         return None
@@ -1350,8 +1381,15 @@ async def test_video_continue_with_empty_fsm_infers_step_three_oauth(monkeypatch
     specialist_id = uuid.uuid4()
     specialist = SimpleNamespace(
         specialist_id=specialist_id,
+        specialization="Психолог",
         profile=SimpleNamespace(public_name="Spec Name"),
-        telegram_bots=[SimpleNamespace(status=onboarding.TelegramBotStatus.active, updated_at=None, created_at=datetime.now(timezone.utc))],
+        telegram_bots=[
+            SimpleNamespace(
+                status=onboarding.TelegramBotStatus.active,
+                updated_at=None,
+                created_at=datetime.now(timezone.utc),
+            )
+        ],
         google_oauth=None,
         calendar_settings=None,
     )
@@ -1437,7 +1475,7 @@ async def test_video_continue_with_empty_fsm_infers_step_three_oauth(monkeypatch
     assert state.states == []
     texts = [item[0] for item in callback.message.sent]
     assert "Отправьте /start чтобы начать настройку." not in texts
-    assert any("Шаг 3 из 4" in text and "Подключите Google аккаунт" in text for text in texts)
+    assert any("Шаг 4 из 5" in text and "Подключите Google аккаунт" in text for text in texts)
 
     _, kwargs = callback.message.sent[-1]
     assert kwargs.get("parse_mode") == onboarding.ParseMode.HTML
@@ -1458,6 +1496,7 @@ async def test_video_continue_with_empty_fsm_calls_calendar_select_when_oauth_co
     monkeypatch.setenv("ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
     import handlers.master_onboarding as onboarding
+    onboarding = importlib.reload(onboarding)
 
     async def _noop_async(*args, **kwargs):
         return None
@@ -1467,8 +1506,15 @@ async def test_video_continue_with_empty_fsm_calls_calendar_select_when_oauth_co
     specialist_id = uuid.uuid4()
     specialist = SimpleNamespace(
         specialist_id=specialist_id,
+        specialization="Психолог",
         profile=SimpleNamespace(public_name="Spec Name"),
-        telegram_bots=[SimpleNamespace(status=onboarding.TelegramBotStatus.active, updated_at=None, created_at=datetime.now(timezone.utc))],
+        telegram_bots=[
+            SimpleNamespace(
+                status=onboarding.TelegramBotStatus.active,
+                updated_at=None,
+                created_at=datetime.now(timezone.utc),
+            )
+        ],
         google_oauth=SimpleNamespace(status=onboarding.GoogleOAuthStatus.connected),
         calendar_settings=SimpleNamespace(calendar_id=None),
     )
@@ -1527,7 +1573,12 @@ async def test_video_continue_with_empty_fsm_calls_calendar_select_when_oauth_co
 
     class _Callback:
         def __init__(self):
-            self.from_user = SimpleNamespace(id=777, username="spec", first_name="Spec", last_name=None)
+            self.from_user = SimpleNamespace(
+                id=777,
+                username="spec",
+                first_name="Spec",
+                last_name=None,
+            )
             self.message = _Message()
             self.answered = 0
 
