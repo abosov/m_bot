@@ -209,17 +209,33 @@ def test_public_slug_route_hero_places_photo_left_and_quote_right():
     assert r"`${apiBaseUrl.replace(/\/$/, '')}${rawPhotoUrl.startsWith('/') ? rawPhotoUrl : `/${rawPhotoUrl}`}`" in response.text
     assert "const showHeroPhoto = () => {" in response.text
     assert "const showHeroFallback = () => {" in response.text
+    assert "const removeHeroPhotoListeners = () => {" in response.text
     assert "heroPhotoImageEl.addEventListener('load', onHeroPhotoLoad, { once: true });" in response.text
     assert "heroPhotoImageEl.addEventListener('error', onHeroPhotoError, { once: true });" in response.text
     assert "heroPhotoImageEl.classList.add('specialist-hidden');" in response.text
     assert "heroPhotoFallbackEl.classList.remove('specialist-hidden');" in response.text
     assert "heroPhotoImageEl.classList.remove('specialist-hidden');" in response.text
     assert "heroPhotoFallbackEl.classList.add('specialist-hidden');" in response.text
+    assert "const showHeroFallback = () => {\n          heroPhotoImageEl.classList.add('specialist-hidden');\n          heroPhotoFallbackEl.classList.remove('specialist-hidden');\n        };" in response.text
     assert "heroPhotoImageEl.removeAttribute('src');" in response.text
+    assert "heroPhotoImageEl.__onHeroPhotoLoad = null;" in response.text
+    assert "heroPhotoImageEl.__onHeroPhotoError = null;" in response.text
+    assert "removeHeroPhotoListeners();" in response.text
     assert "if (heroPhotoImageEl.complete) {" in response.text
     assert "if (heroPhotoImageEl.naturalWidth > 0) {" in response.text
     assert "heroPhotoImageEl.removeEventListener('load', heroPhotoImageEl.__onHeroPhotoLoad);" in response.text
     assert "heroPhotoImageEl.removeEventListener('error', heroPhotoImageEl.__onHeroPhotoError);" in response.text
+    assert "console.log('[hero-photo] renderHeroPhoto called', { rawPhotoUrl, resolvedPhotoUrl, beforeSrc });" in response.text
+    assert "console.log('[hero-photo] renderHeroPhoto called', {" in response.text
+    assert "afterSrc," in response.text
+    assert "console.log('[hero-photo] showHeroPhoto');" in response.text
+    assert "console.log('[hero-photo] showHeroFallback');" in response.text
+    assert "console.log('[hero-photo] load event');" in response.text
+    assert "console.log('[hero-photo] error event');" in response.text
+    assert "console.log('[hero-photo] no rawPhotoUrl');" in response.text
+    assert "console.log('[hero-photo] img state after src set', {" in response.text
+    assert "currentSrc: heroPhotoImageEl.currentSrc," in response.text
+    assert "complete: heroPhotoImageEl.complete," in response.text
     assert "renderHeroPhoto(profile);" in response.text
 
 
