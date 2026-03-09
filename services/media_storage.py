@@ -57,6 +57,32 @@ async def save_upload_file_atomic(
     return relative_key, safe_name
 
 
+def save_bytes_atomic(*, uploads_root: Path, file_key: str, payload: bytes) -> None:
+    final_path = uploads_root / file_key
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = final_path.parent / f".{uuid.uuid4().hex}.tmp"
+    try:
+        with tmp_path.open("wb") as fh:
+            fh.write(payload)
+        os.replace(tmp_path, final_path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+
+def stage_bytes_temp(*, uploads_root: Path, key_prefix: str, payload: bytes, suffix: str = ".tmp") -> str:
+    temp_key = f"{key_prefix}/.{uuid.uuid4().hex}{suffix}"
+    save_bytes_atomic(uploads_root=uploads_root, file_key=temp_key, payload=payload)
+    return temp_key
+
+
+def promote_staged_file(*, uploads_root: Path, staged_key: str, final_key: str) -> None:
+    staged_path = uploads_root / staged_key
+    final_path = uploads_root / final_key
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(staged_path, final_path)
+
+
 def remove_file_if_exists(*, uploads_root: Path, file_key: str) -> None:
     path = uploads_root / file_key
     try:

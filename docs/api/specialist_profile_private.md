@@ -89,9 +89,12 @@ Errors:
 Multipart upload for profile photo (`file`).
 
 Rules:
-- max size: `PROFILE_PHOTO_MAX_BYTES` (default 10MB)
-- allowed content types: `image/jpeg`, `image/png`, `image/webp`
-- replace logic: old `photo` media for profile is deleted and replaced by new one.
+- max size: `PROFILE_PHOTO_MAX_BYTES` (default 10MB), overflow -> `413 file_too_large`
+- input types: `image/jpeg`, `image/png`, `image/webp` (validated by magic bytes + decode)
+- backend pipeline: EXIF normalize -> center crop 4:5 -> resize 800x1000 -> JPEG quality=85
+- storage key: `media/specialists/{specialist_id}/profile_photo.jpg`
+- replace logic: previous profile photo file is removed and replaced by normalized JPEG.
+- transaction-safe write flow: upload is staged to temp file first, DB commit is executed, then file is atomically promoted to final hero key.
 
 Response:
 ```json

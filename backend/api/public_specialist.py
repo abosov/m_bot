@@ -57,6 +57,7 @@ async def get_public_specialist_profile(public_slug: str) -> PublicSpecialistRes
             "display_name": profile.get("display_name"),
             "specialization": profile.get("specialization"),
             "hero_quote": profile.get("hero_quote"),
+            "profile_photo_url": profile.get("profile_photo_url"),
             "contacts": profile.get("contacts", {}),
             "client_bot_username": profile.get("client_bot_username"),
         },

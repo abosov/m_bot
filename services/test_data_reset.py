@@ -5,8 +5,11 @@ from pathlib import Path
 import uuid
 
 import yaml
+import config
 from sqlalchemy import and_, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from services.media_storage import remove_file_if_exists
 
 from database import (
     Appointment,
@@ -561,7 +564,23 @@ async def execute_test_data_reset(
                     or 0
                 )
 
+            media_file_keys_for_deleted_specialists: list[str] = []
             if all_target_specialist_ids:
+                for specialist_id in all_target_specialist_ids:
+                    media_rows = (
+                        await session.execute(
+                            text(
+                                """
+                                SELECT m.file_key
+                                FROM specialist_public_media m
+                                JOIN specialist_public_profile p ON p.id = m.profile_id
+                                WHERE p.specialist_id = :specialist_id
+                                """
+                            ),
+                            {"specialist_id": str(specialist_id)},
+                        )
+                    ).scalars().all()
+                    media_file_keys_for_deleted_specialists.extend(str(row) for row in media_rows if row)
                 deleted_counts["specialist"] = int(
                     (
                         await session.execute(
@@ -572,6 +591,9 @@ async def execute_test_data_reset(
                 )
 
             await session.commit()
+
+            for file_key in media_file_keys_for_deleted_specialists:
+                remove_file_if_exists(uploads_root=Path(config.PROFILE_UPLOADS_DIR), file_key=file_key)
     return {
         "ok": True,
         "dry_run": dry_run,

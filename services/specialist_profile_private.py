@@ -557,3 +557,47 @@ async def list_specialist_profile_media(session: AsyncSession, *, specialist_id)
         }
         for row in rows
     ]
+
+
+async def list_specialist_media_file_keys(session: AsyncSession, *, specialist_id) -> list[str]:
+    profile = await get_or_create_public_profile_for_specialist(session, specialist_id)
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT file_key
+                FROM specialist_public_media
+                WHERE profile_id = :profile_id
+                """
+            ),
+            {"profile_id": profile["id"]},
+        )
+    ).scalars().all()
+    return [str(row) for row in rows if row]
+
+
+async def delete_specialist_profile_media(session: AsyncSession, *, specialist_id) -> list[str]:
+    profile = await get_or_create_public_profile_for_specialist(session, specialist_id)
+    keys = (
+        await session.execute(
+            text(
+                """
+                SELECT file_key
+                FROM specialist_public_media
+                WHERE profile_id = :profile_id
+                """
+            ),
+            {"profile_id": profile["id"]},
+        )
+    ).scalars().all()
+
+    await session.execute(
+        text(
+            """
+            DELETE FROM specialist_public_media
+            WHERE profile_id = :profile_id
+            """
+        ),
+        {"profile_id": profile["id"]},
+    )
+    return [str(key) for key in keys if key]

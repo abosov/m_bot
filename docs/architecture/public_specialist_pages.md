@@ -128,3 +128,12 @@ Media storage
 - Для корректной работы `/{slug}` nginx не должен принудительно делать fallback на `/index.html` для всех неизвестных путей.
 - Минимальная схема: `try_files $uri $uri/ @backend_site` и делегирование в backend location `@backend_site`, где работает route resolver.
 - Reserved/system paths продолжают обслуживаться отдельными location/route и не перехватываются slug-роутом.
+
+
+## Specialist profile photo (hero)
+- Storage layout: `media/specialists/{specialist_id}/profile_photo.jpg`.
+- Only one актуальная hero-фотография хранится для профиля.
+- При повторной загрузке старая фотография удаляется.
+- Публичный профиль отдает только `profile.profile_photo_url` (без `file_key`).
+- При удалении специалиста связанный media-файл должен удаляться в cleanup lifecycle.
+- Future hooks: original / hero / thumbnail (в текущей версии используется только hero).

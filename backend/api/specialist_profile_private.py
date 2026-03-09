@@ -15,7 +15,13 @@ from backend.schemas.specialist_profile_private import (
 )
 import database
 from services import web_session
-from services.media_storage import remove_file_if_exists, save_upload_file_atomic
+from services.image_pipeline import process_specialist_profile_photo
+from services.media_storage import (
+    promote_staged_file,
+    remove_file_if_exists,
+    save_upload_file_atomic,
+    stage_bytes_temp,
+)
 from services.specialist_profile_private import (
     add_specialist_profile_document,
     list_specialist_profile_media,
@@ -127,27 +133,43 @@ async def upload_specialist_profile_photo(
     _assert_content_type(file, _ALLOWED_PHOTO_CONTENT_TYPES)
 
     try:
-        file_key, _safe_filename = await save_upload_file_atomic(
-            file,
-            uploads_root=Path(config.PROFILE_UPLOADS_DIR),
-            key_prefix=f"specialist/{specialist_id}/photo",
-            max_bytes=config.PROFILE_PHOTO_MAX_BYTES,
-        )
+        raw = await file.read(config.PROFILE_PHOTO_MAX_BYTES + 1)
+        await file.close()
+        if len(raw) > config.PROFILE_PHOTO_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="file_too_large")
+
+        normalized, _width, _height, _mime_type = process_specialist_profile_photo(raw)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    uploads_root = Path(config.PROFILE_UPLOADS_DIR)
+    file_key = f"media/specialists/{specialist_id}/profile_photo.jpg"
+    staged_key = stage_bytes_temp(
+        uploads_root=uploads_root,
+        key_prefix=f"media/specialists/{specialist_id}",
+        payload=normalized,
+        suffix=".jpg.tmp",
+    )
+
     old_keys: list[str] = []
-    async with database.async_session_factory() as session:
-        old_keys = await replace_specialist_profile_photo(
-            session,
-            specialist_id=specialist_id,
-            file_key=file_key,
-            title="Фото",
-        )
-        await session.commit()
+    try:
+        async with database.async_session_factory() as session:
+            old_keys = await replace_specialist_profile_photo(
+                session,
+                specialist_id=specialist_id,
+                file_key=file_key,
+                title="Фото",
+            )
+            await session.commit()
+    except Exception:
+        remove_file_if_exists(uploads_root=uploads_root, file_key=staged_key)
+        raise
+
+    promote_staged_file(uploads_root=uploads_root, staged_key=staged_key, final_key=file_key)
 
     for old_key in old_keys:
-        remove_file_if_exists(uploads_root=Path(config.PROFILE_UPLOADS_DIR), file_key=old_key)
+        if old_key != file_key:
+            remove_file_if_exists(uploads_root=uploads_root, file_key=old_key)
 
     return SpecialistProfileUploadResponse(ok=True)
 

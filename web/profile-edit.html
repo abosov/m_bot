@@ -89,6 +89,8 @@
       <div class="section">
         <h3>Фото</h3>
         <input id="photo-file" type="file" accept="image/jpeg,image/png,image/webp" />
+        <p class="public-hint">Рекомендуемый формат портрет 4:5. Если пропорции отличаются — изображение будет автоматически обрезано.</p>
+        <img id="photo-preview" class="hidden" alt="Предпросмотр фото" style="max-width:180px;max-height:220px;border-radius:8px;border:1px solid #e5e7eb;object-fit:cover;" />
         <div class="actions"><button id="upload-photo">Загрузить фото</button></div>
         <p id="status-photo" class="section-status"></p>
       </div>
@@ -158,6 +160,7 @@
           is_published: false,
         }
       };
+      let currentPhotoPreviewUrl = null;
 
       const fields = {
         first_name: document.getElementById('first_name'),
@@ -521,6 +524,32 @@
           .join('');
       }
 
+
+      function initPhotoPreview() {
+        const input = document.getElementById('photo-file');
+        const preview = document.getElementById('photo-preview');
+        if (!input || !preview) return;
+        input.addEventListener('change', () => {
+          const file = input.files && input.files[0];
+          if (!file) {
+            if (currentPhotoPreviewUrl) {
+              URL.revokeObjectURL(currentPhotoPreviewUrl);
+              currentPhotoPreviewUrl = null;
+            }
+            preview.classList.add('hidden');
+            preview.removeAttribute('src');
+            return;
+          }
+          if (currentPhotoPreviewUrl) {
+            URL.revokeObjectURL(currentPhotoPreviewUrl);
+          }
+          const objectUrl = URL.createObjectURL(file);
+          currentPhotoPreviewUrl = objectUrl;
+          preview.src = objectUrl;
+          preview.classList.remove('hidden');
+        });
+      }
+
       async function uploadPhoto() {
         if (state.model.secondary_sections_locked) {
           setStatus('status-photo', 'Сначала сохраните основную информацию, чтобы создать ссылку профиля.', 'error');
@@ -533,7 +562,7 @@
           return;
         }
         toggleButton('upload-photo', true);
-        setStatus('status-photo', '', null);
+        setStatus('status-photo', 'Загружаем...', null);
         try {
           const formData = new FormData();
           formData.append('file', file);
@@ -547,7 +576,16 @@
             return;
           }
           input.value = '';
-          setStatus('status-photo', 'Сохранено ✅', 'ok');
+          const preview = document.getElementById('photo-preview');
+          if (preview) {
+            preview.classList.add('hidden');
+            preview.removeAttribute('src');
+          }
+          if (currentPhotoPreviewUrl) {
+            URL.revokeObjectURL(currentPhotoPreviewUrl);
+            currentPhotoPreviewUrl = null;
+          }
+          setStatus('status-photo', 'Фото успешно загружено ✅', 'ok');
           showSaveToast();
           await refreshMediaList();
         } catch (_) {
@@ -649,6 +687,7 @@
           document.getElementById('save-reviews').addEventListener('click', () => saveBlock('save-reviews', 'status-reviews', {
             reviews: fields.reviews.value,
           }));
+          initPhotoPreview();
           document.getElementById('upload-photo').addEventListener('click', uploadPhoto);
           document.getElementById('upload-documents').addEventListener('click', uploadDocuments);
           document.getElementById('copy-public-link').addEventListener('click', copyPublicLink);

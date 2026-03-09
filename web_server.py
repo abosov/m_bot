@@ -1,6 +1,7 @@
 import json
 import asyncio
 import logging
+import mimetypes
 import os
 import re
 import fnmatch
@@ -21,7 +22,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from sqlalchemy import Text, cast, delete, func, select, update
+from sqlalchemy import Text, cast, delete, func, select, text, update
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -71,6 +72,7 @@ from services import heartbeat
 from services.telegram.bot_factory import close_personal_bot_cache
 from services.telegram.personal_dispatcher import process_update
 from services.build_info import get_build_info
+from services.media_storage import remove_file_if_exists
 from services.request_context import get_request_id, reset_request_id, set_request_id
 from services.alerting import close_alerting, notify_exception
 from services import admin_ui_session, web_connect, web_session
@@ -359,6 +361,7 @@ app.include_router(specialist_profile_private_router)
 if ASSETS_DIR.exists() and INDEX_FILE.exists():
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 
+
     SITE_PAGES = {
         "/": "index.html",
         "/features": "features.html",
@@ -569,6 +572,38 @@ else:
             "<p>Google Календарь подключён. Вернитесь в Telegram, чтобы продолжить настройку.</p>"
             '<p><a href="https://t.me/zumhelper_bot" target="_blank" rel="noopener noreferrer">Открыть Telegram</a></p>'
         )
+
+
+@app.get("/media/{file_key:path}")
+async def get_public_media(file_key: str):
+    normalized = str(file_key or "").lstrip("/")
+    if not normalized or ".." in normalized.split("/"):
+        raise HTTPException(status_code=404, detail="not_found")
+
+    async with async_session_factory() as session:
+        media_row = (
+            await session.execute(
+                select(SpecialistPublicMedia.file_key)
+                .where(
+                    SpecialistPublicMedia.media_type == "photo",
+                    SpecialistPublicMedia.file_key == normalized,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+    if media_row is None:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    uploads_root = Path(config.PROFILE_UPLOADS_DIR).resolve()
+    path = (uploads_root / normalized).resolve()
+    if uploads_root not in path.parents:
+        raise HTTPException(status_code=404, detail="not_found")
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="not_found")
+    guessed_type, _encoding = mimetypes.guess_type(path.name)
+    media_type = guessed_type if guessed_type in {"image/jpeg", "image/png", "image/webp"} else None
+    return FileResponse(path=path, media_type=media_type)
 
 READYZ_DB_TIMEOUT_SEC = 2.0
 READYZ_LOOP_TIMEOUT_SEC = 12.0
@@ -1503,6 +1538,7 @@ async def admin_ui_delete_test_specialist(specialist_id: str, request: Request):
         "specialist": 0,
     }
 
+    media_file_keys: list[str] = []
     async with async_session_factory() as session:
         async with session.begin():
             specialist = await session.get(Specialist, specialist_uuid)
@@ -1525,13 +1561,30 @@ async def admin_ui_delete_test_specialist(specialist_id: str, request: Request):
             )
             deleted_counts["clients"] = int(deleted_clients.rowcount or 0)
 
-            media_profile_subquery = select(SpecialistPublicProfile.id).where(
-                SpecialistPublicProfile.specialist_id == specialist_uuid
-            )
-            deleted_media = await session.execute(
-                delete(SpecialistPublicMedia).where(
-                    SpecialistPublicMedia.profile_id.in_(media_profile_subquery)
+            media_rows = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT m.file_key
+                        FROM specialist_public_media m
+                        JOIN specialist_public_profile p ON p.id = m.profile_id
+                        WHERE p.specialist_id = :sid
+                        """
+                    ),
+                    {"sid": str(specialist_uuid)},
                 )
+            ).scalars().all()
+            media_file_keys = [str(key) for key in media_rows if key]
+            deleted_media = await session.execute(
+                text(
+                    """
+                    DELETE FROM specialist_public_media
+                    WHERE profile_id IN (
+                      SELECT id FROM specialist_public_profile WHERE specialist_id = :sid
+                    )
+                    """
+                ),
+                {"sid": str(specialist_uuid)},
             )
             deleted_counts["media"] = int(deleted_media.rowcount or 0)
 
@@ -1547,6 +1600,9 @@ async def admin_ui_delete_test_specialist(specialist_id: str, request: Request):
 
             if deleted_counts["specialist"] == 0:
                 _raise_not_found()
+
+    for file_key in media_file_keys:
+        remove_file_if_exists(uploads_root=Path(config.PROFILE_UPLOADS_DIR), file_key=file_key)
 
     _schedule_storage_cleanup(
         {
