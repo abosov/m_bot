@@ -463,10 +463,14 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
             '</footer>'
         )
 
-    def _render_site_page(page: str) -> HTMLResponse:
+    def _render_site_page(page: str, *, include_marketing_chrome: bool = True) -> HTMLResponse:
         html = _site_file(page).read_text(encoding="utf-8")
-        html = html.replace("{{SITE_HEADER}}", _site_header_html(page))
-        html = html.replace("{{SITE_FOOTER}}", _site_footer_html(page))
+        if include_marketing_chrome:
+            html = html.replace("{{SITE_HEADER}}", _site_header_html(page))
+            html = html.replace("{{SITE_FOOTER}}", _site_footer_html(page))
+        else:
+            html = html.replace("{{SITE_HEADER}}", "")
+            html = html.replace("{{SITE_FOOTER}}", "")
         return HTMLResponse(content=html)
 
 
@@ -556,7 +560,7 @@ if ASSETS_DIR.exists() and INDEX_FILE.exists():
 
     @app.get("/profile/edit")
     async def site_profile_edit() -> HTMLResponse:
-        return _render_site_page("/profile/edit")
+        return _render_site_page("/profile/edit", include_marketing_chrome=False)
 
 else:
     logger.warning(
