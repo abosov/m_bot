@@ -3745,7 +3745,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           el.appendChild(listEl);
         };
 
-        const renderServices = (blocks, bookingHref) => {
+        const renderServices = (blocks) => {
           if (!servicesEl) {
             return;
           }
@@ -3801,48 +3801,51 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           }
 
           const listEl = document.createElement('ul');
-          listEl.className = 'services-grid';
+          listEl.className = 'specialist-list';
+
+          const buildServiceLabel = (item) => {
+            const serviceName = String(item.name || '').trim();
+            const serviceDescription = String(item.description || '').trim();
+
+            if (serviceName && serviceDescription) {
+              return `${serviceName} — ${serviceDescription}`;
+            }
+
+            return serviceName || serviceDescription;
+          };
 
           services.forEach((item) => {
-            const card = document.createElement('li');
-            card.className = 'service-card';
+            const serviceLabel = buildServiceLabel(item);
 
-            if (item.name) {
-              const title = document.createElement('p');
-              title.className = 'service-title';
-              title.textContent = item.name;
-              card.appendChild(title);
+            if (!serviceLabel) {
+              return;
             }
 
-            if (item.price) {
-              const price = document.createElement('p');
-              price.className = 'service-price';
-              price.textContent = item.price;
-              card.appendChild(price);
+            const servicePrice = String(item.price || '').trim();
+            const row = document.createElement('li');
+            row.className = 'specialist-list__item specialist-list__item--service';
+
+            const title = document.createElement('span');
+            title.textContent = serviceLabel;
+            row.appendChild(title);
+
+            if (servicePrice) {
+              const price = document.createElement('span');
+              price.className = 'specialist-service__price';
+              price.textContent = servicePrice;
+              row.appendChild(price);
             }
 
-            if (item.description) {
-              const description = document.createElement('p');
-              description.className = 'service-description';
-              description.textContent = item.description;
-              card.appendChild(description);
-            }
-
-            const ctaWrap = document.createElement('div');
-            ctaWrap.className = 'service-cta';
-            const ctaLink = document.createElement('a');
-            ctaLink.className = 'specialist-button specialist-button--primary';
-            ctaLink.textContent = 'Записаться';
-            ctaLink.href = bookingHref || '#booking';
-            if (bookingHref) {
-              ctaLink.target = '_blank';
-              ctaLink.rel = 'noopener noreferrer';
-            }
-            ctaWrap.appendChild(ctaLink);
-            card.appendChild(ctaWrap);
-
-            listEl.appendChild(card);
+            listEl.appendChild(row);
           });
+
+          if (!listEl.children.length) {
+            const section = servicesEl.closest('section');
+            if (section) {
+              section.remove();
+            }
+            return;
+          }
 
           servicesEl.innerHTML = '';
           servicesEl.appendChild(listEl);
@@ -4269,7 +4272,7 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
               }
             }
 
-            renderServices(blocksSource, bookingHref);
+            renderServices(blocksSource);
 
             if (contactsEl) {
               const contacts = profile && profile.contacts ? profile.contacts : {};
