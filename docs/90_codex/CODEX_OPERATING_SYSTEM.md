@@ -6,6 +6,13 @@ It is the single source of truth for AI-assisted development workflow, architect
 
 All future Codex prompts and resulting changes must follow this document.
 
+## Related Codex Context Docs
+- `docs/90_codex/PROJECT_CONTEXT.md`
+- `docs/90_codex/REPOSITORY_MAP.md`
+- `docs/90_codex/PROJECT_CONTEXT_UPDATE_PROTOCOL.md`
+
+These documents provide persistent repository context for Codex prompts and should be read before implementing non-trivial user stories.
+
 ---
 
 ## Core Principles
