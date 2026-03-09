@@ -39,6 +39,7 @@ async def _build_test_app(tmp_path: Path, monkeypatch):
                 """
                 CREATE TABLE specialist_public_profile (
                     id TEXT PRIMARY KEY,
+                    specialist_id TEXT,
                     public_slug TEXT NOT NULL UNIQUE,
                     display_name TEXT NOT NULL,
                     specialization TEXT NOT NULL,
@@ -92,6 +93,7 @@ async def _build_test_app(tmp_path: Path, monkeypatch):
 
 async def _create_public_profile(database, *, slug: str, published: bool, with_related: bool):
     profile_id = str(uuid.uuid4())
+    specialist_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
 
     async with database.async_session_factory() as session:
@@ -99,11 +101,11 @@ async def _create_public_profile(database, *, slug: str, published: bool, with_r
             text(
                 """
                 INSERT INTO specialist_public_profile (
-                    id, public_slug, display_name, specialization, hero_quote,
+                    id, specialist_id, public_slug, display_name, specialization, hero_quote,
                     contact_telegram, contact_whatsapp, contact_phone, contact_email,
                     client_bot_username, is_published, created_at, updated_at
                 ) VALUES (
-                    :id, :public_slug, :display_name, :specialization, :hero_quote,
+                    :id, :specialist_id, :public_slug, :display_name, :specialization, :hero_quote,
                     :contact_telegram, :contact_whatsapp, :contact_phone, :contact_email,
                     :client_bot_username, :is_published, :created_at, :updated_at
                 )
@@ -111,6 +113,7 @@ async def _create_public_profile(database, *, slug: str, published: bool, with_r
             ),
             {
                 "id": profile_id,
+                "specialist_id": specialist_id,
                 "public_slug": slug,
                 "display_name": "Евгения Царёва",
                 "specialization": "Психолог, ЭФТ",
@@ -210,6 +213,7 @@ async def test_public_specialist_published_profile_returns_public_response(tmp_p
 
     assert data["profile"]["public_slug"] == "TsarevaE_12"
     assert data["profile"]["contacts"]["telegram"] == "evgenia_tsareva"
+    assert data["profile"]["profile_photo_url"] == "/media/private/demo/tsareva-photo.jpg"
 
     assert len(data["blocks"]) == 3
     assert [block["block_type"] for block in data["blocks"]] == ["about", "education", "services"]
@@ -220,3 +224,69 @@ async def test_public_specialist_published_profile_returns_public_response(tmp_p
     assert "file_key" not in data["media"][0]
 
     assert data["reviews"] == []
+
+
+@pytest.mark.asyncio
+async def test_public_specialist_prefers_canonical_hero_photo_key(tmp_path, monkeypatch):
+    database, app = await _build_test_app(tmp_path, monkeypatch)
+    profile_id = str(uuid.uuid4())
+    specialist_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+
+    async with database.async_session_factory() as session:
+        await session.execute(
+            text(
+                """
+                INSERT INTO specialist_public_profile (
+                    id, specialist_id, public_slug, display_name, specialization, hero_quote,
+                    contact_telegram, contact_whatsapp, contact_phone, contact_email,
+                    client_bot_username, is_published, created_at, updated_at
+                ) VALUES (
+                    :id, :specialist_id, :public_slug, :display_name, :specialization, :hero_quote,
+                    :contact_telegram, :contact_whatsapp, :contact_phone, :contact_email,
+                    :client_bot_username, :is_published, :created_at, :updated_at
+                )
+                """
+            ),
+            {
+                "id": profile_id,
+                "specialist_id": specialist_id,
+                "public_slug": "TsarevaE_12",
+                "display_name": "Евгения Царёва",
+                "specialization": "Психолог",
+                "hero_quote": "Можно по-другому",
+                "contact_telegram": None,
+                "contact_whatsapp": None,
+                "contact_phone": None,
+                "contact_email": None,
+                "client_bot_username": "zumbot_client_bot",
+                "is_published": True,
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO specialist_public_media (id, profile_id, media_type, title, file_key, sort_order, created_at)
+                VALUES
+                    (:id1, :profile_id, 'photo', 'Legacy', :legacy_key, 5, :created_at),
+                    (:id2, :profile_id, 'photo', 'Hero', :hero_key, 10, :created_at)
+                """
+            ),
+            {
+                "id1": str(uuid.uuid4()),
+                "id2": str(uuid.uuid4()),
+                "profile_id": profile_id,
+                "legacy_key": "specialist/legacy/photo.png",
+                "hero_key": f"media/specialists/{specialist_id}/profile_photo.jpg",
+                "created_at": now,
+            },
+        )
+        await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/public/specialists/TsarevaE_12")
+
+    assert response.status_code == 200
+    assert response.json()["profile"]["profile_photo_url"] == f"/media/media/specialists/{specialist_id}/profile_photo.jpg"

@@ -39,6 +39,7 @@ type PublicSpecialistProfile = {
   contacts: PublicSpecialistContacts;
   client_bot_username: string;
   photo_url?: string | null;
+  profile_photo_url?: string | null;
 };
 
 type HeroContactProps = {
@@ -231,7 +232,7 @@ export function SpecialistProfilePage({ slug, loader = loadSpecialistProfilePage
       <Hero
         displayName={displayName}
         specialization={specialization}
-        photoUrl={payload?.profile.photo_url as string | undefined}
+        photoUrl={(payload?.profile.profile_photo_url ?? payload?.profile.photo_url) as string | undefined}
         heroQuote={payload?.profile.hero_quote as string | undefined}
         clientBotUsername={clientBotUsername}
         specialistUuid={specialistUuid}

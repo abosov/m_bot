@@ -22,6 +22,7 @@ async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | No
                     """
                     SELECT
                         id,
+                        specialist_id,
                         public_slug,
                         display_name,
                         specialization,
@@ -63,7 +64,7 @@ async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | No
             await session.execute(
                 text(
                     """
-                    SELECT media_type, title, sort_order
+                    SELECT media_type, title, sort_order, file_key
                     FROM specialist_public_media
                     WHERE profile_id = :profile_id
                     ORDER BY sort_order ASC, created_at ASC
@@ -73,6 +74,17 @@ async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | No
             )
         ).mappings().all()
 
+        canonical_hero_key = f"media/specialists/{profile_row['specialist_id']}/profile_photo.jpg"
+        canonical_photo_key = next(
+            (row["file_key"] for row in media_rows if row["media_type"] == "photo" and row["file_key"] == canonical_hero_key),
+            None,
+        )
+        fallback_photo_key = next(
+            (row["file_key"] for row in media_rows if row["media_type"] == "photo" and row["file_key"]),
+            None,
+        )
+        selected_photo_key = canonical_photo_key or fallback_photo_key
+
         return {
             "profile": {
                 "id": str(profile_row["id"]),
@@ -80,6 +92,7 @@ async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | No
                 "display_name": profile_row["display_name"],
                 "specialization": profile_row["specialization"],
                 "hero_quote": profile_row["hero_quote"],
+                "profile_photo_url": (f"/media/{selected_photo_key}" if selected_photo_key else None),
                 "contacts": {
                     "telegram": profile_row["contact_telegram"],
                     "whatsapp": profile_row["contact_whatsapp"],

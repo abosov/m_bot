@@ -18,6 +18,7 @@ class PublicSpecialistProfile(BaseModel):
     display_name: str
     specialization: str
     hero_quote: str | None = None
+    profile_photo_url: str | None = None
     contacts: PublicSpecialistContacts
     client_bot_username: str
 

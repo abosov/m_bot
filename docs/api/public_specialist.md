@@ -78,5 +78,9 @@ Public API MUST NOT return:
 - OAuth tokens,
 - internal specialist/private fields not in public schema.
 
-## TODO (next task)
-Media delivery must be implemented via controlled backend delivery (e.g., signed URLs or validated download endpoint).
+`profile.profile_photo_url` returns public URL for specialist hero photo only; internal `file_key` is never returned.
+
+Backend media delivery policy for this URL:
+- only `media_type=photo` rows are publicly served;
+- `media_type=document` keys are always rejected (`404 not_found`);
+- old photo keys remain backward-compatible in delivery (no mass migration required).
