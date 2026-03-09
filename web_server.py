@@ -4261,16 +4261,22 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
           window.addEventListener('resize', scheduleUpdate);
         };
 
+        const showHeroPhoto = () => {
+          heroPhotoImageEl.classList.remove('specialist-hidden');
+          heroPhotoFallbackEl.classList.add('specialist-hidden');
+        };
+
+        const showHeroFallback = () => {
+          heroPhotoImageEl.classList.add('specialist-hidden');
+          heroPhotoFallbackEl.classList.remove('specialist-hidden');
+          heroPhotoImageEl.removeAttribute('src');
+        };
+
         const renderHeroPhoto = (profile) => {
           const rawPhotoUrl = String(profile.profile_photo_url || profile.photo_url || '').trim();
-          const hidePhotoShowFallback = () => {
-            heroPhotoImageEl.classList.add('specialist-hidden');
-            heroPhotoFallbackEl.classList.remove('specialist-hidden');
-            heroPhotoImageEl.removeAttribute('src');
-          };
 
           if (!rawPhotoUrl) {
-            hidePhotoShowFallback();
+            showHeroFallback();
             return;
           }
 
@@ -4278,20 +4284,37 @@ async def site_public_specialist_slug(public_slug: str) -> HTMLResponse:
             ? rawPhotoUrl
             : `${apiBaseUrl.replace(/\/$/, '')}${rawPhotoUrl.startsWith('/') ? rawPhotoUrl : `/${rawPhotoUrl}`}`;
 
-          heroPhotoImageEl.classList.add('specialist-hidden');
-          heroPhotoFallbackEl.classList.remove('specialist-hidden');
-          heroPhotoImageEl.removeAttribute('src');
+          if (heroPhotoImageEl.__onHeroPhotoLoad) {
+            heroPhotoImageEl.removeEventListener('load', heroPhotoImageEl.__onHeroPhotoLoad);
+          }
+          if (heroPhotoImageEl.__onHeroPhotoError) {
+            heroPhotoImageEl.removeEventListener('error', heroPhotoImageEl.__onHeroPhotoError);
+          }
 
-          heroPhotoImageEl.addEventListener('load', () => {
-            heroPhotoImageEl.classList.remove('specialist-hidden');
-            heroPhotoFallbackEl.classList.add('specialist-hidden');
-          }, { once: true });
+          showHeroFallback();
 
-          heroPhotoImageEl.addEventListener('error', () => {
-            hidePhotoShowFallback();
-          }, { once: true });
+          const onHeroPhotoLoad = () => {
+            showHeroPhoto();
+          };
+          const onHeroPhotoError = () => {
+            showHeroFallback();
+          };
+
+          heroPhotoImageEl.__onHeroPhotoLoad = onHeroPhotoLoad;
+          heroPhotoImageEl.__onHeroPhotoError = onHeroPhotoError;
+
+          heroPhotoImageEl.addEventListener('load', onHeroPhotoLoad, { once: true });
+          heroPhotoImageEl.addEventListener('error', onHeroPhotoError, { once: true });
 
           heroPhotoImageEl.src = resolvedPhotoUrl;
+
+          if (heroPhotoImageEl.complete) {
+            if (heroPhotoImageEl.naturalWidth > 0) {
+              showHeroPhoto();
+            } else {
+              showHeroFallback();
+            }
+          }
         };
 
         const bootstrap = async () => {

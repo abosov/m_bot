@@ -14,6 +14,26 @@ def _iso(value: Any) -> str | None:
     return None
 
 
+def _normalize_media_key(file_key: Any) -> str | None:
+    if not isinstance(file_key, str):
+        return None
+    normalized = file_key.strip().lstrip("/")
+    if not normalized:
+        return None
+    if normalized.startswith("media/media/"):
+        normalized = normalized[len("media/") :]
+    return normalized
+
+
+def _build_public_media_url(file_key: Any) -> str | None:
+    normalized = _normalize_media_key(file_key)
+    if not normalized:
+        return None
+    if normalized.startswith("media/"):
+        return f"/{normalized}"
+    return f"/media/{normalized}"
+
+
 async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | None:
     async with async_session_factory() as session:
         profile_row = (
@@ -76,7 +96,11 @@ async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | No
 
         canonical_hero_key = f"media/specialists/{profile_row['specialist_id']}/profile_photo.jpg"
         canonical_photo_key = next(
-            (row["file_key"] for row in media_rows if row["media_type"] == "photo" and row["file_key"] == canonical_hero_key),
+            (
+                row["file_key"]
+                for row in media_rows
+                if row["media_type"] == "photo" and _normalize_media_key(row["file_key"]) == canonical_hero_key
+            ),
             None,
         )
         fallback_photo_key = next(
@@ -92,7 +116,7 @@ async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | No
                 "display_name": profile_row["display_name"],
                 "specialization": profile_row["specialization"],
                 "hero_quote": profile_row["hero_quote"],
-                "profile_photo_url": (f"/media/{selected_photo_key}" if selected_photo_key else None),
+                "profile_photo_url": _build_public_media_url(selected_photo_key),
                 "contacts": {
                     "telegram": profile_row["contact_telegram"],
                     "whatsapp": profile_row["contact_whatsapp"],

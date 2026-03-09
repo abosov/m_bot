@@ -207,13 +207,19 @@ def test_public_slug_route_hero_places_photo_left_and_quote_right():
     assert "const rawPhotoUrl = String(profile.profile_photo_url || profile.photo_url || '').trim();" in response.text
     assert r"const resolvedPhotoUrl = /^https?:\/\//i.test(rawPhotoUrl)" in response.text
     assert r"`${apiBaseUrl.replace(/\/$/, '')}${rawPhotoUrl.startsWith('/') ? rawPhotoUrl : `/${rawPhotoUrl}`}`" in response.text
-    assert "heroPhotoImageEl.addEventListener('load', () => {" in response.text
-    assert "heroPhotoImageEl.addEventListener('error', () => {" in response.text
+    assert "const showHeroPhoto = () => {" in response.text
+    assert "const showHeroFallback = () => {" in response.text
+    assert "heroPhotoImageEl.addEventListener('load', onHeroPhotoLoad, { once: true });" in response.text
+    assert "heroPhotoImageEl.addEventListener('error', onHeroPhotoError, { once: true });" in response.text
     assert "heroPhotoImageEl.classList.add('specialist-hidden');" in response.text
     assert "heroPhotoFallbackEl.classList.remove('specialist-hidden');" in response.text
     assert "heroPhotoImageEl.classList.remove('specialist-hidden');" in response.text
     assert "heroPhotoFallbackEl.classList.add('specialist-hidden');" in response.text
     assert "heroPhotoImageEl.removeAttribute('src');" in response.text
+    assert "if (heroPhotoImageEl.complete) {" in response.text
+    assert "if (heroPhotoImageEl.naturalWidth > 0) {" in response.text
+    assert "heroPhotoImageEl.removeEventListener('load', heroPhotoImageEl.__onHeroPhotoLoad);" in response.text
+    assert "heroPhotoImageEl.removeEventListener('error', heroPhotoImageEl.__onHeroPhotoError);" in response.text
     assert "renderHeroPhoto(profile);" in response.text
 
 
