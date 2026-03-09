@@ -298,6 +298,11 @@ def test_public_media_endpoint_serves_old_and_new_photo_keys_and_rejects_documen
     assert old_response.status_code == 200
     assert old_response.headers["content-type"].startswith("image/png")
 
+    canonical_photo_path = f"specialists/{specialist_id}/profile_photo.jpg"
+    canonical_response = client.get(f"/media/{canonical_photo_path}")
+    assert canonical_response.status_code == 200
+    assert canonical_response.headers["content-type"].startswith("image/jpeg")
+
     new_response = client.get(f"/media/{new_key}")
     assert new_response.status_code == 200
     assert new_response.headers["content-type"].startswith("image/jpeg")

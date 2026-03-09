@@ -584,13 +584,17 @@ async def get_public_media(file_key: str):
     if not normalized or ".." in normalized.split("/"):
         raise HTTPException(status_code=404, detail="not_found")
 
+    candidate_keys = [normalized]
+    if not normalized.startswith("media/"):
+        candidate_keys.append(f"media/{normalized}")
+
     async with async_session_factory() as session:
         media_row = (
             await session.execute(
                 select(SpecialistPublicMedia.file_key)
                 .where(
                     SpecialistPublicMedia.media_type == "photo",
-                    SpecialistPublicMedia.file_key == normalized,
+                    SpecialistPublicMedia.file_key.in_(candidate_keys),
                 )
                 .limit(1)
             )
@@ -600,7 +604,7 @@ async def get_public_media(file_key: str):
         raise HTTPException(status_code=404, detail="not_found")
 
     uploads_root = Path(config.PROFILE_UPLOADS_DIR).resolve()
-    path = (uploads_root / normalized).resolve()
+    path = (uploads_root / str(media_row)).resolve()
     if uploads_root not in path.parents:
         raise HTTPException(status_code=404, detail="not_found")
     if not path.is_file():
