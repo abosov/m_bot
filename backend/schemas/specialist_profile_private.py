@@ -55,6 +55,7 @@ class SpecialistProfilePrivateUpdateRequest(BaseModel):
 class SpecialistProfileMediaItemResponse(BaseModel):
     id: str
     media_type: str
+    file_key: str | None = None
     title: str
     sort_order: int
     created_at: datetime

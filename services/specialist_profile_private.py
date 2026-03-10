@@ -538,7 +538,7 @@ async def list_specialist_profile_media(session: AsyncSession, *, specialist_id)
         await session.execute(
             text(
                 """
-                SELECT id, media_type, title, sort_order, created_at
+                SELECT id, media_type, file_key, title, sort_order, created_at
                 FROM specialist_public_media
                 WHERE profile_id = :profile_id
                 ORDER BY sort_order ASC, created_at ASC
@@ -551,12 +551,43 @@ async def list_specialist_profile_media(session: AsyncSession, *, specialist_id)
         {
             "id": str(row["id"]),
             "media_type": str(row["media_type"]),
+            "file_key": str(row["file_key"] or "") if str(row["media_type"]) == "photo" else None,
             "title": str(row["title"] or ""),
             "sort_order": int(row["sort_order"]),
             "created_at": row["created_at"],
         }
         for row in rows
     ]
+
+
+async def delete_specialist_profile_photo(session: AsyncSession, *, specialist_id) -> list[str]:
+    profile = await get_or_create_public_profile_for_specialist(session, specialist_id)
+    keys = (
+        await session.execute(
+            text(
+                """
+                SELECT file_key
+                FROM specialist_public_media
+                WHERE profile_id = :profile_id
+                  AND media_type = 'photo'
+                """
+            ),
+            {"profile_id": profile["id"]},
+        )
+    ).scalars().all()
+
+    await session.execute(
+        text(
+            """
+            DELETE FROM specialist_public_media
+            WHERE profile_id = :profile_id
+              AND media_type = 'photo'
+            """
+        ),
+        {"profile_id": profile["id"]},
+    )
+
+    return [str(key) for key in keys if key]
 
 
 async def list_specialist_media_file_keys(session: AsyncSession, *, specialist_id) -> list[str]:

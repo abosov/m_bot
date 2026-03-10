@@ -101,6 +101,24 @@ Response:
 { "ok": true }
 ```
 
+
+### DELETE `/api/specialist/profile/photo`
+Deletes current specialist profile photo(s).
+
+Rules:
+- removes only `media_type=photo` rows for current specialist profile
+- does not touch `media_type=document` rows
+- endpoint is idempotent: if no photo exists, returns success
+- after DB commit backend removes corresponding file(s) from storage
+
+Response:
+```json
+{ "ok": true }
+```
+
+Errors:
+- `401 unauthorized` — missing/invalid web session.
+
 ### POST `/api/specialist/profile/documents`
 Multipart upload for document (`file`) with optional `title` form field.
 
@@ -125,6 +143,7 @@ Response example:
     {
       "id": "uuid",
       "media_type": "photo",
+      "file_key": "media/specialists/<specialist_id>/profile_photo.jpg",
       "title": "Фото",
       "sort_order": 10,
       "created_at": "2026-03-10T10:00:00"
@@ -134,8 +153,9 @@ Response example:
 ```
 
 Important:
-- `file_key` is intentionally not returned.
-- media files are private and must not be exposed via public API.
+- `file_key` is returned only for `media_type=photo` to support current thumbnail rendering in private editor.
+- For `media_type=document`, `file_key` is always `null` (raw document storage keys are not exposed).
+- Media files remain private and must not be exposed via public specialist API.
 
 ## Name fields source of truth
 `first_name`, `middle_name`, `last_name` in `specialist_public_profile` are source of truth for private edit API.

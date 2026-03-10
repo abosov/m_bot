@@ -452,6 +452,8 @@ def test_profile_edit_page_contains_auth_status_and_working_form_sections():
     assert "Услуги и цены" in response.text
     assert "Отзывы" in response.text
     assert "Загрузить фото" in response.text
+    assert 'id="photo-thumb-wrap"' in response.text
+    assert 'id="delete-photo"' in response.text
     assert "Загрузить документы" in response.text
     assert response.text.index("Основное") < response.text.index("Фото") < response.text.index("Цитата") < response.text.index("О себе") < response.text.index("Образование") < response.text.index("Документы") < response.text.index("Услуги и цены") < response.text.index("Отзывы")
 
@@ -486,6 +488,11 @@ def test_profile_edit_quote_is_secondary_block_and_saved_separately():
 
     assert response.status_code == 200
     assert "'save-quote', 'save-about', 'save-education', 'save-services', 'save-reviews', 'upload-photo', 'upload-documents'" in response.text
+    assert "document.getElementById('delete-photo').addEventListener('click', deletePhoto);" in response.text
+    assert "apiFetch('/api/specialist/profile/photo', { method: 'DELETE' })" in response.text
+    assert "if (currentStoredPhotoUrl) {" in response.text
+    assert "thumbWrap.classList.add('hidden');" in response.text
+    assert "thumb.removeAttribute('src');" in response.text
     assert "document.getElementById('save-quote').addEventListener('click'" in response.text
     assert "saveBlock('save-quote', 'status-quote', {" in response.text
     assert "hero_quote: fields.hero_quote.value" in response.text

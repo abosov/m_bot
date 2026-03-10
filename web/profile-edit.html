@@ -33,6 +33,10 @@
     button[disabled] { opacity: .6; cursor: not-allowed; }
     .media-list { margin: 8px 0 0; padding-left: 18px; color: #334155; }
     .media-list li { margin-bottom: 4px; }
+
+    .photo-thumb-wrap { position: relative; width: 180px; }
+    .photo-thumb { width: 180px; height: 220px; border-radius: 8px; border: 1px solid #e5e7eb; object-fit: cover; display: block; }
+    .photo-remove { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; padding: 0; border-radius: 999px; background: rgba(15, 23, 42, 0.75); color: #fff; font-size: 18px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
     .public-status { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; }
     .public-status.draft { background: #e5e7eb; color: #374151; }
     .public-status.published { background: #dcfce7; color: #166534; }
@@ -90,6 +94,10 @@
         <h3>Фото</h3>
         <input id="photo-file" type="file" accept="image/jpeg,image/png,image/webp" />
         <p class="public-hint">Рекомендуемый формат портрет 4:5. Если пропорции отличаются — изображение будет автоматически обрезано.</p>
+        <div id="photo-thumb-wrap" class="photo-thumb-wrap hidden">
+          <img id="photo-thumb" class="photo-thumb" alt="Текущее фото профиля" />
+          <button id="delete-photo" class="photo-remove" type="button" aria-label="Удалить фото профиля" title="Удалить фото">×</button>
+        </div>
         <img id="photo-preview" class="hidden" alt="Предпросмотр фото" style="max-width:180px;max-height:220px;border-radius:8px;border:1px solid #e5e7eb;object-fit:cover;" />
         <div class="actions"><button id="upload-photo">Загрузить фото</button></div>
         <p id="status-photo" class="section-status"></p>
@@ -161,6 +169,7 @@
         }
       };
       let currentPhotoPreviewUrl = null;
+      let currentStoredPhotoUrl = null;
 
       const fields = {
         first_name: document.getElementById('first_name'),
@@ -509,11 +518,54 @@
 
       async function refreshMediaList() {
         const list = document.getElementById('documents-list');
+        const thumbWrap = document.getElementById('photo-thumb-wrap');
+        const thumb = document.getElementById('photo-thumb');
         const { res, data } = await apiFetch('/api/specialist/profile/media', { method: 'GET' });
         if (!res.ok || !data || !Array.isArray(data.items)) {
+          if (currentStoredPhotoUrl) {
+            URL.revokeObjectURL(currentStoredPhotoUrl);
+            currentStoredPhotoUrl = null;
+          }
+          if (thumbWrap && thumb) {
+            thumbWrap.classList.add('hidden');
+            thumb.removeAttribute('src');
+          }
           list.innerHTML = '<li>Не удалось загрузить список файлов</li>';
           return;
         }
+
+        const photoItem = data.items.find((item) => item.media_type === 'photo' && item.file_key);
+        if (thumbWrap && thumb) {
+          if (photoItem) {
+            if (currentStoredPhotoUrl) {
+              URL.revokeObjectURL(currentStoredPhotoUrl);
+              currentStoredPhotoUrl = null;
+            }
+            try {
+              const response = await fetch(`/media/${encodeURIComponent(photoItem.file_key)}`);
+              if (response.ok) {
+                const blob = await response.blob();
+                currentStoredPhotoUrl = URL.createObjectURL(blob);
+                thumb.src = currentStoredPhotoUrl;
+                thumbWrap.classList.remove('hidden');
+              } else {
+                thumbWrap.classList.add('hidden');
+                thumb.removeAttribute('src');
+              }
+            } catch (_) {
+              thumbWrap.classList.add('hidden');
+              thumb.removeAttribute('src');
+            }
+          } else {
+            if (currentStoredPhotoUrl) {
+              URL.revokeObjectURL(currentStoredPhotoUrl);
+              currentStoredPhotoUrl = null;
+            }
+            thumbWrap.classList.add('hidden');
+            thumb.removeAttribute('src');
+          }
+        }
+
         const docs = data.items.filter((item) => item.media_type === 'document');
         if (!docs.length) {
           list.innerHTML = '<li>Документы ещё не загружены</li>';
@@ -523,6 +575,26 @@
           .map((item) => `<li>${item.title || 'Документ'} · порядок: ${item.sort_order}</li>`)
           .join('');
       }
+
+      async function deletePhoto() {
+        toggleButton('delete-photo', true);
+        setStatus('status-photo', 'Удаляем...', null);
+        try {
+          const { res, data } = await apiFetch('/api/specialist/profile/photo', { method: 'DELETE' });
+          if (!res.ok) {
+            const msg = data && data.detail ? String(data.detail) : 'Не удалось удалить фото';
+            setStatus('status-photo', `Ошибка: ${msg}`, 'error');
+            return;
+          }
+          setStatus('status-photo', 'Фото удалено ✅', 'ok');
+          await refreshMediaList();
+        } catch (_) {
+          setStatus('status-photo', 'Ошибка сети, попробуйте снова', 'error');
+        } finally {
+          toggleButton('delete-photo', false);
+        }
+      }
+
 
 
       function initPhotoPreview() {
@@ -689,6 +761,7 @@
           }));
           initPhotoPreview();
           document.getElementById('upload-photo').addEventListener('click', uploadPhoto);
+          document.getElementById('delete-photo').addEventListener('click', deletePhoto);
           document.getElementById('upload-documents').addEventListener('click', uploadDocuments);
           document.getElementById('copy-public-link').addEventListener('click', copyPublicLink);
           document.getElementById('toggle-publish').addEventListener('click', togglePublish);
