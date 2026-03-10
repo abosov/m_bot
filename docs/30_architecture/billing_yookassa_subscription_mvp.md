@@ -76,6 +76,14 @@ MVP uses manual monthly renewal only. A specialist pays each period by starting 
 
 ## Domain Model
 
+Implementation artifact (US-PAY-1): `scripts/migrations/20260316_add_billing_domain_model.sql`.
+
+### Source-of-truth boundary vs legacy billing artifacts
+- `billing_tariffs`, `billing_subscriptions`, `billing_payments`, `billing_webhook_events`, and `billing_access_log` are the source-of-truth foundation for YooKassa MVP lifecycle stories.
+- Existing `billing_purchase` and `specialist_profile.tariff_*` fields are legacy/pre-existing billing artifacts.
+- Legacy artifacts are not the target source of truth for YooKassa MVP lifecycle state transitions.
+- Runtime migration off the legacy purchase/profile flow is deferred to follow-up stories (US-PAY-2+), not US-PAY-1.
+
 ### `billing_tariffs`
 Purpose: catalog of billable plans.
 Key fields (logical):
@@ -111,7 +119,7 @@ Key fields:
 - `subscription_id` (nullable for first payment)
 - `provider` (`yookassa`)
 - `provider_payment_id`
-- `idempotence_key`
+- `provider_idempotence_key` (logical idempotence key persisted as provider-scoped key)
 - `amount_minor`
 - `currency`
 - `status` (`new|pending|waiting_for_capture|succeeded|canceled|refunded|error`)
@@ -172,6 +180,7 @@ Subscription transitions:
 
 ## Idempotency Rules
 - Outbound payment creation uses deterministic idempotence key per payment intent.
+- Naming note: architecture term `idempotence_key` maps to persistence column `provider_idempotence_key`.
 - Webhook ingestion deduplicates by provider event identity (or stable payload hash fallback).
 - Subscription update command is idempotent: same succeeded payment cannot extend period more than once.
 - Replayed webhook updates processing metadata but not business result.

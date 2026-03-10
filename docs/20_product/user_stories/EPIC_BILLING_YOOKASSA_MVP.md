@@ -58,7 +58,10 @@ Enable specialists to purchase and renew monthly subscriptions through YooKassa 
 - **Non-goals:** Provider integration or UI delivery.
 - **Dependencies:** US-PAY-0 architecture decisions.
 - **Acceptance notes:** Schema aligns with canonical status sets, one-active-subscription invariant, and idempotency strategy.
+- **Naming note:** logical idempotence key is persisted in schema as `provider_idempotence_key`.
 - **Implementation order:** 1.
+- **Schema source of truth artifact:** `scripts/migrations/20260316_add_billing_domain_model.sql`.
+- **Legacy boundary:** `billing_purchase` + `specialist_profile.tariff_*` remain legacy artifacts and are not source of truth for YooKassa MVP lifecycle; runtime migration is deferred to follow-up stories.
 
 ## US-PAY-2 YooKassa client and payment creation service
 - **Manual actions:** YooKassa cabinet required.
