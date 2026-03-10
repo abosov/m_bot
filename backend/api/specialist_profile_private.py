@@ -28,6 +28,7 @@ from services.specialist_profile_private import (
     read_specialist_profile_draft,
     publish_specialist_profile,
     replace_specialist_profile_photo,
+    delete_specialist_profile_photo,
     unpublish_specialist_profile,
     update_specialist_profile_draft,
 )
@@ -173,6 +174,22 @@ async def upload_specialist_profile_photo(
 
     return SpecialistProfileUploadResponse(ok=True)
 
+
+@router.delete("/photo", response_model=SpecialistProfileUploadResponse)
+async def delete_specialist_profile_photo_endpoint(
+    verified_session: tuple[UUID, int] = Depends(require_web_auth_session),
+) -> SpecialistProfileUploadResponse:
+    specialist_id, _tg_user_id = verified_session
+    uploads_root = Path(config.PROFILE_UPLOADS_DIR)
+
+    async with database.async_session_factory() as session:
+        old_keys = await delete_specialist_profile_photo(session, specialist_id=specialist_id)
+        await session.commit()
+
+    for old_key in old_keys:
+        remove_file_if_exists(uploads_root=uploads_root, file_key=old_key)
+
+    return SpecialistProfileUploadResponse(ok=True)
 
 @router.post("/documents", response_model=SpecialistProfileUploadResponse)
 async def upload_specialist_profile_document(

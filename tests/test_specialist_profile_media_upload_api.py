@@ -112,6 +112,7 @@ def test_upload_photo_replace_logic_keeps_single_photo(tmp_path, monkeypatch):
     photo_items = [item for item in items if item["media_type"] == "photo"]
     assert len(photo_items) == 1
     assert photo_items[0]["title"] == "Фото"
+    assert photo_items[0]["file_key"] == f"media/specialists/{specialist_id}/profile_photo.jpg"
 
     async def _assert_db_one_photo():
         async with database.async_session_factory() as session:
@@ -155,6 +156,7 @@ def test_upload_document_adds_media_record(tmp_path, monkeypatch):
     docs = [item for item in media_response.json()["items"] if item["media_type"] == "document"]
     assert len(docs) == 1
     assert docs[0]["title"] == "Сертификат"
+    assert docs[0]["file_key"] is None
 
 
 def test_upload_photo_rejects_invalid_content_type_and_size(tmp_path, monkeypatch):
@@ -393,3 +395,55 @@ def test_admin_delete_test_specialist_removes_media_rows_and_photo_file(tmp_path
     asyncio.run(_assert_media_removed())
     assert not photo_path.exists()
     assert list((uploads / f"media/specialists/{specialist_id}").glob("*")) == []
+
+
+def test_delete_photo_endpoint_is_idempotent_and_keeps_documents(tmp_path, monkeypatch):
+    web_server, database, uploads = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    cookies = {web_server.config.WEB_CONNECT_COOKIE_NAME: cookie}
+
+    upload_photo = client.post(
+        "/api/specialist/profile/photo",
+        files={"file": ("avatar.png", _png_bytes((10, 20, 30)), "image/png")},
+        cookies=cookies,
+    )
+    assert upload_photo.status_code == 200
+
+    upload_doc = client.post(
+        "/api/specialist/profile/documents",
+        files={"file": ("cert.pdf", b"%PDF-1.4 fake", "application/pdf")},
+        data={"title": "Сертификат"},
+        cookies=cookies,
+    )
+    assert upload_doc.status_code == 200
+
+    photo_path = uploads / f"media/specialists/{specialist_id}/profile_photo.jpg"
+    assert photo_path.exists()
+
+    delete_response = client.delete("/api/specialist/profile/photo", cookies=cookies)
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {"ok": True}
+    assert not photo_path.exists()
+
+    media_after_delete = client.get("/api/specialist/profile/media", cookies=cookies)
+    assert media_after_delete.status_code == 200
+    items = media_after_delete.json()["items"]
+    assert [item for item in items if item["media_type"] == "photo"] == []
+    docs = [item for item in items if item["media_type"] == "document"]
+    assert len(docs) == 1
+
+    second_delete = client.delete("/api/specialist/profile/photo", cookies=cookies)
+    assert second_delete.status_code == 200
+    assert second_delete.json() == {"ok": True}
+
+
+def test_delete_photo_unauthorized_returns_401(tmp_path, monkeypatch):
+    web_server, _database, _uploads = _load_web_app(tmp_path, monkeypatch)
+    client = TestClient(web_server.app)
+
+    response = client.delete("/api/specialist/profile/photo")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "unauthorized"}
