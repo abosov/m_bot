@@ -213,7 +213,7 @@ async def test_public_specialist_published_profile_returns_public_response(tmp_p
 
     assert data["profile"]["public_slug"] == "TsarevaE_12"
     assert data["profile"]["contacts"]["telegram"] == "evgenia_tsareva"
-    assert data["profile"]["profile_photo_url"] == "/media/private/demo/tsareva-photo.jpg"
+    assert data["profile"]["profile_photo_url"].startswith("/media/private/demo/tsareva-photo.jpg?v=")
 
     assert len(data["blocks"]) == 3
     assert [block["block_type"] for block in data["blocks"]] == ["about", "education", "services"]
@@ -289,4 +289,6 @@ async def test_public_specialist_prefers_canonical_hero_photo_key(tmp_path, monk
         response = await client.get("/api/public/specialists/TsarevaE_12")
 
     assert response.status_code == 200
-    assert response.json()["profile"]["profile_photo_url"] == f"/media/media/specialists/{specialist_id}/profile_photo.jpg"
+    assert response.json()["profile"]["profile_photo_url"].startswith(
+        f"/media/specialists/{specialist_id}/profile_photo.jpg?v="
+    )

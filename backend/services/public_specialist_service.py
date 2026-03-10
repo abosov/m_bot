@@ -25,13 +25,22 @@ def _normalize_media_key(file_key: Any) -> str | None:
     return normalized
 
 
-def _build_public_media_url(file_key: Any) -> str | None:
+def _build_public_media_url(file_key: Any, *, freshness: Any = None) -> str | None:
     normalized = _normalize_media_key(file_key)
     if not normalized:
         return None
+    version: str | None = None
+    if isinstance(freshness, datetime):
+        version = freshness.isoformat()
+    elif isinstance(freshness, str) and freshness.strip():
+        version = freshness.strip()
     if normalized.startswith("media/"):
-        return f"/{normalized}"
-    return f"/media/{normalized}"
+        base_url = f"/{normalized}"
+    else:
+        base_url = f"/media/{normalized}"
+    if not version:
+        return base_url
+    return f"{base_url}?v={version}"
 
 
 async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | None:
@@ -84,7 +93,7 @@ async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | No
             await session.execute(
                 text(
                     """
-                    SELECT media_type, title, sort_order, file_key
+                    SELECT media_type, title, sort_order, file_key, created_at
                     FROM specialist_public_media
                     WHERE profile_id = :profile_id
                     ORDER BY sort_order ASC, created_at ASC
@@ -116,7 +125,17 @@ async def get_public_specialist_by_slug(public_slug: str) -> dict[str, Any] | No
                 "display_name": profile_row["display_name"],
                 "specialization": profile_row["specialization"],
                 "hero_quote": profile_row["hero_quote"],
-                "profile_photo_url": _build_public_media_url(selected_photo_key),
+                "profile_photo_url": _build_public_media_url(
+                    selected_photo_key,
+                    freshness=next(
+                        (
+                            row.get("created_at")
+                            for row in media_rows
+                            if row["media_type"] == "photo" and row.get("file_key") == selected_photo_key
+                        ),
+                        None,
+                    ),
+                ),
                 "contacts": {
                     "telegram": profile_row["contact_telegram"],
                     "whatsapp": profile_row["contact_whatsapp"],

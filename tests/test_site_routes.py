@@ -491,6 +491,8 @@ def test_profile_edit_quote_is_secondary_block_and_saved_separately():
     assert "document.getElementById('delete-photo').addEventListener('click', deletePhoto);" in response.text
     assert "apiFetch('/api/specialist/profile/photo', { method: 'DELETE' })" in response.text
     assert "if (currentStoredPhotoUrl) {" in response.text
+    assert "function buildCacheBustedMediaUrl(fileKey, freshness)" in response.text
+    assert "fetch(buildCacheBustedMediaUrl(photoItem.file_key, photoItem.created_at));" in response.text
     assert "thumbWrap.classList.add('hidden');" in response.text
     assert "thumb.removeAttribute('src');" in response.text
     assert "document.getElementById('save-quote').addEventListener('click'" in response.text
