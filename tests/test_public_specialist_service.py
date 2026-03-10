@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from datetime import datetime
 
 from backend.services import public_specialist_service
 
@@ -52,6 +53,7 @@ async def test_get_public_specialist_by_slug_uses_canonical_photo_url_without_do
             "title": "Hero",
             "sort_order": 0,
             "file_key": "media/media/specialists/spec-1/profile_photo.jpg",
+            "created_at": datetime(2024, 1, 2, 3, 4, 5),
         }
     ]
 
@@ -72,7 +74,7 @@ async def test_get_public_specialist_by_slug_uses_canonical_photo_url_without_do
     payload = await public_specialist_service.get_public_specialist_by_slug("slug-1")
 
     assert payload is not None
-    assert payload["profile"]["profile_photo_url"] == "/media/specialists/spec-1/profile_photo.jpg"
+    assert payload["profile"]["profile_photo_url"] == "/media/specialists/spec-1/profile_photo.jpg?v=2024-01-02T03:04:05"
 
 
 @pytest.mark.asyncio
@@ -97,6 +99,7 @@ async def test_get_public_specialist_by_slug_keeps_legacy_photo_keys_compatible(
             "title": "Legacy",
             "sort_order": 0,
             "file_key": "specialists/spec-1/legacy_profile_photo.jpg",
+            "created_at": datetime(2024, 1, 2, 3, 4, 6),
         }
     ]
 
@@ -117,4 +120,4 @@ async def test_get_public_specialist_by_slug_keeps_legacy_photo_keys_compatible(
     payload = await public_specialist_service.get_public_specialist_by_slug("slug-1")
 
     assert payload is not None
-    assert payload["profile"]["profile_photo_url"] == "/media/specialists/spec-1/legacy_profile_photo.jpg"
+    assert payload["profile"]["profile_photo_url"] == "/media/specialists/spec-1/legacy_profile_photo.jpg?v=2024-01-02T03:04:06"

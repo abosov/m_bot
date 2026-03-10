@@ -516,6 +516,14 @@
         }
       }
 
+      function buildCacheBustedMediaUrl(fileKey, freshness) {
+        const key = String(fileKey || '').trim();
+        if (!key) return '';
+        const base = `/media/${encodeURIComponent(key)}`;
+        const versionRaw = String(freshness || '').trim() || String(Date.now());
+        return `${base}?v=${encodeURIComponent(versionRaw)}`;
+      }
+
       async function refreshMediaList() {
         const list = document.getElementById('documents-list');
         const thumbWrap = document.getElementById('photo-thumb-wrap');
@@ -542,7 +550,7 @@
               currentStoredPhotoUrl = null;
             }
             try {
-              const response = await fetch(`/media/${encodeURIComponent(photoItem.file_key)}`);
+              const response = await fetch(buildCacheBustedMediaUrl(photoItem.file_key, photoItem.created_at));
               if (response.ok) {
                 const blob = await response.blob();
                 currentStoredPhotoUrl = URL.createObjectURL(blob);
