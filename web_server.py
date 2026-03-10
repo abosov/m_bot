@@ -91,9 +91,11 @@ from services.admin_audit import build_admin_audit_log_query, sanitize_admin_aud
 from services.billing.subscriptions import (
     BillingError,
     create_yookassa_payment_for_token,
-    get_purchase_for_raw_token,
+    get_purchase_for_raw_token, 
     process_yookassa_webhook,
 )
+
+from services.specialist_profile_private import delete_specialist_profile_media 
 from backend.api.public_specialist import router as public_specialist_router
 from backend.api.specialist_profile_private import router as specialist_profile_private_router
 from frontend.router import resolve_frontend_route
@@ -298,13 +300,24 @@ async def _delete_reset_test_data_runtime_rows(session, specialist_id: uuid.UUID
         deleted_outbox = await session.execute(delete(OutboxEvent).where(OutboxEvent.id.in_(outbox_ids)))
         deleted_counts["outbox_events"] = int(deleted_outbox.rowcount or 0)
 
+    media_count = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(SpecialistPublicMedia)
+                .join(SpecialistPublicProfile, SpecialistPublicProfile.id == SpecialistPublicMedia.profile_id)
+                .where(SpecialistPublicProfile.specialist_id == specialist_id)
+            )
+        ).scalar_one()
+    )
+    deleted_counts["media"] = media_count
+
     media_profile_subquery = select(SpecialistPublicProfile.id).where(
         SpecialistPublicProfile.specialist_id == specialist_id
     )
-    deleted_media = await session.execute(
+    await session.execute(
         delete(SpecialistPublicMedia).where(SpecialistPublicMedia.profile_id.in_(media_profile_subquery))
     )
-    deleted_counts["media"] = int(deleted_media.rowcount or 0)
     return deleted_counts
 
 
@@ -1569,32 +1582,35 @@ async def admin_ui_delete_test_specialist(specialist_id: str, request: Request):
             )
             deleted_counts["clients"] = int(deleted_clients.rowcount or 0)
 
-            media_rows = (
-                await session.execute(
-                    text(
-                        """
-                        SELECT m.file_key
-                        FROM specialist_public_media m
-                        JOIN specialist_public_profile p ON p.id = m.profile_id
-                        WHERE p.specialist_id = :sid
-                        """
-                    ),
-                    {"sid": str(specialist_uuid)},
-                )
-            ).scalars().all()
-            media_file_keys = [str(key) for key in media_rows if key]
-            deleted_media = await session.execute(
-                text(
-                    """
-                    DELETE FROM specialist_public_media
-                    WHERE profile_id IN (
-                      SELECT id FROM specialist_public_profile WHERE specialist_id = :sid
+            media_count = int(
+                (
+                    await session.execute(
+                        select(func.count())
+                        .select_from(SpecialistPublicMedia)
+                        .join(
+                            SpecialistPublicProfile,
+                            SpecialistPublicProfile.id == SpecialistPublicMedia.profile_id,
+                        )
+                        .where(SpecialistPublicProfile.specialist_id == specialist_uuid)
                     )
-                    """
-                ),
-                {"sid": str(specialist_uuid)},
+                ).scalar_one()
             )
-            deleted_counts["media"] = int(deleted_media.rowcount or 0)
+
+            media_file_keys = await delete_specialist_profile_media(
+                session,
+                specialist_id=specialist_uuid,
+            )
+
+            media_profile_subquery = select(SpecialistPublicProfile.id).where(
+                SpecialistPublicProfile.specialist_id == specialist_uuid
+            )
+            await session.execute(
+                delete(SpecialistPublicMedia).where(
+                    SpecialistPublicMedia.profile_id.in_(media_profile_subquery)
+                )
+            )
+
+            deleted_counts["media"] = media_count
 
             deleted_oauth = await session.execute(
                 delete(GoogleOAuth).where(GoogleOAuth.specialist_id == specialist_uuid)
