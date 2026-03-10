@@ -108,6 +108,36 @@ class BillingPurchaseStatus(str, enum.Enum):
     expired = "expired"
     error = "error"
 
+
+class BillingProvider(str, enum.Enum):
+    yookassa = "yookassa"
+
+
+class BillingSubscriptionStatus(str, enum.Enum):
+    inactive = "inactive"
+    pending_payment = "pending_payment"
+    active = "active"
+    grace = "grace"
+    expired = "expired"
+    canceled = "canceled"
+
+
+class BillingPaymentStatus(str, enum.Enum):
+    new = "new"
+    pending = "pending"
+    waiting_for_capture = "waiting_for_capture"
+    succeeded = "succeeded"
+    canceled = "canceled"
+    refunded = "refunded"
+    error = "error"
+
+
+class BillingWebhookProcessedStatus(str, enum.Enum):
+    received = "received"
+    ignored = "ignored"
+    processed = "processed"
+    failed = "failed"
+
 # --- MODELS ---
 
 class Specialist(Base):
@@ -671,6 +701,89 @@ class BillingPurchase(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+
+
+
+class BillingTariff(Base):
+    __tablename__ = "billing_tariffs"
+
+    tariff_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    price_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    period_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class BillingSubscription(Base):
+    __tablename__ = "billing_subscriptions"
+
+    subscription_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=False, unique=True)
+    tariff_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("billing_tariffs.tariff_id"), nullable=False)
+    status: Mapped[BillingSubscriptionStatus] = mapped_column(SAEnum(BillingSubscriptionStatus), nullable=False)
+    current_period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    current_period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    grace_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_payment_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("billing_payments.payment_id"), nullable=True)
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class BillingPayment(Base):
+    __tablename__ = "billing_payments"
+
+    payment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=False)
+    subscription_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("billing_subscriptions.subscription_id"), nullable=True)
+    tariff_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("billing_tariffs.tariff_id"), nullable=False)
+    provider: Mapped[BillingProvider] = mapped_column(SAEnum(BillingProvider), nullable=False)
+    provider_payment_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    provider_idempotence_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    status: Mapped[BillingPaymentStatus] = mapped_column(SAEnum(BillingPaymentStatus), nullable=False)
+    confirmation_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    return_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class BillingWebhookEvent(Base):
+    __tablename__ = "billing_webhook_events"
+
+    event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    provider: Mapped[BillingProvider] = mapped_column(SAEnum(BillingProvider), nullable=False)
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_event_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    dedupe_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_payment_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    source_ip: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    processing_status: Mapped[BillingWebhookProcessedStatus] = mapped_column(SAEnum(BillingWebhookProcessedStatus), nullable=False)
+    processing_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class BillingAccessLog(Base):
+    __tablename__ = "billing_access_log"
+
+    log_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    specialist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specialist.specialist_id"), nullable=False)
+    subscription_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("billing_subscriptions.subscription_id"), nullable=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    old_status: Mapped[Optional[BillingSubscriptionStatus]] = mapped_column(SAEnum(BillingSubscriptionStatus), nullable=True)
+    new_status: Mapped[BillingSubscriptionStatus] = mapped_column(SAEnum(BillingSubscriptionStatus), nullable=False)
+    details_json: Mapped[Optional[dict]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 class AdminAuditLog(Base):
     __tablename__ = "admin_audit_log"
