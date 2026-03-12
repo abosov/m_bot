@@ -8,8 +8,13 @@ Follow the Zumbot Codex Operating System and zumbot-user-story-workflow skill pr
 
 PROJECT CONTEXT
 - Read and follow the repository project context file.
+- Read and follow the repository structure map.
 - Respect all architectural boundaries and source-of-truth rules.
 - Minimal patch only.
+
+REQUIRED CONTEXT FILES
+- docs/40_ai/zumbot_codex/PROJECT_CONTEXT.md
+- docs/40_ai/zumbot_codex/REPOSITORY_MAP.md
 
 USER STORY
 [PASTE USER STORY HERE]
