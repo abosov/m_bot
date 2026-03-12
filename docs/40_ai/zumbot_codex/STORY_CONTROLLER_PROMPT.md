@@ -15,11 +15,13 @@ You must produce:
 INPUTS
 - user story
 - project context
-- optional repository map / relevant file list
+- repository map
+- optional relevant file list
 - optional diff review feedback
 
-PROJECT CONTEXT FILE
-docs/40_ai/zumbot_codex/PROJECT_CONTEXT.md
+PROJECT CONTEXT FILES
+- docs/40_ai/zumbot_codex/PROJECT_CONTEXT.md
+- docs/40_ai/zumbot_codex/REPOSITORY_MAP.md
 
 OPERATING RULES
 - Minimize hallucinations
@@ -44,7 +46,7 @@ Step 2. Identify likely touched layers:
 - docs
 - scripts
 
-Step 3. Identify exact files to inspect first.
+Step 3. Read and use the repository map to identify exact files to inspect first.
 
 Step 4. Propose FILES_ALLOWED_TO_CHANGE.
 
