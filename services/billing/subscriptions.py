@@ -1,16 +1,23 @@
 import hashlib
 import secrets
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 import config
 from sqlalchemy import select
 from database import (
     BillingPeriod,
+    BillingPayment,
+    BillingPaymentStatus,
     BillingPurchase,
     BillingPurchaseStatus,
+    BillingProvider,
+    BillingSubscription,
     SpecialistAuthTelegram,
     SpecialistProfile,
+    BillingTariff,
     TariffPlan,
     async_session_factory,
     get_billing_purchase_by_token_hash,
@@ -19,7 +26,12 @@ from database import (
     set_billing_purchase_status,
     set_billing_purchase_yookassa_fields,
 )
-from services.integrations.yookassa_client import YooKassaClient
+from services.integrations.yookassa_client import (
+    YooKassaClient,
+    YooKassaClientError,
+    YooKassaClientNetworkError,
+    YooKassaClientResponseError,
+)
 
 _PURCHASE_TTL_MINUTES = 30
 
@@ -42,6 +54,16 @@ _PLAN_PERIOD_AMOUNT_RUB = {
 
 class BillingError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class BillingPaymentIntentResult:
+    payment_id: uuid.UUID
+    outcome: Literal["created", "provider_error", "retryable_error"]
+    status: BillingPaymentStatus
+    confirmation_url: str | None
+    provider_payment_id: str | None
+    provider_status: str | None
 
 
 def _normalize_plan(plan: TariffPlan | str) -> TariffPlan:
@@ -68,6 +90,184 @@ def _pay_token_pepper() -> str:
 def hash_pay_token(raw_token: str) -> str:
     payload = f"{raw_token}{_pay_token_pepper()}".encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _payment_intent_idempotence_key(payment_id: uuid.UUID) -> str:
+    return f"billing-payment:{payment_id}"
+
+
+def _payment_description(tariff: BillingTariff) -> str:
+    return f"Zumbot subscription {tariff.code}"
+
+
+async def _get_billing_subscription(session, specialist_id: uuid.UUID) -> BillingSubscription | None:
+    stmt = select(BillingSubscription).where(BillingSubscription.specialist_id == specialist_id)
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def create_billing_payment_intent(
+    specialist_id: uuid.UUID,
+    tariff_id: uuid.UUID,
+    return_url: str,
+    *,
+    payment_id: uuid.UUID | None = None,
+    client: YooKassaClient | None = None,
+) -> BillingPaymentIntentResult:
+    provider_client = client or YooKassaClient()
+
+    async with async_session_factory() as session:
+        payment: BillingPayment | None = None
+        subscription: BillingSubscription | None = None
+
+        if payment_id is not None:
+            payment = await session.get(BillingPayment, payment_id)
+            if payment is None:
+                raise BillingError("payment_not_found")
+            if payment.provider != BillingProvider.yookassa:
+                raise BillingError("invalid_provider")
+            if payment.status == BillingPaymentStatus.pending and payment.confirmation_url:
+                return BillingPaymentIntentResult(
+                    payment_id=payment.payment_id,
+                    outcome="created",
+                    status=payment.status,
+                    confirmation_url=payment.confirmation_url,
+                    provider_payment_id=payment.provider_payment_id,
+                    provider_status=(payment.metadata_json or {}).get("provider_status"),
+                )
+            if payment.status not in {BillingPaymentStatus.new, BillingPaymentStatus.error}:
+                raise BillingError("payment_not_retriable")
+            tariff = await session.get(BillingTariff, payment.tariff_id)
+            if tariff is None:
+                raise BillingError("tariff_not_found")
+            if payment.subscription_id is not None:
+                subscription = await session.get(BillingSubscription, payment.subscription_id)
+        else:
+            tariff = await session.get(BillingTariff, tariff_id)
+            if tariff is None:
+                raise BillingError("tariff_not_found")
+            if not tariff.is_active:
+                raise BillingError("tariff_inactive")
+            subscription = await _get_billing_subscription(session, specialist_id)
+
+            now = datetime.now(timezone.utc)
+            payment = BillingPayment(
+                payment_id=uuid.uuid4(),
+                specialist_id=specialist_id,
+                subscription_id=subscription.subscription_id if subscription is not None else None,
+                tariff_id=tariff.tariff_id,
+                provider=BillingProvider.yookassa,
+                provider_payment_id=None,
+                provider_idempotence_key=_payment_intent_idempotence_key(payment_id=uuid.uuid4()),
+                amount_minor=tariff.price_minor,
+                currency=tariff.currency,
+                status=BillingPaymentStatus.new,
+                confirmation_url=None,
+                return_url=return_url,
+                description=_payment_description(tariff),
+                metadata_json=None,
+                paid_at=None,
+                created_at=now,
+                updated_at=now,
+            )
+            payment.provider_idempotence_key = _payment_intent_idempotence_key(payment.payment_id)
+            session.add(payment)
+            await session.commit()
+
+        provider_metadata = {
+            "payment_id": str(payment.payment_id),
+            "specialist_id": str(payment.specialist_id),
+            "tariff_id": str(payment.tariff_id),
+        }
+
+    try:
+        provider_result = await provider_client.create_payment(
+            amount_minor=payment.amount_minor,
+            currency=payment.currency,
+            description=payment.description or _payment_description(tariff),
+            return_url=payment.return_url or return_url,
+            idempotence_key=payment.provider_idempotence_key,
+            metadata=provider_metadata,
+        )
+    except YooKassaClientResponseError as exc:
+        failure_time = datetime.now(timezone.utc)
+        async with async_session_factory() as session:
+            db_payment = await session.get(BillingPayment, payment.payment_id)
+            if db_payment is None:
+                raise BillingError("payment_not_found") from exc
+            db_payment.status = BillingPaymentStatus.error
+            db_payment.updated_at = failure_time
+            db_payment.metadata_json = {
+                **(db_payment.metadata_json or {}),
+                "provider_error": {"type": "response_error", "status_code": exc.status_code},
+            }
+            await session.commit()
+        return BillingPaymentIntentResult(
+            payment_id=payment.payment_id,
+            outcome="provider_error",
+            status=BillingPaymentStatus.error,
+            confirmation_url=None,
+            provider_payment_id=None,
+            provider_status=None,
+        )
+    except (YooKassaClientNetworkError, YooKassaClientError):
+        return BillingPaymentIntentResult(
+            payment_id=payment.payment_id,
+            outcome="retryable_error",
+            status=BillingPaymentStatus.new,
+            confirmation_url=payment.confirmation_url,
+            provider_payment_id=payment.provider_payment_id,
+            provider_status=(payment.metadata_json or {}).get("provider_status"),
+        )
+
+    confirmation = provider_result.get("confirmation") if isinstance(provider_result.get("confirmation"), dict) else {}
+    confirmation_url = str(confirmation.get("confirmation_url") or "")
+    provider_payment_id = str(provider_result.get("id") or "")
+    provider_status = str(provider_result.get("status") or "")
+    if not provider_payment_id or not confirmation_url:
+        failure_time = datetime.now(timezone.utc)
+        async with async_session_factory() as session:
+            db_payment = await session.get(BillingPayment, payment.payment_id)
+            if db_payment is None:
+                raise BillingError("payment_not_found")
+            db_payment.status = BillingPaymentStatus.error
+            db_payment.updated_at = failure_time
+            db_payment.metadata_json = {
+                **(db_payment.metadata_json or {}),
+                "provider_error": {"type": "invalid_response"},
+            }
+            await session.commit()
+        return BillingPaymentIntentResult(
+            payment_id=payment.payment_id,
+            outcome="provider_error",
+            status=BillingPaymentStatus.error,
+            confirmation_url=None,
+            provider_payment_id=provider_payment_id or None,
+            provider_status=provider_status or None,
+        )
+
+    success_time = datetime.now(timezone.utc)
+    async with async_session_factory() as session:
+        db_payment = await session.get(BillingPayment, payment.payment_id)
+        if db_payment is None:
+            raise BillingError("payment_not_found")
+        db_payment.provider_payment_id = provider_payment_id
+        db_payment.status = BillingPaymentStatus.pending
+        db_payment.confirmation_url = confirmation_url
+        db_payment.updated_at = success_time
+        db_payment.metadata_json = {
+            **(db_payment.metadata_json or {}),
+            "provider_status": provider_status or "pending",
+        }
+        await session.commit()
+
+    return BillingPaymentIntentResult(
+        payment_id=payment.payment_id,
+        outcome="created",
+        status=BillingPaymentStatus.pending,
+        confirmation_url=confirmation_url,
+        provider_payment_id=provider_payment_id,
+        provider_status=provider_status or "pending",
+    )
 
 
 async def create_subscription_purchase(

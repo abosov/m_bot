@@ -1,5 +1,7 @@
 from services.billing.subscriptions import (
     BillingError,
+    BillingPaymentIntentResult,
+    create_billing_payment_intent,
     create_subscription_purchase,
     create_yookassa_payment_for_token,
     get_latest_purchase_status_text,
@@ -10,6 +12,8 @@ from services.billing.subscriptions import (
 
 __all__ = [
     "BillingError",
+    "BillingPaymentIntentResult",
+    "create_billing_payment_intent",
     "create_subscription_purchase",
     "create_yookassa_payment_for_token",
     "get_latest_purchase_status_text",

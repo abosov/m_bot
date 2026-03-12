@@ -195,3 +195,141 @@ async def test_raw_token_not_logged_on_invalid_create_payment(monkeypatch, caplo
         await subscriptions.create_yookassa_payment_for_token(raw_token)
 
     assert raw_token not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_create_billing_payment_intent_success_persists_pending_payment(monkeypatch):
+    tariff_id = "tariff-1"
+    specialist_id = "specialist-1"
+    stored = {}
+
+    tariff = types.SimpleNamespace(
+        tariff_id=tariff_id,
+        code="pro-monthly",
+        price_minor=99000,
+        currency="RUB",
+        is_active=True,
+    )
+    subscription = types.SimpleNamespace(subscription_id="subscription-1")
+
+    class _ExecuteResult:
+        def scalar_one_or_none(self):
+            return subscription
+
+    class _Session:
+        def add(self, obj):
+            stored[obj.payment_id] = obj
+
+        async def get(self, model, obj_id):
+            if model is subscriptions.BillingTariff:
+                assert obj_id == tariff_id
+                return tariff
+            if model is subscriptions.BillingPayment:
+                return stored.get(obj_id)
+            if model is subscriptions.BillingSubscription:
+                return subscription
+            return None
+
+        async def execute(self, _stmt):
+            return _ExecuteResult()
+
+        async def commit(self):
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _Client:
+        async def create_payment(self, **kwargs):
+            assert kwargs["amount_minor"] == 99000
+            assert kwargs["currency"] == "RUB"
+            assert kwargs["metadata"]["specialist_id"] == specialist_id
+            assert kwargs["idempotence_key"].startswith("billing-payment:")
+            return {
+                "id": "yk-payment-1",
+                "status": "pending",
+                "confirmation": {"confirmation_url": "https://pay.example/confirm"},
+            }
+
+    monkeypatch.setattr(subscriptions, "async_session_factory", lambda: _DummySessionCtx(_Session()))
+
+    result = await subscriptions.create_billing_payment_intent(
+        specialist_id=specialist_id,
+        tariff_id=tariff_id,
+        return_url="https://example.test/return",
+        client=_Client(),
+    )
+
+    payment = stored[result.payment_id]
+    assert result.outcome == "created"
+    assert result.status == subscriptions.BillingPaymentStatus.pending
+    assert result.confirmation_url == "https://pay.example/confirm"
+    assert payment.subscription_id == "subscription-1"
+    assert payment.status == subscriptions.BillingPaymentStatus.pending
+    assert payment.provider_payment_id == "yk-payment-1"
+    assert payment.confirmation_url == "https://pay.example/confirm"
+    assert payment.metadata_json["provider_status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_create_billing_payment_intent_provider_error_marks_payment_error(monkeypatch):
+    tariff_id = "tariff-1"
+    specialist_id = "specialist-1"
+    stored = {}
+
+    tariff = types.SimpleNamespace(
+        tariff_id=tariff_id,
+        code="pro-monthly",
+        price_minor=99000,
+        currency="RUB",
+        is_active=True,
+    )
+
+    class _ExecuteResult:
+        def scalar_one_or_none(self):
+            return None
+
+    class _Session:
+        def add(self, obj):
+            stored[obj.payment_id] = obj
+
+        async def get(self, model, obj_id):
+            if model is subscriptions.BillingTariff:
+                return tariff
+            if model is subscriptions.BillingPayment:
+                return stored.get(obj_id)
+            return None
+
+        async def execute(self, _stmt):
+            return _ExecuteResult()
+
+        async def commit(self):
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _Client:
+        async def create_payment(self, **_kwargs):
+            raise subscriptions.YooKassaClientResponseError(400)
+
+    monkeypatch.setattr(subscriptions, "async_session_factory", lambda: _DummySessionCtx(_Session()))
+
+    result = await subscriptions.create_billing_payment_intent(
+        specialist_id=specialist_id,
+        tariff_id=tariff_id,
+        return_url="https://example.test/return",
+        client=_Client(),
+    )
+
+    payment = stored[result.payment_id]
+    assert result.outcome == "provider_error"
+    assert result.status == subscriptions.BillingPaymentStatus.error
+    assert payment.status == subscriptions.BillingPaymentStatus.error
+    assert payment.metadata_json["provider_error"]["status_code"] == 400
