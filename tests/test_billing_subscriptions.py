@@ -3,7 +3,61 @@ from datetime import datetime, timezone
 
 import pytest
 
+from database import BillingPaymentStatus
 from services.billing import subscriptions
+from services.integrations import yookassa_client
+
+
+@pytest.mark.asyncio
+async def test_yookassa_client_create_payment_maps_request(monkeypatch):
+    captured = {}
+
+    class _Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "id": "yk-pay-1",
+                "status": "pending",
+                "confirmation": {"confirmation_url": "https://pay.example/confirm"},
+            }
+
+    class _AsyncClient:
+        def __init__(self, *, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, json, headers):
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+            return _Response()
+
+    monkeypatch.setattr(yookassa_client.config, "YOOKASSA_SHOP_ID", "shop-id")
+    monkeypatch.setattr(yookassa_client.config, "YOOKASSA_SECRET_KEY", "secret-key")
+    monkeypatch.setattr(yookassa_client.httpx, "AsyncClient", _AsyncClient)
+
+    client = yookassa_client.YooKassaClient()
+    response = await client.create_payment(
+        amount_minor=99000,
+        currency="RUB",
+        description="Zumbot subscription pro-monthly",
+        return_url="https://example.test/return",
+        idempotence_key="idem-123",
+        metadata={"payment_id": "payment-1"},
+    )
+
+    assert response["id"] == "yk-pay-1"
+    assert captured["url"].endswith("/payments")
+    assert captured["json"]["amount"] == {"value": "990.00", "currency": "RUB"}
+    assert captured["json"]["metadata"] == {"payment_id": "payment-1"}
+    assert captured["headers"]["Idempotence-Key"] == "idem-123"
 
 
 @pytest.mark.asyncio
@@ -21,6 +75,60 @@ async def test_create_yookassa_payment_for_token_invalid_token(monkeypatch):
 async def test_process_yookassa_webhook_invalid_payload():
     with pytest.raises(subscriptions.BillingError, match="invalid_payload"):
         await subscriptions.process_yookassa_webhook({"event": "payment.succeeded"})
+
+
+@pytest.mark.asyncio
+async def test_create_billing_payment_intent_retryable_error_keeps_new_status(monkeypatch):
+    payment = types.SimpleNamespace(
+        payment_id="payment-1",
+        specialist_id="specialist-1",
+        amount_minor=99000,
+        currency="RUB",
+        description="Zumbot subscription pro-monthly",
+        return_url="https://example.test/return",
+        tariff_id="tariff-1",
+        subscription_id=None,
+        provider=subscriptions.BillingProvider.yookassa,
+        provider_idempotence_key="billing-payment:payment-1",
+        provider_payment_id=None,
+        confirmation_url=None,
+        metadata_json=None,
+        status=BillingPaymentStatus.new,
+    )
+    tariff = types.SimpleNamespace(code="pro-monthly")
+
+    class _Session:
+        async def get(self, model, obj_id):
+            if model is subscriptions.BillingPayment:
+                assert obj_id == "payment-1"
+                return payment
+            if model is subscriptions.BillingTariff:
+                return tariff
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _Client:
+        async def create_payment(self, **_kwargs):
+            raise subscriptions.YooKassaClientNetworkError("timeout")
+
+    monkeypatch.setattr(subscriptions, "async_session_factory", lambda: _Session())
+
+    result = await subscriptions.create_billing_payment_intent(
+        specialist_id="specialist-1",
+        tariff_id="tariff-1",
+        return_url="https://example.test/return",
+        payment_id="payment-1",
+        client=_Client(),
+    )
+
+    assert result.outcome == "retryable_error"
+    assert result.status == BillingPaymentStatus.new
+    assert payment.status == BillingPaymentStatus.new
 
 
 def test_hash_pay_token_is_deterministic():
