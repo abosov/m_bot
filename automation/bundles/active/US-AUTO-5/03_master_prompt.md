@@ -4,7 +4,7 @@
 You are the System Architect + Developer + Tech Writer + QA + Security Reviewer for Zumbot.
 
 ## TASK
-Implement a thin script that resolves the latest run for a story, validates exiing review artifacts, and writes a standardized AI review result artifact into that run directory.
+Implement a thin script that resolves the latest run for a story, validates existing review artifacts, executes a real AI review command using those artifacts, and writes the resulting review output into that run directory.
 
 ## MANDATORY CONTEXT
 Read and follow:
@@ -12,7 +12,7 @@ Read and follow:
 - docs/90_codex/PROJECT_CONTEXT.md
 - docs/90_codex/REPOSITORY_MAP.md
 - docs/90_codex/PROJECT_CONTEXT_UPDATE_PROTOCOL.md
-- docs/90_codex/STORY_EXECUTION_CHECKLIST.md
+- docs/90_codeSTORY_EXECUTION_CHECKLIST.md
 - docs/90_codex/REVIEW_CLASSIFICATION_RULES.md
 - automation/scripts/review_story_run.sh
 - automation/bundles/active/US-AUTO-5/00_story.md
@@ -34,17 +34,11 @@ The script must:
    - `diff.patch`
    - `changed_files.txt`
    - `pytest.txt`
-5. write a standardized result artifact in the latest run directory, for example:
+5. execute a real AI review command using the latest run's existing review inputs
+6. write the actual AI review output to a durable result artifact in the latest run directory, for example:
    - `ai_review_result.md`
-6. the result artifact must include at minimum:
-   - STORY_ID
-   - latest run path
-   - paths to the review input artifacts
-   - a placeholder section for AI review verdict
-   - a placeholder section for blocking findings
-   - a placeholder section for non-blocking improvements
-   - a placeholder section for recommended next step
-7. print a concise operator message pointing to the result artifact
+7. write the raw command output to a separate artifact if your design needs it, but the durable human-readable result artifact is required
+8. print a concise operator message pointing to the result artifact
 
 ## NON-GOALS
 Do not:
@@ -54,6 +48,7 @@ Do not:
 - touch backend, frontend, deploy, infra, database, or `.github`
 - add PR automation
 - introduce unrelated refactors
+- generate a placeholder-only artifact with `TBD` sections instead of executing review
 
 ## SOURCE OF TRUTH
 - docs/90_codex/CODEX_OPERATING_SYSTEM.md
@@ -80,8 +75,9 @@ Do not:
 ## BEFORE IMPLEMENTING
 1. identify exact files to change
 2. explain how latest-run resolution will be handled
-3. explain why this story records review results but does not execute fixes
-4. state which layers are explicitly out of scope
+3. explain what AI review command will be executed and what input it will consume
+4. explain why this story records AI review output but does not execute fixes
+5. state which layers are explicitly out of scope
 
 ## IMPLEMENTATION RULES
 - minimal patch only
@@ -98,7 +94,7 @@ At minimum:
 - shell syntax validation for the new script
 - one successful invocation against a story with an existing run
 - one failing invocation for a non-existent story id or no runs
-- verify the standardized result artifact is written
+- verify the durable AI review result artifact is written from actual command output
 
 ## OUTPUT FORMAT
 Return:

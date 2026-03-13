@@ -5,14 +5,14 @@
 - Title: `Automatic AI review for Codex runs`
 
 ## Objective
-Add a thin automation step that prepares and records a standardized AI review result for the latest Codex run of a story.
+Add a thin automation step that executes an AI review workflow for the latest Codex run of a story and stores the review result as a durable run artifact.
 
 ## Scope
 - Add `automation/scripts/ai_review_story_run.sh`
 - Resolve latest run for `STORY_ID`
 - Reuse existing review artifacts from that run
-- Produce a review result artifact in the run directory
-- Keep behavior lightweight and deterministic
+- Execute an AI review step using existing review inputs
+- Persist the AI review output as a run artifact
 - Update docs only if required
 
 ## Non-goals
@@ -37,12 +37,13 @@ Add a thin automation step that prepares and records a standardized AI review re
 ## Current Code Reality
 - Runs already produce `review_bundle.md` and `chatgpt_review_prompt.md`
 - Review artifacts can be located for the latest run via `review_story_run.sh`
-- Final review judgment is still manual and not stored as a standardized run artifact
+- There is no script that executes a standardized AI review step and stores the resulting output as a durable run artifact
 
 ## Target Architecture
 - Add a thin AI-review launcher by `STORY_ID`
 - Resolve the latest run and required review artifacts
-- Store a standardized AI review result artifact in that run directory
+- Execute a review command using the existing review prompt/input artifacts
+- Store the AI review output in the run directory for auditability
 - Keep human decision-making in the loop
 
 ## Allowed Files
@@ -60,8 +61,8 @@ Add a thin automation step that prepares and records a standardized AI review re
 
 ## Risks
 - Review automation may overreach into fix automation
+- The script may produce a wrapper artifact without actually executing review
 - Poor artifact naming could make runs harder to audit
-- The script must stay a thin wrapper and not duplicate generation logic
 
 ## Manual Actions
 - Human still decides whether findings are blockers or acceptable risk
@@ -70,4 +71,5 @@ Add a thin automation step that prepares and records a standardized AI review re
 ## Acceptance Notes
 - Running the AI review launcher by `STORY_ID` resolves the latest run
 - The script fails clearly if no run exists or required review artifacts are missing
-- The script creates a standardized AI review result artifact in the latest run directory
+- The script executes a real AI review command
+- The script stores the resulting AI review output as a durable artifact in the latest run directory
