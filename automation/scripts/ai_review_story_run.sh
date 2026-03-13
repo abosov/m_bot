@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+RUNS_ROOT="$ROOT_DIR/automation/runs"
+
+RESULT_FILE_NAME="ai_review_result.md"
+RAW_OUTPUT_FILE_NAME="ai_review_raw_output.txt"
+
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  automation/scripts/ai_review_story_run.sh STORY_ID
+
+Example:
+  automation/scripts/ai_review_story_run.sh US-AUTO-5
+EOF
+  exit 1
+}
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
+}
+
+validate_story_id() {
+  local story_id="$1"
+  [[ "$story_id" =~ ^US-[A-Z0-9]+(-[A-Z0-9]+)*$ ]] || \
+    fail "invalid STORY_ID '$story_id' (expected format like US-AUTO-5)"
+}
+
+resolve_latest_run_dir() {
+  local story_runs_root="$1"
+  local latest_run_dir
+
+  latest_run_dir="$(
+    find "$story_runs_root" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort | tail -n 1
+  )"
+
+  [[ -n "$latest_run_dir" ]] || fail "no run directories found under: $story_runs_root"
+  printf '%s\n' "$latest_run_dir"
+}
+
+[[ $# -eq 1 ]] || usage
+
+require_cmd codex
+
+STORY_ID="$1"
+validate_story_id "$STORY_ID"
+
+STORY_RUNS_ROOT="$RUNS_ROOT/$STORY_ID"
+[[ -d "$STORY_RUNS_ROOT" ]] || fail "story run root not found for '$STORY_ID': $STORY_RUNS_ROOT"
+
+LATEST_RUN_DIR="$(resolve_latest_run_dir "$STORY_RUNS_ROOT")"
+
+required_artifacts=(
+  "review_bundle.md"
+  "chatgpt_review_prompt.md"
+  "diff.patch"
+  "changed_files.txt"
+  "pytest.txt"
+)
+
+missing_artifacts=()
+for artifact_name in "${required_artifacts[@]}"; do
+  artifact_path="$LATEST_RUN_DIR/$artifact_name"
+  if [[ ! -f "$artifact_path" ]]; then
+    missing_artifacts+=("$artifact_path")
+  fi
+done
+
+if (( ${#missing_artifacts[@]} > 0 )); then
+  {
+    echo "ERROR: latest run for '$STORY_ID' is missing required review artifacts:"
+    printf ' - %s\n' "${missing_artifacts[@]}"
+  } >&2
+  exit 1
+fi
+
+RESULT_FILE="$LATEST_RUN_DIR/$RESULT_FILE_NAME"
+RAW_OUTPUT_FILE="$LATEST_RUN_DIR/$RAW_OUTPUT_FILE_NAME"
+PROMPT_FILE="$LATEST_RUN_DIR/chatgpt_review_prompt.md"
+
+cmd=(
+  codex
+  -a never
+  exec
+  -C "$ROOT_DIR"
+  -s read-only
+  -o "$RESULT_FILE"
+)
+
+if [[ -n "${CODEX_MODEL:-}" ]]; then
+  cmd+=(-m "$CODEX_MODEL")
+fi
+
+if [[ -n "${CODEX_EXTRA_ARGS:-}" ]]; then
+  # shellcheck disable=SC2206
+  extra_args=( $CODEX_EXTRA_ARGS )
+  cmd+=("${extra_args[@]}")
+fi
+
+cmd+=(-)
+
+set +e
+"${cmd[@]}" < "$PROMPT_FILE" >"$RAW_OUTPUT_FILE" 2>&1
+review_exit_code=$?
+set -e
+
+if [[ $review_exit_code -ne 0 ]]; then
+  rm -f "$RESULT_FILE"
+  fail "AI review command failed for '$STORY_ID' (exit $review_exit_code). Raw output: $RAW_OUTPUT_FILE"
+fi
+
+if [[ ! -s "$RESULT_FILE" ]]; then
+  rm -f "$RESULT_FILE"
+  fail "AI review completed but did not write a result artifact: $RESULT_FILE"
+fi
+
+printf 'AI review result written: %s\n' "$RESULT_FILE"
