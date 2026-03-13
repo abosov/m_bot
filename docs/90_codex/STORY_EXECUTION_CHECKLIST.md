@@ -23,7 +23,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 10. Collect implementation and review artifacts into the story bundle.
 11. Resolve the latest review artifacts for the story (`automation/scripts/review_story_run.sh <STORY-ID>`).
 12. Execute and persist the AI review result for the latest run (`automation/scripts/ai_review_story_run.sh <STORY-ID>`).
-13. Classify findings using `docs/90_codex/REVIEW_CLASSIFICATION_RULES.md`.
+13. Execute and persist the review classification result for the latest run (`automation/scripts/classify_review_story_run.sh <STORY-ID>`).
 14. Run follow-up prompts for merge blockers and accepted improvements.
 15. Re-run tests after follow-up changes.
 16. Prepare PR with scope, risks, verification, and docs impact.
@@ -36,7 +36,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 - Story bundle directory with context, scope, master prompt, review checklist, follow-ups, and manual actions.
 - Test evidence (`pytest` command set and result status).
 - Durable AI review output artifact for the reviewed run.
-- Review classification output (blockers/minor/follow-up story).
+- Durable review classification output artifact for the reviewed run.
 - PR description linked to the story bundle.
 
 ## Failure Stops
