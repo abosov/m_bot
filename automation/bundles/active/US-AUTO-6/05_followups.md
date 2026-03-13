@@ -4,7 +4,7 @@
 - <No follow-ups yet>
 
 ## Iteration Notes
-- <Review findings, accepted improvements, or deferred work>
+- Use this file to track merge blockers or accepted improvements raised by `review_classification.md`.
 
 ## Follow-Up Prompt Template
 

@@ -1,10 +1,10 @@
 # US-AUTO-6: Manual Actions
 
 ## Required Human Actions
-- <Branch creation, approvals, deploy coordination, or external checks>
+- Review `review_classification.md` and decide whether to merge, run follow-up prompts, or create a new story bundle.
 
 ## Execution Notes
-- <Anything Codex cannot complete automatically>
+- Classification automation records findings, but it does not apply fixes or make merge decisions.
 
 ## Completion Status
 - [ ] No manual actions required

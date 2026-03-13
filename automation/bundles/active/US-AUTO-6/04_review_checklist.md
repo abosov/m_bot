@@ -14,6 +14,7 @@
 - [ ] Targeted tests/validation commands are recorded
 - [ ] Manual verification steps are recorded when needed
 - [ ] Risks and follow-ups are captured before merge
+- [ ] A durable `review_classification.md` artifact is written for the latest run
 
 ## Review Prompt Seed
 
