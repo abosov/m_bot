@@ -7,6 +7,8 @@ DEFAULT_PROMPT_FILE="$ROOT_DIR/automation/prompts/current_task.md"
 PROMPT_FILE="$DEFAULT_PROMPT_FILE"
 CONTEXT_MODE="lean"
 GENERATED_CONTEXT_FILES=()
+REVIEW_BASE_REF="origin/main"
+REVIEW_DIFF_RANGE="$REVIEW_BASE_REF...HEAD"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -34,6 +36,10 @@ EOF
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
+}
+
+require_git_ref() {
+  git rev-parse --verify --quiet "$1^{commit}" >/dev/null || fail "required git ref not found: $1"
 }
 
 derive_story_id() {
@@ -187,6 +193,7 @@ require_cmd bash
 require_cmd codex
 require_cmd pytest
 require_cmd python3
+require_git_ref "$REVIEW_BASE_REF"
 
 [[ -f "$PROMPT_FILE" ]] || fail "prompt file not found: $PROMPT_FILE"
 
@@ -246,6 +253,8 @@ cat > "$META_FILE" <<META
 story_id=$STORY_ID
 branch=$BRANCH_NAME
 head=$CURRENT_HEAD
+review_base_ref=$REVIEW_BASE_REF
+review_diff_range=$REVIEW_DIFF_RANGE
 prompt_file=$PROMPT_FILE
 run_dir=$RUN_DIR
 timestamp_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -308,9 +317,9 @@ run_pytest() {
 CODEX_EXIT="$(run_codex)"
 
 info "Collecting git artifacts"
-git diff --stat > "$STAT_FILE" || true
-git diff > "$DIFF_FILE" || true
-git diff --name-only > "$NAMEONLY_FILE" || true
+git diff --stat "$REVIEW_DIFF_RANGE" > "$STAT_FILE" || true
+git diff "$REVIEW_DIFF_RANGE" > "$DIFF_FILE" || true
+git diff --name-only "$REVIEW_DIFF_RANGE" > "$NAMEONLY_FILE" || true
 
 if [[ "$SKIP_PYTEST" == "1" ]]; then
   PYTEST_EXIT="SKIPPED"
@@ -331,6 +340,8 @@ cat > "$MANIFEST_FILE" <<MANIFEST
 - prompt_file: $PROMPT_FILE
 - branch: $BRANCH_NAME
 - starting_head: $CURRENT_HEAD
+- review_base_ref: $REVIEW_BASE_REF
+- review_diff_range: $REVIEW_DIFF_RANGE
 - run_timestamp_utc: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 - run_dir: $RUN_DIR
 - context_mode: $CONTEXT_MODE
@@ -378,6 +389,9 @@ $BRANCH_NAME
 ## Starting HEAD
 $CURRENT_HEAD
 
+## Review Diff Source
+$REVIEW_DIFF_RANGE
+
 ## Changed Files
 \`\`\`
 $CHANGED_FILES
@@ -410,6 +424,7 @@ Context:
 - Prompt file: $PROMPT_FILE
 - Branch: $BRANCH_NAME
 - Starting HEAD: $CURRENT_HEAD
+- Review diff source: $REVIEW_DIFF_RANGE
 
 Please review:
 1. architecture fit

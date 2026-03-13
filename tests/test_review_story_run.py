@@ -1,0 +1,91 @@
+from pathlib import Path
+import os
+import subprocess
+
+
+SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "automation"
+    / "scripts"
+    / "review_story_run.sh"
+)
+
+
+def make_run_dir(base_dir: Path, story_id: str, run_id: str) -> Path:
+    run_dir = base_dir / "automation" / "runs" / story_id / run_id
+    run_dir.mkdir(parents=True)
+    return run_dir
+
+
+def write_artifacts(run_dir: Path, *, include_manifest: bool = True) -> None:
+    artifact_names = [
+        "review_bundle.md",
+        "chatgpt_review_prompt.md",
+        "diff.patch",
+        "changed_files.txt",
+        "pytest.txt",
+    ]
+    if include_manifest:
+        artifact_names.insert(0, "manifest.md")
+
+    for artifact_name in artifact_names:
+        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+
+
+def test_review_story_run_exists() -> None:
+    assert SCRIPT_PATH.exists()
+
+
+def test_review_story_run_is_valid_bash() -> None:
+    result = subprocess.run(
+        ["bash", "-n", str(SCRIPT_PATH)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_review_story_run_reports_latest_run_with_manifest(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    older_run_dir = make_run_dir(root_dir, "US-AUTO-7", "2026-03-13_10-00-00")
+    latest_run_dir = make_run_dir(root_dir, "US-AUTO-7", "2026-03-13_11-00-00")
+    write_artifacts(older_run_dir)
+    write_artifacts(latest_run_dir)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-7"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"Latest run: {latest_run_dir}" in result.stdout
+    assert f" - {latest_run_dir / 'manifest.md'}" in result.stdout
+
+
+def test_review_story_run_fails_when_manifest_is_missing(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    latest_run_dir = make_run_dir(root_dir, "US-AUTO-7", "2026-03-13_11-00-00")
+    write_artifacts(latest_run_dir, include_manifest=False)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-7"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "manifest.md" in result.stderr
