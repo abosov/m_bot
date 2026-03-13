@@ -2,8 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(git rev-parse --show-toplevel)"
-PROMPT_FILE="${1:-$ROOT_DIR/automation/prompts/current_task.md}"
 RUNS_ROOT="$ROOT_DIR/automation/runs"
+DEFAULT_PROMPT_FILE="$ROOT_DIR/automation/prompts/current_task.md"
+PROMPT_FILE="$DEFAULT_PROMPT_FILE"
+CONTEXT_MODE="lean"
+GENERATED_CONTEXT_FILES=()
 
 fail() {
   echo "ERROR: $*" >&2
@@ -16,6 +19,17 @@ info() {
 
 warn() {
   echo "[WARN] $*" >&2
+}
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [--full-context] [--lean-context] [prompt-file]
+
+Options:
+  --full-context  Include the full story bundle in story_context.md
+  --lean-context  Include only the lean default bundle files in story_context.md
+  -h, --help      Show this help message
+EOF
 }
 
 require_cmd() {
@@ -43,10 +57,39 @@ derive_story_id() {
   echo "ADHOC"
 }
 
+build_context_file_list() {
+  local bundle_dir="$1"
+  local mode="$2"
+
+  case "$mode" in
+    lean)
+      printf '%s\n' \
+        "$bundle_dir/03_master_prompt.md" \
+        "$bundle_dir/00_story.md" \
+        "$bundle_dir/02_file_scope.md"
+      ;;
+    full)
+      printf '%s\n' \
+        "$bundle_dir/00_story.md" \
+        "$bundle_dir/01_context_bundle.md" \
+        "$bundle_dir/02_file_scope.md" \
+        "$bundle_dir/03_master_prompt.md" \
+        "$bundle_dir/04_review_checklist.md" \
+        "$bundle_dir/05_followups.md" \
+        "$bundle_dir/06_manual_actions.md"
+      ;;
+    *)
+      fail "unsupported context mode: $mode"
+      ;;
+  esac
+}
+
 generate_story_context() {
   local story_id="$1"
   local out_file="$2"
+  local mode="$3"
   local bundle_dir="$ROOT_DIR/automation/bundles/active/$story_id"
+  GENERATED_CONTEXT_FILES=()
 
   if [[ ! -d "$bundle_dir" ]]; then
     cat > "$out_file" <<CTX
@@ -54,24 +97,42 @@ generate_story_context() {
 
 No active story bundle found for story id: $story_id
 
+Requested context mode: $mode
+
 Expected bundle path:
 $bundle_dir
 CTX
     return 0
   fi
 
+  local -a candidate_files=()
+  local f
+  while IFS= read -r f; do
+    candidate_files+=("$f")
+  done < <(build_context_file_list "$bundle_dir" "$mode")
+
+  local rel
+  for f in "${candidate_files[@]}"; do
+    if [[ -f "$f" ]]; then
+      GENERATED_CONTEXT_FILES+=("${f#$bundle_dir/}")
+    fi
+  done
+
   {
     echo "# Story Context"
     echo
-    for f in \
-      "$bundle_dir/00_story.md" \
-      "$bundle_dir/01_context_bundle.md" \
-      "$bundle_dir/02_file_scope.md" \
-      "$bundle_dir/03_master_prompt.md" \
-      "$bundle_dir/04_review_checklist.md" \
-      "$bundle_dir/05_followups.md" \
-      "$bundle_dir/06_manual_actions.md"
-    do
+    echo "Context mode: $mode"
+    echo
+    echo "Included bundle files:"
+    if [[ ${#GENERATED_CONTEXT_FILES[@]} -gt 0 ]]; then
+      for rel in "${GENERATED_CONTEXT_FILES[@]}"; do
+        echo "- $rel"
+      done
+    else
+      echo "- none"
+    fi
+    echo
+    for f in "${candidate_files[@]}"; do
       if [[ -f "$f" ]]; then
         echo "## $(basename "$f")"
         echo
@@ -81,6 +142,45 @@ CTX
     done
   } > "$out_file"
 }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --full-context)
+      CONTEXT_MODE="full"
+      ;;
+    --lean-context)
+      CONTEXT_MODE="lean"
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      fail "unknown option: $1"
+      ;;
+    *)
+      if [[ "$PROMPT_FILE" != "$DEFAULT_PROMPT_FILE" ]]; then
+        fail "multiple prompt files provided"
+      fi
+      PROMPT_FILE="$1"
+      ;;
+  esac
+  shift
+done
+
+if [[ $# -gt 0 ]]; then
+  if [[ "$PROMPT_FILE" != "$DEFAULT_PROMPT_FILE" ]]; then
+    fail "multiple prompt files provided"
+  fi
+  PROMPT_FILE="$1"
+  shift
+fi
+
+[[ $# -eq 0 ]] || fail "unexpected arguments: $*"
 
 require_cmd git
 require_cmd bash
@@ -124,7 +224,9 @@ REVIEW_PROMPT_FILE="$RUN_DIR/chatgpt_review_prompt.md"
 META_FILE="$RUN_DIR/run_meta.txt"
 
 printf '%s\n' "$PROMPT_CONTENT" > "$CODEX_PROMPT_FILE"
-generate_story_context "$STORY_ID" "$STORY_CONTEXT_FILE"
+generate_story_context "$STORY_ID" "$STORY_CONTEXT_FILE" "$CONTEXT_MODE"
+CONTEXT_FILES_CSV="$(printf '%s,' "${GENERATED_CONTEXT_FILES[@]}")"
+CONTEXT_FILES_CSV="${CONTEXT_FILES_CSV%,}"
 
 info "Zumbot Codex pipeline starting"
 info "Repo root: $ROOT_DIR"
@@ -132,6 +234,12 @@ info "Branch: $BRANCH_NAME"
 info "HEAD: $CURRENT_HEAD"
 info "Story id: $STORY_ID"
 info "Prompt file: $PROMPT_FILE"
+info "Context mode: $CONTEXT_MODE"
+if [[ ${#GENERATED_CONTEXT_FILES[@]} -gt 0 ]]; then
+  info "Context files: ${GENERATED_CONTEXT_FILES[*]}"
+else
+  info "Context files: none"
+fi
 info "Run dir: $RUN_DIR"
 
 cat > "$META_FILE" <<META
@@ -141,6 +249,8 @@ head=$CURRENT_HEAD
 prompt_file=$PROMPT_FILE
 run_dir=$RUN_DIR
 timestamp_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+context_mode=$CONTEXT_MODE
+context_files=$CONTEXT_FILES_CSV
 skip_pytest=$SKIP_PYTEST
 pytest_target=$PYTEST_TARGET
 codex_model=$CODEX_MODEL
@@ -223,10 +333,20 @@ cat > "$MANIFEST_FILE" <<MANIFEST
 - starting_head: $CURRENT_HEAD
 - run_timestamp_utc: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 - run_dir: $RUN_DIR
+- context_mode: $CONTEXT_MODE
 - codex_exit_code: $CODEX_EXIT
 - pytest_exit_code: $PYTEST_EXIT
 - pytest_command: ${PYTEST_TARGET:+python3 -m pytest $PYTEST_TARGET}${PYTEST_TARGET:+" "}${PYTEST_TARGET:-python3 -m pytest}
 - changed_files_detected: $( [[ -n "$CHANGED_FILES" ]] && echo "yes" || echo "no" )
+
+## Included Story Context Files
+$(if [[ ${#GENERATED_CONTEXT_FILES[@]} -gt 0 ]]; then
+    for rel in "${GENERATED_CONTEXT_FILES[@]}"; do
+      printf -- "- %s\n" "$rel"
+    done
+  else
+    printf -- "- none\n"
+  fi)
 
 ## Artifacts
 - manifest.md
