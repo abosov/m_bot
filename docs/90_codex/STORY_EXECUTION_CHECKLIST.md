@@ -15,7 +15,10 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 5. Define `FILES_ALLOWED_TO_CHANGE` and explicit forbidden files for this story.
 6. Create or update story bundle in `automation/bundles/active/<STORY-ID>/`.
 7. Generate a master prompt from template and lock scope/non-goals.
-8. Execute Codex run against the master prompt (direct path or `automation/scripts/run_story.sh <STORY-ID>`).
+8. Execute Codex run against the master prompt.
+   Default runner behavior uses lean story context.
+   Use `automation/run_codex_task.sh --full-context <master-prompt-path>` only when the story needs the full bundle context.
+   `automation/scripts/run_story.sh <STORY-ID>` continues to use the runner defaults.
 9. Run required tests (minimum: targeted `pytest` scope for changed behavior).
 10. Collect implementation and review artifacts into the story bundle.
 11. Resolve the latest review artifacts for the story (`automation/scripts/review_story_run.sh <STORY-ID>`).
