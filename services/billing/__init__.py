@@ -8,6 +8,7 @@ from services.billing.subscriptions import (
     get_purchase_for_raw_token,
     hash_pay_token,
     process_yookassa_webhook,
+    start_specialist_subscription_payment,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "get_purchase_for_raw_token",
     "hash_pay_token",
     "process_yookassa_webhook",
+    "start_specialist_subscription_payment",
 ]

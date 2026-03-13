@@ -333,3 +333,177 @@ async def test_create_billing_payment_intent_provider_error_marks_payment_error(
     assert result.status == subscriptions.BillingPaymentStatus.error
     assert payment.status == subscriptions.BillingPaymentStatus.error
     assert payment.metadata_json["provider_error"]["status_code"] == 400
+
+
+@pytest.mark.asyncio
+async def test_start_specialist_subscription_payment_reuses_existing_pending_payment(monkeypatch):
+    tariff_id = "tariff-1"
+    payment_id = "payment-1"
+    specialist_id = "specialist-1"
+    calls = []
+
+    tariff = types.SimpleNamespace(
+        tariff_id=tariff_id,
+        code="pro-monthly",
+        is_active=True,
+    )
+    retriable_payment = types.SimpleNamespace(payment_id=payment_id)
+
+    class _ScalarResult:
+        def __init__(self, value):
+            self._value = value
+
+        def scalar_one_or_none(self):
+            return self._value
+
+    class _Session:
+        async def execute(self, stmt):
+            rendered = str(stmt)
+            if "FROM billing_tariffs" in rendered:
+                return _ScalarResult(tariff)
+            if "FROM billing_payments" in rendered:
+                return _ScalarResult(retriable_payment)
+            raise AssertionError(rendered)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _fake_create_billing_payment_intent(**kwargs):
+        calls.append(kwargs)
+        return subscriptions.BillingPaymentIntentResult(
+            payment_id=payment_id,
+            outcome="created",
+            status=subscriptions.BillingPaymentStatus.pending,
+            confirmation_url="https://pay.example/confirm",
+            provider_payment_id="yk-payment-1",
+            provider_status="pending",
+        )
+
+    monkeypatch.setattr(subscriptions, "async_session_factory", lambda: _Session())
+    monkeypatch.setattr(subscriptions, "create_billing_payment_intent", _fake_create_billing_payment_intent)
+
+    result = await subscriptions.start_specialist_subscription_payment(
+        specialist_id=specialist_id,
+        tariff_code="pro-monthly",
+        return_url="https://example.test/billing/return",
+    )
+
+    assert result.confirmation_url == "https://pay.example/confirm"
+    assert calls == [
+        {
+            "specialist_id": specialist_id,
+            "tariff_id": tariff_id,
+            "return_url": "https://example.test/billing/return",
+            "payment_id": payment_id,
+            "client": None,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_start_specialist_subscription_payment_rejects_inactive_tariff(monkeypatch):
+    tariff = types.SimpleNamespace(
+        tariff_id="tariff-1",
+        code="pro-monthly",
+        is_active=False,
+    )
+
+    class _ScalarResult:
+        def __init__(self, value):
+            self._value = value
+
+        def scalar_one_or_none(self):
+            return self._value
+
+    class _Session:
+        async def execute(self, stmt):
+            rendered = str(stmt)
+            if "FROM billing_tariffs" in rendered:
+                return _ScalarResult(tariff)
+            raise AssertionError(rendered)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(subscriptions, "async_session_factory", lambda: _Session())
+
+    with pytest.raises(subscriptions.BillingError, match="tariff_inactive"):
+        await subscriptions.start_specialist_subscription_payment(
+            specialist_id="specialist-1",
+            tariff_code="pro-monthly",
+            return_url="https://example.test/billing/return",
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_billing_payment_intent_reuses_existing_pending_payment_and_updates_return_url(monkeypatch):
+    tariff_id = "tariff-1"
+    payment_id = "payment-1"
+    specialist_id = "specialist-1"
+    commit_calls = []
+
+    tariff = types.SimpleNamespace(
+        tariff_id=tariff_id,
+        code="pro-monthly",
+        price_minor=99000,
+        currency="RUB",
+        is_active=True,
+    )
+    payment = types.SimpleNamespace(
+        payment_id=payment_id,
+        specialist_id=specialist_id,
+        tariff_id=tariff_id,
+        status=subscriptions.BillingPaymentStatus.pending,
+        provider=subscriptions.BillingProvider.yookassa,
+        provider_payment_id="yk-payment-1",
+        confirmation_url="https://pay.example/existing-confirm",
+        return_url="https://example.test/old-return",
+        metadata_json={"provider_status": "pending"},
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    class _Session:
+        async def get(self, model, obj_id):
+            if model is subscriptions.BillingPayment:
+                assert obj_id == payment_id
+                return payment
+            if model is subscriptions.BillingTariff:
+                assert obj_id == tariff_id
+                return tariff
+            return None
+
+        async def commit(self):
+            commit_calls.append("commit")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _Client:
+        async def create_payment(self, **_kwargs):
+            raise AssertionError("provider create_payment must not be called for existing pending payment")
+
+    monkeypatch.setattr(subscriptions, "async_session_factory", lambda: _DummySessionCtx(_Session()))
+
+    result = await subscriptions.create_billing_payment_intent(
+        specialist_id=specialist_id,
+        tariff_id=tariff_id,
+        return_url="https://example.test/new-return",
+        payment_id=payment_id,
+        client=_Client(),
+    )
+
+    assert result.outcome == "created"
+    assert result.status == subscriptions.BillingPaymentStatus.pending
+    assert result.payment_id == payment_id
+    assert result.confirmation_url == "https://pay.example/existing-confirm"
+    assert payment.return_url == "https://example.test/new-return"
+    assert commit_calls == ["commit"]

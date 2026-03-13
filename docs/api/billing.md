@@ -1,7 +1,11 @@
 # Billing API
 
 ## Overview
-Billing endpoints обслуживают подписки без web-регистрации.
+Billing endpoints currently include both:
+- legacy token-based checkout endpoints for the pre-existing purchase flow;
+- authenticated specialist billing endpoints for the YooKassa MVP billing-domain flow.
+
+For the YooKassa MVP, `billing_tariffs`, `billing_subscriptions`, and `billing_payments` are the source of truth for lifecycle state. `return_url` is informational only and does not activate a subscription.
 
 ## `GET /pay?token=...`
 Рендерит HTML заказа подписки.
@@ -47,6 +51,37 @@ API-вариант create payment.
 
 ---
 
+## `POST /api/specialist/profile/billing/subscription-payment`
+Authenticated specialist endpoint that starts a YooKassa subscription payment from the billing-domain tariff catalog.
+
+### Request JSON
+```json
+{
+  "tariff_code": "pro-monthly",
+  "return_url": "/billing/return"
+}
+```
+
+### Behavior
+- requires a valid specialist web session cookie;
+- validates `tariff_code` against active `billing_tariffs`;
+- reuses the current retriable payment intent for the same specialist/tariff context when possible;
+- returns pending redirect data with YooKassa `confirmation_url`;
+- does not activate subscription access from the API response or `return_url`.
+
+### Response JSON
+```json
+{
+  "payment_id": "uuid",
+  "tariff_code": "pro-monthly",
+  "payment_status": "pending",
+  "requires_redirect": true,
+  "confirmation_url": "https://..."
+}
+```
+
+---
+
 ## `POST /api/billing/yookassa/webhook`
 Принимает webhook от YooKassa.
 
@@ -57,7 +92,8 @@ API-вариант create payment.
 ### Processing
 - найти purchase по `object.id` (`yookassa_payment_id`)
 - обновить внутренний статус purchase
-- при `succeeded` активировать подписку в `specialist_profile`
+- legacy purchase flow may update legacy purchase/profile state;
+- YooKassa MVP specialist billing flow treats webhook-confirmed billing-domain transitions as the future source of truth for success handling.
 
 ### Response JSON
 ```json

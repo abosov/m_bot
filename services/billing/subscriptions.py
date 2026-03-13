@@ -66,6 +66,13 @@ class BillingPaymentIntentResult:
     provider_status: str | None
 
 
+_RETRIABLE_PAYMENT_STATUSES = {
+    BillingPaymentStatus.new,
+    BillingPaymentStatus.pending,
+    BillingPaymentStatus.error,
+}
+
+
 def _normalize_plan(plan: TariffPlan | str) -> TariffPlan:
     if isinstance(plan, TariffPlan):
         return plan
@@ -105,6 +112,64 @@ async def _get_billing_subscription(session, specialist_id: uuid.UUID) -> Billin
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
+async def _get_billing_tariff_by_code(session, tariff_code: str) -> BillingTariff | None:
+    stmt = select(BillingTariff).where(BillingTariff.code == tariff_code).limit(1)
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def _get_retriable_billing_payment(
+    session,
+    *,
+    specialist_id: uuid.UUID,
+    tariff_id: uuid.UUID,
+) -> BillingPayment | None:
+    stmt = (
+        select(BillingPayment)
+        .where(
+            BillingPayment.specialist_id == specialist_id,
+            BillingPayment.tariff_id == tariff_id,
+            BillingPayment.provider == BillingProvider.yookassa,
+            BillingPayment.status.in_(_RETRIABLE_PAYMENT_STATUSES),
+        )
+        .order_by(BillingPayment.updated_at.desc(), BillingPayment.created_at.desc())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def start_specialist_subscription_payment(
+    *,
+    specialist_id: uuid.UUID,
+    tariff_code: str,
+    return_url: str,
+    client: YooKassaClient | None = None,
+) -> BillingPaymentIntentResult:
+    normalized_tariff_code = str(tariff_code).strip().lower()
+    if not normalized_tariff_code:
+        raise BillingError("tariff_code_required")
+
+    async with async_session_factory() as session:
+        tariff = await _get_billing_tariff_by_code(session, normalized_tariff_code)
+        if tariff is None:
+            raise BillingError("tariff_not_found")
+        if not tariff.is_active:
+            raise BillingError("tariff_inactive")
+
+        retriable_payment = await _get_retriable_billing_payment(
+            session,
+            specialist_id=specialist_id,
+            tariff_id=tariff.tariff_id,
+        )
+
+    return await create_billing_payment_intent(
+        specialist_id=specialist_id,
+        tariff_id=tariff.tariff_id,
+        return_url=return_url,
+        payment_id=retriable_payment.payment_id if retriable_payment is not None else None,
+        client=client,
+    )
+
+
 async def create_billing_payment_intent(
     specialist_id: uuid.UUID,
     tariff_id: uuid.UUID,
@@ -125,6 +190,10 @@ async def create_billing_payment_intent(
                 raise BillingError("payment_not_found")
             if payment.provider != BillingProvider.yookassa:
                 raise BillingError("invalid_provider")
+            if payment.return_url != return_url:
+                payment.return_url = return_url
+                payment.updated_at = datetime.now(timezone.utc)
+                await session.commit()
             if payment.status == BillingPaymentStatus.pending and payment.confirmation_url:
                 return BillingPaymentIntentResult(
                     payment_id=payment.payment_id,
@@ -134,7 +203,7 @@ async def create_billing_payment_intent(
                     provider_payment_id=payment.provider_payment_id,
                     provider_status=(payment.metadata_json or {}).get("provider_status"),
                 )
-            if payment.status not in {BillingPaymentStatus.new, BillingPaymentStatus.error}:
+            if payment.status not in {BillingPaymentStatus.new, BillingPaymentStatus.pending, BillingPaymentStatus.error}:
                 raise BillingError("payment_not_retriable")
             tariff = await session.get(BillingTariff, payment.tariff_id)
             if tariff is None:

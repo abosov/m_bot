@@ -1,6 +1,7 @@
 import asyncio
 import importlib
 import re
+import types
 import uuid
 
 from fastapi.testclient import TestClient
@@ -500,6 +501,94 @@ def test_publish_sets_is_published_true(tmp_path, monkeypatch):
             assert row["is_published"] in (True, 1)
 
     asyncio.run(_assert_published())
+
+
+def test_start_subscription_payment_requires_cookie(tmp_path, monkeypatch):
+    web_server, _database = _load_web_app(tmp_path, monkeypatch)
+    client = TestClient(web_server.app)
+
+    response = client.post(
+        "/api/specialist/profile/billing/subscription-payment",
+        json={"tariff_code": "pro-monthly", "return_url": "/billing/return"},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "unauthorized"}
+
+
+def test_start_subscription_payment_returns_pending_confirmation_url_without_activation(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+
+    import backend.api.specialist_profile_private as specialist_profile_private_api
+
+    async def _fake_start_specialist_subscription_payment(*, specialist_id, tariff_code, return_url):
+        assert tariff_code == "pro-monthly"
+        assert return_url == "http://localhost/billing/return"
+        return types.SimpleNamespace(
+            payment_id=uuid.uuid4(),
+            status=database.BillingPaymentStatus.pending,
+            confirmation_url="https://pay.example/confirm",
+        )
+
+    monkeypatch.setattr(
+        specialist_profile_private_api,
+        "start_specialist_subscription_payment",
+        _fake_start_specialist_subscription_payment,
+    )
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    response = client.post(
+        "/api/specialist/profile/billing/subscription-payment",
+        json={"tariff_code": "pro-monthly", "return_url": "/billing/return"},
+        cookies={web_server.config.WEB_CONNECT_COOKIE_NAME: cookie},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["tariff_code"] == "pro-monthly"
+    assert response.json()["payment_status"] == "pending"
+    assert response.json()["requires_redirect"] is True
+    assert response.json()["confirmation_url"] == "https://pay.example/confirm"
+
+    async def _assert_no_subscription_activation():
+        async with database.async_session_factory() as session:
+            subscription = (
+                await session.execute(
+                    text("SELECT status FROM billing_subscriptions WHERE specialist_id = :sid"),
+                    {"sid": str(specialist_id)},
+                )
+            ).mappings().first()
+            assert subscription is None
+
+    asyncio.run(_assert_no_subscription_activation())
+
+
+def test_start_subscription_payment_rejects_inactive_tariff(tmp_path, monkeypatch):
+    web_server, database = _load_web_app(tmp_path, monkeypatch)
+    specialist_id = asyncio.run(_prepare_specialist(database))
+
+    import backend.api.specialist_profile_private as specialist_profile_private_api
+
+    async def _fake_start_specialist_subscription_payment(**_kwargs):
+        raise specialist_profile_private_api.BillingError("tariff_inactive")
+
+    monkeypatch.setattr(
+        specialist_profile_private_api,
+        "start_specialist_subscription_payment",
+        _fake_start_specialist_subscription_payment,
+    )
+
+    client = TestClient(web_server.app)
+    cookie = web_server.web_session.sign_session_cookie(specialist_id, 777)
+    response = client.post(
+        "/api/specialist/profile/billing/subscription-payment",
+        json={"tariff_code": "pro-monthly", "return_url": "/billing/return"},
+        cookies={web_server.config.WEB_CONNECT_COOKIE_NAME: cookie},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "tariff_inactive"}
 
 
 def test_unpublish_sets_is_published_false(tmp_path, monkeypatch):

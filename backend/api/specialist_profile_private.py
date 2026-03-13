@@ -6,15 +6,19 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 import config
+from database import BillingPaymentStatus
 from backend.schemas.specialist_profile_private import (
     SpecialistProfileMediaListResponse,
     SpecialistProfilePrivateResponse,
     SpecialistProfilePrivateUpdateRequest,
     SpecialistProfilePublishResponse,
+    SpecialistSubscriptionPaymentStartRequest,
+    SpecialistSubscriptionPaymentStartResponse,
     SpecialistProfileUploadResponse,
 )
 import database
 from services import web_session
+from services.billing import BillingError, start_specialist_subscription_payment
 from services.image_pipeline import process_specialist_profile_photo
 from services.media_storage import (
     promote_staged_file,
@@ -232,3 +236,38 @@ async def get_specialist_profile_media(
         items = await list_specialist_profile_media(session, specialist_id=specialist_id)
         await session.commit()
     return SpecialistProfileMediaListResponse(items=items)
+
+
+@router.post("/billing/subscription-payment", response_model=SpecialistSubscriptionPaymentStartResponse)
+async def post_specialist_subscription_payment_start(
+    request_payload: SpecialistSubscriptionPaymentStartRequest,
+    verified_session: tuple[UUID, int] = Depends(require_web_auth_session),
+) -> SpecialistSubscriptionPaymentStartResponse:
+    specialist_id, _tg_user_id = verified_session
+
+    try:
+        result = await start_specialist_subscription_payment(
+            specialist_id=specialist_id,
+            tariff_code=request_payload.tariff_code,
+            return_url=request_payload.return_url,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except BillingError as exc:
+        detail = str(exc)
+        if detail in {"tariff_code_required", "tariff_not_found", "tariff_inactive"}:
+            raise HTTPException(status_code=422, detail=detail) from exc
+        if detail == "payment_not_retriable":
+            raise HTTPException(status_code=409, detail=detail) from exc
+        raise HTTPException(status_code=502, detail=detail) from exc
+
+    if result.status != BillingPaymentStatus.pending or not result.confirmation_url:
+        raise HTTPException(status_code=502, detail="payment_start_failed")
+
+    return SpecialistSubscriptionPaymentStartResponse(
+        payment_id=str(result.payment_id),
+        tariff_code=request_payload.tariff_code,
+        payment_status=result.status.value,
+        requires_redirect=True,
+        confirmation_url=result.confirmation_url,
+    )
