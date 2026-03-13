@@ -193,6 +193,7 @@ require_cmd bash
 require_cmd codex
 require_cmd pytest
 require_cmd python3
+require_cmd mktemp
 require_git_ref "$REVIEW_BASE_REF"
 
 [[ -f "$PROMPT_FILE" ]] || fail "prompt file not found: $PROMPT_FILE"
@@ -214,6 +215,9 @@ CODEX_EXTRA_ARGS="${CODEX_EXTRA_ARGS:-}"
 STORY_ID="$(derive_story_id "$PROMPT_FILE")"
 RUN_ID="$(date -u +"%Y-%m-%d_%H-%M-%S")"
 RUN_DIR="$RUNS_ROOT/$STORY_ID/$RUN_ID"
+WORKTREE_DIR=""
+WORKTREE_HEAD=""
+WORKTREE_CREATED="0"
 
 mkdir -p "$RUN_DIR"
 
@@ -230,10 +234,29 @@ BUNDLE_FILE="$RUN_DIR/review_bundle.md"
 REVIEW_PROMPT_FILE="$RUN_DIR/chatgpt_review_prompt.md"
 META_FILE="$RUN_DIR/run_meta.txt"
 
+cleanup_worktree() {
+  local exit_code=$?
+  if [[ "$WORKTREE_CREATED" == "1" && -n "$WORKTREE_DIR" ]]; then
+    git worktree remove --force "$WORKTREE_DIR" >/dev/null 2>&1 || true
+    rm -rf "$WORKTREE_DIR" >/dev/null 2>&1 || true
+  fi
+  return "$exit_code"
+}
+
+trap cleanup_worktree EXIT
+
+setup_isolated_worktree() {
+  WORKTREE_HEAD="$(git rev-parse HEAD)"
+  WORKTREE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/zumbot-codex-worktree-XXXXXX")"
+  git worktree add --detach "$WORKTREE_DIR" "$WORKTREE_HEAD" >/dev/null
+  WORKTREE_CREATED="1"
+}
+
 printf '%s\n' "$PROMPT_CONTENT" > "$CODEX_PROMPT_FILE"
 generate_story_context "$STORY_ID" "$STORY_CONTEXT_FILE" "$CONTEXT_MODE"
 CONTEXT_FILES_CSV="$(printf '%s,' "${GENERATED_CONTEXT_FILES[@]}")"
 CONTEXT_FILES_CSV="${CONTEXT_FILES_CSV%,}"
+setup_isolated_worktree
 
 info "Zumbot Codex pipeline starting"
 info "Repo root: $ROOT_DIR"
@@ -242,6 +265,7 @@ info "HEAD: $CURRENT_HEAD"
 info "Story id: $STORY_ID"
 info "Prompt file: $PROMPT_FILE"
 info "Context mode: $CONTEXT_MODE"
+info "Isolated worktree: $WORKTREE_DIR"
 if [[ ${#GENERATED_CONTEXT_FILES[@]} -gt 0 ]]; then
   info "Context files: ${GENERATED_CONTEXT_FILES[*]}"
 else
@@ -263,11 +287,15 @@ context_files=$CONTEXT_FILES_CSV
 skip_pytest=$SKIP_PYTEST
 pytest_target=$PYTEST_TARGET
 codex_model=$CODEX_MODEL
+isolated_run=true
+isolated_worktree_dir=$WORKTREE_DIR
+isolated_worktree_head=$WORKTREE_HEAD
+isolated_worktree_cleanup=exit_trap
 META
 
 run_codex() {
   local -a cmd
-  cmd=(codex exec --full-auto -C "$ROOT_DIR" -o "$LAST_MESSAGE_FILE")
+  cmd=(codex exec --full-auto -C "$WORKTREE_DIR" -o "$LAST_MESSAGE_FILE")
 
   if [[ -n "$CODEX_MODEL" ]]; then
     cmd+=(-m "$CODEX_MODEL")
@@ -345,6 +373,10 @@ cat > "$MANIFEST_FILE" <<MANIFEST
 - run_timestamp_utc: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 - run_dir: $RUN_DIR
 - context_mode: $CONTEXT_MODE
+- isolated_run: yes
+- isolated_worktree_dir: $WORKTREE_DIR
+- isolated_worktree_head: $WORKTREE_HEAD
+- isolated_worktree_cleanup: exit_trap
 - codex_exit_code: $CODEX_EXIT
 - pytest_exit_code: $PYTEST_EXIT
 - pytest_command: ${PYTEST_TARGET:+python3 -m pytest $PYTEST_TARGET}${PYTEST_TARGET:+" "}${PYTEST_TARGET:-python3 -m pytest}

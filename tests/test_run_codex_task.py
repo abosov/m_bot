@@ -96,10 +96,15 @@ def test_run_codex_task_uses_commit_range_review_evidence(tmp_path: Path) -> Non
         """#!/usr/bin/env bash
 set -euo pipefail
 output=""
+workdir=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -o)
       output="$2"
+      shift 2
+      ;;
+    -C)
+      workdir="$2"
       shift 2
       ;;
     *)
@@ -107,6 +112,12 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+if [[ -n "${FAKE_CODEX_CWD_FILE:-}" ]]; then
+  printf '%s\\n' "$workdir" > "$FAKE_CODEX_CWD_FILE"
+fi
+if [[ -n "${workdir:-}" ]]; then
+  printf '%s\\n' 'codex isolated edit' >> "$workdir/tracked.txt"
+fi
 cat >/dev/null
 printf '%s\\n' 'codex summary' > "$output"
 """,
@@ -119,6 +130,7 @@ printf '%s\\n' 'codex summary' > "$output"
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
     env["SKIP_PYTEST"] = "1"
+    env["FAKE_CODEX_CWD_FILE"] = str(tmp_path / "codex_cwd.txt")
 
     result = run(
         ["bash", str(SCRIPT_PATH), str(prompt_file)],
@@ -137,8 +149,10 @@ printf '%s\\n' 'codex summary' > "$output"
     changed_files = (run_dir / "changed_files.txt").read_text(encoding="utf-8")
     diff_patch = (run_dir / "diff.patch").read_text(encoding="utf-8")
     manifest = (run_dir / "manifest.md").read_text(encoding="utf-8")
+    meta = (run_dir / "run_meta.txt").read_text(encoding="utf-8")
     review_bundle = (run_dir / "review_bundle.md").read_text(encoding="utf-8")
     review_prompt = (run_dir / "chatgpt_review_prompt.md").read_text(encoding="utf-8")
+    codex_cwd = Path((tmp_path / "codex_cwd.txt").read_text(encoding="utf-8").strip())
 
     assert changed_files.strip() == "tracked.txt"
     assert "tracked.txt" in diff_patch
@@ -146,6 +160,71 @@ printf '%s\\n' 'codex summary' > "$output"
     assert "- review_base_ref: origin/main" in manifest
     assert "- review_diff_range: origin/main...HEAD" in manifest
     assert "- changed_files_detected: yes" in manifest
+    assert "- isolated_run: yes" in manifest
+    assert "- isolated_worktree_dir:" in manifest
+    assert "- isolated_worktree_head:" in manifest
+    assert "isolated_run=true" in meta
+    assert "isolated_worktree_dir=" in meta
+    assert "isolated_worktree_head=" in meta
+    assert codex_cwd != root_dir
+    assert codex_cwd.name.startswith("zumbot-codex-worktree-")
+    assert not codex_cwd.exists()
+    assert (root_dir / "tracked.txt").read_text(encoding="utf-8") == "base\nstory change\n"
     assert "## Review Diff Source\norigin/main...HEAD" in review_bundle
     assert "tracked.txt" in review_bundle
     assert "- Review diff source: origin/main...HEAD" in review_prompt
+
+
+def test_run_codex_task_cleans_up_worktree_when_codex_fails(tmp_path: Path) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    write_executable(
+        fake_bin_dir / "codex",
+        """#!/usr/bin/env bash
+set -euo pipefail
+workdir=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -C)
+      workdir="$2"
+      shift 2
+      ;;
+    -o)
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [[ -n "${FAKE_CODEX_CWD_FILE:-}" ]]; then
+  printf '%s\\n' "$workdir" > "$FAKE_CODEX_CWD_FILE"
+fi
+cat >/dev/null
+exit 42
+""",
+    )
+    write_executable(
+        fake_bin_dir / "pytest",
+        "#!/usr/bin/env bash\nexit 0\n",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["SKIP_PYTEST"] = "1"
+    env["FAKE_CODEX_CWD_FILE"] = str(tmp_path / "codex_cwd_failure.txt")
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    codex_cwd = Path((tmp_path / "codex_cwd_failure.txt").read_text(encoding="utf-8").strip())
+    assert codex_cwd.name.startswith("zumbot-codex-worktree-")
+    assert not codex_cwd.exists()
