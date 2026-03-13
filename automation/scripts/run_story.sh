@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+BUNDLES_ROOT="$ROOT_DIR/automation/bundles/active"
+RUNNER="$ROOT_DIR/automation/run_codex_task.sh"
+
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  automation/scripts/run_story.sh STORY_ID
+
+Example:
+  automation/scripts/run_story.sh US-AUTO-2
+EOF
+  exit 1
+}
+
+validate_story_id() {
+  local story_id="$1"
+  [[ "$story_id" =~ ^US-[A-Z0-9]+(-[A-Z0-9]+)*$ ]] || \
+    fail "invalid STORY_ID '$story_id' (expected format like US-AUTO-2)"
+}
+
+require_file() {
+  local path="$1"
+  [[ -f "$path" ]] || fail "required file not found: $path"
+}
+
+[[ $# -eq 1 ]] || usage
+
+STORY_ID="$1"
+validate_story_id "$STORY_ID"
+
+BUNDLE_DIR="$BUNDLES_ROOT/$STORY_ID"
+MASTER_PROMPT="$BUNDLE_DIR/03_master_prompt.md"
+
+[[ -d "$BUNDLE_DIR" ]] || fail "story bundle not found for '$STORY_ID': $BUNDLE_DIR"
+
+required_files=(
+  "00_story.md"
+  "01_context_bundle.md"
+  "02_file_scope.md"
+  "03_master_prompt.md"
+  "04_review_checklist.md"
+  "05_followups.md"
+  "06_manual_actions.md"
+)
+
+missing_files=()
+for file_name in "${required_files[@]}"; do
+  if [[ ! -f "$BUNDLE_DIR/$file_name" ]]; then
+    missing_files+=("$BUNDLE_DIR/$file_name")
+  fi
+done
+
+if (( ${#missing_files[@]} > 0 )); then
+  {
+    echo "ERROR: story bundle '$STORY_ID' is missing required files:"
+    printf ' - %s\n' "${missing_files[@]}"
+  } >&2
+  exit 1
+fi
+
+require_file "$RUNNER"
+require_file "$MASTER_PROMPT"
+
+echo "[INFO] STORY_ID: $STORY_ID" >&2
+echo "[INFO] Bundle dir: $BUNDLE_DIR" >&2
+echo "[INFO] Master prompt: $MASTER_PROMPT" >&2
+echo "[INFO] Delegating to: $RUNNER" >&2
+
+exec "$RUNNER" "$MASTER_PROMPT"

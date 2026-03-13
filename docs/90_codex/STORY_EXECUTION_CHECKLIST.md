@@ -15,7 +15,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 5. Define `FILES_ALLOWED_TO_CHANGE` and explicit forbidden files for this story.
 6. Create or update story bundle in `automation/bundles/active/<STORY-ID>/`.
 7. Generate a master prompt from template and lock scope/non-goals.
-8. Execute Codex run against the master prompt.
+8. Execute Codex run against the master prompt (direct path or `automation/scripts/run_story.sh <STORY-ID>`).
 9. Run required tests (minimum: targeted `pytest` scope for changed behavior).
 10. Collect implementation and review artifacts into the story bundle.
 11. Classify findings using `docs/90_codex/REVIEW_CLASSIFICATION_RULES.md`.
