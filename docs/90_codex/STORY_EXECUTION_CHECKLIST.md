@@ -18,14 +18,15 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 8. Execute Codex run against the master prompt (direct path or `automation/scripts/run_story.sh <STORY-ID>`).
 9. Run required tests (minimum: targeted `pytest` scope for changed behavior).
 10. Collect implementation and review artifacts into the story bundle.
-11. Classify findings using `docs/90_codex/REVIEW_CLASSIFICATION_RULES.md`.
-12. Run follow-up prompts for merge blockers and accepted improvements.
-13. Re-run tests after follow-up changes.
-14. Prepare PR with scope, risks, verification, and docs impact.
-15. Merge after checks and review approvals pass.
-16. Resync local `main` (`git checkout main && git pull --ff-only`).
-17. Delete merged story branch locally/remotely.
-18. Append process improvement notes for the completed story.
+11. Resolve the latest review artifacts for the story (`automation/scripts/review_story_run.sh <STORY-ID>`).
+12. Classify findings using `docs/90_codex/REVIEW_CLASSIFICATION_RULES.md`.
+13. Run follow-up prompts for merge blockers and accepted improvements.
+14. Re-run tests after follow-up changes.
+15. Prepare PR with scope, risks, verification, and docs impact.
+16. Merge after checks and review approvals pass.
+17. Resync local `main` (`git checkout main && git pull --ff-only`).
+18. Delete merged story branch locally/remotely.
+19. Append process improvement notes for the completed story.
 
 ## Required Completion Artifacts
 - Story bundle directory with context, scope, master prompt, review checklist, follow-ups, and manual actions.
