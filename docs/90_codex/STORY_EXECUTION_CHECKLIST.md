@@ -21,6 +21,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    `automation/scripts/run_story.sh <STORY-ID>` continues to use the runner defaults.
 9. Run required tests (minimum: targeted `pytest` scope for changed behavior).
 10. Collect implementation and review artifacts into the story bundle.
+   Review evidence is derived from `git diff origin/main...HEAD` so committed branch changes remain reviewable even with a clean working tree.
 11. Resolve the latest review artifacts for the story (`automation/scripts/review_story_run.sh <STORY-ID>`).
 12. Execute and persist the AI review result for the latest run (`automation/scripts/ai_review_story_run.sh <STORY-ID>`).
 13. Execute and persist the review classification result for the latest run (`automation/scripts/classify_review_story_run.sh <STORY-ID>`).

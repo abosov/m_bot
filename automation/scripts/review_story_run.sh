@@ -2,8 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-RUNS_ROOT="$ROOT_DIR/automation/runs"
+ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -50,6 +50,7 @@ STORY_RUNS_ROOT="$RUNS_ROOT/$STORY_ID"
 LATEST_RUN_DIR="$(resolve_latest_run_dir "$STORY_RUNS_ROOT")"
 
 required_artifacts=(
+  "manifest.md"
   "review_bundle.md"
   "chatgpt_review_prompt.md"
   "diff.patch"
