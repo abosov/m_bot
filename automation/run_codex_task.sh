@@ -233,6 +233,13 @@ TEST_FILE="$RUN_DIR/pytest.txt"
 BUNDLE_FILE="$RUN_DIR/review_bundle.md"
 REVIEW_PROMPT_FILE="$RUN_DIR/chatgpt_review_prompt.md"
 META_FILE="$RUN_DIR/run_meta.txt"
+WORKTREE_TRACKED_LIST_FILE="$RUN_DIR/.worktree_tracked.txt"
+WORKTREE_UNTRACKED_LIST_FILE="$RUN_DIR/.worktree_untracked.txt"
+MATERIALIZATION_STATUS="not_needed"
+MATERIALIZED_TRACKED_COUNT="0"
+MATERIALIZED_UNTRACKED_COUNT="0"
+MATERIALIZED_CHANGE_COUNT="0"
+REVIEW_ARTIFACT_BASE=""
 
 cleanup_worktree() {
   local exit_code=$?
@@ -342,12 +349,126 @@ run_pytest() {
   echo "$exit_code"
 }
 
-CODEX_EXIT="$(run_codex)"
+load_worktree_changes() {
+  git -C "$WORKTREE_DIR" diff --name-only "$WORKTREE_HEAD" -- > "$WORKTREE_TRACKED_LIST_FILE" || true
+  git -C "$WORKTREE_DIR" ls-files --others --exclude-standard > "$WORKTREE_UNTRACKED_LIST_FILE" || true
 
-info "Collecting git artifacts"
-git diff --stat "$REVIEW_DIFF_RANGE" > "$STAT_FILE" || true
-git diff "$REVIEW_DIFF_RANGE" > "$DIFF_FILE" || true
-git diff --name-only "$REVIEW_DIFF_RANGE" > "$NAMEONLY_FILE" || true
+  MATERIALIZED_TRACKED_COUNT="$(wc -l < "$WORKTREE_TRACKED_LIST_FILE" | tr -d ' ')"
+  MATERIALIZED_UNTRACKED_COUNT="$(wc -l < "$WORKTREE_UNTRACKED_LIST_FILE" | tr -d ' ')"
+}
+
+materialize_tracked_changes() {
+  if [[ "$MATERIALIZED_TRACKED_COUNT" == "0" ]]; then
+    return 0
+  fi
+
+  git -C "$WORKTREE_DIR" diff --binary "$WORKTREE_HEAD" -- | git -C "$ROOT_DIR" apply --binary --whitespace=nowarn
+}
+
+materialize_untracked_files() {
+  local rel src dest
+
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    src="$WORKTREE_DIR/$rel"
+    dest="$ROOT_DIR/$rel"
+
+    [[ -f "$src" ]] || fail "unsupported untracked worktree path (not a regular file): $rel"
+
+    mkdir -p "$(dirname "$dest")"
+    cp "$src" "$dest"
+  done < "$WORKTREE_UNTRACKED_LIST_FILE"
+}
+
+verify_materialized_changes() {
+  local rel worktree_path primary_path
+
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    worktree_path="$WORKTREE_DIR/$rel"
+    primary_path="$ROOT_DIR/$rel"
+
+    if [[ -e "$worktree_path" ]]; then
+      [[ -e "$primary_path" ]] || fail "materialization missing tracked path in primary checkout: $rel"
+      cmp -s "$worktree_path" "$primary_path" || fail "materialized tracked path does not match isolated worktree output: $rel"
+    else
+      [[ ! -e "$primary_path" ]] || fail "materialized tracked deletion did not reach primary checkout: $rel"
+    fi
+  done < "$WORKTREE_TRACKED_LIST_FILE"
+
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    worktree_path="$WORKTREE_DIR/$rel"
+    primary_path="$ROOT_DIR/$rel"
+
+    [[ -e "$primary_path" ]] || fail "materialization missing untracked path in primary checkout: $rel"
+    cmp -s "$worktree_path" "$primary_path" || fail "materialized untracked path does not match isolated worktree output: $rel"
+  done < "$WORKTREE_UNTRACKED_LIST_FILE"
+}
+
+materialize_worktree_changes() {
+  load_worktree_changes
+
+  MATERIALIZED_CHANGE_COUNT="$(( MATERIALIZED_TRACKED_COUNT + MATERIALIZED_UNTRACKED_COUNT ))"
+
+  if [[ "$MATERIALIZED_CHANGE_COUNT" -eq 0 ]]; then
+    MATERIALIZATION_STATUS="not_needed"
+    return 0
+  fi
+
+  MATERIALIZATION_STATUS="in_progress"
+  info "Materializing isolated worktree changes into primary checkout"
+  materialize_tracked_changes
+  materialize_untracked_files
+  verify_materialized_changes
+  MATERIALIZATION_STATUS="applied"
+}
+
+append_untracked_artifacts() {
+  local rel file
+
+  if [[ "$MATERIALIZED_UNTRACKED_COUNT" == "0" ]]; then
+    return 0
+  fi
+
+  {
+    echo
+    echo "Untracked files materialized into primary checkout:"
+    while IFS= read -r rel; do
+      [[ -n "$rel" ]] || continue
+      echo "  $rel"
+    done < "$WORKTREE_UNTRACKED_LIST_FILE"
+  } >> "$STAT_FILE"
+
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    file="$ROOT_DIR/$rel"
+    printf '\n' >> "$DIFF_FILE"
+    git diff --no-index -- /dev/null "$file" >> "$DIFF_FILE" || true
+  done < "$WORKTREE_UNTRACKED_LIST_FILE"
+}
+
+collect_git_artifacts() {
+  local merge_base tracked_names_file untracked_names_file
+  merge_base="$(git merge-base "$REVIEW_BASE_REF" HEAD)"
+  REVIEW_ARTIFACT_BASE="$merge_base"
+  tracked_names_file="$RUN_DIR/.tracked_names.txt"
+  untracked_names_file="$RUN_DIR/.untracked_names.txt"
+
+  info "Collecting git artifacts"
+  git diff --stat "$merge_base" -- > "$STAT_FILE" || true
+  git diff "$merge_base" -- > "$DIFF_FILE" || true
+  git diff --name-only "$merge_base" -- > "$tracked_names_file" || true
+  cp "$WORKTREE_UNTRACKED_LIST_FILE" "$untracked_names_file"
+  cat "$tracked_names_file" "$untracked_names_file" | sed '/^$/d' | sort -u > "$NAMEONLY_FILE"
+  append_untracked_artifacts
+  rm -f "$tracked_names_file" "$untracked_names_file"
+}
+
+CODEX_EXIT="$(run_codex)"
+materialize_worktree_changes
+
+collect_git_artifacts
 
 if [[ "$SKIP_PYTEST" == "1" ]]; then
   PYTEST_EXIT="SKIPPED"
@@ -370,6 +491,7 @@ cat > "$MANIFEST_FILE" <<MANIFEST
 - starting_head: $CURRENT_HEAD
 - review_base_ref: $REVIEW_BASE_REF
 - review_diff_range: $REVIEW_DIFF_RANGE
+- review_artifact_base: $REVIEW_ARTIFACT_BASE
 - run_timestamp_utc: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 - run_dir: $RUN_DIR
 - context_mode: $CONTEXT_MODE
@@ -377,6 +499,9 @@ cat > "$MANIFEST_FILE" <<MANIFEST
 - isolated_worktree_dir: $WORKTREE_DIR
 - isolated_worktree_head: $WORKTREE_HEAD
 - isolated_worktree_cleanup: exit_trap
+- materialization_status: $MATERIALIZATION_STATUS
+- materialized_tracked_changes: $MATERIALIZED_TRACKED_COUNT
+- materialized_untracked_files: $MATERIALIZED_UNTRACKED_COUNT
 - codex_exit_code: $CODEX_EXIT
 - pytest_exit_code: $PYTEST_EXIT
 - pytest_command: ${PYTEST_TARGET:+python3 -m pytest $PYTEST_TARGET}${PYTEST_TARGET:+" "}${PYTEST_TARGET:-python3 -m pytest}
@@ -422,7 +547,7 @@ $BRANCH_NAME
 $CURRENT_HEAD
 
 ## Review Diff Source
-$REVIEW_DIFF_RANGE
+$REVIEW_BASE_REF... working tree (merge-base $REVIEW_ARTIFACT_BASE)
 
 ## Changed Files
 \`\`\`
@@ -457,6 +582,7 @@ Context:
 - Branch: $BRANCH_NAME
 - Starting HEAD: $CURRENT_HEAD
 - Review diff source: $REVIEW_DIFF_RANGE
+- Review artifact base: $REVIEW_ARTIFACT_BASE
 
 Please review:
 1. architecture fit

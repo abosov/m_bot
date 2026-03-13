@@ -18,11 +18,12 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 8. Execute Codex run against the master prompt.
    Default runner behavior uses lean story context.
    Runner execution is isolated in a temporary detached git worktree created from current branch `HEAD` and cleaned up on exit.
+   Any tracked or regular untracked file changes produced inside that isolated worktree must be materialized back into the primary checkout before pytest and artifact collection; if materialization does not reach the primary checkout, the run must fail explicitly.
    Use `automation/run_codex_task.sh --full-context <master-prompt-path>` only when the story needs the full bundle context.
    `automation/scripts/run_story.sh <STORY-ID>` continues to use the runner defaults.
 9. Run required tests (minimum: targeted `pytest` scope for changed behavior).
 10. Collect implementation and review artifacts into the story bundle.
-   Review evidence is derived from `git diff origin/main...HEAD` so committed branch changes remain reviewable even with a clean working tree.
+   Review evidence is derived from the materialized primary checkout state rooted at the `origin/main` merge-base so committed and newly materialized working-tree changes are both captured before cleanup.
 11. Resolve the latest review artifacts for the story (`automation/scripts/review_story_run.sh <STORY-ID>`).
 12. Execute and persist the AI review result for the latest run (`automation/scripts/ai_review_story_run.sh <STORY-ID>`).
 13. Execute and persist the review classification result for the latest run (`automation/scripts/classify_review_story_run.sh <STORY-ID>`).
