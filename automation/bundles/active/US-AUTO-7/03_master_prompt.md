@@ -1,54 +1,83 @@
 # US-AUTO-7 PROMPT 1 — Stable review evidence from commit range
 
-## ROLE
-You are the System Architect + Data Architect + UX + Developer + Tech Writer + QA + Security Reviewer for Zumbot.
+## Role
+You are the Zumbot workflow automation engineer working under the repository's CODEX Operating System.
 
-## TASK
-<Atomic implementation task for this prompt>
+## Story
+US-AUTO-7 — Stable review evidence from commit range
 
-## MANDATORY CONTEXT
-Read and follow:
-- docs/90_codex/CODEX_OPERATING_SYSTEM.md
-- docs/90_codex/PROJECT_CONTEXT.md
-- docs/90_codex/REPOSITORY_MAP.md
-- docs/90_codex/PROJECT_CONTEXT_UPDATE_PROTOCOL.md
-- <story-specific architecture/product docs>
-- automation/bundles/active/US-AUTO-7/00_story.md
-- automation/bundles/active/US-AUTO-7/01_context_bundle.md
-- automation/bundles/active/US-AUTO-7/02_file_scope.md
+## Objective
+Fix the review evidence generation workflow so that review artifacts remain valid when the story changes are already committed and the working tree is clean.
 
-## GOAL
-<Expected end state for this prompt>
+## Problem to solve
+Current workflow evidence is generated from the post-run working tree.
+That causes false review blockers after a story has already been committed, because the latest run may show:
 
-## NON-GOALS
-Do not:
-- <explicit forbidden action>
-- <explicit forbidden action>
+- empty `changed_files.txt`
+- empty `diff.patch`
+- `changed_files_detected: no`
 
-## SOURCE OF TRUTH
-- <primary architecture/product source>
+even though the branch really contains committed story changes.
 
-## FILES ALLOWED TO CHANGE
-- <allowed file path>
-- <allowed file path>
+## Required outcome
+Make review evidence stable and reproducible from a commit-range based diff source.
 
-## FILES NOT ALLOWED TO CHANGE
-- <forbidden file path>
-- <forbidden area>
+At minimum:
 
-## IMPLEMENTATION RULES
+- review artifacts must reflect actual branch changes relative to the review base
+- this must still work when the working tree is clean
+- `changed_files.txt`, `diff.patch`, `manifest.md`, and review bundle sections must stay consistent
+
+## Before implementing
+1. Identify the exact fil to modify.
+2. Identify the exact source of truth for review evidence.
+3. State clearly which diff source will be used.
+4. State which files/layers must not be changed.
+
+## Files allowed to change
+- automation/run_codex_task.sh
+- automation/scripts/review_story_run.sh
+- docs/90_codex/STORY_EXECUTION_CHECKLIST.md
+- tests/test_run_codex_task.py
+- tests/test_review_story_run.py
+- automation/bundles/active/US-AUTO-7/*
+
+## Files not allowed to change
+- backend/**
+- bots/**
+- database/**
+- alembic/**
+- deployment/**
+- nginx/**
+- any product runtime code outside automation workflow
+
+## Implementation rules
 - minimal patch only
 - no unrelated refactor
 - no formatting-only edits
-- update docs only when behavior/process changes require it
+- no new files unless strictly necessary
+- do not touch files outside allowed scope
 
-## TEST PLAN
-- `pytest <targeted test path>`
+## Suggested direction
+Prefer deriving review evidence from a stable git diff source such as the story branch compared to the review base, instead of relying only on uncommitted working tree changes.
 
-## OUTPUT FORMAT
+If needed, clearly document which base is used for the diff.
+
+## Testing
+Add or update tests to prove:
+
+1. committed story changes are still visible in review evidence when working tree is clean
+2. `changed_files.txt` and `diff.patch` are populated from the stable diff source
+3. manifest/reporting does not incorrectly claim no changed files
+4. review bundle output is consistent with the same diff source
+
+## Documentation
+Update workflow documentation/checklist if behavior or assumptions change.
+
+## Output format
 Return:
-1. changed files summary
-2. rationale
-3. test results
-4. risks/follow-ups
-5. final diff
+
+1. implementation summary
+2. files changed
+3. tests run
+4. residual risks

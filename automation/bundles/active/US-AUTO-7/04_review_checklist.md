@@ -1,48 +1,30 @@
-# US-AUTO-7: Review Checklist
+# US-AUTO-7 Review Checklist
 
-## Scope Validation
-- [ ] Changes stay inside `02_file_scope.md`
-- [ ] Non-goals remain untouched
-- [ ] No unrelated refactor or formatting-only edits
+## Scope and architecture
+- [ ] Only allowed automation/workflow files changed
+- [ ] No product runtime code changed
+- [ ] No DB/schema/deployment changes introduced
+- [ ] Patch stays minimal and focused on stable review evidence
 
-## Architecture / Source of Truth
-- [ ] Source-of-truth docs are listed and followed
-- [ ] Architecture boundaries remain intact
-- [ ] Docs/process updates are included when required
+## Functional checks
+- [ ] Review artifacts still work when story changes are already committed
+- [ ] `changed_files.txt` reflects actual story diff
+- [ ] `diff.patch` reflects the same stable diff source
+- [ ] `manifest.md` does not incorrectly report `changed_files_detected: no`
+- [ ] Review bundle changed-files section is consistent with actual diff
+- [ ] Review bundle diff section is consistent with actual diff
 
-## Verification
-- [ ] Targeted tests/validation commands are recorded
-- [ ] Manual verification steps are recorded when needed
-- [ ] Risks and follow-ups are captured before merge
+## Reproducibility
+- [ ] Review evidence does not depend only on uncommitted working tree state
+- [ ] Diff source is stable and explainable
+- [ ] Re-running review on the same committed branch remains consistent
 
-## Review Prompt Seed
+## Tests
+- [ ] Relevant tests added or updated
+- [ ] Clean-working-tree committed-diff scenario is covered
+- [ ] No obvious regression in review/run workflow
 
-```md
-# US-AUTO-7 REVIEW PROMPT — Implementation Review
-
-## ROLE
-You are the Reviewer (Architect + QA + Security) for Zumbot.
-
-## REVIEW INPUTS
-- Story bundle: `automation/bundles/active/US-AUTO-7/`
-- Code diff: `<git diff range>`
-- Test evidence: `<pytest output reference>`
-- Classification rules: `docs/90_codex/REVIEW_CLASSIFICATION_RULES.md`
-
-## REVIEW TASK
-1. Validate scope against allowed/forbidden files.
-2. Validate architecture and source-of-truth compliance.
-3. Validate tests for changed behavior.
-4. Classify each finding:
-   - `MERGE BLOCKER`
-   - `MINOR IMPROVEMENT`
-   - `FOLLOW-UP STORY`
-
-## OUTPUT FORMAT
-Return:
-1. Findings by severity/classification
-2. Required fixes before merge
-3. Optional improvements
-4. Follow-up stories to create
-5. Merge recommendation (`approve` or `reject`)
-```
+## Manual verification
+- [ ] `git diff --name-only origin/main...HEAD` matches review evidence
+- [ ] generated run artifacts under `automation/runs/<STORY_ID>/<RUN_ID>/` are coherent
+- [ ] no false blocker caused only by empty working tree evidence

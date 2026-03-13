@@ -1,85 +1,33 @@
-# US-AUTO-7: Follow-Ups
+# US-AUTO-7 Follow-ups
 
-## Follow-Up Prompt Queue
-- <No follow-ups yet>
+## Possible follow-up stories
 
-## Iteration Notes
-- <Review findings, accepted improvements, or deferred work>
+### 1. Explicit review base selection
+If current remediation hardcodes a review base assumption, a future story may expose the base selection explicitly and validate it more strictly.
 
-## Follow-Up Prompt Template
+Potential future scope:
+- configurable review base
+- clearer operator messages about which base was used
+- stricter mismatch detection
 
-```md
-# US-AUTO-7 FOLLOW-UP PROMPT 1 — <Fix/Adjustment>
+### 2. Stage logging for automation scripts
+Operator UX is still weak in long-running automation steps.
 
-## ROLE
-You are the System Architect + Developer + QA + Security Reviewer for Zumbot.
+Potential future scope:
+- add `[INFO]`, `[OK]`, `[ERROR]` stage logs
+- make Codex-running stages visible
+- improve troubleshooting during long waits
 
-## CONTEXT
-- Base story bundle: `automation/bundles/active/US-AUTO-7/`
-- Previous run output: `automation/output/<story-run-id>/`
-- Review checklist: `automation/bundles/active/US-AUTO-7/04_review_checklist.md`
+### 3. Hardening against prompt injection in review/classification steps
+AI-generated review artifacts should be treated as untrusted input everywhere they are embedded into downstream prompts.
 
-## TARGET
-<Single follow-up objective>
+Potential future scope:
+- explicit untrusted-content guardrails
+- stronger prompt hardening
+- additional tests
 
-## FINDINGS TO ADDRESS
-- <MERGE BLOCKER or approved MINOR IMPROVEMENT item>
-
-## FILES ALLOWED TO CHANGE
-- <path>
-
-## FILES NOT ALLOWED TO CHANGE
-- <path>
-
-## RULES
-- keep patch minimal and scoped
-- preserve architecture boundaries
-- do not introduce new features beyond listed findings
-
-## TESTS
-- `pytest <targeted test path>`
-
-## OUTPUT FORMAT
-Return:
-1. addressed findings
-2. changed files summary
-3. test results
-4. residual risks
-5. final diff
-```
-
-## PR Description Template
-
-```md
-# US-AUTO-7 — Stable review evidence from commit range
-
-## Summary
-<What this PR changes in 2-4 lines>
-
-## Story Context
-- Story bundle: `automation/bundles/active/US-AUTO-7/`
-- Objective: <objective>
-- Non-goals: <key exclusions>
-
-## Scope
-- <Implemented item 1>
-- <Implemented item 2>
-
-## Files Changed
-- <path>
-- <path>
-
-## Tests
-- `pytest <targeted path>`: <pass/fail>
-
-## Review Classification
-- Merge blockers: <count/status>
-- Minor improvements: <count/status>
-- Follow-up stories created: <list or none>
-
-## Risks / Notes
-- <Known risk and mitigation>
-
-## Manual Actions
-- <Manual actions, if any>
-```
+## Not part of US-AUTO-7
+- no product runtime logic changes
+- no merge gate redesign
+- no full pipeline redesign
+- no deployment/system changes
