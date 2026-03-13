@@ -40,3 +40,31 @@ Stop and revise before merge if any condition is true:
 - Scope drift beyond the bundle.
 - Tests not executed or failing without explicit waiver.
 - Docs/process contradictions with `docs/90_codex/CODEX_OPERATING_SYSTEM.md`.
+
+
+## Branch Lifecycle Rules
+
+Each story bundle must be executed in its own git branch.
+
+Workflow:
+
+1. Create branch:
+   git checkout -b <type>/<story-id>-<short-name>
+
+2. Run Codex and perform all commits inside that branch.
+
+3. Open PR and merge into main.
+
+4. After merge:
+
+   git checkout main
+   git pull --ff-only
+   git branch -d <story-branch>
+
+5. Remote branch must also be deleted.
+
+Final expected local state:
+
+* main
+
+No additional branches must remain locally after a story is completed.

@@ -72,3 +72,25 @@ For every story ask:
 2. What is the source of truth?
 3. What must not change?
 4. What proves this works?
+
+## Branch Hygiene Rules
+
+- Start every story from a clean and up-to-date local `main`.
+- One story = one dedicated branch.
+- Never commit directly to `main`.
+- Merge through PR only.
+
+After merge:
+
+git checkout main
+git pull --ff-only
+git branch -d <story-branch>
+
+Remote branch must also be deleted.
+
+Final expected local state:
+
+* main
+
+No additional branches must remain locally after a story is completed.
+

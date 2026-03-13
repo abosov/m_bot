@@ -47,3 +47,7 @@ htmlcov/
 .idea/automation/output/
 
 /automation/output/*
+
+# Codex run artifacts
+/automation/runs/*
+!/automation/runs/.gitkeep
