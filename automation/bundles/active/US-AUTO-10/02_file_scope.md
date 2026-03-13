@@ -1,13 +1,20 @@
 # US-AUTO-10: File Scope
 
 ## Files Allowed To Change
-- <path>
-- <path>
+- `automation/run_codex_task.sh`
+- `tests/test_run_codex_task.py`
+- `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
+- `automation/bundles/active/US-AUTO-10/*`
 
 ## Files Not Allowed To Change
-- <path or directory>
-- <path or directory>
+- `backend/**`
+- `bots/**`
+- `database/**`
+- `alembic/**`
+- `deployment/**`
+- `nginx/**`
+- Any product runtime code outside the automation workflow
 
 ## Scope Notes
-- <Why these files are in scope>
-- <Specific boundary that must not be crossed>
+- The runner, its focused tests, and the workflow checklist are the only files needed to enforce the materialization invariant for isolated runs.
+- The story must not broaden beyond workflow safety for tracked and regular untracked file materialization back into the primary checkout.
