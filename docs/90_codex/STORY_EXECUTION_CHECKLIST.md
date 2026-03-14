@@ -18,6 +18,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 8. Execute Codex run against the master prompt.
    Default runner behavior uses lean story context.
    Runner execution is isolated in a temporary detached git worktree created from current branch `HEAD` and cleaned up on exit.
+   Every run must generate `repository_map_runtime.md` before Codex execution and inject that repository map into the runtime Codex prompt.
    Any tracked or regular untracked file changes produced inside that isolated worktree must be materialized back into the primary checkout before pytest and artifact collection; if materialization does not reach the primary checkout, the run must fail explicitly.
    Use `automation/run_codex_task.sh --full-context <master-prompt-path>` only when the story needs the full bundle context.
    `automation/scripts/run_story.sh <STORY-ID>` continues to use the runner defaults.
@@ -37,6 +38,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 
 ## Required Completion Artifacts
 - Story bundle directory with context, scope, master prompt, review checklist, follow-ups, and manual actions.
+- Mandatory run artifacts including `manifest.md`, `story_context.md`, and `repository_map_runtime.md`.
 - Test evidence (`pytest` command set and result status).
 - Durable AI review output artifact for the reviewed run.
 - Durable review classification output artifact for the reviewed run.

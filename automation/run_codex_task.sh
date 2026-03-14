@@ -90,10 +90,79 @@ build_context_file_list() {
   esac
 }
 
+generate_repository_map_runtime() {
+  local out_file="$1"
+  local curated_repo_map="$ROOT_DIR/docs/40_ai/zumbot_codex/REPOSITORY_MAP.md"
+  local curated_project_context="$ROOT_DIR/docs/40_ai/zumbot_codex/PROJECT_CONTEXT.md"
+  local -a source_docs=()
+  local -a top_level_dirs=()
+  local doc
+
+  for doc in "$curated_repo_map" "$curated_project_context"; do
+    if [[ -f "$doc" ]]; then
+      source_docs+=("${doc#$ROOT_DIR/}")
+    fi
+  done
+  if [[ ${#source_docs[@]} -gt 0 ]]; then
+    REPOSITORY_MAP_SOURCE_DOCS="$(printf '%s,' "${source_docs[@]}")"
+    REPOSITORY_MAP_SOURCE_DOCS="${REPOSITORY_MAP_SOURCE_DOCS%,}"
+  else
+    REPOSITORY_MAP_SOURCE_DOCS=""
+  fi
+
+  while IFS= read -r doc; do
+    [[ -n "$doc" ]] || continue
+    top_level_dirs+=("$doc")
+  done < <(git -C "$ROOT_DIR" ls-tree --name-only --full-tree -d HEAD | LC_ALL=C sort)
+
+  {
+    echo "# Repository Map Runtime"
+    echo
+    echo "Stable architectural context for this Codex run."
+    echo
+    echo "## Injection Status"
+    echo "- status: injected"
+    echo "- generation: lightweight deterministic runner artifact"
+    echo
+    echo "## Curated Source Docs"
+    if [[ ${#source_docs[@]} -gt 0 ]]; then
+      for doc in "${source_docs[@]}"; do
+        echo "- $doc"
+      done
+    else
+      echo "- none found"
+    fi
+    echo
+    echo "## Top-Level Repository Directories"
+    if [[ ${#top_level_dirs[@]} -gt 0 ]]; then
+      for doc in "${top_level_dirs[@]}"; do
+        echo "- $doc"
+      done
+    else
+      echo "- none"
+    fi
+
+    if [[ -f "$curated_project_context" ]]; then
+      echo
+      echo "## Curated Project Context"
+      echo
+      cat "$curated_project_context"
+    fi
+
+    if [[ -f "$curated_repo_map" ]]; then
+      echo
+      echo "## Curated Repository Map"
+      echo
+      cat "$curated_repo_map"
+    fi
+  } > "$out_file"
+}
+
 generate_story_context() {
   local story_id="$1"
   local out_file="$2"
   local mode="$3"
+  local repository_map_runtime_rel="${4:-repository_map_runtime.md}"
   local bundle_dir="$ROOT_DIR/automation/bundles/active/$story_id"
   GENERATED_CONTEXT_FILES=()
 
@@ -104,6 +173,9 @@ generate_story_context() {
 No active story bundle found for story id: $story_id
 
 Requested context mode: $mode
+
+Repository map artifact:
+- $repository_map_runtime_rel
 
 Expected bundle path:
 $bundle_dir
@@ -129,6 +201,9 @@ CTX
     echo
     echo "Context mode: $mode"
     echo
+    echo "Repository map artifact:"
+    echo "- $repository_map_runtime_rel"
+    echo
     echo "Included bundle files:"
     if [[ ${#GENERATED_CONTEXT_FILES[@]} -gt 0 ]]; then
       for rel in "${GENERATED_CONTEXT_FILES[@]}"; do
@@ -146,6 +221,25 @@ CTX
         echo
       fi
     done
+  } > "$out_file"
+}
+
+build_codex_prompt() {
+  local out_file="$1"
+  local repository_map_runtime_rel="$2"
+
+  {
+    echo "# Codex Runtime Prompt"
+    echo
+    echo "Read the runtime repository map before implementing the requested change."
+    echo
+    echo "Repository map artifact: $repository_map_runtime_rel"
+    echo
+    cat "$REPOSITORY_MAP_RUNTIME_FILE"
+    echo
+    echo "## Requested Task"
+    echo
+    printf '%s\n' "$PROMPT_CONTENT"
   } > "$out_file"
 }
 
@@ -224,6 +318,7 @@ mkdir -p "$RUN_DIR"
 MANIFEST_FILE="$RUN_DIR/manifest.md"
 STORY_CONTEXT_FILE="$RUN_DIR/story_context.md"
 CODEX_PROMPT_FILE="$RUN_DIR/codex_prompt.md"
+REPOSITORY_MAP_RUNTIME_FILE="$RUN_DIR/repository_map_runtime.md"
 LOG_FILE="$RUN_DIR/codex.log"
 LAST_MESSAGE_FILE="$RUN_DIR/codex_last_message.txt"
 DIFF_FILE="$RUN_DIR/diff.patch"
@@ -240,6 +335,9 @@ MATERIALIZED_TRACKED_COUNT="0"
 MATERIALIZED_UNTRACKED_COUNT="0"
 MATERIALIZED_CHANGE_COUNT="0"
 REVIEW_ARTIFACT_BASE=""
+REPOSITORY_MAP_RUNTIME_REL="repository_map_runtime.md"
+REPOSITORY_MAP_INJECTION_STATUS="pending"
+REPOSITORY_MAP_SOURCE_DOCS=""
 
 cleanup_worktree() {
   local exit_code=$?
@@ -259,8 +357,10 @@ setup_isolated_worktree() {
   WORKTREE_CREATED="1"
 }
 
-printf '%s\n' "$PROMPT_CONTENT" > "$CODEX_PROMPT_FILE"
-generate_story_context "$STORY_ID" "$STORY_CONTEXT_FILE" "$CONTEXT_MODE"
+generate_repository_map_runtime "$REPOSITORY_MAP_RUNTIME_FILE"
+REPOSITORY_MAP_INJECTION_STATUS="injected"
+generate_story_context "$STORY_ID" "$STORY_CONTEXT_FILE" "$CONTEXT_MODE" "$REPOSITORY_MAP_RUNTIME_REL"
+build_codex_prompt "$CODEX_PROMPT_FILE" "$REPOSITORY_MAP_RUNTIME_REL"
 CONTEXT_FILES_CSV="$(printf '%s,' "${GENERATED_CONTEXT_FILES[@]}")"
 CONTEXT_FILES_CSV="${CONTEXT_FILES_CSV%,}"
 setup_isolated_worktree
@@ -271,6 +371,7 @@ info "Branch: $BRANCH_NAME"
 info "HEAD: $CURRENT_HEAD"
 info "Story id: $STORY_ID"
 info "Prompt file: $PROMPT_FILE"
+info "Repository map artifact: $REPOSITORY_MAP_RUNTIME_FILE"
 info "Context mode: $CONTEXT_MODE"
 info "Isolated worktree: $WORKTREE_DIR"
 if [[ ${#GENERATED_CONTEXT_FILES[@]} -gt 0 ]]; then
@@ -291,6 +392,9 @@ run_dir=$RUN_DIR
 timestamp_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 context_mode=$CONTEXT_MODE
 context_files=$CONTEXT_FILES_CSV
+repository_map_runtime_file=$REPOSITORY_MAP_RUNTIME_FILE
+repository_map_injection_status=$REPOSITORY_MAP_INJECTION_STATUS
+repository_map_source_docs=$REPOSITORY_MAP_SOURCE_DOCS
 skip_pytest=$SKIP_PYTEST
 pytest_target=$PYTEST_TARGET
 codex_model=$CODEX_MODEL
@@ -322,7 +426,7 @@ run_codex() {
   printf '\n' >&2
 
   set +e
-  "${cmd[@]}" < "$PROMPT_FILE" > "$LOG_FILE" 2>&1
+  "${cmd[@]}" < "$CODEX_PROMPT_FILE" > "$LOG_FILE" 2>&1
   local exit_code=$?
   set -e
 
@@ -495,6 +599,9 @@ cat > "$MANIFEST_FILE" <<MANIFEST
 - run_timestamp_utc: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 - run_dir: $RUN_DIR
 - context_mode: $CONTEXT_MODE
+- repository_map_runtime_file: $REPOSITORY_MAP_RUNTIME_FILE
+- repository_map_injection_status: $REPOSITORY_MAP_INJECTION_STATUS
+- repository_map_source_docs: ${REPOSITORY_MAP_SOURCE_DOCS:-none}
 - isolated_run: yes
 - isolated_worktree_dir: $WORKTREE_DIR
 - isolated_worktree_head: $WORKTREE_HEAD
@@ -518,6 +625,7 @@ $(if [[ ${#GENERATED_CONTEXT_FILES[@]} -gt 0 ]]; then
 
 ## Artifacts
 - manifest.md
+- repository_map_runtime.md
 - story_context.md
 - codex_prompt.md
 - codex_last_message.txt
