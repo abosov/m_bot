@@ -7,7 +7,7 @@ You are the Zumbot workflow automation engineer working under the repository's C
 US-AUTO-12 — Bundle Pack Materialization & Validation.
 
 ## Goal
-Introduce a single-sourcedle pack format plus materialization and validation scripts so a story bundle can be created in one action, validated before execution, and rejected if unresolved placeholders or incomplete sections remain.
+Introduce a single-source bundle pack format plus materialization and validation scripts so a story bundle can be created in one action, validated before execution, and rejected if unresolved placeholders or incomplete sections remain.
 
 ## Source of Truth
 - `automation/scripts/new_story_bundle.sh`
@@ -81,3 +81,4 @@ Return:
 3. validation performed
 4. risks / follow-ups
 5. final diff
+

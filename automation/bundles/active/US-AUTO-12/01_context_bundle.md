@@ -13,34 +13,18 @@
 - `.github/workflows/no-placeholder-paths.yml`
 
 ## Current Code Reality
-- `new_story_bundle.sh` creates a valid directory structure but not a production-ready bundle.
-- Template output includes unresolved placeholders such as `<path>`-style guidance and placeholder prose.
-- `run_story.sh` currently validates that required files exist but does not fail on template residue or incomplete story definition.
-- The repo already contains a CI guard for placeholder tokens, which can become the canonical unresolved marker for bundle validation.
+- `new_story_bundle.sh` currently creates a seven-file bundle directly from templates.
+- `run_story.sh` currently checks file presence and then executes the runner.
+- There is no bundle pack source file and no pre-run semantic validation.
 
 ## Architectural Intent
-- Introduce a single source of truth for bundle content: one bundle pack file per story.
-- Materialize the seven bundle files from that pack atomically.
-- Validate structure and semantic completeness before story execution.
-- Keep `new_story_bundle.sh` as bootstrap-only, not the canonical production flow.
-- Make bundle validation a hard precondition of `run_story.sh`.
-
-## Minimal Design
-- Add `automation/bundle_packs/<STORY_ID>.bundle.md` as the canonical bundle pack format.
-- Add a materializer script that parses the pack into the seven bundle files.
-- Add a validator script that checks:
-  - all seven files exist
-  - files are non-empty
-  - required sections are present
-  - canonical unresolved placeholder token is absent
-- Update templates/bootstrap so unresolved sections use one canonical placeholder token that CI already knows how to reject.
+- Treat one bundle pack file as the canonical source of truth for each story.
+- Materialize bundle files atomically from that single source.
+- Validate required sections and unresolved placeholders before execution.
 
 ## Risks
-- Overbuilding a mini templating engine instead of a simple deterministic parser.
-- Letting the materializer partially overwrite a bundle on failure.
-- Mixing this story with story-finalization or scope-guard work.
+- Existing manually created bundles may fail new validation until normalized.
 
 ## Acceptance Notes
-- One command should materialize a full bundle from a pack file.
-- Validation must fail clearly on unresolved placeholders or incomplete bundle structure.
-- `run_story.sh` must refuse to execute invalid bundles.
+- Materialization and validation are deterministic and script-driven.
+

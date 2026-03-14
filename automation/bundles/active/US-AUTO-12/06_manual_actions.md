@@ -1,19 +1,13 @@
 # US-AUTO-12: Manual Actions
 
 ## Required Human Actions
-- Review the new bundle pack format for readability and maintainability
-- Run materialization for one story pack and inspect the generated seven-file bundle
-- Confirm validation fails on unresolved placeholder tokens
-- Review final diff before PR
+- Review the bundle pack for readability and maintainability.
+- Run materialization and inspect generated files.
+- Confirm validation and runner gating behavior.
 
-## Suggested Manual Verification
-- materialize one story bundle from a pack
-- inspect:
-  - generated bundle directory
-  - validator output
-  - `run_story.sh` behavior on invalid bundle
-- verify bootstrap templates clearly show canonical unresolved placeholders
+## Execution Notes
+- Bootstrap output must be resolved before materialization and execution.
 
 ## Completion Status
-- [ ] Manual verification completed
-- [ ] Ready for PR
+- [ ] No manual actions required
+- [ ] Manual actions completed and documented

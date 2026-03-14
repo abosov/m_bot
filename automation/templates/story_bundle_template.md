@@ -5,42 +5,38 @@
 - Title: `<Story Title>`
 
 ## Objective
-<One-sentence business/technical objective>
+<UNRESOLVED>
 
 ## Scope
-- <In-scope item 1>
-- <In-scope item 2>
+- <UNRESOLVED>
 
 ## Non-goals
-- <Explicitly out of scope item 1>
-- <Explicitly out of scope item 2>
+- <UNRESOLVED>
 
 ## Dependencies
-- <Story/epic/doc dependency>
+- <UNRESOLVED>
 
 ## Source of Truth
 - `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
-- <Primary architecture/product docs for this story>
+- <UNRESOLVED>
 
 ## Current Code Reality
-- <What exists today that constrains implementation>
+- <UNRESOLVED>
 
-## Target Architecture
-- <How this story moves toward target architecture>
+## Target Outcome
+- <UNRESOLVED>
 
 ## Allowed Files
-- <path>
-- <path>
+- <UNRESOLVED>
 
 ## Forbidden Files
-- <path or directory>
-- <path or directory>
+- <UNRESOLVED>
 
 ## Risks
-- <Risk and mitigation>
+- <UNRESOLVED>
 
 ## Manual Actions
-- <Any required human/manual dependency>
+- <UNRESOLVED>
 
 ## Acceptance Notes
-- <How to verify story outcome>
+- <UNRESOLVED>

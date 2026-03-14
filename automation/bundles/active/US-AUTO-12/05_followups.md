@@ -1,16 +1,11 @@
 # US-AUTO-12: Follow-Ups
 
-## Expected Next Stories
+## Follow-Up Prompt Queue
 - `US-AUTO-13` — Story Finalization Script
 - `US-AUTO-14` — Allowed Files Guard
 - `US-AUTO-15` — AI Review Gate
 
-## Possible Future Enhancements
-- richer semantic validation for storyes
-- bundle pack lint command
-- review telemetry improvements for bundle materialization failures
+## Iteration Notes
+- Keep this story scoped to pack materialization and validation only.
+- Defer merge workflow and policy gates to separate stories.
 
-## Intentionally Deferred
-- merge automation
-- scope enforcement against changed files
-- AI review verdict gating

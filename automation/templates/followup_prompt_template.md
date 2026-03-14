@@ -1,34 +1,34 @@
 # <STORY-ID> FOLLOW-UP PROMPT <N> — <Fix/Adjustment>
 
-## ROLE
+## Role
 You are the System Architect + Developer + QA + Security Reviewer for Zumbot.
 
-## CONTEXT
+## Context
 - Base story bundle: `automation/bundles/active/<STORY-ID>/`
 - Previous run output: `automation/output/<story-run-id>/`
 - Review checklist: `automation/bundles/active/<STORY-ID>/04_review_checklist.md`
 
-## TARGET
-<Single follow-up objective>
+## Target
+<UNRESOLVED>
 
-## FINDINGS TO ADDRESS
-- <MERGE BLOCKER or approved MINOR IMPROVEMENT item>
+## Findings To Address
+- <UNRESOLVED>
 
-## FILES ALLOWED TO CHANGE
-- <path>
+## Files Allowed To Change
+- <UNRESOLVED>
 
-## FILES NOT ALLOWED TO CHANGE
-- <path>
+## Files Not Allowed To Change
+- <UNRESOLVED>
 
-## RULES
+## Rules
 - keep patch minimal and scoped
 - preserve architecture boundaries
 - do not introduce new features beyond listed findings
 
-## TESTS
-- `pytest <targeted test path>`
+## Tests
+- `pytest <UNRESOLVED>`
 
-## OUTPUT FORMAT
+## Output
 Return:
 1. addressed findings
 2. changed files summary

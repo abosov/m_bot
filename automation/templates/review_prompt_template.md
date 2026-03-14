@@ -1,15 +1,15 @@
 # <STORY-ID> REVIEW PROMPT — Implementation Review
 
-## ROLE
+## Role
 You are the Reviewer (Architect + QA + Security) for Zumbot.
 
-## REVIEW INPUTS
+## Review Inputs
 - Story bundle: `automation/bundles/active/<STORY-ID>/`
-- Code diff: `<git diff range>`
-- Test evidence: `<pytest output reference>`
+- Code diff: `<UNRESOLVED>`
+- Test evidence: `<UNRESOLVED>`
 - Classification rules: `docs/90_codex/REVIEW_CLASSIFICATION_RULES.md`
 
-## REVIEW TASK
+## Review Task
 1. Validate scope against allowed/forbidden files.
 2. Validate architecture and source-of-truth compliance.
 3. Validate tests for changed behavior.
@@ -18,7 +18,7 @@ You are the Reviewer (Architect + QA + Security) for Zumbot.
    - `MINOR IMPROVEMENT`
    - `FOLLOW-UP STORY`
 
-## OUTPUT FORMAT
+## Output
 Return:
 1. Findings by severity/classification
 2. Required fixes before merge
