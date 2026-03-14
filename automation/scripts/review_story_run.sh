@@ -103,4 +103,5 @@ fi
 
 printf '\n'
 printf 'Next step: run automation/scripts/review_gate_story_run.sh %s to generate the final gate artifact for %s.\n' "$STORY_ID" "$LATEST_RUN_DIR"
+printf 'The gate resolves the latest run once and reuses that exact run directory for AI review and classification.\n'
 printf 'The gate artifact is review_gate_result.json with a machine-readable decision, status, and source.\n'

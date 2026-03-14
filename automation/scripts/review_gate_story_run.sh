@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
+RUN_DIR_OVERRIDE="${AUTOMATION_RUN_DIR:-}"
 
 AI_REVIEW_SCRIPT="$SCRIPT_DIR/ai_review_story_run.sh"
 CLASSIFY_REVIEW_SCRIPT="$SCRIPT_DIR/classify_review_story_run.sh"
@@ -49,6 +50,23 @@ resolve_latest_run_dir() {
 
   [[ -n "$latest_run_dir" ]] || fail "no run directories found under: $story_runs_root"
   printf '%s\n' "$latest_run_dir"
+}
+
+resolve_target_run_dir() {
+  local story_runs_root="$1"
+  local run_dir_override="$2"
+
+  if [[ -n "$run_dir_override" ]]; then
+    [[ -d "$run_dir_override" ]] || fail "AUTOMATION_RUN_DIR does not exist: $run_dir_override"
+    case "$run_dir_override" in
+      "$story_runs_root"/*) ;;
+      *) fail "AUTOMATION_RUN_DIR must be inside story run root: $story_runs_root" ;;
+    esac
+    printf '%s\n' "$run_dir_override"
+    return 0
+  fi
+
+  resolve_latest_run_dir "$story_runs_root"
 }
 
 extract_merge_recommendation() {
@@ -126,7 +144,7 @@ validate_story_id "$STORY_ID"
 STORY_RUNS_ROOT="$RUNS_ROOT/$STORY_ID"
 [[ -d "$STORY_RUNS_ROOT" ]] || fail "story run root not found for '$STORY_ID': $STORY_RUNS_ROOT"
 
-LATEST_RUN_DIR="$(resolve_latest_run_dir "$STORY_RUNS_ROOT")"
+LATEST_RUN_DIR="$(resolve_target_run_dir "$STORY_RUNS_ROOT" "$RUN_DIR_OVERRIDE")"
 RUN_ID="$(basename "$LATEST_RUN_DIR")"
 AI_REVIEW_FILE="$LATEST_RUN_DIR/$AI_REVIEW_FILE_NAME"
 CLASSIFICATION_FILE="$LATEST_RUN_DIR/$CLASSIFICATION_FILE_NAME"

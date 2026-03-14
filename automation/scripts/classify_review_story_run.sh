@@ -104,6 +104,17 @@ extract_merge_recommendation() {
   printf '%s\n' "${decisions[0]}"
 }
 
+append_gate_contract() {
+  local classification_file="$1"
+  local merge_recommendation="$2"
+
+  cat >>"$classification_file" <<EOF
+
+## Review Gate Contract
+MERGE RECOMMENDATION: $merge_recommendation
+EOF
+}
+
 [[ $# -eq 1 ]] || usage
 
 require_cmd "$CODEX_BIN"
@@ -199,6 +210,8 @@ if ! merge_recommendation="$(extract_merge_recommendation "$RESULT_FILE")"; then
   rm -f "$RESULT_FILE"
   fail "review classification completed but did not produce a valid merge recommendation line in: $RESULT_FILE"
 fi
+
+append_gate_contract "$RESULT_FILE" "$merge_recommendation"
 
 printf 'Merge recommendation: %s\n' "$merge_recommendation"
 printf 'Review classification written: %s\n' "$RESULT_FILE"
