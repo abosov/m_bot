@@ -35,6 +35,7 @@ Do not:
 - `automation/bundles/active/US-AUTO-16/02_file_scope.md`
 
 ## Files Allowed To Change
+- `tests/test_run_codex_task.py`
 - `tests/test_review_classification_script.py`
 - `tests/test_review_gate_story_run.py`
 - `automation/scripts/ai_review_story_run.sh`
