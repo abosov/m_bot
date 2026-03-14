@@ -80,10 +80,14 @@ printf '%s\\n' 'raw-classification-output'
     )
 
     assert result.returncode == 0, result.stderr
+    assert "Merge recommendation: reject" in result.stdout
     assert "Review classification written:" in result.stdout
-    assert (runs_dir / "review_classification.md").read_text(encoding="utf-8").startswith(
-        "# Review Classification"
-    )
+
+    classification_text = (runs_dir / "review_classification.md").read_text(encoding="utf-8")
+    assert classification_text.startswith("# Review Classification")
+    assert "## Review Gate Contract" in classification_text
+    assert "MERGE RECOMMENDATION: reject" in classification_text
+
     assert (
         runs_dir / "review_classification_raw_output.txt"
     ).read_text(encoding="utf-8").strip() == "raw-classification-output"

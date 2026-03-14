@@ -1,6 +1,8 @@
 # US-AUTO-16: File Scope
 
 ## Files Allowed To Change
+- `tests/test_review_classification_script.py`
+- `tests/test_review_gate_story_run.py`
 - `tests/test_run_codex_task.py`
 - `automation/bundle_packs/US-AUTO-16.bundle.md`
 - `automation/bundles/active/US-AUTO-16/00_story.md`
@@ -25,7 +27,6 @@
 - `automation/scripts/validate_story_bundle.sh`
 - `backend/**`
 - `database/**`
-- `tests/**`
 
 ## Scope Notes
 - Prefer adding `automation/scripts/review_gate_story_run.sh` as the main new file.

@@ -35,6 +35,8 @@ Do not:
 - `automation/bundles/active/US-AUTO-16/02_file_scope.md`
 
 ## Files Allowed To Change
+- `tests/test_review_classification_script.py`
+- `tests/test_review_gate_story_run.py`
 - `automation/scripts/ai_review_story_run.sh`
 - `automation/scripts/classify_review_story_run.sh`
 - `automation/scripts/review_story_run.sh`
@@ -50,7 +52,6 @@ Do not:
 - `automation/scripts/validate_story_bundle.sh`
 - `backend/**`
 - `database/**`
-- `tests/**`
 
 ## Implementation Rules
 - minimal patch only
@@ -59,7 +60,7 @@ Do not:
 - update docs only when behavior/process changes require it
 
 ## Test Plan
-- `pytest tests/test_allowed_files_guard.py`
+- `pytest tests/test_review_classification_script.py tests/test_review_story_run.py tests/test_run_codex_task.py`
 
 ## Output
 Return:

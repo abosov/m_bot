@@ -125,6 +125,8 @@ Build a narrow review gate layer on top of existing artifacts and scripts:
 # US-AUTO-16: File Scope
 
 ## Files Allowed To Change
+- `tests/test_review_classification_script.py`
+- `tests/test_review_gate_story_run.py`
 - `tests/test_run_codex_task.py`
 - `automation/bundle_packs/US-AUTO-16.bundle.md`
 - `automation/bundles/active/US-AUTO-16/00_story.md`
@@ -149,7 +151,6 @@ Build a narrow review gate layer on top of existing artifacts and scripts:
 - `automation/scripts/validate_story_bundle.sh`
 - `backend/**`
 - `database/**`
-- `tests/**`
 
 ## Scope Notes
 - Prefer adding `automation/scripts/review_gate_story_run.sh` as the main new file.
@@ -209,7 +210,6 @@ Do not:
 - `automation/scripts/validate_story_bundle.sh`
 - `backend/**`
 - `database/**`
-- `tests/**`
 
 ## Implementation Rules
 - minimal patch only
@@ -218,7 +218,7 @@ Do not:
 - update docs only when behavior/process changes require it
 
 ## Test Plan
-- `pytest tests/test_allowed_files_guard.py`
+- `pytest tests/test_review_classification_script.py tests/test_review_story_run.py tests/test_run_codex_task.py`
 
 ## Output
 Return:
@@ -335,7 +335,6 @@ Fix only the specific review gate issue identified during review without expandi
 - `automation/run_codex_task.sh`
 - `backend/**`
 - `database/**`
-- `tests/**`
 
 ## Rules
 - keep patch minimal and scoped
@@ -343,7 +342,7 @@ Fix only the specific review gate issue identified during review without expandi
 - do not introduce new features beyond listed findings
 
 ## Tests
-- `pytest tests/test_allowed_files_guard.py`
+- `pytest tests/test_review_classification_script.py tests/test_review_story_run.py tests/test_run_codex_task.py`
 
 ## Output
 Return:
