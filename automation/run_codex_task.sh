@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(git rev-parse --show-toplevel)"
+RUNNER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNS_ROOT="$ROOT_DIR/automation/runs"
 DEFAULT_PROMPT_FILE="$ROOT_DIR/automation/prompts/current_task.md"
 PROMPT_FILE="$DEFAULT_PROMPT_FILE"
@@ -328,6 +329,8 @@ TEST_FILE="$RUN_DIR/pytest.txt"
 BUNDLE_FILE="$RUN_DIR/review_bundle.md"
 REVIEW_PROMPT_FILE="$RUN_DIR/chatgpt_review_prompt.md"
 META_FILE="$RUN_DIR/run_meta.txt"
+CHECK_ALLOWED_FILES_SCRIPT="$ROOT_DIR/automation/scripts/check_allowed_files.sh"
+FALLBACK_CHECK_ALLOWED_FILES_SCRIPT="$RUNNER_DIR/scripts/check_allowed_files.sh"
 WORKTREE_TRACKED_LIST_FILE="$RUN_DIR/.worktree_tracked.txt"
 WORKTREE_UNTRACKED_LIST_FILE="$RUN_DIR/.worktree_untracked.txt"
 MATERIALIZATION_STATUS="not_needed"
@@ -569,10 +572,30 @@ collect_git_artifacts() {
   rm -f "$tracked_names_file" "$untracked_names_file"
 }
 
+check_allowed_files() {
+  local bundle_dir scope_file script_path
+  bundle_dir="$ROOT_DIR/automation/bundles/active/$STORY_ID"
+  scope_file="$bundle_dir/02_file_scope.md"
+  script_path="$CHECK_ALLOWED_FILES_SCRIPT"
+
+  if [[ ! -f "$script_path" && -f "$FALLBACK_CHECK_ALLOWED_FILES_SCRIPT" ]]; then
+    script_path="$FALLBACK_CHECK_ALLOWED_FILES_SCRIPT"
+  fi
+
+  if [[ ! -f "$scope_file" ]]; then
+    echo "ERROR: scope file is missing: $scope_file" >&2
+    exit 1
+  fi
+
+  info "Validating changed files against bundle scope"
+  bash "$script_path" "$STORY_ID" "$NAMEONLY_FILE" "$bundle_dir"
+}
+
 CODEX_EXIT="$(run_codex)"
 materialize_worktree_changes
 
 collect_git_artifacts
+check_allowed_files
 
 if [[ "$SKIP_PYTEST" == "1" ]]; then
   PYTEST_EXIT="SKIPPED"
@@ -718,9 +741,11 @@ info "Artifacts generated in: $RUN_DIR"
 info "Done"
 
 if [[ "$CODEX_EXIT" != "0" ]]; then
-  warn "Codex finished with non-zero exit code: $CODEX_EXIT"
+  echo "ERROR: Codex finished with non-zero exit code: $CODEX_EXIT" >&2
+  exit "$CODEX_EXIT"
 fi
 
 if [[ "$PYTEST_EXIT" != "0" && "$PYTEST_EXIT" != "SKIPPED" ]]; then
-  warn "pytest finished with non-zero exit code: $PYTEST_EXIT"
+  echo "ERROR: pytest finished with non-zero exit code: $PYTEST_EXIT" >&2
+  exit "$PYTEST_EXIT"
 fi

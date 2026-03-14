@@ -22,6 +22,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    Runner execution is isolated in a temporary detached git worktree created from current branch `HEAD` and cleaned up on exit.
    Every run must generate `repository_map_runtime.md` before Codex execution and inject that repository map into the runtime Codex prompt.
    Any tracked or regular untracked file changes produced inside that isolated worktree must be materialized back into the primary checkout before pytest and artifact collection; if materialization does not reach the primary checkout, the run must fail explicitly.
+   After changed-files collection, the runner must enforce `02_file_scope.md` with the allowed-files guard before pytest and downstream review continue.
    Use `automation/run_codex_task.sh --full-context <master-prompt-path>` only when the story needs the full bundle context.
    `automation/scripts/run_story.sh <STORY-ID>` continues to use the runner defaults.
 11. Run required tests (minimum: targeted `pytest` scope for changed behavior).
