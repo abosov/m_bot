@@ -41,7 +41,7 @@ Add a deterministic allowed-files guard that stops the Codex pipeline when the i
 - `automation/run_codex_task.sh`
 - `automation/scripts/run_story.sh`
 - `automation/scripts/validate_story_bundle.sh`
-- `automation/bundles/active/US-AUTO-13/02_file_scope.md`
+- `automation/bundles/active/US-AUTO-14/02_file_scope.md`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 
 ## Current Code Reality
@@ -147,7 +147,8 @@ Implement a deterministic runtime guard that reads the active story bundle file 
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 
 ## Files Allowed To Change
-- `automation/scripts/check_allowed_files.sh`automation/run_codex_task.sh`
+- `automation/scripts/check_allowed_files.sh`
+- `automation/run_codex_task.sh`
 - `tests/test_allowed_files_guard.py`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 - `automation/bundle_packs/US-AUTO-14.bundle.md`

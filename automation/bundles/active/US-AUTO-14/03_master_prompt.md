@@ -17,7 +17,8 @@ Implement a deterministic runtime guard that reads the active story bundle file 
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 
 ## Files Allowed To Change
-- `automation/scripts/check_allowed_files.sh`automation/run_codex_task.sh`
+- `automation/scripts/check_allowed_files.sh`
+- `automation/run_codex_task.sh`
 - `tests/test_allowed_files_guard.py`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 - `automation/bundle_packs/US-AUTO-14.bundle.md`
@@ -82,4 +83,3 @@ Return:
 3. validation performed
 4. risks / follow-ups
 5. final diff
-
