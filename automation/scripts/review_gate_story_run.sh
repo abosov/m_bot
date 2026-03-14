@@ -72,7 +72,12 @@ extract_merge_recommendation() {
     return 1
   fi
 
-  mapfile -t decisions < <(printf '%s\n' "${decisions[@]}" | LC_ALL=C sort -u)
+  local -a unique_decisions=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && unique_decisions+=("$line")
+  done < <(printf '%s\n' "${decisions[@]}" | LC_ALL=C sort -u)
+
+  decisions=("${unique_decisions[@]}")
   [[ ${#decisions[@]} -eq 1 ]] || return 1
 
   printf '%s\n' "${decisions[0]}"
@@ -91,8 +96,13 @@ write_gate_result() {
   local classification_file="$6"
   local decision="$7"
   local decision_source="$8"
+  local status="$9"
+  local reason="${10}"
+  local tmp_file
 
-  cat >"$gate_result_file" <<EOF
+  tmp_file="$(mktemp "${gate_result_file}.tmp.XXXXXX")"
+
+  cat >"$tmp_file" <<EOF
 {
   "story_id": "$(json_escape "$story_id")",
   "run_id": "$(json_escape "$run_id")",
@@ -100,9 +110,12 @@ write_gate_result() {
   "ai_review_result": "$(json_escape "$ai_review_file")",
   "review_classification_result": "$(json_escape "$classification_file")",
   "decision": "$(json_escape "$decision")",
-  "decision_source": "$(json_escape "$decision_source")"
+  "status": "$(json_escape "$status")",
+  "decision_source": "$(json_escape "$decision_source")",
+  "reason": "$(json_escape "$reason")"
 }
 EOF
+  mv "$tmp_file" "$gate_result_file"
 }
 
 [[ $# -eq 1 ]] || usage
@@ -120,7 +133,7 @@ CLASSIFICATION_FILE="$LATEST_RUN_DIR/$CLASSIFICATION_FILE_NAME"
 GATE_RESULT_FILE="$LATEST_RUN_DIR/$GATE_RESULT_FILE_NAME"
 
 set +e
-"$AI_REVIEW_SCRIPT" "$STORY_ID"
+AUTOMATION_RUN_DIR="$LATEST_RUN_DIR" "$AI_REVIEW_SCRIPT" "$STORY_ID"
 ai_review_exit_code=$?
 set -e
 if [[ $ai_review_exit_code -ne 0 ]]; then
@@ -132,17 +145,21 @@ if [[ $ai_review_exit_code -ne 0 ]]; then
     "$AI_REVIEW_FILE" \
     "$CLASSIFICATION_FILE" \
     "reject" \
-    "ai_review_failed"
+    "ai_review_failed" \
+    "failed" \
+    "AI review step failed"
   fail "AI review step failed for '$STORY_ID' (exit $ai_review_exit_code)"
 fi
 
 require_file "$AI_REVIEW_FILE"
 
 decision="reject"
+status="failed"
 decision_source="invalid_or_missing_merge_recommendation"
+reason="Classification output did not contain a valid merge recommendation"
 
 set +e
-"$CLASSIFY_REVIEW_SCRIPT" "$STORY_ID"
+AUTOMATION_RUN_DIR="$LATEST_RUN_DIR" "$CLASSIFY_REVIEW_SCRIPT" "$STORY_ID"
 classification_exit_code=$?
 set -e
 
@@ -151,10 +168,17 @@ if [[ $classification_exit_code -eq 0 ]]; then
 
   if merge_recommendation="$(extract_merge_recommendation "$CLASSIFICATION_FILE")"; then
     decision="$merge_recommendation"
+    if [[ "$decision" == "approve" ]]; then
+      status="passed"
+      reason="Review classification approved merge"
+    else
+      reason="Review classification rejected merge"
+    fi
     decision_source="review_classification"
   fi
 else
   decision_source="review_classification_failed"
+  reason="Review classification step failed"
 fi
 
 write_gate_result \
@@ -165,7 +189,9 @@ write_gate_result \
   "$AI_REVIEW_FILE" \
   "$CLASSIFICATION_FILE" \
   "$decision" \
-  "$decision_source"
+  "$decision_source" \
+  "$status" \
+  "$reason"
 
 printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
 printf 'Final decision: %s\n' "$decision"

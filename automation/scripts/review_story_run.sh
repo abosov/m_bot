@@ -102,4 +102,5 @@ if (( ${#available_optional_artifacts[@]} > 0 )); then
 fi
 
 printf '\n'
-printf 'Next step: run automation/scripts/review_gate_story_run.sh %s to generate the final gate decision for %s.\n' "$STORY_ID" "$LATEST_RUN_DIR"
+printf 'Next step: run automation/scripts/review_gate_story_run.sh %s to generate the final gate artifact for %s.\n' "$STORY_ID" "$LATEST_RUN_DIR"
+printf 'The gate artifact is review_gate_result.json with a machine-readable decision, status, and source.\n'
