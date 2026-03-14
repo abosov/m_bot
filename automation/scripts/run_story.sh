@@ -2,9 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-BUNDLES_ROOT="$ROOT_DIR/automation/bundles/active"
-RUNNER="$ROOT_DIR/automation/run_codex_task.sh"
+ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+BUNDLES_ROOT="${AUTOMATION_BUNDLES_ROOT:-$ROOT_DIR/automation/bundles/active}"
+RUNNER="${AUTOMATION_RUNNER:-$ROOT_DIR/automation/run_codex_task.sh}"
+VALIDATOR_SCRIPT="$ROOT_DIR/automation/scripts/validate_story_bundle.sh"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -69,7 +70,11 @@ if (( ${#missing_files[@]} > 0 )); then
 fi
 
 require_file "$RUNNER"
+require_file "$VALIDATOR_SCRIPT"
 require_file "$MASTER_PROMPT"
+
+echo "[INFO] Validating story bundle: $BUNDLE_DIR" >&2
+"$VALIDATOR_SCRIPT" "$STORY_ID"
 
 echo "[INFO] STORY_ID: $STORY_ID" >&2
 echo "[INFO] Bundle dir: $BUNDLE_DIR" >&2

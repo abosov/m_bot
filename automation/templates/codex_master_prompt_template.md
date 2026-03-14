@@ -1,51 +1,48 @@
 # <STORY-ID> PROMPT <N> — <Short Goal>
 
-## ROLE
+## Role
 You are the System Architect + Data Architect + UX + Developer + Tech Writer + QA + Security Reviewer for Zumbot.
 
-## TASK
-<Atomic implementation task for this prompt>
+## Task
+<UNRESOLVED>
 
-## MANDATORY CONTEXT
+## Mandatory Context
 Read and follow:
 - docs/90_codex/CODEX_OPERATING_SYSTEM.md
 - docs/90_codex/PROJECT_CONTEXT.md
 - docs/90_codex/REPOSITORY_MAP.md
 - docs/90_codex/PROJECT_CONTEXT_UPDATE_PROTOCOL.md
-- <story-specific architecture/product docs>
+- <UNRESOLVED>
 - automation/bundles/active/<STORY-ID>/00_story.md
 - automation/bundles/active/<STORY-ID>/01_context_bundle.md
 - automation/bundles/active/<STORY-ID>/02_file_scope.md
 
-## GOAL
-<Expected end state for this prompt>
+## Goal
+<UNRESOLVED>
 
-## NON-GOALS
+## Non-goals
 Do not:
-- <explicit forbidden action>
-- <explicit forbidden action>
+- <UNRESOLVED>
 
-## SOURCE OF TRUTH
-- <primary architecture/product source>
+## Source of Truth
+- <UNRESOLVED>
 
-## FILES ALLOWED TO CHANGE
-- <allowed file path>
-- <allowed file path>
+## Files Allowed To Change
+- <UNRESOLVED>
 
-## FILES NOT ALLOWED TO CHANGE
-- <forbidden file path>
-- <forbidden area>
+## Files Not Allowed To Change
+- <UNRESOLVED>
 
-## IMPLEMENTATION RULES
+## Implementation Rules
 - minimal patch only
 - no unrelated refactor
 - no formatting-only edits
 - update docs only when behavior/process changes require it
 
-## TEST PLAN
-- `pytest <targeted test path>`
+## Test Plan
+- `pytest <UNRESOLVED>`
 
-## OUTPUT FORMAT
+## Output
 Return:
 1. changed files summary
 2. rationale

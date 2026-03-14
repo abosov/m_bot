@@ -1,31 +1,29 @@
 # <STORY-ID> — <PR Title>
 
 ## Summary
-<What this PR changes in 2-4 lines>
+<UNRESOLVED>
 
 ## Story Context
 - Story bundle: `automation/bundles/active/<STORY-ID>/`
-- Objective: <objective>
-- Non-goals: <key exclusions>
+- Objective: <UNRESOLVED>
+- Non-goals: <UNRESOLVED>
 
 ## Scope
-- <Implemented item 1>
-- <Implemented item 2>
+- <UNRESOLVED>
 
 ## Files Changed
-- <path>
-- <path>
+- <UNRESOLVED>
 
 ## Tests
-- `pytest <targeted path>`: <pass/fail>
+- `pytest <UNRESOLVED>`: <UNRESOLVED>
 
 ## Review Classification
-- Merge blockers: <count/status>
-- Minor improvements: <count/status>
-- Follow-up stories created: <list or none>
+- Merge blockers: <UNRESOLVED>
+- Minor improvements: <UNRESOLVED>
+- Follow-up stories created: <UNRESOLVED>
 
 ## Risks / Notes
-- <Known risk and mitigation>
+- <UNRESOLVED>
 
 ## Manual Actions
-- <Manual actions, if any>
+- <UNRESOLVED>
