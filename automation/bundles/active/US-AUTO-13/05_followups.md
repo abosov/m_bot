@@ -8,4 +8,4 @@
 ## Iteration Notes
 - Keep this story focused on finalization only.
 - Do not mix in review gating or scope enforcement.
-
+- Keep the script deterministic and fail fast instead of polling for checks.

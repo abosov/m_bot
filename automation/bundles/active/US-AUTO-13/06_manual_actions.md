@@ -6,7 +6,7 @@
 - Review CLI failure messages for clarity.
 
 ## Execution Notes
-- GitHub CLI (`gh`) is the defad preferred path for GitHub automation in this project.
+- GitHub CLI (`gh`) is the default preferred path for GitHub automation in this project.
 
 ## Completion Status
 - [ ] No manual actions required

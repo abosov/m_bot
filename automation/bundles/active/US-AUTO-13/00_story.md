@@ -43,12 +43,14 @@ Add a deterministic finalization script that completes the post-implementation w
 - Story execution and review are already scripted, but final PR creation/merge/final cleanup still require manual command orchestration.
 - The project already uses `gh` successfully for PR creation, checks, and merge.
 - Workflow rules require no stale story branches after merge and require returning to updated `main`.
+- There is no dedicated finalization script yet, so merge, resync, and cleanup are easy to apply inconsistently.
 
 ## Target Outcome
 - One script finalizes a story safely through `gh`.
 - Finalization fails fast on dirty tree, wrong branch, missing PR, or failing checks.
 - Successful finalization leaves the repo on clean updated `main`.
 - Successful finalization removes story branches locally and remotely.
+- The checklist documents `automation/scripts/finalize_story.sh` as the default post-implementation merge path.
 
 ## Allowed Files
 - `automation/scripts/finalize_story.sh`
@@ -81,4 +83,3 @@ Add a deterministic finalization script that completes the post-implementation w
 - Finalization must fail when PR checks are not green.
 - Successful finalization must land on updated clean `main`.
 - Successful finalization must delete local and remote story branches.
-

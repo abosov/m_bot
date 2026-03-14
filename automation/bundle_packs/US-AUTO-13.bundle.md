@@ -48,12 +48,14 @@ Add a deterministic finalization script that completes the post-implementation w
 - Story execution and review are already scripted, but final PR creation/merge/final cleanup still require manual command orchestration.
 - The project already uses `gh` successfully for PR creation, checks, and merge.
 - Workflow rules require no stale story branches after merge and require returning to updated `main`.
+- There is no dedicated finalization script yet, so merge, resync, and cleanup are easy to apply inconsistently.
 
 ## Target Outcome
 - One script finalizes a story safely through `gh`.
 - Finalization fails fast on dirty tree, wrong branch, missing PR, or failing checks.
 - Successful finalization leaves the repo on clean updated `main`.
 - Successful finalization removes story branches locally and remotely.
+- The checklist documents `automation/scripts/finalize_story.sh` as the default post-implementation merge path.
 
 ## Allowed Files
 - `automation/scripts/finalize_story.sh`
@@ -150,7 +152,7 @@ US-AUTO-13 — Story Finalization Script.
 Add a deterministic finalization script that completes the post-implementation workflow for a story through GitHub CLI, including PR resolution checks, merge execution, local main resync, and branch cleanup.
 
 ## Source of Truth
-- `do0_codex/STORY_EXECUTION_CHECKLIST.md`
+- `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 - current `gh`-based merge workflow used in completed stories
 - `automation/bundles/active/US-AUTO-13/00_story.md`
 - `automation/bundles/active/US-AUTO-13/01_context_bundle.md`
@@ -192,7 +194,7 @@ Add or update focused tests that verify:
 - failed checks block merge
 
 ## Documentation
-Update workflow docs/checklists to describe scripted finalization through `gh`.
+Update workflow docs/checklists to describe `automation/scripts/finalize_story.sh` as the scripted finalization path through `gh`.
 
 ## Output
 Return:
@@ -239,6 +241,7 @@ Return:
 ## Iteration Notes
 - Keep this story focused on finalization only.
 - Do not mix in review gating or scope enforcement.
+- Keep the script deterministic and fail fast instead of polling for checks.
 
 === FILE: 06_manual_actions.md ===
 # US-AUTO-13: Manual Actions
@@ -249,7 +252,7 @@ Return:
 - Review CLI failure messages for clarity.
 
 ## Execution Notes
-- GitHub CLI (`gh`) is the defad preferred path for GitHub automation in this project.
+- GitHub CLI (`gh`) is the default preferred path for GitHub automation in this project.
 
 ## Completion Status
 - [ ] No manual actions required

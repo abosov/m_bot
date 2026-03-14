@@ -10,7 +10,7 @@ US-AUTO-13 — Story Finalization Script.
 Add a deterministic finalization script that completes the post-implementation workflow for a story through GitHub CLI, including PR resolution checks, merge execution, local main resync, and branch cleanup.
 
 ## Source of Truth
-- `do0_codex/STORY_EXECUTION_CHECKLIST.md`
+- `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 - current `gh`-based merge workflow used in completed stories
 - `automation/bundles/active/US-AUTO-13/00_story.md`
 - `automation/bundles/active/US-AUTO-13/01_context_bundle.md`
@@ -52,7 +52,7 @@ Add or update focused tests that verify:
 - failed checks block merge
 
 ## Documentation
-Update workflow docs/checklists to describe scripted finalization through `gh`.
+Update workflow docs/checklists to describe `automation/scripts/finalize_story.sh` as the scripted finalization path through `gh`.
 
 ## Output
 Return:
@@ -61,4 +61,3 @@ Return:
 3. validation performed
 4. risks / follow-ups
 5. final diff
-

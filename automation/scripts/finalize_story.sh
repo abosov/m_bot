@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+GIT_BIN="${FINALIZE_STORY_GIT_BIN:-git}"
+GH_BIN="${FINALIZE_STORY_GH_BIN:-gh}"
+MAIN_BRANCH="${FINALIZE_STORY_MAIN_BRANCH:-main}"
+
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  automation/scripts/finalize_story.sh [PR_NUMBER]
+
+Examples:
+  automation/scripts/finalize_story.sh
+  automation/scripts/finalize_story.sh 123
+EOF
+  exit 1
+}
+
+require_clean_tree() {
+  local status_output
+  if ! status_output="$("$GIT_BIN" status --porcelain)"; then
+    fail "failed to inspect git working tree"
+  fi
+
+  [[ -z "$status_output" ]] || fail "working tree must be clean before finalization"
+}
+
+current_branch() {
+  local branch_name
+  if ! branch_name="$("$GIT_BIN" rev-parse --abbrev-ref HEAD)"; then
+    fail "failed to resolve current branch"
+  fi
+
+  printf '%s\n' "$branch_name"
+}
+
+resolve_pr_number() {
+  local selector="${1:-}"
+  local pr_number
+
+  if ! pr_number="$("$GH_BIN" pr view "$selector" --json number --jq '.number')"; then
+    fail "could not resolve a pull request for '$selector'"
+  fi
+
+  [[ -n "$pr_number" ]] || fail "pull request number resolved empty for '$selector'"
+  printf '%s\n' "$pr_number"
+}
+
+resolve_pr_head_ref() {
+  local pr_number="$1"
+  local head_ref
+
+  if ! head_ref="$("$GH_BIN" pr view "$pr_number" --json headRefName --jq '.headRefName')"; then
+    fail "could not resolve head branch for pull request '$pr_number'"
+  fi
+
+  [[ -n "$head_ref" ]] || fail "pull request '$pr_number' returned an empty head branch"
+  printf '%s\n' "$head_ref"
+}
+
+verify_required_checks() {
+  local pr_number="$1"
+
+  if ! "$GH_BIN" pr checks "$pr_number" --required; then
+    fail "pull request '$pr_number' does not have green required checks"
+  fi
+}
+
+merge_pull_request() {
+  local pr_number="$1"
+
+  "$GH_BIN" pr merge "$pr_number" --squash --delete-branch
+}
+
+delete_local_branch_if_present() {
+  local branch_name="$1"
+  local local_branch
+
+  if ! local_branch="$("$GIT_BIN" branch --list "$branch_name")"; then
+    fail "failed to inspect local branch '$branch_name'"
+  fi
+
+  [[ -z "$local_branch" ]] || "$GIT_BIN" branch -D "$branch_name"
+}
+
+delete_remote_branch_if_present() {
+  local branch_name="$1"
+
+  if "$GIT_BIN" ls-remote --exit-code --heads origin "$branch_name" >/dev/null 2>&1; then
+    "$GIT_BIN" push origin --delete "$branch_name"
+  fi
+}
+
+[[ $# -le 1 ]] || usage
+
+PR_SELECTOR="${1:-}"
+
+require_clean_tree
+
+STORY_BRANCH="$(current_branch)"
+[[ "$STORY_BRANCH" != "$MAIN_BRANCH" ]] || fail "refusing to finalize from '$MAIN_BRANCH'"
+
+if [[ -n "$PR_SELECTOR" ]]; then
+  PR_NUMBER="$(resolve_pr_number "$PR_SELECTOR")"
+else
+  PR_NUMBER="$(resolve_pr_number "$STORY_BRANCH")"
+fi
+
+PR_HEAD_REF="$(resolve_pr_head_ref "$PR_NUMBER")"
+[[ "$PR_HEAD_REF" == "$STORY_BRANCH" ]] || \
+  fail "pull request '$PR_NUMBER' targets branch '$PR_HEAD_REF', expected '$STORY_BRANCH'"
+
+echo "[INFO] Finalizing branch '$STORY_BRANCH' with PR #$PR_NUMBER" >&2
+
+verify_required_checks "$PR_NUMBER"
+merge_pull_request "$PR_NUMBER"
+
+"$GIT_BIN" checkout "$MAIN_BRANCH"
+"$GIT_BIN" pull --ff-only origin "$MAIN_BRANCH"
+
+delete_local_branch_if_present "$STORY_BRANCH"
+delete_remote_branch_if_present "$STORY_BRANCH"
+
+echo "[INFO] Finalization complete on '$MAIN_BRANCH'" >&2
