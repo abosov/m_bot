@@ -136,6 +136,36 @@ EOF
   mv "$tmp_file" "$gate_result_file"
 }
 
+
+update_manifest_gate_artifacts() {
+  local manifest_file="$1"
+
+  [[ -f "$manifest_file" ]] || return 0
+
+  python3 - "$manifest_file" <<'PY2'
+from pathlib import Path
+import sys
+
+manifest_path = Path(sys.argv[1])
+text = manifest_path.read_text(encoding="utf-8")
+
+required = [
+    "- ai_review_result.md",
+    "- review_classification.md",
+    "- review_gate_result.json",
+]
+
+if "## Artifacts" not in text:
+    sys.exit(0)
+
+for item in required:
+    if item not in text:
+        text = text.rstrip() + "\n" + item + "\n"
+
+manifest_path.write_text(text, encoding="utf-8")
+PY2
+}
+
 [[ $# -eq 1 ]] || usage
 
 STORY_ID="$1"
@@ -149,6 +179,7 @@ RUN_ID="$(basename "$LATEST_RUN_DIR")"
 AI_REVIEW_FILE="$LATEST_RUN_DIR/$AI_REVIEW_FILE_NAME"
 CLASSIFICATION_FILE="$LATEST_RUN_DIR/$CLASSIFICATION_FILE_NAME"
 GATE_RESULT_FILE="$LATEST_RUN_DIR/$GATE_RESULT_FILE_NAME"
+MANIFEST_FILE="$LATEST_RUN_DIR/manifest.md"
 
 set +e
 AUTOMATION_RUN_DIR="$LATEST_RUN_DIR" "$AI_REVIEW_SCRIPT" "$STORY_ID"
@@ -210,6 +241,8 @@ write_gate_result \
   "$decision_source" \
   "$status" \
   "$reason"
+
+update_manifest_gate_artifacts "$MANIFEST_FILE"
 
 printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
 printf 'Final decision: %s\n' "$decision"
