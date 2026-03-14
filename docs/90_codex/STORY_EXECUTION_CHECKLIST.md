@@ -33,9 +33,9 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 16. Run follow-up prompts for merge blockers and accepted improvements.
 17. Re-run tests after follow-up changes.
 18. Prepare PR with scope, risks, verification, and docs impact.
-19. Merge after checks and review approvals pass.
-20. Resync local `main` (`git checkout main && git pull --ff-only`).
-21. Delete merged story branch locally/remotely.
+19. Finalize the story with `automation/scripts/finalize_story.sh [PR_NUMBER]` after checks and review approvals pass.
+20. The finalization script must merge with `gh pr merge --squash`, switch to local `main`, run `git pull --ff-only origin main`, and delete the merged story branch locally/remotely.
+21. If scripted finalization cannot complete, stop and fix the blocking condition instead of finishing cleanup manually without documenting it.
 22. Append process improvement notes for the completed story.
 
 ## Required Completion Artifacts
@@ -68,15 +68,17 @@ Workflow:
 
 2. Run Codex and perform all commits inside that branch.
 
-3. Open PR and merge into main.
+3. Open PR and finalize through `automation/scripts/finalize_story.sh [PR_NUMBER]`.
 
-4. After merge:
+4. The script must:
 
+   gh pr checks <pr> --required
+   gh pr merge <pr> --squash --delete-branch
    git checkout main
-   git pull --ff-only
-   git branch -d <story-branch>
+   git pull --ff-only origin main
+   git branch -D <story-branch>
 
-5. Remote branch must also be deleted.
+5. Remote branch deletion must also be enforced by the script.
 
 Final expected local state:
 
