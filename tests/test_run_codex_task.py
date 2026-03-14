@@ -60,6 +60,17 @@ def setup_story_repo(tmp_path: Path) -> tuple[Path, Path]:
     prompt_file.parent.mkdir(parents=True)
     prompt_file.write_text("# Prompt\n\nRun the workflow.\n", encoding="utf-8")
 
+    docs_dir = root_dir / "docs" / "40_ai" / "zumbot_codex"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "PROJECT_CONTEXT.md").write_text(
+        "# Project Context\n\nCurated project context.\n",
+        encoding="utf-8",
+    )
+    (docs_dir / "REPOSITORY_MAP.md").write_text(
+        "# Repository Map\n\nCurated repository map.\n",
+        encoding="utf-8",
+    )
+
     tracked_file = root_dir / "tracked.txt"
     tracked_file.write_text("base\n", encoding="utf-8")
 
@@ -122,12 +133,16 @@ done
 if [[ -n "${FAKE_CODEX_CWD_FILE:-}" ]]; then
   printf '%s\\n' "$workdir" > "$FAKE_CODEX_CWD_FILE"
 fi
+if [[ -n "${FAKE_CODEX_STDIN_FILE:-}" ]]; then
+  cat > "$FAKE_CODEX_STDIN_FILE"
+else
+  cat >/dev/null
+fi
 if [[ -n "${workdir:-}" ]]; then
   printf '%s\\n' 'codex isolated edit' >> "$workdir/tracked.txt"
   mkdir -p "$workdir/generated"
   printf '%s\\n' 'materialized file' > "$workdir/generated/from_worktree.txt"
 fi
-cat >/dev/null
 printf '%s\\n' 'codex summary' > "$output"
 """,
     )
@@ -152,6 +167,7 @@ def test_materialized_primary_checkout_state() -> None:
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
     env["FAKE_CODEX_CWD_FILE"] = str(tmp_path / "codex_cwd.txt")
+    env["FAKE_CODEX_STDIN_FILE"] = str(tmp_path / "codex_stdin.txt")
 
     result = run(
         ["bash", str(SCRIPT_PATH), str(prompt_file)],
@@ -169,10 +185,14 @@ def test_materialized_primary_checkout_state() -> None:
     diff_stat = (run_dir / "diff.stat").read_text(encoding="utf-8")
     manifest = (run_dir / "manifest.md").read_text(encoding="utf-8")
     meta = (run_dir / "run_meta.txt").read_text(encoding="utf-8")
+    repository_map_runtime = (run_dir / "repository_map_runtime.md").read_text(encoding="utf-8")
+    story_context = (run_dir / "story_context.md").read_text(encoding="utf-8")
+    codex_prompt = (run_dir / "codex_prompt.md").read_text(encoding="utf-8")
     review_bundle = (run_dir / "review_bundle.md").read_text(encoding="utf-8")
     review_prompt = (run_dir / "chatgpt_review_prompt.md").read_text(encoding="utf-8")
     pytest_output = (run_dir / "pytest.txt").read_text(encoding="utf-8")
     codex_cwd = Path((tmp_path / "codex_cwd.txt").read_text(encoding="utf-8").strip())
+    codex_stdin = (tmp_path / "codex_stdin.txt").read_text(encoding="utf-8")
 
     assert changed_files.splitlines() == [
         "generated/from_worktree.txt",
@@ -187,6 +207,13 @@ def test_materialized_primary_checkout_state() -> None:
     assert "- review_diff_range: origin/main...HEAD" in manifest
     assert "- review_artifact_base:" in manifest
     assert "- changed_files_detected: yes" in manifest
+    assert "- repository_map_runtime_file:" in manifest
+    assert "- repository_map_injection_status: injected" in manifest
+    assert (
+        "- repository_map_source_docs: "
+        "docs/40_ai/zumbot_codex/REPOSITORY_MAP.md,"
+        "docs/40_ai/zumbot_codex/PROJECT_CONTEXT.md"
+    ) in manifest
     assert "- isolated_run: yes" in manifest
     assert "- isolated_worktree_dir:" in manifest
     assert "- isolated_worktree_head:" in manifest
@@ -194,8 +221,19 @@ def test_materialized_primary_checkout_state() -> None:
     assert "- materialized_tracked_changes: 1" in manifest
     assert "- materialized_untracked_files: 1" in manifest
     assert "isolated_run=true" in meta
+    assert "repository_map_runtime_file=" in meta
+    assert "repository_map_injection_status=injected" in meta
     assert "isolated_worktree_dir=" in meta
     assert "isolated_worktree_head=" in meta
+    assert "# Repository Map Runtime" in repository_map_runtime
+    assert "Curated project context." in repository_map_runtime
+    assert "Curated repository map." in repository_map_runtime
+    assert "Repository map artifact:" in story_context
+    assert "- repository_map_runtime.md" in story_context
+    assert "Repository map artifact: repository_map_runtime.md" in codex_prompt
+    assert "Curated repository map." in codex_prompt
+    assert "# Prompt" in codex_prompt
+    assert codex_stdin == codex_prompt
     assert codex_cwd != root_dir
     assert codex_cwd.name.startswith("zumbot-codex-worktree-")
     assert not codex_cwd.exists()

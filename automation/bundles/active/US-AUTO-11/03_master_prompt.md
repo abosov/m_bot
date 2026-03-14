@@ -7,7 +7,7 @@ You are the Zumbot workflow automation engineer working under the repository's C
 US-AUTO-11 — Repository Map Injection for Codex runs.
 
 ## Goal
-Inject a dle repository map artifact into every Codex run so the model receives a stable architectural view of the repository before implementation starts.
+Inject a durable repository map artifact into every Codex run so the model receives a stable architectural view of the repository before implementation starts.
 
 ## Source of Truth
 - `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
