@@ -1,6 +1,14 @@
 # US-AUTO-16: File Scope
 
 ## Files Allowed To Change
+- `automation/bundle_packs/US-AUTO-16.bundle.md`
+- `automation/bundles/active/US-AUTO-16/00_story.md`
+- `automation/bundles/active/US-AUTO-16/01_context_bundle.md`
+- `automation/bundles/active/US-AUTO-16/02_file_scope.md`
+- `automation/bundles/active/US-AUTO-16/03_master_prompt.md`
+- `automation/bundles/active/US-AUTO-16/04_review_checklist.md`
+- `automation/bundles/active/US-AUTO-16/05_followups.md`
+- `automation/bundles/active/US-AUTO-16/06_manual_actions.md`
 - `automation/scripts/ai_review_story_run.sh`
 - `automation/scripts/classify_review_story_run.sh`
 - `automation/scripts/review_story_run.sh`

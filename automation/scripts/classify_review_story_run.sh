@@ -54,6 +54,33 @@ resolve_latest_run_dir() {
   printf '%s\n' "$latest_run_dir"
 }
 
+extract_merge_recommendation() {
+  local classification_file="$1"
+  local -a decisions=()
+  local line normalized
+
+  while IFS= read -r line; do
+    normalized="$(
+      printf '%s\n' "$line" \
+        | tr '[:upper:]' '[:lower:]' \
+        | sed -E 's/`//g; s/^[[:space:]]*[0-9]+[.)][[:space:]]*//; s/^[[:space:]]*[-*][[:space:]]*//; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//'
+    )"
+
+    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*(approve|reject)[^a-z]*$ ]]; then
+      decisions+=("${BASH_REMATCH[1]}")
+    fi
+  done < "$classification_file"
+
+  if (( ${#decisions[@]} == 0 )); then
+    return 1
+  fi
+
+  mapfile -t decisions < <(printf '%s\n' "${decisions[@]}" | LC_ALL=C sort -u)
+  [[ ${#decisions[@]} -eq 1 ]] || return 1
+
+  printf '%s\n' "${decisions[0]}"
+}
+
 [[ $# -eq 1 ]] || usage
 
 require_cmd "$CODEX_BIN"
@@ -118,6 +145,11 @@ Return:
 4. follow-up stories to create
 5. merge recommendation (\`approve\` or \`reject\`)
 
+Include the final recommendation as an exact standalone line:
+\`MERGE RECOMMENDATION: approve\`
+or
+\`MERGE RECOMMENDATION: reject\`
+
 ## CLASSIFICATION RULES
 EOF
   cat "$RULES_FILE"
@@ -140,4 +172,10 @@ if [[ ! -s "$RESULT_FILE" ]]; then
   fail "review classification completed but did not write a result artifact: $RESULT_FILE"
 fi
 
+if ! merge_recommendation="$(extract_merge_recommendation "$RESULT_FILE")"; then
+  rm -f "$RESULT_FILE"
+  fail "review classification completed but did not produce a valid merge recommendation line in: $RESULT_FILE"
+fi
+
+printf 'Merge recommendation: %s\n' "$merge_recommendation"
 printf 'Review classification written: %s\n' "$RESULT_FILE"
