@@ -125,6 +125,7 @@ Build a narrow review gate layer on top of existing artifacts and scripts:
 # US-AUTO-16: File Scope
 
 ## Files Allowed To Change
+- `tests/test_run_codex_task.py`
 - `automation/bundle_packs/US-AUTO-16.bundle.md`
 - `automation/bundles/active/US-AUTO-16/00_story.md`
 - `automation/bundles/active/US-AUTO-16/01_context_bundle.md`
