@@ -1,7 +1,7 @@
 # US-AUTO-11: Manual Actions
 
 ## Required Human Actions
-- Review generated `repository_runtime.md` in the latest run
+- Review generated `repository_map_runtime.md` in the latest run
 - Confirm it is useful, compact, and architecture-oriented
 - Run focused tests
 - Review final diff before PR

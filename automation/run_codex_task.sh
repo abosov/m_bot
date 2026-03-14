@@ -174,6 +174,9 @@ No active story bundle found for story id: $story_id
 
 Requested context mode: $mode
 
+Repository map artifact:
+- $repository_map_runtime_rel
+
 Expected bundle path:
 $bundle_dir
 CTX
