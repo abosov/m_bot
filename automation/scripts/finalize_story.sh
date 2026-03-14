@@ -66,10 +66,30 @@ resolve_pr_head_ref() {
 
 verify_required_checks() {
   local pr_number="$1"
+  local checks_output
+  local exit_code=0
 
-  if ! "$GH_BIN" pr checks "$pr_number" --required; then
-    fail "pull request '$pr_number' does not have green required checks"
+  set +e
+  checks_output="$("$GH_BIN" pr checks "$pr_number" --required 2>&1)"
+  exit_code=$?
+  set -e
+
+  if [[ $exit_code -eq 0 ]]; then
+    return 0
   fi
+
+  if echo "$checks_output" | grep -qi "no required checks reported"; then
+    echo "[WARN] No required checks configured for PR '$pr_number'; falling back to all PR checks" >&2
+
+    if ! "$GH_BIN" pr checks "$pr_number"; then
+      fail "pull request '$pr_number' does not have green checks"
+    fi
+
+    return 0
+  fi
+
+  echo "$checks_output" >&2
+  fail "pull request '$pr_number' does not have green required checks"
 }
 
 merge_pull_request() {
