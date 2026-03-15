@@ -137,33 +137,23 @@ EOF
 }
 
 
+append_manifest_artifact() {
+  local manifest_file="$1"
+  local artifact_name="$2"
+
+  grep -Fqx -- "- $artifact_name" "$manifest_file" && return 0
+  printf '%s\n' "- $artifact_name" >>"$manifest_file"
+}
+
 update_manifest_gate_artifacts() {
   local manifest_file="$1"
 
   [[ -f "$manifest_file" ]] || return 0
+  grep -Fq "## Artifacts" "$manifest_file" || return 0
 
-  python3 - "$manifest_file" <<'PY2'
-from pathlib import Path
-import sys
-
-manifest_path = Path(sys.argv[1])
-text = manifest_path.read_text(encoding="utf-8")
-
-required = [
-    "- ai_review_result.md",
-    "- review_classification.md",
-    "- review_gate_result.json",
-]
-
-if "## Artifacts" not in text:
-    sys.exit(0)
-
-for item in required:
-    if item not in text:
-        text = text.rstrip() + "\n" + item + "\n"
-
-manifest_path.write_text(text, encoding="utf-8")
-PY2
+  append_manifest_artifact "$manifest_file" "ai_review_result.md"
+  append_manifest_artifact "$manifest_file" "review_classification.md"
+  append_manifest_artifact "$manifest_file" "review_gate_result.json"
 }
 
 [[ $# -eq 1 ]] || usage
@@ -213,17 +203,23 @@ classification_exit_code=$?
 set -e
 
 if [[ $classification_exit_code -eq 0 ]]; then
-  require_file "$CLASSIFICATION_FILE"
-
-  if merge_recommendation="$(extract_merge_recommendation "$CLASSIFICATION_FILE")"; then
-    decision="$merge_recommendation"
-    if [[ "$decision" == "approve" ]]; then
-      status="passed"
-      reason="Review classification approved merge"
+  if [[ -f "$CLASSIFICATION_FILE" ]]; then
+    if merge_recommendation="$(extract_merge_recommendation "$CLASSIFICATION_FILE")"; then
+      decision="$merge_recommendation"
+      if [[ "$decision" == "approve" ]]; then
+        status="passed"
+        reason="Review classification approved merge"
+      else
+        reason="Review classification rejected merge"
+      fi
+      decision_source="review_classification"
     else
-      reason="Review classification rejected merge"
+      decision_source="invalid_or_missing_merge_recommendation"
+      reason="Review classification artifact did not contain a valid merge recommendation"
     fi
-    decision_source="review_classification"
+  else
+    decision_source="review_classification_missing_artifact"
+    reason="Review classification step exited successfully but did not write review_classification.md"
   fi
 else
   if [[ -f "$CLASSIFICATION_FILE" ]]; then

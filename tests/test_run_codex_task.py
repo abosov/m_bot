@@ -261,7 +261,7 @@ def test_materialized_primary_checkout_state() -> None:
     assert (root_dir / "generated" / "from_worktree.txt").read_text(encoding="utf-8") == (
         "materialized file\n"
     )
-    assert "## Review Diff Source\norigin/main... working tree (merge-base " in review_bundle
+    assert "## Review Diff Source\norigin/main...HEAD (merge-base " in review_bundle
     assert "tracked.txt" in review_bundle
     assert "generated/from_worktree.txt" in review_bundle
     assert "1 passed" in pytest_output

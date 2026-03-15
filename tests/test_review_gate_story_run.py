@@ -46,9 +46,12 @@ def test_review_gate_story_run_writes_gate_result_and_rejects(tmp_path: Path) ->
         "diff.patch",
         "changed_files.txt",
         "pytest.txt",
-        "manifest.md",
     ]:
         (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    (run_dir / "manifest.md").write_text(
+        "# Manifest\n\n## Artifacts\n- manifest.md\n",
+        encoding="utf-8",
+    )
 
     fake_bin_dir = tmp_path / "bin"
     fake_bin_dir.mkdir()
@@ -119,9 +122,12 @@ def test_review_gate_story_run_passes_on_approve(tmp_path: Path) -> None:
         "diff.patch",
         "changed_files.txt",
         "pytest.txt",
-        "manifest.md",
     ]:
         (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    (run_dir / "manifest.md").write_text(
+        "# Manifest\n\n## Artifacts\n- manifest.md\n",
+        encoding="utf-8",
+    )
 
     fake_bin_dir = tmp_path / "bin"
     fake_bin_dir.mkdir()
@@ -181,6 +187,10 @@ fi
     assert '"decision": "approve"' in gate_result
     assert '"status": "passed"' in gate_result
     assert '"decision_source": "review_classification"' in gate_result
+    manifest_text = (run_dir / "manifest.md").read_text(encoding="utf-8")
+    assert "- ai_review_result.md" in manifest_text
+    assert "- review_classification.md" in manifest_text
+    assert "- review_gate_result.json" in manifest_text
 
 
 def test_review_gate_story_run_rejects_when_decision_cannot_be_derived(
@@ -195,9 +205,12 @@ def test_review_gate_story_run_rejects_when_decision_cannot_be_derived(
         "diff.patch",
         "changed_files.txt",
         "pytest.txt",
-        "manifest.md",
     ]:
         (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    (run_dir / "manifest.md").write_text(
+        "# Manifest\n\n## Artifacts\n- manifest.md\n",
+        encoding="utf-8",
+    )
 
     fake_bin_dir = tmp_path / "bin"
     fake_bin_dir.mkdir()
