@@ -93,16 +93,50 @@ build_context_file_list() {
 
 extract_markdown_section_items() {
   local file="$1"
-  local heading="$2"
+  local heading_kind="$2"
 
   [[ -f "$file" ]] || return 0
 
-  awk -v heading="$heading" '
+  awk -v heading_kind="$heading_kind" '
+    function normalize(value) {
+      value = tolower(value)
+      gsub(/`/, "", value)
+      gsub(/^[[:space:]]+/, "", value)
+      gsub(/[[:space:]]+$/, "", value)
+      return value
+    }
+
+    function is_target_heading(line, kind, normalized) {
+      normalized = normalize(line)
+      sub(/^##[[:space:]]+/, "", normalized)
+
+      if (kind == "allowed") {
+        if (normalized == "files allowed to change") return 1
+        if (normalized == "files allowed to change:") return 1
+        if (normalized == "allowed files") return 1
+        if (normalized ~ /^allowed files for future /) return 1
+        return 0
+      }
+
+      if (kind == "blocked") {
+        if (normalized == "files not allowed to change") return 1
+        if (normalized == "files explicitly not allowed to change") return 1
+        if (normalized == "forbidden files/areas for future us-pay-2 implementation") return 1
+        if (normalized == "files/layers that must not be changed") return 1
+        if (normalized == "forbidden files/areas") return 1
+        if (normalized == "forbidden files") return 1
+        return 0
+      }
+
+      return 0
+    }
+
     BEGIN {
       in_section = 0
     }
+
     /^## / {
-      if ($0 == "## " heading) {
+      if (is_target_heading($0, heading_kind)) {
         in_section = 1
         next
       }
@@ -110,8 +144,10 @@ extract_markdown_section_items() {
         exit
       }
     }
-    in_section && /^- / {
-      item = substr($0, 3)
+
+    in_section && /^[[:space:]]*-[[:space:]]+/ {
+      item = $0
+      sub(/^[[:space:]]*-[[:space:]]+/, "", item)
       gsub(/`/, "", item)
       print item
     }
@@ -151,12 +187,12 @@ generate_repository_map_runtime() {
       while IFS= read -r doc; do
         [[ -n "$doc" ]] || continue
         allowed_files+=("$doc")
-      done < <(extract_markdown_section_items "$scope_file" "Files Allowed To Change")
+      done < <(extract_markdown_section_items "$scope_file" "allowed")
 
       while IFS= read -r doc; do
         [[ -n "$doc" ]] || continue
         blocked_files+=("$doc")
-      done < <(extract_markdown_section_items "$scope_file" "Files Not Allowed To Change")
+      done < <(extract_markdown_section_items "$scope_file" "blocked")
     fi
   fi
 
