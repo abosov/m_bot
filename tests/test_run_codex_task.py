@@ -254,6 +254,7 @@ def test_materialized_primary_checkout_state() -> None:
     assert "- active_bundle_path: automation/bundles/active/US-AUTO-7" in repository_map_runtime
     assert "- scope_file: automation/bundles/active/US-AUTO-7/02_file_scope.md" in repository_map_runtime
     assert "- bundle_status: present" in repository_map_runtime
+    assert "- scope_parse_status: parsed" in repository_map_runtime
     assert "- files_allowed_to_change:" in repository_map_runtime
     assert "- tracked.txt" in repository_map_runtime
     assert "- generated/from_worktree.txt" in repository_map_runtime
@@ -289,6 +290,134 @@ def test_materialized_primary_checkout_state() -> None:
     assert "- Review diff source: origin/main...HEAD" in review_prompt
     assert "- Review artifact base:" in review_prompt
 
+def test_run_codex_task_marks_scope_parse_status_missing(tmp_path: Path) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    scope_file = (
+        root_dir
+        / "automation"
+        / "bundles"
+        / "active"
+        / "US-AUTO-7"
+        / "02_file_scope.md"
+    )
+    scope_file.unlink()
+    run(["git", "add", "-A"], cwd=root_dir)
+    run(["git", "commit", "-m", "Remove scope file"], cwd=root_dir)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    write_executable(
+        fake_bin_dir / "codex",
+        """#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+cat >/dev/null
+printf '%s\\n' 'codex summary' > "$output"
+""",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode != 0
+
+    run_dir = latest_run_dir(root_dir)
+    repository_map_runtime = (run_dir / "repository_map_runtime.md").read_text(encoding="utf-8")
+
+    assert "- story_id: US-AUTO-7" in repository_map_runtime
+    assert "- active_bundle_path: automation/bundles/active/US-AUTO-7" in repository_map_runtime
+    assert "- scope_file: automation/bundles/active/US-AUTO-7/02_file_scope.md" in repository_map_runtime
+    assert "- bundle_status: present" in repository_map_runtime
+    assert "- scope_parse_status: missing" in repository_map_runtime
+
+
+def test_run_codex_task_marks_scope_parse_status_unparseable(tmp_path: Path) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    scope_file = (
+        root_dir
+        / "automation"
+        / "bundles"
+        / "active"
+        / "US-AUTO-7"
+        / "02_file_scope.md"
+    )
+    scope_file.write_text(
+        """# US-AUTO-7: File Scope
+
+## Unexpected Allowed Heading
+- `tracked.txt`
+
+## Unexpected Blocked Heading
+- `backend/**`
+""",
+        encoding="utf-8",
+    )
+    run(["git", "add", "automation/bundles/active/US-AUTO-7/02_file_scope.md"], cwd=root_dir)
+    run(["git", "commit", "-m", "Make scope file unparseable"], cwd=root_dir)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    write_executable(
+        fake_bin_dir / "codex",
+        """#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+cat >/dev/null
+printf '%s\\n' 'codex summary' > "$output"
+""",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode != 0
+
+    run_dir = latest_run_dir(root_dir)
+    repository_map_runtime = (run_dir / "repository_map_runtime.md").read_text(encoding="utf-8")
+
+    assert "- story_id: US-AUTO-7" in repository_map_runtime
+    assert "- active_bundle_path: automation/bundles/active/US-AUTO-7" in repository_map_runtime
+    assert "- scope_file: automation/bundles/active/US-AUTO-7/02_file_scope.md" in repository_map_runtime
+    assert "- bundle_status: present" in repository_map_runtime
+    assert "- scope_parse_status: unparseable" in repository_map_runtime
 
 def test_run_codex_task_cleans_up_worktree_when_codex_fails(tmp_path: Path) -> None:
     root_dir, prompt_file = setup_story_repo(tmp_path)
