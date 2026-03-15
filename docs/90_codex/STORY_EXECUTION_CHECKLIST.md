@@ -22,7 +22,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    Runner execution is isolated in a temporary detached git worktree created from current branch `HEAD` and cleaned up on exit.
    Every run must generate `repository_map_runtime.md` before Codex execution and inject that repository map into the runtime Codex prompt.
    The runtime repository map must include architecture layers, story-local file-scope context from the active bundle when present, explicit scope parse status, anti-hallucination rules, and pipeline dependency hints.
-   Story-local scope constraints in that runtime map must be marked as loaded only when parsed from `02_file_scope.md`; missing or unparseable scope data must be surfaced as unavailable rather than implied to be empty.
+   Story-local scope constraints in that runtime map must be marked as loaded only when the allowed-file scope parses from `02_file_scope.md`; missing or unparseable scope data must be surfaced as unavailable rather than implied to be empty, and a missing forbidden-file list must remain explicitly unavailable instead of being implied to be empty.
    Any tracked or regular untracked file changes produced inside that isolated worktree must be materialized back into the primary checkout before pytest and artifact collection; if materialization does not reach the primary checkout, the run must fail explicitly.
    After changed-files collection, the runner must enforce `02_file_scope.md` with the allowed-files guard before pytest and downstream review continue.
    Use `automation/run_codex_task.sh --full-context <master-prompt-path>` only when the story needs the full bundle context.
@@ -51,7 +51,8 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 - Story bundle directory with context, scope, master prompt, review checklist, follow-ups, and manual actions.
 - Mandatory run artifacts including `manifest.md`, `story_context.md`, and `repository_map_runtime.md`.
 - `repository_map_runtime.md` must capture architecture layers, story-local scope constraints plus parse status, anti-hallucination rules, and pipeline dependency hints for the run.
-- When active-bundle scope data is missing or unparseable, `repository_map_runtime.md` must mark story scope constraints as unavailable instead of rendering them as an empty allow/block list.
+- When active-bundle allowed-file scope data is missing or unparseable, `repository_map_runtime.md` must mark story scope constraints as unavailable instead of rendering them as an empty allow/block list.
+- When the forbidden-file list is absent from bundle scope data, `repository_map_runtime.md` must render it as unavailable rather than as an empty blocked list.
 - Test evidence (`pytest` command set and result status).
 - Durable AI review output artifact for the reviewed run.
 - Durable review classification output artifact for the reviewed run.

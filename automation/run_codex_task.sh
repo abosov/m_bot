@@ -189,6 +189,7 @@ generate_repository_map_runtime() {
   local bundle_dir=""
   local scope_file=""
   local scope_parse_status="not_applicable"
+  local blocked_scope_status="not_applicable"
   local -a source_docs=()
   local -a top_level_dirs=()
   local -a allowed_files=()
@@ -210,13 +211,24 @@ generate_repository_map_runtime() {
         blocked_files+=("$doc")
       done < <(extract_markdown_section_items "$scope_file" "blocked")
 
-      if [[ ${#allowed_files[@]} -gt 0 && ${#blocked_files[@]} -gt 0 ]]; then
+      if [[ ${#allowed_files[@]} -gt 0 ]]; then
         scope_parse_status="parsed"
+        if [[ ${#blocked_files[@]} -gt 0 ]]; then
+          blocked_scope_status="parsed"
+        else
+          blocked_scope_status="unavailable"
+        fi
       else
         scope_parse_status="unparseable"
+        if [[ ${#blocked_files[@]} -gt 0 ]]; then
+          blocked_scope_status="parsed"
+        else
+          blocked_scope_status="unavailable"
+        fi
       fi
     elif [[ -d "$bundle_dir" ]]; then
       scope_parse_status="missing"
+      blocked_scope_status="missing"
     fi
   fi
 
@@ -300,7 +312,7 @@ generate_repository_map_runtime() {
     fi
 
     echo "- files_not_allowed_to_change:"
-    if [[ "$scope_parse_status" == "parsed" ]]; then
+    if [[ "$blocked_scope_status" == "parsed" ]]; then
       emit_markdown_list_or_none "${blocked_files[@]}"
     else
       echo "  unavailable"
