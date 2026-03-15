@@ -147,13 +147,20 @@ append_manifest_artifact() {
 
 update_manifest_gate_artifacts() {
   local manifest_file="$1"
+  local run_dir="$2"
 
   [[ -f "$manifest_file" ]] || return 0
   grep -Fq "## Artifacts" "$manifest_file" || return 0
 
-  append_manifest_artifact "$manifest_file" "ai_review_result.md"
-  append_manifest_artifact "$manifest_file" "review_classification.md"
-  append_manifest_artifact "$manifest_file" "review_gate_result.json"
+  local artifact_name
+  for artifact_name in \
+    "ai_review_result.md" \
+    "review_classification.md" \
+    "review_gate_result.json"
+  do
+    [[ -f "$run_dir/$artifact_name" ]] || continue
+    append_manifest_artifact "$manifest_file" "$artifact_name"
+  done
 }
 
 [[ $# -eq 1 ]] || usage
@@ -187,6 +194,7 @@ if [[ $ai_review_exit_code -ne 0 ]]; then
     "ai_review_failed" \
     "failed" \
     "AI review step failed"
+  update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
   fail "AI review step failed for '$STORY_ID' (exit $ai_review_exit_code)"
 fi
 
@@ -243,8 +251,7 @@ write_gate_result \
   "$status" \
   "$reason"
 
-update_manifest_gate_artifacts "$MANIFEST_FILE"
-
+update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
 printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
 printf 'Final decision: %s\n' "$decision"
 
