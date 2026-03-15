@@ -143,7 +143,7 @@ generate_repository_map_runtime() {
   local -a blocked_files=()
   local doc
 
-  if [[ -n "$story_id" ]]; then
+  if [[ -n "$story_id" && "$story_id" != "ADHOC" ]]; then
     bundle_dir="$ROOT_DIR/automation/bundles/active/$story_id"
     scope_file="$bundle_dir/02_file_scope.md"
 
