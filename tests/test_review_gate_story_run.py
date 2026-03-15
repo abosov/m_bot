@@ -274,3 +274,169 @@ fi
         '"reason": "Review classification artifact did not contain a valid merge recommendation"'
         in gate_result
     )
+
+
+def test_review_gate_story_run_rejects_when_classification_fails_before_artifact(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
+
+    for artifact_name in [
+        "review_bundle.md",
+        "chatgpt_review_prompt.md",
+        "diff.patch",
+        "changed_files.txt",
+        "pytest.txt",
+    ]:
+        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    (run_dir / "manifest.md").write_text(
+        "# Manifest\n\n## Artifacts\n- manifest.md\n",
+        encoding="utf-8",
+    )
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+
+    write_executable(
+        fake_bin_dir / "codex",
+        """#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+cat >/dev/null
+if [[ "$output" == *"ai_review_result.md" ]]; then
+  printf '%s\n' '# AI Review Result' > "$output"
+elif [[ "$output" == *"review_classification.md" ]]; then
+  exit 7
+else
+  : > "$output"
+fi
+""",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+    env["CODEX_BIN"] = str(fake_bin_dir / "codex")
+    env["CLASSIFICATION_RULES_FILE"] = str(
+        root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
+    )
+
+    rules_file = Path(env["CLASSIFICATION_RULES_FILE"])
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("# Rules\n", encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-16"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "gate rejected" in result.stderr
+
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision": "reject"' in gate_result
+    assert '"decision_source": "review_classification_failed"' in gate_result
+    assert '"reason": "Review classification step failed"' in gate_result
+
+    manifest_text = (run_dir / "manifest.md").read_text(encoding="utf-8")
+    assert "- ai_review_result.md" in manifest_text
+    assert "- review_gate_result.json" in manifest_text
+    assert "- review_classification.md" not in manifest_text
+
+
+def test_review_gate_story_run_rejects_when_ai_review_fails(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
+
+    for artifact_name in [
+        "review_bundle.md",
+        "chatgpt_review_prompt.md",
+        "diff.patch",
+        "changed_files.txt",
+        "pytest.txt",
+    ]:
+        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    (run_dir / "manifest.md").write_text(
+        "# Manifest\n\n## Artifacts\n- manifest.md\n",
+        encoding="utf-8",
+    )
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+
+    write_executable(
+        fake_bin_dir / "codex",
+        """#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+cat >/dev/null
+if [[ "$output" == *"ai_review_result.md" ]]; then
+  exit 9
+fi
+""",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+    env["CODEX_BIN"] = str(fake_bin_dir / "codex")
+    env["CLASSIFICATION_RULES_FILE"] = str(
+        root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
+    )
+
+    rules_file = Path(env["CLASSIFICATION_RULES_FILE"])
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("# Rules\n", encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-16"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "AI review step failed" in result.stderr
+
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision": "reject"' in gate_result
+    assert '"decision_source": "ai_review_failed"' in gate_result
+    assert '"reason": "AI review step failed"' in gate_result
+
+    manifest_text = (run_dir / "manifest.md").read_text(encoding="utf-8")
+    assert "- ai_review_result.md" not in manifest_text
+    assert "- review_classification.md" not in manifest_text
+    assert "- review_gate_result.json" in manifest_text
