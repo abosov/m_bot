@@ -18,6 +18,8 @@ Upgrade runtime repository-map injection so Codex receives stronger anti-halluci
 - `automation/run_codex_task.sh`
 - `tests/test_run_codex_task.py`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
+- `automation/bundle_packs/US-AUTO-17.bundle.md`
+- `automation/bundles/active/US-AUTO-17/**`
 
 ## Files Not Allowed To Change
 - `automation/scripts/check_allowed_files.sh`
