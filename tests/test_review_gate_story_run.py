@@ -256,4 +256,8 @@ fi
     gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
     assert '"decision": "reject"' in gate_result
     assert '"status": "failed"' in gate_result
-    assert '"decision_source": "review_classification_failed"' in gate_result
+    assert '"decision_source": "invalid_or_missing_merge_recommendation"' in gate_result
+    assert (
+        '"reason": "Review classification artifact did not contain a valid merge recommendation"'
+        in gate_result
+    )

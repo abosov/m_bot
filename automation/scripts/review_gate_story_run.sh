@@ -226,8 +226,13 @@ if [[ $classification_exit_code -eq 0 ]]; then
     decision_source="review_classification"
   fi
 else
-  decision_source="review_classification_failed"
-  reason="Review classification step failed"
+  if [[ -f "$CLASSIFICATION_FILE" ]]; then
+    decision_source="invalid_or_missing_merge_recommendation"
+    reason="Review classification artifact did not contain a valid merge recommendation"
+  else
+    decision_source="review_classification_failed"
+    reason="Review classification step failed"
+  fi
 fi
 
 write_gate_result \
