@@ -166,6 +166,21 @@ emit_markdown_list_or_none() {
   fi
 }
 
+emit_scope_list_with_status() {
+  local status="$1"
+  shift || true
+
+  if [[ "$status" == "parsed" ]]; then
+    if [[ $# -gt 0 ]]; then
+      emit_markdown_list_or_none "$@"
+    else
+      emit_markdown_list_or_none
+    fi
+  else
+    echo "  unavailable"
+  fi
+}
+
 generate_repository_map_runtime() {
   local out_file="$1"
   local curated_repo_map="$ROOT_DIR/docs/40_ai/zumbot_codex/REPOSITORY_MAP.md"
@@ -195,7 +210,7 @@ generate_repository_map_runtime() {
         blocked_files+=("$doc")
       done < <(extract_markdown_section_items "$scope_file" "blocked")
 
-      if [[ ${#allowed_files[@]} -gt 0 || ${#blocked_files[@]} -gt 0 ]]; then
+      if [[ ${#allowed_files[@]} -gt 0 && ${#blocked_files[@]} -gt 0 ]]; then
         scope_parse_status="parsed"
       else
         scope_parse_status="unparseable"
@@ -272,17 +287,23 @@ generate_repository_map_runtime() {
       echo "- bundle_status: not_applicable"
     fi
     echo "- scope_parse_status: $scope_parse_status"
+    if [[ "$scope_parse_status" == "parsed" ]]; then
+      echo "- story_scope_constraints: loaded"
+    else
+      echo "- story_scope_constraints: unavailable"
+    fi
     echo "- files_allowed_to_change:"
-    if [[ ${#allowed_files[@]} -gt 0 ]]; then
+    if [[ "$scope_parse_status" == "parsed" ]]; then
       emit_markdown_list_or_none "${allowed_files[@]}"
     else
-      emit_markdown_list_or_none
+      echo "  unavailable"
     fi
+
     echo "- files_not_allowed_to_change:"
-    if [[ ${#blocked_files[@]} -gt 0 ]]; then
+    if [[ "$scope_parse_status" == "parsed" ]]; then
       emit_markdown_list_or_none "${blocked_files[@]}"
     else
-      emit_markdown_list_or_none
+      echo "  unavailable"
     fi
     echo
     echo "## Anti-Hallucination Rules"
