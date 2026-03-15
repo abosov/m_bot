@@ -178,7 +178,7 @@ Read and follow:
 - automation/bundles/active/US-AUTO-16/02_file_scope.md
 
 ## Goal
-Create a stable review gate layer that can be called for a story ID and the latest run, writes a finagate result artifact, and exits non-zero if the gate rejects merge or cannot derive a valid decision.
+Create a stable review gate layer that can be called for a story ID and the latest run, writes a final gate result artifact, and exits non-zero if the gate rejects merge or cannot derive a valid decision.
 
 ## Non-goals
 Do not:
@@ -195,6 +195,9 @@ Do not:
 - `automation/bundles/active/US-AUTO-16/02_file_scope.md`
 
 ## Files Allowed To Change
+- `tests/test_run_codex_task.py`
+- `tests/test_review_classification_script.py`
+- `tests/test_review_gate_story_run.py`
 - `automation/scripts/ai_review_story_run.sh`
 - `automation/scripts/classify_review_story_run.sh`
 - `automation/scripts/review_story_run.sh`
@@ -218,7 +221,7 @@ Do not:
 - update docs only when behavior/process changes require it
 
 ## Test Plan
-- `pytest tests/test_review_classification_script.py tests/test_review_story_run.py tests/test_run_codex_task.py`
+- `pytest tests/test_review_classification_script.py tests/test_review_story_run.py tests/test_review_gate_story_run.py tests/test_run_codex_task.py`
 
 ## Output
 Return:
@@ -287,23 +290,18 @@ Return:
 
 
 === FILE: 05_followups.md ===
+# US-AUTO-16: Follow-Ups
 
-US-AUTO-16: Follow-Ups
 ## Follow-Up Prompt Queue
-
-Integrate AI review gate into finalize_story.sh as a blocking pre-merge condition.
-
-Add dedicated automated tests for review gate parsing and decision handling.
+- Integrate AI review gate into `finalize_story.sh` as a blocking pre-merge condition.
+- Add dedicated automated tests for review gate parsing and decision handling.
 
 ## Iteration Notes
+- Keep this story limited to creating the gate orchestration and result artifact contract.
+- Defer finalize integration to the next automation story.
+- Prefer explicit fail-closed behavior if classification output is ambiguous.
 
-Keep this story limited to creating the gate orchestration and result artifact contract.
-
-Defer finalize integration to the next automation story.
-
-Prefer explicit fail-closed behavior if classification output is ambiguous.
-
-Follow-Up Prompt Template
+## Follow-Up Prompt Template
 
 # US-AUTO-16 FOLLOW-UP PROMPT 1 — <Fix/Adjustment>
 
@@ -312,7 +310,7 @@ You are the System Architect + Developer + QA + Security Reviewer for Zumbot.
 
 ## Context
 - Base story bundle: `automation/bundles/active/US-AUTO-16/`
-- Previous run output: `automation/output/<story-run-id>/`
+- Previous run output: `automation/runs/<story-id>/<run-id>/`
 - Review checklist: `automation/bundles/active/US-AUTO-16/04_review_checklist.md`
 
 ## Target
@@ -324,11 +322,13 @@ Fix only the specific review gate issue identified during review without expandi
 
 ## Files Allowed To Change
 - `automation/scripts/ai_review_story_run.sh`
-- `automation/scripts/classify_review_sty_run.sh`
+- `automation/scripts/classify_review_story_run.sh`
 - `automation/scripts/review_story_run.sh`
 - `automation/scripts/review_gate_story_run.sh`
 - `automation/templates/review_prompt_template.md`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
+- `tests/test_review_classification_script.py`
+- `tests/test_review_gate_story_run.py`
 
 ## Files Not Allowed To Change
 - `automation/scripts/finalize_story.sh`
@@ -342,7 +342,7 @@ Fix only the specific review gate issue identified during review without expandi
 - do not introduce new features beyond listed findings
 
 ## Tests
-- `pytest tests/test_review_classification_script.py tests/test_review_story_run.py tests/test_run_codex_task.py`
+- `pytest tests/test_review_classification_script.py tests/test_review_gate_story_run.py`
 
 ## Output
 Return:
@@ -352,7 +352,7 @@ Return:
 4. residual risks
 5. final diff
 
-PR Description Template
+## PR Description Template
 
 # US-AUTO-16 — AI Review Gate
 
@@ -363,7 +363,7 @@ PR Description Template
 
 ## Story Context
 - Story bundle: `automation/bundles/active/US-AUTO-16/`
-- Objective: create a stable gate result r downstream automation
+- Objective: create a stable gate result artifact for downstream automation
 - Non-goals: no finalize integration, no merge-policy changes, no unrelated refactor
 
 ## Scope
@@ -378,7 +378,8 @@ PR Description Template
 - `automation/scripts/review_story_run.sh`
 - `automation/templates/review_prompt_template.md`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
-
+- `tests/test_review_classification_script.py`
+- `tests/test_review_gate_story_run.py`
 
 === FILE: 06_manual_actions.md ===
 # US-AUTO-16: Manual Actions
