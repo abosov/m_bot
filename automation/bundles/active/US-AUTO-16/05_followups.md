@@ -37,10 +37,10 @@ Fix only the specific review gate issue identified during review without expandi
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 - `tests/test_review_classification_script.py`
 - `tests/test_review_gate_story_run.py`
+- `automation/run_codex_task.sh`
 
 ## Files Not Allowed To Change
 - `automation/scripts/finalize_story.sh`
-- `automation/run_codex_task.sh`
 - `backend/**`
 - `database/**`
 

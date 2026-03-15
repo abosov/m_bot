@@ -44,10 +44,10 @@ Do not:
 - `automation/scripts/review_gate_story_run.sh`
 - `automation/templates/review_prompt_template.md`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
+- `automation/run_codex_task.sh`
 
 ## Files Not Allowed To Change
 - `automation/scripts/finalize_story.sh`
-- `automation/run_codex_task.sh`
 - `automation/scripts/check_allowed_files.sh`
 - `automation/scripts/materialize_story_bundle.sh`
 - `automation/scripts/validate_story_bundle.sh`
