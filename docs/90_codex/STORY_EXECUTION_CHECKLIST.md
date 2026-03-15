@@ -32,6 +32,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 14. Execute and persist the AI review result for the latest run (`automation/scripts/ai_review_story_run.sh <STORY-ID>`).
 15. Execute and persist the review classification result for the latest run (`automation/scripts/classify_review_story_run.sh <STORY-ID>`).
    The classification artifact must contain an exact standalone `MERGE RECOMMENDATION: approve` or `MERGE RECOMMENDATION: reject` line for the gate.
+   If classification text is malformed or ambiguous, preserve `review_classification.md` for debugging and fail closed instead of deleting the artifact.
 16. Execute the review gate for the latest run (`automation/scripts/review_gate_story_run.sh <STORY-ID>`).
    The gate resolves the latest run once, reuses that exact run directory for AI review and classification, writes `review_gate_result.json`, and must exit non-zero when the final decision is `reject` or cannot be derived from the classification artifact.
    Missing, invalid, or ambiguous `MERGE RECOMMENDATION:` output must be treated as a fail-closed reject.

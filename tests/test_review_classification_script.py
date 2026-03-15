@@ -185,7 +185,10 @@ printf '%s\\n' 'raw-classification-output'
 
     assert result.returncode != 0
     assert "did not produce a valid merge recommendation line" in result.stderr
-    assert not (runs_dir / "review_classification.md").exists()
+    classification_text = (runs_dir / "review_classification.md").read_text(encoding="utf-8")
+    assert classification_text.startswith("# Review Classification")
+    assert "under discussion" in classification_text
+    assert "MERGE RECOMMENDATION:" not in classification_text
     assert (
         runs_dir / "review_classification_raw_output.txt"
     ).read_text(encoding="utf-8").strip() == "raw-classification-output"

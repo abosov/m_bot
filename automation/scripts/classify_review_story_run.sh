@@ -74,20 +74,37 @@ resolve_target_run_dir() {
 
 extract_merge_recommendation() {
   local classification_file="$1"
+  local -a normalized_lines=()
   local -a decisions=()
   local line normalized
+  local i next_line
 
-  while IFS= read -r line; do
+  while IFS= read -r line || [[ -n "$line" ]]; do
     normalized="$(
       printf '%s\n' "$line" \
         | tr '[:upper:]' '[:lower:]' \
         | sed -E 's/`//g; s/^[[:space:]]*[0-9]+[.)][[:space:]]*//; s/^[[:space:]]*[-*][[:space:]]*//; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//'
     )"
+    normalized_lines+=("$normalized")
+  done < "$classification_file"
+
+  for (( i=0; i<${#normalized_lines[@]}; i++ )); do
+    normalized="${normalized_lines[$i]}"
 
     if [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*(approve|reject)[^a-z]*$ ]]; then
       decisions+=("${BASH_REMATCH[1]}")
+      continue
     fi
-  done < "$classification_file"
+
+    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*$ ]]; then
+      if (( i + 1 < ${#normalized_lines[@]} )); then
+        next_line="${normalized_lines[$((i + 1))]}"
+        if [[ "$next_line" =~ ^(approve|reject)$ ]]; then
+          decisions+=("${BASH_REMATCH[1]}")
+        fi
+      fi
+    fi
+  done
 
   if (( ${#decisions[@]} == 0 )); then
     return 1
@@ -103,7 +120,6 @@ extract_merge_recommendation() {
 
   printf '%s\n' "${decisions[0]}"
 }
-
 append_gate_contract() {
   local classification_file="$1"
   local merge_recommendation="$2"
@@ -207,7 +223,6 @@ if [[ ! -s "$RESULT_FILE" ]]; then
 fi
 
 if ! merge_recommendation="$(extract_merge_recommendation "$RESULT_FILE")"; then
-  rm -f "$RESULT_FILE"
   fail "review classification completed but did not produce a valid merge recommendation line in: $RESULT_FILE"
 fi
 

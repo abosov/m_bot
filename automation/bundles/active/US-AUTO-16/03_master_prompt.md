@@ -18,7 +18,7 @@ Read and follow:
 - automation/bundles/active/US-AUTO-16/02_file_scope.md
 
 ## Goal
-Create a stable review gate layer that can be called for a story ID and the latest run, writes a finagate result artifact, and exits non-zero if the gate rejects merge or cannot derive a valid decision.
+Create a stable review gate layer that can be called for a story ID and the latest run, writes a final gate result artifact, and exits non-zero if the gate rejects merge or cannot derive a valid decision.
 
 ## Non-goals
 Do not:
@@ -61,7 +61,7 @@ Do not:
 - update docs only when behavior/process changes require it
 
 ## Test Plan
-- `pytest tests/test_review_classification_script.py tests/test_review_story_run.py tests/test_run_codex_task.py`
+- `pytest tests/test_review_classification_script.py tests/test_review_story_run.py tests/test_review_gate_story_run.py tests/test_run_codex_task.py`
 
 ## Output
 Return:

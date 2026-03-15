@@ -25,3 +25,8 @@ Return:
 3. Optional improvements
 4. Follow-up stories to create
 5. Merge recommendation (`approve` or `reject`)
+
+Include the final recommendation as an exact standalone line:
+`MERGE RECOMMENDATION: approve`
+or
+`MERGE RECOMMENDATION: reject`
