@@ -2,8 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-RUNS_ROOT="$ROOT_DIR/automation/runs"
+ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
+RUN_DIR_OVERRIDE="${AUTOMATION_RUN_DIR:-}"
+CODEX_BIN="${CODEX_BIN:-codex}"
 
 RESULT_FILE_NAME="ai_review_result.md"
 RAW_OUTPUT_FILE_NAME="ai_review_raw_output.txt"
@@ -46,9 +48,26 @@ resolve_latest_run_dir() {
   printf '%s\n' "$latest_run_dir"
 }
 
+resolve_target_run_dir() {
+  local story_runs_root="$1"
+  local run_dir_override="$2"
+
+  if [[ -n "$run_dir_override" ]]; then
+    [[ -d "$run_dir_override" ]] || fail "AUTOMATION_RUN_DIR does not exist: $run_dir_override"
+    case "$run_dir_override" in
+      "$story_runs_root"/*) ;;
+      *) fail "AUTOMATION_RUN_DIR must be inside story run root: $story_runs_root" ;;
+    esac
+    printf '%s\n' "$run_dir_override"
+    return 0
+  fi
+
+  resolve_latest_run_dir "$story_runs_root"
+}
+
 [[ $# -eq 1 ]] || usage
 
-require_cmd codex
+require_cmd "$CODEX_BIN"
 
 STORY_ID="$1"
 validate_story_id "$STORY_ID"
@@ -56,7 +75,7 @@ validate_story_id "$STORY_ID"
 STORY_RUNS_ROOT="$RUNS_ROOT/$STORY_ID"
 [[ -d "$STORY_RUNS_ROOT" ]] || fail "story run root not found for '$STORY_ID': $STORY_RUNS_ROOT"
 
-LATEST_RUN_DIR="$(resolve_latest_run_dir "$STORY_RUNS_ROOT")"
+LATEST_RUN_DIR="$(resolve_target_run_dir "$STORY_RUNS_ROOT" "$RUN_DIR_OVERRIDE")"
 
 required_artifacts=(
   "review_bundle.md"
@@ -87,7 +106,7 @@ RAW_OUTPUT_FILE="$LATEST_RUN_DIR/$RAW_OUTPUT_FILE_NAME"
 PROMPT_FILE="$LATEST_RUN_DIR/chatgpt_review_prompt.md"
 
 cmd=(
-  codex
+  "$CODEX_BIN"
   -a never
   exec
   -C "$ROOT_DIR"

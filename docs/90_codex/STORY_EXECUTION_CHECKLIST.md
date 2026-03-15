@@ -31,13 +31,19 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 13. Resolve the latest review artifacts for the story (`automation/scripts/review_story_run.sh <STORY-ID>`).
 14. Execute and persist the AI review result for the latest run (`automation/scripts/ai_review_story_run.sh <STORY-ID>`).
 15. Execute and persist the review classification result for the latest run (`automation/scripts/classify_review_story_run.sh <STORY-ID>`).
-16. Run follow-up prompts for merge blockers and accepted improvements.
-17. Re-run tests after follow-up changes.
-18. Prepare PR with scope, risks, verification, and docs impact.
-19. Finalize the story with `automation/scripts/finalize_story.sh [PR_NUMBER]` after checks and review approvals pass.
-20. The finalization script must merge with `gh pr merge --squash`, switch to local `main`, run `git pull --ff-only origin main`, and delete the merged story branch locally/remotely.
-21. If scripted finalization cannot complete, stop and fix the blocking condition instead of finishing cleanup manually without documenting it.
-22. Append process improvement notes for the completed story.
+   The classification artifact must contain an exact standalone `MERGE RECOMMENDATION: approve` or `MERGE RECOMMENDATION: reject` line for the gate.
+   If classification text is malformed or ambiguous, preserve `review_classification.md` for debugging and fail closed instead of deleting the artifact.
+16. Execute the review gate for the latest run (`automation/scripts/review_gate_story_run.sh <STORY-ID>`).
+   The gate resolves the latest run once, reuses that exact run directory for AI review and classification, writes `review_gate_result.json`, and must exit non-zero when the final decision is `reject` or cannot be derived from the classification artifact.
+   Missing, invalid, or ambiguous `MERGE RECOMMENDATION:` output must be treated as a fail-closed reject.
+   The gate artifact must distinguish malformed classification output from a classification step that failed before producing an artifact.
+17. Run follow-up prompts for merge blockers and accepted improvements.
+18. Re-run tests after follow-up changes.
+19. Prepare PR with scope, risks, verification, and docs impact.
+20. Finalize the story with `automation/scripts/finalize_story.sh [PR_NUMBER]` after checks and review approvals pass.
+21. The finalization script must merge with `gh pr merge --squash`, switch to local `main`, run `git pull --ff-only origin main`, and delete the merged story branch locally/remotely.
+22. If scripted finalization cannot complete, stop and fix the blocking condition instead of finishing cleanup manually without documenting it.
+23. Append process improvement notes for the completed story.
 
 ## Required Completion Artifacts
 - Story bundle directory with context, scope, master prompt, review checklist, follow-ups, and manual actions.
@@ -45,6 +51,9 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 - Test evidence (`pytest` command set and result status).
 - Durable AI review output artifact for the reviewed run.
 - Durable review classification output artifact for the reviewed run.
+  The classification artifact must include an exact standalone `MERGE RECOMMENDATION:` line with `approve` or `reject`.
+- Durable review gate result artifact for the reviewed run (`review_gate_result.json`).
+  The artifact must include machine-readable `decision`, `status`, and `decision_source` fields.
 - PR description linked to the story bundle.
 
 ## Failure Stops

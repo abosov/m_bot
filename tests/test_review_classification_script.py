@@ -80,10 +80,14 @@ printf '%s\\n' 'raw-classification-output'
     )
 
     assert result.returncode == 0, result.stderr
+    assert "Merge recommendation: reject" in result.stdout
     assert "Review classification written:" in result.stdout
-    assert (runs_dir / "review_classification.md").read_text(encoding="utf-8").startswith(
-        "# Review Classification"
-    )
+
+    classification_text = (runs_dir / "review_classification.md").read_text(encoding="utf-8")
+    assert classification_text.startswith("# Review Classification")
+    assert "## Review Gate Contract" in classification_text
+    assert "MERGE RECOMMENDATION: reject" in classification_text
+
     assert (
         runs_dir / "review_classification_raw_output.txt"
     ).read_text(encoding="utf-8").strip() == "raw-classification-output"
@@ -121,3 +125,70 @@ def test_review_classification_script_fails_without_ai_review(tmp_path: Path) ->
     assert result.returncode != 0
     assert "required file not found" in result.stderr
     assert "ai_review_result.md" in result.stderr
+
+
+def test_review_classification_script_fails_without_valid_merge_recommendation(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    runs_dir = root_dir / "automation" / "runs" / "US-AUTO-6" / "2026-03-13_16-16-09"
+    runs_dir.mkdir(parents=True)
+
+    ai_review_file = runs_dir / "ai_review_result.md"
+    ai_review_file.write_text("# AI Review Result\n\n- Finding A\n", encoding="utf-8")
+
+    rules_file = root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("# Rules\n\nClassify findings.\n", encoding="utf-8")
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+cat >/dev/null
+printf '%s\\n' '# Review Classification' > "$output"
+printf '%s\\n' '1. findings by classification' >> "$output"
+printf '%s\\n' '5. merge recommendation is still under discussion' >> "$output"
+printf '%s\\n' 'raw-classification-output'
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["CLASSIFICATION_RULES_FILE"] = str(rules_file)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-6"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "did not produce a valid merge recommendation line" in result.stderr
+    classification_text = (runs_dir / "review_classification.md").read_text(encoding="utf-8")
+    assert classification_text.startswith("# Review Classification")
+    assert "under discussion" in classification_text
+    assert "MERGE RECOMMENDATION:" not in classification_text
+    assert (
+        runs_dir / "review_classification_raw_output.txt"
+    ).read_text(encoding="utf-8").strip() == "raw-classification-output"

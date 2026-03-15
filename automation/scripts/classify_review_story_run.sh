@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
+RUN_DIR_OVERRIDE="${AUTOMATION_RUN_DIR:-}"
 RULES_FILE="${CLASSIFICATION_RULES_FILE:-$ROOT_DIR/docs/90_codex/REVIEW_CLASSIFICATION_RULES.md}"
 CODEX_BIN="${CODEX_BIN:-codex}"
 
@@ -54,6 +55,82 @@ resolve_latest_run_dir() {
   printf '%s\n' "$latest_run_dir"
 }
 
+resolve_target_run_dir() {
+  local story_runs_root="$1"
+  local run_dir_override="$2"
+
+  if [[ -n "$run_dir_override" ]]; then
+    [[ -d "$run_dir_override" ]] || fail "AUTOMATION_RUN_DIR does not exist: $run_dir_override"
+    case "$run_dir_override" in
+      "$story_runs_root"/*) ;;
+      *) fail "AUTOMATION_RUN_DIR must be inside story run root: $story_runs_root" ;;
+    esac
+    printf '%s\n' "$run_dir_override"
+    return 0
+  fi
+
+  resolve_latest_run_dir "$story_runs_root"
+}
+
+extract_merge_recommendation() {
+  local classification_file="$1"
+  local -a normalized_lines=()
+  local -a decisions=()
+  local line normalized
+  local i next_line
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    normalized="$(
+      printf '%s\n' "$line" \
+        | tr '[:upper:]' '[:lower:]' \
+        | sed -E 's/`//g; s/^[[:space:]]*[0-9]+[.)][[:space:]]*//; s/^[[:space:]]*[-*][[:space:]]*//; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//'
+    )"
+    normalized_lines+=("$normalized")
+  done < "$classification_file"
+
+  for (( i=0; i<${#normalized_lines[@]}; i++ )); do
+    normalized="${normalized_lines[$i]}"
+
+    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*(approve|reject)[^a-z]*$ ]]; then
+      decisions+=("${BASH_REMATCH[1]}")
+      continue
+    fi
+
+    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*$ ]]; then
+      if (( i + 1 < ${#normalized_lines[@]} )); then
+        next_line="${normalized_lines[$((i + 1))]}"
+        if [[ "$next_line" =~ ^(approve|reject)$ ]]; then
+          decisions+=("${BASH_REMATCH[1]}")
+        fi
+      fi
+    fi
+  done
+
+  if (( ${#decisions[@]} == 0 )); then
+    return 1
+  fi
+
+  local -a unique_decisions=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && unique_decisions+=("$line")
+  done < <(printf '%s\n' "${decisions[@]}" | LC_ALL=C sort -u)
+
+  decisions=("${unique_decisions[@]}")
+  [[ ${#decisions[@]} -eq 1 ]] || return 1
+
+  printf '%s\n' "${decisions[0]}"
+}
+append_gate_contract() {
+  local classification_file="$1"
+  local merge_recommendation="$2"
+
+  cat >>"$classification_file" <<EOF
+
+## Review Gate Contract
+MERGE RECOMMENDATION: $merge_recommendation
+EOF
+}
+
 [[ $# -eq 1 ]] || usage
 
 require_cmd "$CODEX_BIN"
@@ -65,7 +142,7 @@ validate_story_id "$STORY_ID"
 STORY_RUNS_ROOT="$RUNS_ROOT/$STORY_ID"
 [[ -d "$STORY_RUNS_ROOT" ]] || fail "story run root not found for '$STORY_ID': $STORY_RUNS_ROOT"
 
-LATEST_RUN_DIR="$(resolve_latest_run_dir "$STORY_RUNS_ROOT")"
+LATEST_RUN_DIR="$(resolve_target_run_dir "$STORY_RUNS_ROOT" "$RUN_DIR_OVERRIDE")"
 AI_REVIEW_FILE="$LATEST_RUN_DIR/$AI_REVIEW_FILE_NAME"
 require_file "$AI_REVIEW_FILE"
 
@@ -118,6 +195,11 @@ Return:
 4. follow-up stories to create
 5. merge recommendation (\`approve\` or \`reject\`)
 
+Include the final recommendation as an exact standalone line:
+\`MERGE RECOMMENDATION: approve\`
+or
+\`MERGE RECOMMENDATION: reject\`
+
 ## CLASSIFICATION RULES
 EOF
   cat "$RULES_FILE"
@@ -140,4 +222,11 @@ if [[ ! -s "$RESULT_FILE" ]]; then
   fail "review classification completed but did not write a result artifact: $RESULT_FILE"
 fi
 
+if ! merge_recommendation="$(extract_merge_recommendation "$RESULT_FILE")"; then
+  fail "review classification completed but did not produce a valid merge recommendation line in: $RESULT_FILE"
+fi
+
+append_gate_contract "$RESULT_FILE" "$merge_recommendation"
+
+printf 'Merge recommendation: %s\n' "$merge_recommendation"
 printf 'Review classification written: %s\n' "$RESULT_FILE"

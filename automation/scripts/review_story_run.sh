@@ -82,5 +82,26 @@ for artifact_name in "${required_artifacts[@]}"; do
   printf ' - %s\n' "$LATEST_RUN_DIR/$artifact_name"
 done
 
+optional_artifacts=(
+  "ai_review_result.md"
+  "review_classification.md"
+  "review_gate_result.json"
+)
+
+available_optional_artifacts=()
+for artifact_name in "${optional_artifacts[@]}"; do
+  artifact_path="$LATEST_RUN_DIR/$artifact_name"
+  if [[ -f "$artifact_path" ]]; then
+    available_optional_artifacts+=("$artifact_path")
+  fi
+done
+
+if (( ${#available_optional_artifacts[@]} > 0 )); then
+  printf 'Optional artifacts:\n'
+  printf ' - %s\n' "${available_optional_artifacts[@]}"
+fi
+
 printf '\n'
-printf 'Next step: review the generated artifacts in %s, starting with review_bundle.md and chatgpt_review_prompt.md.\n' "$LATEST_RUN_DIR"
+printf 'Next step: run automation/scripts/review_gate_story_run.sh %s to generate the final gate artifact for %s.\n' "$STORY_ID" "$LATEST_RUN_DIR"
+printf 'The gate resolves the latest run once and reuses that exact run directory for AI review and classification.\n'
+printf 'The gate artifact is review_gate_result.json with a machine-readable decision, status, and source.\n'

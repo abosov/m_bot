@@ -49,16 +49,34 @@ def setup_story_repo(tmp_path: Path) -> tuple[Path, Path]:
     run(["git", "config", "user.name", "Test User"], cwd=root_dir)
     run(["git", "config", "user.email", "test@example.com"], cwd=root_dir)
 
-    prompt_file = (
+    bundle_dir = (
         root_dir
         / "automation"
         / "bundles"
         / "active"
         / "US-AUTO-7"
-        / "03_master_prompt.md"
     )
-    prompt_file.parent.mkdir(parents=True)
+    prompt_file = bundle_dir / "03_master_prompt.md"
+    scope_file = bundle_dir / "02_file_scope.md"
+    bundle_dir.mkdir(parents=True)
     prompt_file.write_text("# Prompt\n\nRun the workflow.\n", encoding="utf-8")
+    scope_file.write_text(
+        """# US-AUTO-7: File Scope
+
+## Files Allowed To Change
+- `tracked.txt`
+- `generated/from_worktree.txt`
+- `reports/materialized.txt`
+- `tests/test_materialized_state.py`
+
+## Files Not Allowed To Change
+- `backend/**`
+
+## Scope Notes
+- Minimal test scope for run_codex_task integration tests.
+""",
+        encoding="utf-8",
+    )
 
     docs_dir = root_dir / "docs" / "40_ai" / "zumbot_codex"
     docs_dir.mkdir(parents=True)
@@ -243,7 +261,7 @@ def test_materialized_primary_checkout_state() -> None:
     assert (root_dir / "generated" / "from_worktree.txt").read_text(encoding="utf-8") == (
         "materialized file\n"
     )
-    assert "## Review Diff Source\norigin/main... working tree (merge-base " in review_bundle
+    assert "## Review Diff Source\norigin/main...HEAD (merge-base " in review_bundle
     assert "tracked.txt" in review_bundle
     assert "generated/from_worktree.txt" in review_bundle
     assert "1 passed" in pytest_output
@@ -299,7 +317,7 @@ exit 42
         check=False,
     )
 
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 42, result.stderr
 
     codex_cwd = Path((tmp_path / "codex_cwd_failure.txt").read_text(encoding="utf-8").strip())
     assert codex_cwd.name.startswith("zumbot-codex-worktree-")
@@ -350,7 +368,7 @@ exit 23
         check=False,
     )
 
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 23, result.stderr
     assert (root_dir / "tracked.txt").read_text(encoding="utf-8") == (
         "base\nstory change\nnon-zero run with changes\n"
     )

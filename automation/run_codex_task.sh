@@ -678,7 +678,7 @@ $BRANCH_NAME
 $CURRENT_HEAD
 
 ## Review Diff Source
-$REVIEW_BASE_REF... working tree (merge-base $REVIEW_ARTIFACT_BASE)
+$REVIEW_DIFF_RANGE (merge-base $REVIEW_ARTIFACT_BASE)
 
 ## Changed Files
 \`\`\`
