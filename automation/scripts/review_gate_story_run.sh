@@ -18,6 +18,25 @@ fail() {
   exit 1
 }
 
+working_tree_dirty() {
+  local status_output
+  status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal 2>/dev/null || true)"
+  [[ -n "$status_output" ]]
+}
+
+fail_review_gate_dirty_working_tree() {
+  local story_id="$1"
+  {
+    printf "ERROR: review gate blocked for '%s'\n" "$story_id"
+    printf 'Reason: current branch has uncommitted changes; review artifacts would not match committed state\n'
+    printf 'Required action:\n'
+    printf ' - inspect and commit the materialized changes\n'
+    printf ' - if needed, rerun automation/scripts/run_story.sh %s\n' "$story_id"
+    printf ' - rerun automation/scripts/review_gate_story_run.sh %s\n' "$story_id"
+  } >&2
+  exit 1
+}
+
 usage() {
   cat >&2 <<'EOF'
 Usage:
@@ -177,6 +196,10 @@ AI_REVIEW_FILE="$LATEST_RUN_DIR/$AI_REVIEW_FILE_NAME"
 CLASSIFICATION_FILE="$LATEST_RUN_DIR/$CLASSIFICATION_FILE_NAME"
 GATE_RESULT_FILE="$LATEST_RUN_DIR/$GATE_RESULT_FILE_NAME"
 MANIFEST_FILE="$LATEST_RUN_DIR/manifest.md"
+
+if working_tree_dirty; then
+  fail_review_gate_dirty_working_tree "$STORY_ID"
+fi
 
 set +e
 AUTOMATION_RUN_DIR="$LATEST_RUN_DIR" "$AI_REVIEW_SCRIPT" "$STORY_ID"
