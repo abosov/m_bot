@@ -134,7 +134,7 @@ def test_analyze_story_run_tolerates_missing_artifacts_and_incomplete_runs(tmp_p
     assert "RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)" in result.stdout
     assert "RUN STATUS: CHECK RUN OUTPUT (no changed files detected)" not in result.stdout
 
-def test_analyze_story_run_accepts_split_line_recommendation_format(tmp_path: Path) -> None:
+def test_analyze_story_run_marks_split_line_recommendation_as_invalid(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_16-00-00")
 
@@ -158,6 +158,38 @@ def test_analyze_story_run_accepts_split_line_recommendation_format(tmp_path: Pa
         "- `approve`\n\n"
         "MERGE RECOMMENDATION\n"
         "approve\n",
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Classification: present (invalid recommendation)" in result.stdout
+    assert "RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)" in result.stdout
+    assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
+
+def test_analyze_story_run_accepts_same_line_recommendation_format(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_16-05-00")
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "automation/scripts/analyze_story_run.sh\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text(
+        "============================= test session starts ==============================\n",
+        encoding="utf-8",
+    )
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\n"
+        "MERGE RECOMMENDATION: approve\n",
         encoding="utf-8",
     )
 
