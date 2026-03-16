@@ -43,13 +43,14 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    The gate resolves the latest run once, reuses that exact run directory for AI review and classification, writes `review_gate_result.json`, and must exit non-zero when the final decision is `reject` or cannot be derived from the classification artifact.
    Missing, invalid, or ambiguous `MERGE RECOMMENDATION:` output must be treated as a fail-closed reject.
    The gate artifact must distinguish malformed classification output from a classification step that failed before producing an artifact.
-17. Run follow-up prompts for merge blockers and accepted improvements.
-18. Re-run tests after follow-up changes.
-19. Prepare PR with scope, risks, verification, and docs impact.
-20. Finalize the story with `automation/scripts/finalize_story.sh [PR_NUMBER]` after checks and review approvals pass.
-21. The finalization script must merge with `gh pr merge --squash`, switch to local `main`, run `git pull --ff-only origin main`, and delete the merged story branch locally/remotely.
-22. If scripted finalization cannot complete, stop and fix the blocking condition instead of finishing cleanup manually without documenting it.
-23. Append process improvement notes for the completed story.
+17. Use `automation/scripts/analyze_story_run.sh <STORY-ID>` when you need a read-only summary of the latest run artifacts, pytest state, review pipeline state, and recommended next operator action.
+18. Run follow-up prompts for merge blockers and accepted improvements.
+19. Re-run tests after follow-up changes.
+20. Prepare PR with scope, risks, verification, and docs impact.
+21. Finalize the story with `automation/scripts/finalize_story.sh [PR_NUMBER]` after checks and review approvals pass.
+22. The finalization script must merge with `gh pr merge --squash`, switch to local `main`, run `git pull --ff-only origin main`, and delete the merged story branch locally/remotely.
+23. If scripted finalization cannot complete, stop and fix the blocking condition instead of finishing cleanup manually without documenting it.
+24. Append process improvement notes for the completed story.
 
 ## Required Completion Artifacts
 - Story bundle directory with context, scope, master prompt, review checklist, follow-ups, and manual actions.
