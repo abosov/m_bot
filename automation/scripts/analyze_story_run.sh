@@ -126,7 +126,7 @@ extract_merge_recommendation() {
         | sed -E 's/`//g; s/^[[:space:]]*[0-9]+[.)][[:space:]]*//; s/^[[:space:]]*[-*][[:space:]]*//; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//'
     )"
 
-    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation:[[:space:]]*(approve|reject)$ ]]; then
+    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*(approve|reject)[^a-z]*$ ]]; then
       decisions+=("${BASH_REMATCH[1]}")
     fi
   done < "$classification_file"
