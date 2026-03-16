@@ -188,16 +188,16 @@ generate_repository_map_runtime() {
         blocked_files+=("$doc")
       done < <(extract_markdown_section_items "$scope_file" "blocked")
 
-      if [[ ${#allowed_files[@]} -gt 0 && ${#blocked_files[@]} -gt 0 ]]; then
+      if [[ ${#allowed_files[@]} -gt 0 ]]; then
         scope_parse_status="parsed"
-        blocked_scope_status="parsed"
       else
         scope_parse_status="unparseable"
-        if [[ ${#blocked_files[@]} -gt 0 ]]; then
-          blocked_scope_status="parsed"
-        else
-          blocked_scope_status="unavailable"
-        fi
+      fi
+
+      if [[ ${#blocked_files[@]} -gt 0 ]]; then
+        blocked_scope_status="parsed"
+      else
+        blocked_scope_status="unavailable"
       fi
     elif [[ -d "$bundle_dir" ]]; then
       scope_parse_status="missing"

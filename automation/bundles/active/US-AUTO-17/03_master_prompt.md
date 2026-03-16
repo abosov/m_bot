@@ -26,6 +26,7 @@ Upgrade runtime repository-map injection so Codex receives stronger anti-halluci
 - `automation/scripts/ai_review_story_run.sh`
 - `automation/scripts/classify_review_story_run.sh`
 - `automation/scripts/review_gate_story_run.sh`
+- `automation/scripts/finalize_story.sh`
 - `backend/**`
 - `migrations/**`
 - `.github/workflows/**`
