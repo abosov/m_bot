@@ -120,8 +120,10 @@ display_value() {
 
 extract_merge_recommendation() {
   local classification_file="$1"
+  local -a normalized_lines=()
   local -a decisions=()
   local line normalized
+  local i next_line
 
   [[ -f "$classification_file" ]] || return 1
 
@@ -131,11 +133,26 @@ extract_merge_recommendation() {
         | tr '[:upper:]' '[:lower:]' \
         | sed -E 's/`//g; s/^[[:space:]]*[0-9]+[.)][[:space:]]*//; s/^[[:space:]]*[-*][[:space:]]*//; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//'
     )"
-
-    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation:[[:space:]]*(approve|reject)$ ]]; then
-      decisions+=("${BASH_REMATCH[1]}")
-    fi
+    normalized_lines+=("$normalized")
   done < "$classification_file"
+
+  for (( i=0; i<${#normalized_lines[@]}; i++ )); do
+    normalized="${normalized_lines[$i]}"
+
+    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*(approve|reject)[^a-z]*$ ]]; then
+      decisions+=("${BASH_REMATCH[1]}")
+      continue
+    fi
+
+    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*$ ]]; then
+      if (( i + 1 < ${#normalized_lines[@]} )); then
+        next_line="${normalized_lines[$((i + 1))]}"
+        if [[ "$next_line" =~ ^(approve|reject)$ ]]; then
+          decisions+=("${BASH_REMATCH[1]}")
+        fi
+      fi
+    fi
+  done
 
   if (( ${#decisions[@]} == 0 )); then
     return 1
@@ -148,6 +165,7 @@ extract_merge_recommendation() {
 
   decisions=("${unique_decisions[@]}")
   [[ ${#decisions[@]} -eq 1 ]] || return 1
+
   printf '%s\n' "${decisions[0]}"
 }
 

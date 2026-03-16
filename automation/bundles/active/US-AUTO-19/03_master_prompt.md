@@ -17,6 +17,8 @@ Implement a read-only operor analysis command that summarizes story run artifact
 - `automation/scripts/analyze_story_run.sh`
 - `tests/test_analyze_story_run.py`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
+- `automation/bundle_packs/US-AUTO-19.bundle.md`
+- `automation/bundles/active/US-AUTO-19/**`
 
 ## Files Not Allowed To Change
 - `automation/run_codex_task.sh`
