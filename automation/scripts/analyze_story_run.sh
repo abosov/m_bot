@@ -137,8 +137,8 @@ extract_merge_recommendation() {
       next_line="${normalized_lines[$((i + 1))]}"
     fi
 
-    if [[ "$line" =~ ^merge[[:space:]]+recommendation:[[:space:]]*(approve|reject)$ ]]; then
-      decisions+=("${BASH_REMATCH[1]}")
+    if [[ "$line" =~ ^merge[[:space:]]+recommendation([[:space:]]*[:=-]?[[:space:]]*|[[:space:]]+)(approve|reject)$ ]]; then
+      decisions+=("${BASH_REMATCH[2]}")
       continue
     fi
 
