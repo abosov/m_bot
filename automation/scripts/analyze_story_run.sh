@@ -326,7 +326,6 @@ final_status_line() {
 
 STORY_ID="$1"
 validate_story_id "$STORY_ID"
-STORY_ID="$story_id"
 
 STORY_RUNS_ROOT="$RUNS_ROOT/$STORY_ID"
 [[ -d "$STORY_RUNS_ROOT" ]] || fail "story run root not found for '$STORY_ID': $STORY_RUNS_ROOT"
