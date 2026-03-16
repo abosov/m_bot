@@ -114,8 +114,10 @@ display_value() {
 
 extract_merge_recommendation() {
   local classification_file="$1"
+  local -a normalized_lines=()
   local -a decisions=()
   local line normalized
+  local i next_line
 
   [[ -f "$classification_file" ]] || return 1
 
@@ -125,11 +127,26 @@ extract_merge_recommendation() {
         | tr '[:upper:]' '[:lower:]' \
         | sed -E 's/`//g; s/^[[:space:]]*[0-9]+[.)][[:space:]]*//; s/^[[:space:]]*[-*][[:space:]]*//; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//'
     )"
-
-    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation:[[:space:]]*(approve|reject)$ ]]; then
-      decisions+=("${BASH_REMATCH[1]}")
-    fi
+    normalized_lines+=("$normalized")
   done < "$classification_file"
+
+  for (( i=0; i<${#normalized_lines[@]}; i++ )); do
+    line="${normalized_lines[$i]}"
+    next_line=""
+    if (( i + 1 < ${#normalized_lines[@]} )); then
+      next_line="${normalized_lines[$((i + 1))]}"
+    fi
+
+    if [[ "$line" =~ ^merge[[:space:]]+recommendation:[[:space:]]*(approve|reject)$ ]]; then
+      decisions+=("${BASH_REMATCH[1]}")
+      continue
+    fi
+
+    if [[ "$line" == "merge recommendation" && "$next_line" =~ ^(approve|reject)$ ]]; then
+      decisions+=("${BASH_REMATCH[1]}")
+      continue
+    fi
+  done
 
   if (( ${#decisions[@]} == 0 )); then
     return 1
@@ -159,6 +176,69 @@ working_tree_is_clean() {
 
 dirty_tree_reason() {
   printf '%s\n' "working tree dirty; commit changes before review/classify/gate"
+}
+
+review_prereq_status() {
+  local run_dir="$1"
+  local missing=()
+  local artifact
+
+  for artifact in review_bundle.md chatgpt_review_prompt.md diff.patch; do
+    if [[ ! -f "$run_dir/$artifact" ]]; then
+      missing+=("$artifact")
+    fi
+  done
+
+  if (( ${#missing[@]} == 0 )); then
+    printf 'ready\n'
+    return 0
+  fi
+
+  printf 'missing:%s\n' "$(IFS=,; printf '%s' "${missing[*]}")"
+}
+
+format_review_prereq_status() {
+  local run_dir="$1"
+  local prereq_status
+
+  prereq_status="$(review_prereq_status "$run_dir")"
+  case "$prereq_status" in
+    ready)
+      printf 'ready\n'
+      ;;
+    missing:*)
+      printf 'missing (%s)\n' "${prereq_status#missing:}"
+      ;;
+    *)
+      printf 'unknown\n'
+      ;;
+  esac
+}
+
+summarize_ai_review_status() {
+  local run_dir="$1"
+  local ai_review_file="$2"
+  local raw_output_file="$3"
+  local prereq_status
+
+  prereq_status="$(review_prereq_status "$run_dir")"
+
+  if [[ -f "$ai_review_file" ]]; then
+    printf 'present\n'
+    return 0
+  fi
+
+  if [[ "$prereq_status" != "ready" ]]; then
+    printf 'missing (prerequisites %s)\n' "${prereq_status#missing:}"
+    return 0
+  fi
+
+  if [[ -f "$raw_output_file" ]]; then
+    printf 'failed (raw output only)\n'
+    return 0
+  fi
+
+  printf 'missing\n'
 }
 
 extract_pytest_summary() {
@@ -247,16 +327,15 @@ summarize_pytest() {
 }
 
 summarize_review_pipeline() {
-  local ai_review_file="$1"
-  local classification_file="$2"
-  local gate_result_file="$3"
-  local ai_status classification_status gate_status recommendation decision status source
+  local run_dir="$1"
+  local ai_review_file="$2"
+  local classification_file="$3"
+  local gate_result_file="$4"
+  local raw_output_file="$5"
+  local prereq_status ai_status classification_status gate_status recommendation decision status source
 
-  if [[ -f "$ai_review_file" ]]; then
-    ai_status="present"
-  else
-    ai_status="missing"
-  fi
+  prereq_status="$(format_review_prereq_status "$run_dir")"
+  ai_status="$(summarize_ai_review_status "$run_dir" "$ai_review_file" "$raw_output_file")"
 
   if [[ -f "$classification_file" ]]; then
     if recommendation="$(extract_merge_recommendation "$classification_file" 2>/dev/null)"; then
@@ -283,19 +362,22 @@ summarize_review_pipeline() {
     gate_status="missing"
   fi
 
+  printf 'Review prerequisites: %s\n' "$prereq_status"
   printf 'AI review: %s\n' "$ai_status"
   printf 'Classification: %s\n' "$classification_status"
   printf 'Gate: %s\n' "$gate_status"
 }
 
 final_status_line() {
-  local manifest_file="$1"
-  local changed_files_file="$2"
-  local pytest_file="$3"
-  local ai_review_file="$4"
-  local classification_file="$5"
-  local gate_result_file="$6"
-  local gate_decision gate_status recommendation pytest_exit_code codex_exit_code materialization_status changed_files_count changed_files_detected
+  local run_dir="$1"
+  local manifest_file="$2"
+  local changed_files_file="$3"
+  local pytest_file="$4"
+  local ai_review_file="$5"
+  local classification_file="$6"
+  local gate_result_file="$7"
+  local raw_output_file="$8"
+  local gate_decision gate_status recommendation pytest_exit_code codex_exit_code materialization_status changed_files_count changed_files_detected prereq_status
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -304,6 +386,7 @@ final_status_line() {
   changed_files_detected="$(manifest_value "$manifest_file" "changed_files_detected")"
   codex_exit_code="$(manifest_value "$manifest_file" "codex_exit_code")"
   materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
+  prereq_status="$(review_prereq_status "$run_dir")"
 
   if [[ -f "$changed_files_file" ]]; then
     changed_files_count="$(sed '/^[[:space:]]*$/d' "$changed_files_file" | wc -l | tr -d ' ')"
@@ -378,6 +461,16 @@ final_status_line() {
     return 0
   fi
 
+  if [[ "$prereq_status" != "ready" ]]; then
+    printf 'RUN STATUS: BLOCKED (missing review prerequisites: %s)\n' "${prereq_status#missing:}"
+    return 0
+  fi
+
+  if [[ -f "$raw_output_file" ]]; then
+    printf 'RUN STATUS: BLOCKED (ai review failed; inspect ai_review_raw_output.txt)\n'
+    return 0
+  fi
+
   printf 'RUN STATUS: INCOMPLETE (review artifacts not generated yet)\n'
 }
 
@@ -396,6 +489,7 @@ MANIFEST_FILE="$RUN_DIR/manifest.md"
 CHANGED_FILES_FILE="$RUN_DIR/changed_files.txt"
 PYTEST_FILE="$RUN_DIR/pytest.txt"
 AI_REVIEW_FILE="$RUN_DIR/ai_review_result.md"
+AI_REVIEW_RAW_OUTPUT_FILE="$RUN_DIR/ai_review_raw_output.txt"
 CLASSIFICATION_FILE="$RUN_DIR/review_classification.md"
 GATE_RESULT_FILE="$RUN_DIR/review_gate_result.json"
 
@@ -412,6 +506,10 @@ for artifact_name in \
   diff.stat \
   changed_files.txt \
   pytest.txt \
+  review_bundle.md \
+  chatgpt_review_prompt.md \
+  diff.patch \
+  ai_review_raw_output.txt \
   ai_review_result.md \
   review_classification.md \
   review_gate_result.json
@@ -445,13 +543,15 @@ printf '%s' "$(summarize_pytest "$MANIFEST_FILE" "$PYTEST_FILE")"
 printf '\n'
 
 printf 'Review Pipeline\n'
-summarize_review_pipeline "$AI_REVIEW_FILE" "$CLASSIFICATION_FILE" "$GATE_RESULT_FILE"
+summarize_review_pipeline "$RUN_DIR" "$AI_REVIEW_FILE" "$CLASSIFICATION_FILE" "$GATE_RESULT_FILE" "$AI_REVIEW_RAW_OUTPUT_FILE"
 printf '\n'
 
 final_status_line \
+  "$RUN_DIR" \
   "$MANIFEST_FILE" \
   "$CHANGED_FILES_FILE" \
   "$PYTEST_FILE" \
   "$AI_REVIEW_FILE" \
   "$CLASSIFICATION_FILE" \
-  "$GATE_RESULT_FILE"
+  "$GATE_RESULT_FILE" \
+  "$AI_REVIEW_RAW_OUTPUT_FILE"

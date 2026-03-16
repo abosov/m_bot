@@ -204,7 +204,7 @@ def test_analyze_story_run_tolerates_missing_artifacts_and_incomplete_runs(tmp_p
     assert "RUN STATUS: CHECK RUN OUTPUT (no changed files detected)" not in result.stdout
 
 
-def test_analyze_story_run_marks_split_line_recommendation_as_invalid(tmp_path: Path) -> None:
+def test_analyze_story_run_accepts_split_line_recommendation_for_parser_parity(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_16-00-00")
 
@@ -234,9 +234,9 @@ def test_analyze_story_run_marks_split_line_recommendation_as_invalid(tmp_path: 
     result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
 
     assert result.returncode == 0, result.stderr
-    assert "Classification: present (invalid recommendation)" in result.stdout
-    assert "RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)" in result.stdout
-    assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
+    assert "Classification: present (approve)" in result.stdout
+    assert "Classification: present (invalid recommendation)" not in result.stdout
+    assert "RUN STATUS: READY TO RUN GATE (classification approve)" in result.stdout
 
 
 def test_analyze_story_run_accepts_same_line_recommendation_format(tmp_path: Path) -> None:
@@ -535,3 +535,59 @@ def test_analyze_story_run_blocks_ready_actions_when_untracked_file_exists(tmp_p
     assert result.returncode == 0, result.stderr
     assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
     assert "RUN STATUS: BLOCKED (working tree dirty; commit changes before review/classify/gate)" in result.stdout
+
+
+def test_analyze_story_run_surfaces_missing_review_prerequisites(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_19-00-00")
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        "- codex_exit_code: 0\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "automation/scripts/analyze_story_run.sh\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Review prerequisites: missing (review_bundle.md,chatgpt_review_prompt.md,diff.patch)" in result.stdout
+    assert "AI review: missing (prerequisites review_bundle.md,chatgpt_review_prompt.md,diff.patch)" in result.stdout
+    assert "RUN STATUS: BLOCKED (missing review prerequisites: review_bundle.md,chatgpt_review_prompt.md,diff.patch)" in result.stdout
+
+
+def test_analyze_story_run_surfaces_ai_review_raw_failure_without_result_artifact(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_19-05-00")
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        "- codex_exit_code: 0\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "automation/scripts/analyze_story_run.sh\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    (run_dir / "ai_review_raw_output.txt").write_text("codex exec failed\n", encoding="utf-8")
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Review prerequisites: ready" in result.stdout
+    assert "AI review: failed (raw output only)" in result.stdout
+    assert "RUN STATUS: BLOCKED (ai review failed; inspect ai_review_raw_output.txt)" in result.stdout
