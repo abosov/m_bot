@@ -103,13 +103,6 @@ json_value() {
   sed -n -E "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"([^\"]*)\".*/\\1/p" "$json_file" | head -n 1
 }
 
-read_first_non_empty_line() {
-  local file_path="$1"
-  [[ -f "$file_path" ]] || return 0
-
-  sed -n '/[^[:space:]]/ { s/^[[:space:]]*//; p; q; }' "$file_path"
-}
-
 display_value() {
   local value="$1"
   if [[ -n "$value" ]]; then
@@ -154,11 +147,14 @@ extract_merge_recommendation() {
 }
 
 working_tree_is_clean() {
+  local status_output
+
   if ! git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     return 0
   fi
 
-  git -C "$ROOT_DIR" diff --quiet --ignore-submodules HEAD --
+  status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal 2>/dev/null || true)"
+  [[ -z "$status_output" ]]
 }
 
 dirty_tree_reason() {

@@ -429,3 +429,50 @@ def test_analyze_story_run_blocks_ready_actions_when_working_tree_dirty(tmp_path
     assert result.returncode == 0, result.stderr
     assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
     assert "RUN STATUS: BLOCKED (working tree dirty; commit changes before review/classify/gate)" in result.stdout
+
+
+def test_analyze_story_run_blocks_ready_actions_when_untracked_file_exists(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    untracked = root_dir / "new_untracked.txt"
+    untracked.write_text("dirty\n", encoding="utf-8")
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_17-25-00")
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "automation/scripts/analyze_story_run.sh\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text(
+        "============================= test session starts ==============================\n"
+        "collected 4 items\n"
+        "4 passed\n",
+        encoding="utf-8",
+    )
+    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
+    assert "RUN STATUS: BLOCKED (working tree dirty; commit changes before review/classify/gate)" in result.stdout
