@@ -1,3 +1,7 @@
+# Story Bundle Pack
+Story-ID: US-AUTO-21
+Version: 1
+
 === FILE: 00_story.md ===
 # US-AUTO-21: Enforce Clean Commit Boundary Before Review Gate
 
@@ -180,7 +184,6 @@ Next step:
 3. if needed, rerun automation/scripts/run_story.sh US-AUTO-21
 4. rerun automation/scripts/review_gate_story_run.sh US-AUTO-21
 
-
 Example gate failure block:
 ERROR: review gate blocked for 'US-AUTO-21'
 Reason: current branch has uncommitted changes; review artifacts would not match committed state
@@ -189,115 +192,75 @@ Required action:
 - if needed, rerun automation/scripts/run_story.sh US-AUTO-21
 - rerun automation/scripts/review_gate_story_run.sh US-AUTO-21
 
-Testing
-
+## Testing
 Add or update focused tests that verify:
+- clean working tree allows normal review/gate flow
+- dirty working tree blocks `review_story_run.sh` with explicit status/output
+- dirty working tree blocks `review_gate_story_run.sh` before AI review starts
+- operator-facing message is actionable and stable
 
-clean working tree allows normal review/gate flow
-
-dirty working tree blocks review_story_run.sh with explicit status/output
-
-dirty working tree blocks review_gate_story_run.sh before AI review starts
-
-operator-facing message is actionable and stable
-
-Documentation
-
+## Documentation
 Update workflow docs/checklists to describe the clean commit boundary rule before review/gate.
 
-Output
-
+## Output
 Return:
-
-changed files summary
-
-design rationale
-
-validation performed
-
-risks / follow-ups
-
-final diff
+1. changed files summary
+2. design rationale
+3. validation performed
+4. risks / follow-ups
+5. final diff
 
 === FILE: 04_review_checklist.md ===
+# US-AUTO-21: Review Checklist
 
-US-AUTO-21: Review Checklist
-Scope Validation
+## Scope Validation
+- [ ] Changes stay inside `02_file_scope.md`
+- [ ] No redesign of runner snapshot semantics
+- [ ] No changes to `automation/run_codex_task.sh`
+- [ ] No hidden auto-commit behavior introduced
 
- Changes stay inside 02_file_scope.md
+## Functional Validation
+- [ ] Review is blocked when working tree is dirty
+- [ ] Gate is blocked before AI review/classification starts
+- [ ] `review_story_run.sh` clearly reports blocked review safety state
+- [ ] Error message is actionable and explicit
+- [ ] Clean working tree still allows normal review/gate flow
 
- No redesign of runner snapshot semantics
+## Architecture / Source of Truth
+- [ ] Commit-based review remains the source of truth
+- [ ] Fail-fast boundary is enforced at review stage
+- [ ] Review/gate layer does not rely on hidden git mutation
+- [ ] Docs reflect the new workflow rule
 
- No changes to automation/run_codex_task.sh
-
- No hidden auto-commit behavior introduced
-
-Functional Validation
-
- Review is blocked when working tree is dirty
-
- Gate is blocked before AI review/classification starts
-
- review_story_run.sh clearly reports blocked review safety state
-
- Error message is actionable and explicit
-
- Clean working tree still allows normal review/gate flow
-
-Architecture / Source of Truth
-
- Commit-based review remains the source of truth
-
- Fail-fast boundary is enforced at review stage
-
- Review/gate layer does not rely on hidden git mutation
-
- Docs reflect the new workflow rule
-
-Verification
-
- Tests cover clean-tree pass case
-
- Tests cover dirty-tree block case
-
- Gate output is verified
-
- No unrelated automation behavior changed
+## Verification
+- [ ] Tests cover clean-tree pass case
+- [ ] Tests cover dirty-tree block case
+- [ ] Gate output is verified
+- [ ] No unrelated automation behavior changed
 
 === FILE: 05_followups.md ===
+# US-AUTO-21: Follow-Ups
 
-US-AUTO-21: Follow-Ups
-Follow-Up Prompt Queue
+## Follow-Up Prompt Queue
+- Consider a later story for richer review-stage observability and failure surfacing.
+- Consider a later story for refreshing or regenerating review artifacts without rerunning Codex when branch state changes after review.
+- Consider snapshot-aware review only if clean-commit-boundary enforcement proves too restrictive in practice.
 
-Consider a later story for richer review-stage observability and failure surfacing.
-
-Consider a later story for refreshing or regenerating review artifacts without rerunning Codex when branch state changes after review.
-
-Consider snapshot-aware review only if clean-commit-boundary enforcement proves too restrictive in practice.
-
-Iteration Notes
-
-This story intentionally solves the current false-reject class without redesigning the whole review model.
-
-The preferred tradeoff is predictable operator control and fail-fast safety over convenience.
+## Iteration Notes
+- This story intentionally solves the current false-reject class without redesigning the whole review model.
+- The preferred tradeoff is predictable operator control and fail-fast safety over convenience.
 
 === FILE: 06_manual_actions.md ===
+# US-AUTO-21: Manual Actions
 
-US-AUTO-21: Manual Actions
-Required Human Actions
+## Required Human Actions
+- Review the fail-fast message in a synthetic dirty-working-tree scenario.
+- Confirm the operator guidance matches the intended local workflow.
 
-Review the fail-fast message in a synthetic dirty-working-tree scenario.
+## Execution Notes
+- Test once with a clean tree and confirm review/gate still works.
+- Test once with a dirty tree after a successful materialized run and confirm gate blocks before AI review starts.
 
-Confirm the operator guidance matches the intended local workflow.
-
-Execution Notes
-
-Test once with a clean tree and confirm review/gate still works.
-
-Test once with a dirty tree after a successful materialized run and confirm gate blocks before AI review starts.
-
-Completion Status
-
- No manual actions required
-
- Manual actions completed and documented
+## Completion Status
+- [ ] No manual actions required
+- [ ] Manual actions completed and documented
