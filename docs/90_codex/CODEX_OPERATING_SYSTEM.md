@@ -141,3 +141,37 @@ A Codex task is done only when all conditions are met:
 - Checks/tests from prompt were executed and reported.
 - Security review passed (no secrets/credentials leakage).
 - Result is minimal, clean, and ready for safe deployment.
+
+# LLM Output Safety Rules
+
+To prevent corruption of bundle packs and automation artifacts, the following rules are mandatory for all LLM-generated outputs used in the Zumbot pipeline.
+
+## Forbidden patterns
+
+The following patterns are strictly forbidden in generated artifacts:
+
+1. Triple backtick fences (```)
+2. Nested code blocks
+3. Any occurrence of triple backticks inside bundle packs or structured outputs
+
+Reason:
+Triple backticks break Markdown parsing and can corrupt bundle packs, automation artifacts, and copy/paste flows used in the Zumbot workflow.
+
+## Required delimiter format
+
+Structured LLM outputs must use sentinel markers instead of Markdown fences.
+
+Example format:
+
+=== FILE: 00_story.md ===
+content
+
+=== FILE: 01_context_bundle.md ===
+content
+
+## Rationale
+
+This rule guarantees that:
+- bundle packs remain parseable
+- Markdown rendering does not break
+- Cursor and Codex pipelines remain stable
