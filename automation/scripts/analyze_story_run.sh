@@ -127,7 +127,7 @@ display_value() {
 extract_merge_recommendation() {
   local classification_file="$1"
   local -a decisions=()
-  local line normalized
+  local line normalized previous_normalized=""
 
   [[ -f "$classification_file" ]] || return 1
 
@@ -140,7 +140,14 @@ extract_merge_recommendation() {
 
     if [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*(approve|reject)[^a-z]*$ ]]; then
       decisions+=("${BASH_REMATCH[1]}")
+    elif [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*$ ]]; then
+      previous_normalized="merge recommendation"
+      continue
+    elif [[ "$previous_normalized" == "merge recommendation" && "$normalized" =~ ^(approve|reject)$ ]]; then
+      decisions+=("${BASH_REMATCH[1]}")
     fi
+
+    previous_normalized="$normalized"
   done < "$classification_file"
 
   if (( ${#decisions[@]} == 0 )); then
