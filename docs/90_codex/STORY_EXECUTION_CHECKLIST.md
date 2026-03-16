@@ -65,7 +65,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 Stop and revise before merge if any condition is true:
 - Bundle pack is not materialized from `automation/bundle_packs/<STORY-ID>.bundle.md`.
 - Bundle validation fails (missing file, empty file, unresolved canonical placeholder token, or missing required section).
-- Missing allowed-file scope.
+- Missing allowed/forbidden file scope.
 - Missing source-of-truth statement.
 - Scope drift beyond the bundle.
 - Tests not executed or failing without explicit waiver.

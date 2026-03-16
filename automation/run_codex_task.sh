@@ -98,36 +98,13 @@ extract_markdown_section_items() {
   [[ -f "$file" ]] || return 0
 
   awk -v heading_kind="$heading_kind" '
-    function normalize(value) {
-      value = tolower(value)
-      gsub(/`/, "", value)
-      gsub(/^[[:space:]]+/, "", value)
-      gsub(/[[:space:]]+$/, "", value)
-      return value
-    }
-
-    function is_target_heading(line, kind, normalized) {
-      normalized = normalize(line)
-      sub(/^##[[:space:]]+/, "", normalized)
-
+    function is_target_heading(line, kind) {
       if (kind == "allowed") {
-        if (normalized == "files allowed to change") return 1
-        if (normalized == "files allowed to change:") return 1
-        if (normalized == "allowed files") return 1
-        if (normalized ~ /^allowed files for future /) return 1
-        return 0
+        return line == "## Files Allowed To Change"
       }
-
       if (kind == "blocked") {
-        if (normalized == "files not allowed to change") return 1
-        if (normalized == "files explicitly not allowed to change") return 1
-        if (normalized == "forbidden files/areas for future us-pay-2 implementation") return 1
-        if (normalized == "files/layers that must not be changed") return 1
-        if (normalized == "forbidden files/areas") return 1
-        if (normalized == "forbidden files") return 1
-        return 0
+        return line == "## Files Not Allowed To Change"
       }
-
       return 0
     }
 
@@ -211,13 +188,9 @@ generate_repository_map_runtime() {
         blocked_files+=("$doc")
       done < <(extract_markdown_section_items "$scope_file" "blocked")
 
-      if [[ ${#allowed_files[@]} -gt 0 ]]; then
+      if [[ ${#allowed_files[@]} -gt 0 && ${#blocked_files[@]} -gt 0 ]]; then
         scope_parse_status="parsed"
-        if [[ ${#blocked_files[@]} -gt 0 ]]; then
-          blocked_scope_status="parsed"
-        else
-          blocked_scope_status="unavailable"
-        fi
+        blocked_scope_status="parsed"
       else
         scope_parse_status="unparseable"
         if [[ ${#blocked_files[@]} -gt 0 ]]; then
