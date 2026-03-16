@@ -91,13 +91,119 @@ build_context_file_list() {
   esac
 }
 
+extract_markdown_section_items() {
+  local file="$1"
+  local heading_kind="$2"
+
+  [[ -f "$file" ]] || return 0
+
+  awk -v heading_kind="$heading_kind" '
+    function is_target_heading(line, kind) {
+      if (kind == "allowed") {
+        return line == "## Files Allowed To Change"
+      }
+      if (kind == "blocked") {
+        return line == "## Files Not Allowed To Change"
+      }
+      return 0
+    }
+
+    BEGIN {
+      in_section = 0
+    }
+
+    /^## / {
+      if (is_target_heading($0, heading_kind)) {
+        in_section = 1
+        next
+      }
+      if (in_section) {
+        exit
+      }
+    }
+
+    in_section && /^[[:space:]]*-[[:space:]]+/ {
+      item = $0
+      sub(/^[[:space:]]*-[[:space:]]+/, "", item)
+      gsub(/`/, "", item)
+      print item
+    }
+  ' "$file"
+}
+
+emit_markdown_list_or_none() {
+  local item
+
+  if [[ $# -gt 0 ]]; then
+    for item in "$@"; do
+      echo "- $item"
+    done
+  else
+    echo "- none"
+  fi
+}
+
+emit_scope_list_with_status() {
+  local status="$1"
+  shift || true
+
+  if [[ "$status" == "parsed" ]]; then
+    if [[ $# -gt 0 ]]; then
+      emit_markdown_list_or_none "$@"
+    else
+      emit_markdown_list_or_none
+    fi
+  else
+    echo "  unavailable"
+  fi
+}
+
 generate_repository_map_runtime() {
   local out_file="$1"
   local curated_repo_map="$ROOT_DIR/docs/40_ai/zumbot_codex/REPOSITORY_MAP.md"
   local curated_project_context="$ROOT_DIR/docs/40_ai/zumbot_codex/PROJECT_CONTEXT.md"
+  local story_id="${2:-}"
+  local bundle_dir=""
+  local scope_file=""
+  local scope_parse_status="not_applicable"
+  local blocked_scope_status="not_applicable"
   local -a source_docs=()
   local -a top_level_dirs=()
+  local -a allowed_files=()
+  local -a blocked_files=()
   local doc
+
+  if [[ -n "$story_id" && "$story_id" != "ADHOC" ]]; then
+    bundle_dir="$ROOT_DIR/automation/bundles/active/$story_id"
+    scope_file="$bundle_dir/02_file_scope.md"
+
+    if [[ -f "$scope_file" ]]; then
+      while IFS= read -r doc; do
+        [[ -n "$doc" ]] || continue
+        allowed_files+=("$doc")
+      done < <(extract_markdown_section_items "$scope_file" "allowed")
+
+      while IFS= read -r doc; do
+        [[ -n "$doc" ]] || continue
+        blocked_files+=("$doc")
+      done < <(extract_markdown_section_items "$scope_file" "blocked")
+
+      if [[ ${#allowed_files[@]} -gt 0 ]]; then
+        scope_parse_status="parsed"
+      else
+        scope_parse_status="unparseable"
+      fi
+
+      if [[ ${#blocked_files[@]} -gt 0 ]]; then
+        blocked_scope_status="parsed"
+      else
+        blocked_scope_status="unavailable"
+      fi
+    elif [[ -d "$bundle_dir" ]]; then
+      scope_parse_status="missing"
+      blocked_scope_status="missing"
+    fi
+  fi
 
   for doc in "$curated_repo_map" "$curated_project_context"; do
     if [[ -f "$doc" ]]; then
@@ -142,6 +248,63 @@ generate_repository_map_runtime() {
     else
       echo "- none"
     fi
+    echo
+    echo "## Architecture Layers"
+    echo "- API/Application: transport, validation, orchestration; keep business rules out."
+    echo "- Domain/Services: own business rules, state transitions, and explicit product behavior."
+    echo "- Infrastructure/Integrations: isolate DB, Telegram, Google Calendar, and external adapters."
+    echo "- UI/Handlers: keep user-facing flows thin and preserve explicit contracts."
+    echo "- Docs/Tests/Automation: update documentation and focused verification with implementation changes."
+    echo
+    echo "## Story-Local Context"
+    echo "- story_id: ${story_id:-ADHOC}"
+    if [[ -n "$bundle_dir" && -d "$bundle_dir" ]]; then
+      echo "- active_bundle_path: ${bundle_dir#$ROOT_DIR/}"
+      echo "- scope_file: ${scope_file#$ROOT_DIR/}"
+      echo "- bundle_status: present"
+    elif [[ -n "$bundle_dir" ]]; then
+      echo "- active_bundle_path: ${bundle_dir#$ROOT_DIR/}"
+      echo "- scope_file: ${scope_file#$ROOT_DIR/}"
+      echo "- bundle_status: missing"
+    else
+      echo "- active_bundle_path: none"
+      echo "- scope_file: none"
+      echo "- bundle_status: not_applicable"
+    fi
+    echo "- scope_parse_status: $scope_parse_status"
+    echo "- files_not_allowed_parse_status: $blocked_scope_status"
+    if [[ "$scope_parse_status" == "parsed" ]]; then
+      echo "- story_scope_constraints: loaded"
+    else
+      echo "- story_scope_constraints: unavailable"
+    fi
+    echo "- files_allowed_to_change:"
+    if [[ "$scope_parse_status" == "parsed" ]]; then
+      emit_markdown_list_or_none "${allowed_files[@]}"
+    else
+      echo "  unavailable"
+    fi
+
+    echo "- files_not_allowed_to_change:"
+    if [[ "$blocked_scope_status" == "parsed" ]]; then
+      emit_markdown_list_or_none "${blocked_files[@]}"
+    else
+      echo "  unavailable"
+    fi
+    echo
+    echo "## Anti-Hallucination Rules"
+    echo "- Do not invent files, modules, services, migrations, or tests that are not in the repository or story bundle."
+    echo "- Do not broaden scope beyond the requested story and the allowed file set."
+    echo "- Edit only files allowed for this story; treat listed forbidden files and untouched areas as read-only."
+    echo "- If source-of-truth docs or bundle constraints conflict, stop and report before making broad changes."
+    echo "- Prefer existing architecture, naming, and tests over new abstractions."
+    echo
+    echo "## Pipeline Dependency Hints"
+    echo "- This artifact is generated by automation/run_codex_task.sh before Codex execution."
+    echo "- story_context.md references this runtime map and includes selected bundle files for the same run."
+    echo "- codex_prompt.md embeds this runtime map plus the requested task prompt."
+    echo "- changed_files.txt is validated against automation/bundles/active/<story>/02_file_scope.md after materialization."
+    echo "- manifest.md and run_meta.txt record repository map injection metadata for downstream review artifacts."
 
     if [[ -f "$curated_project_context" ]]; then
       echo
@@ -360,7 +523,7 @@ setup_isolated_worktree() {
   WORKTREE_CREATED="1"
 }
 
-generate_repository_map_runtime "$REPOSITORY_MAP_RUNTIME_FILE"
+generate_repository_map_runtime "$REPOSITORY_MAP_RUNTIME_FILE" "$STORY_ID"
 REPOSITORY_MAP_INJECTION_STATUS="injected"
 generate_story_context "$STORY_ID" "$STORY_CONTEXT_FILE" "$CONTEXT_MODE" "$REPOSITORY_MAP_RUNTIME_REL"
 build_codex_prompt "$CODEX_PROMPT_FILE" "$REPOSITORY_MAP_RUNTIME_REL"
