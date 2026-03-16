@@ -312,7 +312,11 @@ final_status_line() {
   fi
 
   if [[ "$gate_decision" == "approve" && "$gate_status" == "passed" ]]; then
-    printf 'RUN STATUS: READY FOR MERGE REVIEW (gate approve)\n'
+    if working_tree_is_clean; then
+      printf 'RUN STATUS: READY FOR MERGE REVIEW (gate approve)\n'
+    else
+      printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
+    fi
     return 0
   fi
 
