@@ -591,3 +591,56 @@ def test_analyze_story_run_surfaces_ai_review_raw_failure_without_result_artifac
     assert "Review prerequisites: ready" in result.stdout
     assert "AI review: failed (raw output only)" in result.stdout
     assert "RUN STATUS: BLOCKED (ai review failed; inspect ai_review_raw_output.txt)" in result.stdout
+
+def test_analyze_story_run_pytest_summary_has_clean_stderr(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_19-20-00")
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "automation/scripts/analyze_story_run.sh\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text(
+        "============================= test session starts ==============================\n"
+        "collected 4 items\n"
+        "4 passed\n",
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Pytest\npass (exit 0; 4 passed)" in result.stdout
+    assert result.stderr == ""
+
+def test_analyze_story_run_review_prerequisites_match_ai_review_contract(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_19-30-00")
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        "- codex_exit_code: 0\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+
+    # Intentionally provide only the old subset of prereqs.
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Review prerequisites: missing (changed_files.txt,pytest.txt)" in result.stdout
+    assert "AI review: missing (prerequisites changed_files.txt,pytest.txt)" in result.stdout
+    assert "RUN STATUS: BLOCKED (missing review prerequisites: changed_files.txt,pytest.txt)" in result.stdout

@@ -183,7 +183,13 @@ review_prereq_status() {
   local missing=()
   local artifact
 
-  for artifact in review_bundle.md chatgpt_review_prompt.md diff.patch; do
+  for artifact in \
+    review_bundle.md \
+    chatgpt_review_prompt.md \
+    diff.patch \
+    changed_files.txt \
+    pytest.txt
+  do
     if [[ ! -f "$run_dir/$artifact" ]]; then
       missing+=("$artifact")
     fi
@@ -245,7 +251,7 @@ extract_pytest_summary() {
   local pytest_file="$1"
   [[ -f "$pytest_file" ]] || return 0
 
-  python3 - "$pytest_file" <<'PY'
+  python3 -c '
 import sys
 from pathlib import Path
 
@@ -264,7 +270,7 @@ if candidates:
     print(candidates[-1])
 elif lines:
     print(lines[-1])
-PY
+' "$pytest_file"
 }
 
 summarize_changed_files() {
@@ -456,13 +462,13 @@ final_status_line() {
     return 0
   fi
 
-  if [[ ! -f "$pytest_file" ]]; then
-    printf 'RUN STATUS: INCOMPLETE (pytest artifact missing)\n'
+  if [[ "$prereq_status" != "ready" ]]; then
+    printf 'RUN STATUS: BLOCKED (missing review prerequisites: %s)\n' "${prereq_status#missing:}"
     return 0
   fi
 
-  if [[ "$prereq_status" != "ready" ]]; then
-    printf 'RUN STATUS: BLOCKED (missing review prerequisites: %s)\n' "${prereq_status#missing:}"
+  if [[ ! -f "$pytest_file" ]]; then
+    printf 'RUN STATUS: INCOMPLETE (pytest artifact missing)\n'
     return 0
   fi
 
