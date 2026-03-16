@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
 RUN_DIR_OVERRIDE="${AUTOMATION_RUN_DIR:-}"
+STORY_ID=""
 
 fail() {
   echo "ERROR: $*" >&2
@@ -50,18 +51,41 @@ normalize_path() {
   fi
 }
 
+canonicalize_path() {
+  local path="$1"
+
+  python3 - "$path" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+print(os.path.realpath(path))
+PY
+}
+
 resolve_target_run_dir() {
   local story_runs_root="$1"
   local run_dir_override="$2"
+  local normalized_override canonical_override canonical_story_runs_root manifest_story_id
 
   if [[ -n "$run_dir_override" ]]; then
-    run_dir_override="$(normalize_path "$run_dir_override")"
-    [[ -d "$run_dir_override" ]] || fail "AUTOMATION_RUN_DIR does not exist: $run_dir_override"
-    case "$run_dir_override" in
-      "$story_runs_root"/*) ;;
+    normalized_override="$(normalize_path "$run_dir_override")"
+    [[ -d "$normalized_override" ]] || fail "AUTOMATION_RUN_DIR does not exist: $normalized_override"
+
+    canonical_override="$(canonicalize_path "$normalized_override")"
+    canonical_story_runs_root="$(canonicalize_path "$story_runs_root")"
+
+    case "$canonical_override" in
+      "$canonical_story_runs_root"/*) ;;
       *) fail "AUTOMATION_RUN_DIR must be inside story run root: $story_runs_root" ;;
     esac
-    printf '%s\n' "$run_dir_override"
+
+    manifest_story_id="$(manifest_value "$canonical_override/manifest.md" "story_id" || true)"
+    if [[ -n "$manifest_story_id" && "$manifest_story_id" != "$STORY_ID" ]]; then
+      fail "AUTOMATION_RUN_DIR manifest story_id '$manifest_story_id' does not match requested story '$STORY_ID'"
+    fi
+
+    printf '%s\n' "$canonical_override"
     return 0
   fi
 
@@ -302,6 +326,7 @@ final_status_line() {
 
 STORY_ID="$1"
 validate_story_id "$STORY_ID"
+STORY_ID="$story_id"
 
 STORY_RUNS_ROOT="$RUNS_ROOT/$STORY_ID"
 [[ -d "$STORY_RUNS_ROOT" ]] || fail "story run root not found for '$STORY_ID': $STORY_RUNS_ROOT"

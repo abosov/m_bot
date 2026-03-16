@@ -193,3 +193,40 @@ def test_analyze_story_run_fails_when_story_root_is_missing(tmp_path: Path) -> N
 
     assert result.returncode != 0
     assert "story run root not found" in result.stderr
+
+def test_analyze_story_run_rejects_parent_dir_escape_in_run_override(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir_19 = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_14-00-00")
+    run_dir_21 = make_run_dir(root_dir, "US-AUTO-21", "2026-03-16_15-00-00")
+
+    escaped = Path("automation/runs/US-AUTO-19/../US-AUTO-21/2026-03-16_15-00-00")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-19"],
+        cwd=root_dir,
+        env={
+            **os.environ,
+            "AUTOMATION_ROOT_DIR": str(root_dir),
+            "AUTOMATION_RUN_DIR": str(escaped),
+        },
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert "AUTOMATION_RUN_DIR must be inside story run root" in result.stderr
+
+def test_analyze_story_run_rejects_manifest_story_id_mismatch(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_14-00-00")
+    manifest = run_dir / "manifest.md"
+    manifest.write_text(
+        "# Codex Run Manifest\n\n"
+        "- story_id: US-AUTO-21\n",
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode != 0
+    assert "manifest story_id 'US-AUTO-21' does not match requested story 'US-AUTO-19'" in result.stderr

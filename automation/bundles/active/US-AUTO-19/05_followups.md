@@ -6,7 +6,7 @@
 - `US-AUTO-22` — Review Result Rendering
 
 ## Iteration Notes
-- Keep this story narrow: failure surfacing oDo not fold orchestrator behavior into this story
+- Keep this story narrow: failure surfacing Do not fold orchestrator behavior into this story
 - Do not add auto-fix loop in this story
 - If operators later need machine-readable output, add that as a separate follow-up
 
