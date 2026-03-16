@@ -54,13 +54,7 @@ normalize_path() {
 canonicalize_path() {
   local path="$1"
 
-  python3 - "$path" <<'PY'
-import os
-import sys
-
-path = sys.argv[1]
-print(os.path.realpath(path))
-PY
+  python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$path"
 }
 
 resolve_target_run_dir() {
@@ -265,13 +259,15 @@ final_status_line() {
   local ai_review_file="$4"
   local classification_file="$5"
   local gate_result_file="$6"
-  local gate_decision gate_status recommendation pytest_exit_code changed_files_count changed_files_detected
+  local gate_decision gate_status recommendation pytest_exit_code codex_exit_code materialization_status changed_files_count changed_files_detected
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
   recommendation="$(extract_merge_recommendation "$classification_file" 2>/dev/null || true)"
   pytest_exit_code="$(manifest_value "$manifest_file" "pytest_exit_code")"
   changed_files_detected="$(manifest_value "$manifest_file" "changed_files_detected")"
+  codex_exit_code="$(manifest_value "$manifest_file" "codex_exit_code")"
+  materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
 
   if [[ -f "$changed_files_file" ]]; then
     changed_files_count="$(sed '/^[[:space:]]*$/d' "$changed_files_file" | wc -l | tr -d ' ')"
@@ -286,6 +282,15 @@ final_status_line() {
 
   if [[ -f "$gate_result_file" ]]; then
     printf 'RUN STATUS: BLOCKED (gate %s/%s)\n' "${gate_decision:-unknown}" "${gate_status:-unknown}"
+    return 0
+  fi
+  if [[ -n "$codex_exit_code" && "$codex_exit_code" != "0" ]]; then
+    printf 'RUN STATUS: BLOCKED (codex failing)\n'
+    return 0
+  fi
+
+  if [[ -n "$materialization_status" && "$materialization_status" != "applied" && "$materialization_status" != "not_needed" ]]; then
+    printf 'RUN STATUS: BLOCKED (materialization %s)\n' "$materialization_status"
     return 0
   fi
 

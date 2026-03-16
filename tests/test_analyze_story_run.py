@@ -264,3 +264,40 @@ def test_analyze_story_run_rejects_manifest_story_id_mismatch(tmp_path: Path) ->
 
     assert result.returncode != 0
     assert "manifest story_id 'US-AUTO-21' does not match requested story 'US-AUTO-19'" in result.stderr
+
+def test_analyze_story_run_surfaces_codex_failure_status(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_17-00-00")
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        "- codex_exit_code: 1\n"
+        "- changed_files_detected: no\n",
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Codex exit: 1" in result.stdout
+    assert "RUN STATUS: BLOCKED (codex failing)" in result.stdout
+
+def test_analyze_story_run_surfaces_materialization_failure_status(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_17-10-00")
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: failed\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Materialization: failed" in result.stdout
+    assert "RUN STATUS: BLOCKED (materialization failed)" in result.stdout
