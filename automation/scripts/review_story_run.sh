@@ -10,6 +10,28 @@ fail() {
   exit 1
 }
 
+working_tree_dirty() {
+  local status_output
+  status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal 2>/dev/null || true)"
+  [[ -n "$status_output" ]]
+}
+
+print_review_safety_safe() {
+  printf 'Review safety: SAFE\n'
+  printf 'Reason: working tree is clean and review evidence is commit-consistent\n'
+}
+
+print_review_safety_blocked() {
+  local story_id="$1"
+  printf 'Review safety: BLOCKED\n'
+  printf 'Reason: working tree contains uncommitted materialized changes\n'
+  printf 'Next step:\n'
+  printf '1. inspect changes\n'
+  printf '2. commit changes\n'
+  printf '3. if needed, rerun automation/scripts/run_story.sh %s\n' "$story_id"
+  printf '4. rerun automation/scripts/review_gate_story_run.sh %s\n' "$story_id"
+}
+
 usage() {
   cat >&2 <<'EOF'
 Usage:
@@ -101,6 +123,14 @@ if (( ${#available_optional_artifacts[@]} > 0 )); then
   printf ' - %s\n' "${available_optional_artifacts[@]}"
 fi
 
+printf '\n'
+
+if working_tree_dirty; then
+  print_review_safety_blocked "$STORY_ID"
+  fail "review blocked for '$STORY_ID': current branch has uncommitted materialized changes and is not commit-consistent"
+fi
+
+print_review_safety_safe
 printf '\n'
 printf 'Next step: run automation/scripts/review_gate_story_run.sh %s to generate the final gate artifact for %s.\n' "$STORY_ID" "$LATEST_RUN_DIR"
 printf 'The gate resolves the latest run once and reuses that exact run directory for AI review and classification.\n'

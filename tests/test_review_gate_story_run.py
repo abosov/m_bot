@@ -22,6 +22,46 @@ def write_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
+def setup_git_repo(root_dir: Path) -> None:
+    root_dir.mkdir(parents=True)
+    subprocess.run(["git", "init"], check=True, cwd=root_dir, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "config", "user.email", "codex@example.com"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Codex Test"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    (root_dir / ".gitignore").write_text(
+        "/automation/runs/*\n"
+        "!/automation/runs/.gitkeep\n"
+        "/docs/90_codex/REVIEW_CLASSIFICATION_RULES.md\n",
+        encoding="utf-8",
+    )
+    (root_dir / "README.md").write_text("baseline\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", ".gitignore", "README.md"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+
+
 def test_review_gate_story_run_exists() -> None:
     assert SCRIPT_PATH.exists()
 
@@ -38,6 +78,7 @@ def test_review_gate_story_run_is_valid_bash() -> None:
 
 def test_review_gate_story_run_writes_gate_result_and_rejects(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
 
     for artifact_name in [
@@ -114,6 +155,7 @@ fi
 
 def test_review_gate_story_run_passes_on_approve(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
 
     for artifact_name in [
@@ -197,6 +239,7 @@ def test_review_gate_story_run_rejects_when_decision_cannot_be_derived(
     tmp_path: Path,
 ) -> None:
     root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
 
     for artifact_name in [
@@ -280,6 +323,7 @@ def test_review_gate_story_run_rejects_when_classification_fails_before_artifact
     tmp_path: Path,
 ) -> None:
     root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
 
     for artifact_name in [
@@ -365,6 +409,7 @@ def test_review_gate_story_run_rejects_when_ai_review_fails(
     tmp_path: Path,
 ) -> None:
     root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
 
     for artifact_name in [
@@ -440,3 +485,67 @@ fi
     assert "- ai_review_result.md" not in manifest_text
     assert "- review_classification.md" not in manifest_text
     assert "- review_gate_result.json" in manifest_text
+
+
+def test_review_gate_story_run_blocks_before_ai_review_when_working_tree_is_dirty(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    run_dir = make_run_dir(root_dir, "US-AUTO-21", "2026-03-14_18-56-10")
+
+    for artifact_name in [
+        "review_bundle.md",
+        "chatgpt_review_prompt.md",
+        "diff.patch",
+        "changed_files.txt",
+        "pytest.txt",
+    ]:
+        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    (run_dir / "manifest.md").write_text(
+        "# Manifest\n\n## Artifacts\n- manifest.md\n",
+        encoding="utf-8",
+    )
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    ai_invocation_marker = tmp_path / "ai_invoked.txt"
+
+    write_executable(
+        fake_bin_dir / "codex",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' 'invoked' > "{ai_invocation_marker}"
+cat >/dev/null
+""",
+    )
+
+    rules_file = root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("# Rules\n", encoding="utf-8")
+
+    (root_dir / "README.md").write_text("dirty change\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+    env["CODEX_BIN"] = str(fake_bin_dir / "codex")
+    env["CLASSIFICATION_RULES_FILE"] = str(rules_file)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-21"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "review gate blocked for 'US-AUTO-21'" in result.stderr
+    assert "would not match committed state" in result.stderr
+    assert "run_story.sh US-AUTO-21" in result.stderr
+    assert "review_gate_story_run.sh US-AUTO-21" in result.stderr
+    assert not ai_invocation_marker.exists()
+    assert not (run_dir / "review_gate_result.json").exists()

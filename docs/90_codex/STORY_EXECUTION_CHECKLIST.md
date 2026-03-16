@@ -31,11 +31,15 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 12. Collect implementation and review artifacts into the story bundle.
    Review evidence is derived from the materialized primary checkout state rooted at the `origin/main` merge-base so committed and newly materialized working-tree changes are both captured before cleanup.
 13. Resolve the latest review artifacts for the story (`automation/scripts/review_story_run.sh <STORY-ID>`).
+   Review can proceed only when the current branch working tree is clean (commit-consistent with review evidence).
+   If the working tree is dirty with materialized changes, inspect and commit first; then rerun story execution if needed.
 14. Execute and persist the AI review result for the latest run (`automation/scripts/ai_review_story_run.sh <STORY-ID>`).
 15. Execute and persist the review classification result for the latest run (`automation/scripts/classify_review_story_run.sh <STORY-ID>`).
    The classification artifact must contain an exact standalone `MERGE RECOMMENDATION: approve` or `MERGE RECOMMENDATION: reject` line for the gate.
    If classification text is malformed or ambiguous, preserve `review_classification.md` for debugging and fail closed instead of deleting the artifact.
 16. Execute the review gate for the latest run (`automation/scripts/review_gate_story_run.sh <STORY-ID>`).
+   The gate must fail closed before AI review/classification when the current branch working tree has uncommitted changes.
+   Operator recovery path: inspect and commit materialized changes, rerun `automation/scripts/run_story.sh <STORY-ID>` if needed, then rerun gate.
    The gate resolves the latest run once, reuses that exact run directory for AI review and classification, writes `review_gate_result.json`, and must exit non-zero when the final decision is `reject` or cannot be derived from the classification artifact.
    Missing, invalid, or ambiguous `MERGE RECOMMENDATION:` output must be treated as a fail-closed reject.
    The gate artifact must distinguish malformed classification output from a classification step that failed before producing an artifact.

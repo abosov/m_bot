@@ -17,6 +17,44 @@ def make_run_dir(base_dir: Path, story_id: str, run_id: str) -> Path:
     return run_dir
 
 
+def setup_git_repo(root_dir: Path) -> None:
+    root_dir.mkdir(parents=True)
+    subprocess.run(["git", "init"], check=True, cwd=root_dir, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "config", "user.email", "codex@example.com"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Codex Test"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    (root_dir / ".gitignore").write_text(
+        "/automation/runs/*\n!/automation/runs/.gitkeep\n",
+        encoding="utf-8",
+    )
+    (root_dir / "README.md").write_text("baseline\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", ".gitignore", "README.md"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+
+
 def write_artifacts(run_dir: Path, *, include_manifest: bool = True) -> None:
     artifact_names = [
         "review_bundle.md",
@@ -48,6 +86,7 @@ def test_review_story_run_is_valid_bash() -> None:
 
 def test_review_story_run_reports_latest_run_with_manifest(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
     older_run_dir = make_run_dir(root_dir, "US-AUTO-7", "2026-03-13_10-00-00")
     latest_run_dir = make_run_dir(root_dir, "US-AUTO-7", "2026-03-13_11-00-00")
     write_artifacts(older_run_dir)
@@ -68,10 +107,12 @@ def test_review_story_run_reports_latest_run_with_manifest(tmp_path: Path) -> No
     assert result.returncode == 0, result.stderr
     assert f"Latest run: {latest_run_dir}" in result.stdout
     assert f" - {latest_run_dir / 'manifest.md'}" in result.stdout
+    assert "Review safety: SAFE" in result.stdout
 
 
 def test_review_story_run_fails_when_manifest_is_missing(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
     latest_run_dir = make_run_dir(root_dir, "US-AUTO-7", "2026-03-13_11-00-00")
     write_artifacts(latest_run_dir, include_manifest=False)
 
@@ -89,3 +130,29 @@ def test_review_story_run_fails_when_manifest_is_missing(tmp_path: Path) -> None
 
     assert result.returncode != 0
     assert "manifest.md" in result.stderr
+
+
+def test_review_story_run_blocks_when_working_tree_is_dirty(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    latest_run_dir = make_run_dir(root_dir, "US-AUTO-21", "2026-03-13_11-00-00")
+    write_artifacts(latest_run_dir)
+    (root_dir / "README.md").write_text("dirty change\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-21"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "Review safety: BLOCKED" in result.stdout
+    assert "working tree contains uncommitted materialized changes" in result.stdout
+    assert "review_gate_story_run.sh US-AUTO-21" in result.stdout
+    assert "not commit-consistent" in result.stderr
