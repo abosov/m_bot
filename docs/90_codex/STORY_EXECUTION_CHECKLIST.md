@@ -44,6 +44,8 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    Missing, invalid, or ambiguous `MERGE RECOMMENDATION:` output must be treated as a fail-closed reject.
    The gate artifact must distinguish malformed classification output from a classification step that failed before producing an artifact.
 17. Use `automation/scripts/analyze_story_run.sh <STORY-ID>` when you need a read-only summary of the latest run artifacts, pytest state, review pipeline state, and recommended next operator action.
+   Operators may also point it at a specific run with `AUTOMATION_RUN_DIR=automation/runs/<STORY-ID>/<RUN-ID> automation/scripts/analyze_story_run.sh <STORY-ID>`.
+   The command is intentionally read-only and should be the first inspection step for missing artifacts, incomplete review stages, or gate failures.
 18. Run follow-up prompts for merge blockers and accepted improvements.
 19. Re-run tests after follow-up changes.
 20. Prepare PR with scope, risks, verification, and docs impact.

@@ -96,7 +96,11 @@ def test_analyze_story_run_summarizes_latest_run_and_gate_status(tmp_path: Path)
     assert f"Run: {latest_run_dir.name}" in result.stdout
     assert f"Directory: {latest_run_dir}" in result.stdout
     assert "Branch: feature/us-auto-19" in result.stdout
-    assert "Changed Files\n4 files" in result.stdout
+    assert (
+        "Changed Files\n"
+        "4 files (automation/scripts/analyze_story_run.sh, "
+        "tests/test_analyze_story_run.py, docs/90_codex/STORY_EXECUTION_CHECKLIST.md, ...)"
+    ) in result.stdout
     assert "Pytest\npass (exit 0" in result.stdout
     assert "Classification: present (approve)" in result.stdout
     assert "Gate: present (approve/passed via review_classification)" in result.stdout
@@ -128,6 +132,46 @@ def test_analyze_story_run_tolerates_missing_artifacts_and_incomplete_runs(tmp_p
     assert "Classification: present (invalid recommendation)" in result.stdout
     assert "Gate: missing" in result.stdout
     assert "RUN STATUS: CHECK RUN OUTPUT (no changed files detected)" in result.stdout
+
+
+def test_analyze_story_run_blocks_on_pytest_failure_before_review_follow_up(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_13-00-00")
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        "- pytest_exit_code: 1\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "automation/scripts/analyze_story_run.sh\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("1 failed\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Pytest\nfail (exit 1; 1 failed)" in result.stdout
+    assert "AI review: present" in result.stdout
+    assert "RUN STATUS: BLOCKED (pytest failing)" in result.stdout
+    assert "RUN STATUS: READY TO CLASSIFY" not in result.stdout
+
+
+def test_analyze_story_run_marks_missing_manifest_fields_as_unknown(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_14-00-00")
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Branch: unknown" in result.stdout
+    assert "Starting HEAD: unknown" in result.stdout
+    assert "Review Base: unknown" in result.stdout
+    assert "Codex exit: unknown" in result.stdout
 
 
 def test_analyze_story_run_fails_on_invalid_story_id() -> None:

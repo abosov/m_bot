@@ -91,6 +91,15 @@ read_first_non_empty_line() {
   sed -n '/[^[:space:]]/ { s/^[[:space:]]*//; p; q; }' "$file_path"
 }
 
+display_value() {
+  local value="$1"
+  if [[ -n "$value" ]]; then
+    printf '%s\n' "$value"
+  else
+    printf 'unknown\n'
+  fi
+}
+
 extract_merge_recommendation() {
   local classification_file="$1"
   local -a decisions=()
@@ -140,7 +149,9 @@ summarize_changed_files() {
   fi
 
   preview="$(
-    sed '/^[[:space:]]*$/d' "$changed_files_file" | head -n 3 | paste -sd ', ' -
+    sed '/^[[:space:]]*$/d' "$changed_files_file" \
+      | head -n 3 \
+      | awk 'BEGIN { sep="" } { printf "%s%s", sep, $0; sep=", " } END { printf "\n" }'
   )"
   if [[ "$count" -gt 3 ]]; then
     printf '%s files (%s, ...)\n' "$count" "$preview"
@@ -254,6 +265,11 @@ final_status_line() {
     return 0
   fi
 
+  if [[ -n "$pytest_exit_code" && "$pytest_exit_code" != "0" ]]; then
+    printf 'RUN STATUS: BLOCKED (pytest failing)\n'
+    return 0
+  fi
+
   if [[ "$recommendation" == "reject" ]]; then
     printf 'RUN STATUS: BLOCKED (classification reject; inspect review findings)\n'
     return 0
@@ -266,11 +282,6 @@ final_status_line() {
 
   if [[ -f "$ai_review_file" ]]; then
     printf 'RUN STATUS: READY TO CLASSIFY (AI review present, no valid classification)\n'
-    return 0
-  fi
-
-  if [[ -n "$pytest_exit_code" && "$pytest_exit_code" != "0" ]]; then
-    printf 'RUN STATUS: BLOCKED (pytest failing)\n'
     return 0
   fi
 
@@ -329,15 +340,15 @@ done
 printf '\n'
 
 printf 'Branch / Starting HEAD / Review Base\n'
-printf 'Branch: %s\n' "$(manifest_value "$MANIFEST_FILE" "branch" || true)"
-printf 'Starting HEAD: %s\n' "$(manifest_value "$MANIFEST_FILE" "starting_head" || true)"
-printf 'Review Base: %s\n' "$(manifest_value "$MANIFEST_FILE" "review_base_ref" || true)"
+printf 'Branch: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "branch" || true)")"
+printf 'Starting HEAD: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "starting_head" || true)")"
+printf 'Review Base: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "review_base_ref" || true)")"
 printf '\n'
 
 printf 'Manifest Metadata\n'
-printf 'Codex exit: %s\n' "$(manifest_value "$MANIFEST_FILE" "codex_exit_code" || true)"
-printf 'Materialization: %s\n' "$(manifest_value "$MANIFEST_FILE" "materialization_status" || true)"
-printf 'Changed files detected: %s\n' "$(manifest_value "$MANIFEST_FILE" "changed_files_detected" || true)"
+printf 'Codex exit: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "codex_exit_code" || true)")"
+printf 'Materialization: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "materialization_status" || true)")"
+printf 'Changed files detected: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "changed_files_detected" || true)")"
 printf '\n'
 
 printf 'Changed Files\n'
