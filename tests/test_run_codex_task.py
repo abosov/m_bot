@@ -255,6 +255,7 @@ def test_materialized_primary_checkout_state() -> None:
     assert "- scope_file: automation/bundles/active/US-AUTO-7/02_file_scope.md" in repository_map_runtime
     assert "- bundle_status: present" in repository_map_runtime
     assert "- scope_parse_status: parsed" in repository_map_runtime
+    assert "- files_not_allowed_parse_status: parsed" in repository_map_runtime
     assert "- story_scope_constraints: loaded" in repository_map_runtime
     assert "- files_allowed_to_change:" in repository_map_runtime
     assert "- tracked.txt" in repository_map_runtime
@@ -350,6 +351,7 @@ printf '%s\\n' 'codex summary' > "$output"
     assert "- scope_file: automation/bundles/active/US-AUTO-7/02_file_scope.md" in repository_map_runtime
     assert "- bundle_status: present" in repository_map_runtime
     assert "- scope_parse_status: missing" in repository_map_runtime
+    assert "- files_not_allowed_parse_status: missing" in repository_map_runtime
     assert "- story_scope_constraints: unavailable" in repository_map_runtime
     assert "- files_allowed_to_change:\n  unavailable" in repository_map_runtime
     assert "- files_not_allowed_to_change:\n  unavailable" in repository_map_runtime
@@ -426,6 +428,7 @@ printf '%s\\n' 'codex summary' > "$output"
     assert "- scope_file: automation/bundles/active/US-AUTO-7/02_file_scope.md" in repository_map_runtime
     assert "- bundle_status: present" in repository_map_runtime
     assert "- scope_parse_status: unparseable" in repository_map_runtime
+    assert "- files_not_allowed_parse_status: unavailable" in repository_map_runtime
     assert "- story_scope_constraints: unavailable" in repository_map_runtime
     assert "- files_allowed_to_change:\n  unavailable" in repository_map_runtime
     assert "- files_not_allowed_to_change:\n  unavailable" in repository_map_runtime
@@ -498,6 +501,7 @@ printf '%s\\n' 'codex summary' > "$output"
     repository_map_runtime = (run_dir / "repository_map_runtime.md").read_text(encoding="utf-8")
 
     assert "- scope_parse_status: parsed" in repository_map_runtime
+    assert "- files_not_allowed_parse_status: unavailable" in repository_map_runtime
     assert "- story_scope_constraints: loaded" in repository_map_runtime
     assert "- files_allowed_to_change:" in repository_map_runtime
     assert "- tracked.txt" in repository_map_runtime

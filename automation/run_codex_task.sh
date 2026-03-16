@@ -272,6 +272,7 @@ generate_repository_map_runtime() {
       echo "- bundle_status: not_applicable"
     fi
     echo "- scope_parse_status: $scope_parse_status"
+    echo "- files_not_allowed_parse_status: $blocked_scope_status"
     if [[ "$scope_parse_status" == "parsed" ]]; then
       echo "- story_scope_constraints: loaded"
     else
