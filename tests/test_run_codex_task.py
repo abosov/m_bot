@@ -430,7 +430,7 @@ printf '%s\\n' 'codex summary' > "$output"
     assert "- files_allowed_to_change:\n  unavailable" in repository_map_runtime
     assert "- files_not_allowed_to_change:\n  unavailable" in repository_map_runtime
 
-def test_run_codex_task_keeps_allowed_scope_when_blocked_scope_list_is_missing(
+def test_run_codex_task_marks_scope_parse_status_unparseable_when_blocked_scope_list_is_missing(
     tmp_path: Path,
 ) -> None:
     root_dir, prompt_file = setup_story_repo(tmp_path)
@@ -497,11 +497,11 @@ printf '%s\\n' 'codex summary' > "$output"
     run_dir = latest_run_dir(root_dir)
     repository_map_runtime = (run_dir / "repository_map_runtime.md").read_text(encoding="utf-8")
 
-    assert "- scope_parse_status: parsed" in repository_map_runtime
-    assert "- story_scope_constraints: loaded" in repository_map_runtime
-    assert "- files_allowed_to_change:" in repository_map_runtime
-    assert "- tracked.txt" in repository_map_runtime
+    assert "- scope_parse_status: unparseable" in repository_map_runtime
+    assert "- story_scope_constraints: unavailable" in repository_map_runtime
+    assert "- files_allowed_to_change:\n  unavailable" in repository_map_runtime
     assert "- files_not_allowed_to_change:\n  unavailable" in repository_map_runtime
+
 
 def test_run_codex_task_cleans_up_worktree_when_codex_fails(tmp_path: Path) -> None:
     root_dir, prompt_file = setup_story_repo(tmp_path)
