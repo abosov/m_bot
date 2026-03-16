@@ -19,6 +19,7 @@ Usage:
 
 Example:
   automation/scripts/analyze_story_run.sh US-AUTO-19
+  AUTOMATION_RUN_DIR=automation/runs/US-AUTO-19/2026-03-16_11-00-00 automation/scripts/analyze_story_run.sh US-AUTO-19
 EOF
   exit 1
 }
@@ -360,6 +361,8 @@ printf '\n'
 printf 'Artifact Presence\n'
 for artifact_name in \
   manifest.md \
+  run_meta.txt \
+  diff.stat \
   changed_files.txt \
   pytest.txt \
   ai_review_result.md \

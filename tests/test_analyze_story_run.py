@@ -52,6 +52,14 @@ def test_analyze_story_run_summarizes_latest_run_and_gate_status(tmp_path: Path)
     latest_run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_11-00-00")
     make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_10-00-00")
 
+    (latest_run_dir / "run_meta.txt").write_text(
+        "story_id=US-AUTO-19\nrun_id=2026-03-16_11-00-00\n",
+        encoding="utf-8",
+    )
+    (latest_run_dir / "diff.stat").write_text(
+        " automation/scripts/analyze_story_run.sh | 10 +++++++++-\n",
+        encoding="utf-8",
+    )
     (latest_run_dir / "manifest.md").write_text(
         "# Codex Run Manifest\n\n"
         "- branch: feature/us-auto-19\n"
@@ -95,6 +103,8 @@ def test_analyze_story_run_summarizes_latest_run_and_gate_status(tmp_path: Path)
     assert result.returncode == 0, result.stderr
     assert f"Run: {latest_run_dir.name}" in result.stdout
     assert f"Directory: {latest_run_dir}" in result.stdout
+    assert "run_meta.txt: yes" in result.stdout
+    assert "diff.stat: yes" in result.stdout
     assert "Branch: feature/us-auto-19" in result.stdout
     assert (
         "Changed Files\n"
@@ -134,6 +144,7 @@ def test_analyze_story_run_tolerates_missing_artifacts_and_incomplete_runs(tmp_p
     assert "RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)" in result.stdout
     assert "RUN STATUS: CHECK RUN OUTPUT (no changed files detected)" not in result.stdout
 
+
 def test_analyze_story_run_marks_split_line_recommendation_as_invalid(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_16-00-00")
@@ -168,6 +179,7 @@ def test_analyze_story_run_marks_split_line_recommendation_as_invalid(tmp_path: 
     assert "RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)" in result.stdout
     assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
 
+
 def test_analyze_story_run_accepts_same_line_recommendation_format(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_16-05-00")
@@ -200,6 +212,7 @@ def test_analyze_story_run_accepts_same_line_recommendation_format(tmp_path: Pat
     assert "Classification: present (invalid recommendation)" not in result.stdout
     assert "RUN STATUS: READY TO RUN GATE (classification approve)" in result.stdout
 
+
 def test_analyze_story_run_marks_malformed_recommendation_as_invalid(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_16-10-00")
@@ -231,6 +244,7 @@ def test_analyze_story_run_marks_malformed_recommendation_as_invalid(tmp_path: P
     assert "Classification: present (invalid recommendation)" in result.stdout
     assert "RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)" in result.stdout
     assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
+
 
 def test_analyze_story_run_blocks_on_pytest_failure_before_review_follow_up(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
@@ -281,7 +295,7 @@ def test_analyze_story_run_fails_on_invalid_story_id() -> None:
     )
 
     assert result.returncode != 0
-    assert "invalid STORY_ID" in result.stderr
+    assert "invalid STORY_ID 'invalid-story'" in result.stderr
 
 
 def test_analyze_story_run_fails_when_story_root_is_missing(tmp_path: Path) -> None:
@@ -290,7 +304,7 @@ def test_analyze_story_run_fails_when_story_root_is_missing(tmp_path: Path) -> N
     result = run_script(root_dir, "US-AUTO-19")
 
     assert result.returncode != 0
-    assert "story run root not found" in result.stderr
+    assert "story run root not found for 'US-AUTO-19'" in result.stderr
 
 def test_analyze_story_run_rejects_parent_dir_escape_in_run_override(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
