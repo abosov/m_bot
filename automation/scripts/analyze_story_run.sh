@@ -127,7 +127,7 @@ display_value() {
 extract_merge_recommendation() {
   local classification_file="$1"
   local -a decisions=()
-  local line normalized previous_normalized=""
+  local line normalized
 
   [[ -f "$classification_file" ]] || return 1
 
@@ -138,16 +138,9 @@ extract_merge_recommendation() {
         | sed -E 's/`//g; s/^[[:space:]]*[0-9]+[.)][[:space:]]*//; s/^[[:space:]]*[-*][[:space:]]*//; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//'
     )"
 
-    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*(approve|reject)[^a-z]*$ ]]; then
-      decisions+=("${BASH_REMATCH[1]}")
-    elif [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*$ ]]; then
-      previous_normalized="merge recommendation"
-      continue
-    elif [[ "$previous_normalized" == "merge recommendation" && "$normalized" =~ ^(approve|reject)$ ]]; then
+    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation:[[:space:]]*(approve|reject)$ ]]; then
       decisions+=("${BASH_REMATCH[1]}")
     fi
-
-    previous_normalized="$normalized"
   done < "$classification_file"
 
   if (( ${#decisions[@]} == 0 )); then
@@ -308,6 +301,11 @@ final_status_line() {
 
   if [[ "$recommendation" == "approve" ]]; then
     printf 'RUN STATUS: READY TO RUN GATE (classification approve)\n'
+    return 0
+  fi
+
+  if [[ -f "$classification_file" ]]; then
+    printf 'RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)\n'
     return 0
   fi
 

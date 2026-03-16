@@ -131,9 +131,10 @@ def test_analyze_story_run_tolerates_missing_artifacts_and_incomplete_runs(tmp_p
     assert "Pytest\nmissing" in result.stdout
     assert "Classification: present (invalid recommendation)" in result.stdout
     assert "Gate: missing" in result.stdout
-    assert "RUN STATUS: CHECK RUN OUTPUT (no changed files detected)" in result.stdout
+    assert "RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)" in result.stdout
+    assert "RUN STATUS: CHECK RUN OUTPUT (no changed files detected)" not in result.stdout
 
-def test_analyze_story_run_accepts_two_line_merge_recommendation_format(tmp_path: Path) -> None:
+def test_analyze_story_run_marks_split_line_recommendation_as_invalid(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_16-00-00")
 
@@ -163,8 +164,9 @@ def test_analyze_story_run_accepts_two_line_merge_recommendation_format(tmp_path
     result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
 
     assert result.returncode == 0, result.stderr
-    assert "Classification: present (approve)" in result.stdout
-    assert "invalid recommendation" not in result.stdout
+    assert "Classification: present (invalid recommendation)" in result.stdout
+    assert "RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)" in result.stdout
+    assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
 
 def test_analyze_story_run_blocks_on_pytest_failure_before_review_follow_up(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
