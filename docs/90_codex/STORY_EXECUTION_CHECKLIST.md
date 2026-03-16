@@ -4,7 +4,7 @@
 Stable SOP for running one user story through the Codex workflow with minimal risk and clear traceability.
 
 ## Standard Flow
-1. Create a story branch before any commit (`git checkout -b <type>/<story-id>-<short-name>`).
+1. Create a story branch before any commit.
 2. Read mandatory context docs:
    - `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
    - `docs/90_codex/PROJECT_CONTEXT.md`
@@ -78,7 +78,6 @@ Stop and revise before merge if any condition is true:
 - Scope drift beyond the bundle.
 - Tests not executed or failing without explicit waiver.
 - Docs/process contradictions with `docs/90_codex/CODEX_OPERATING_SYSTEM.md`.
-
 
 ## Branch Lifecycle Rules
 

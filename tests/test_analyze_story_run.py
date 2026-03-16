@@ -111,7 +111,7 @@ def test_analyze_story_run_summarizes_latest_run_and_gate_status(tmp_path: Path)
         "4 files (automation/scripts/analyze_story_run.sh, "
         "tests/test_analyze_story_run.py, docs/90_codex/STORY_EXECUTION_CHECKLIST.md, ...)"
     ) in result.stdout
-    assert "Pytest\npass (exit 0" in result.stdout
+    assert "Pytest\npass (exit 0; 4 passed)" in result.stdout
     assert "Classification: present (approve)" in result.stdout
     assert "Gate: present (approve/passed via review_classification)" in result.stdout
     assert "RUN STATUS: READY FOR MERGE REVIEW (gate approve)" in result.stdout
@@ -306,10 +306,11 @@ def test_analyze_story_run_fails_when_story_root_is_missing(tmp_path: Path) -> N
     assert result.returncode != 0
     assert "story run root not found for 'US-AUTO-19'" in result.stderr
 
+
 def test_analyze_story_run_rejects_parent_dir_escape_in_run_override(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
-    run_dir_19 = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_14-00-00")
-    run_dir_21 = make_run_dir(root_dir, "US-AUTO-21", "2026-03-16_15-00-00")
+    make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_14-00-00")
+    make_run_dir(root_dir, "US-AUTO-21", "2026-03-16_15-00-00")
 
     escaped = Path("automation/runs/US-AUTO-19/../US-AUTO-21/2026-03-16_15-00-00")
 
@@ -328,6 +329,7 @@ def test_analyze_story_run_rejects_parent_dir_escape_in_run_override(tmp_path: P
     assert result.returncode != 0
     assert "AUTOMATION_RUN_DIR must be inside story run root" in result.stderr
 
+
 def test_analyze_story_run_rejects_manifest_story_id_mismatch(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_14-00-00")
@@ -342,6 +344,7 @@ def test_analyze_story_run_rejects_manifest_story_id_mismatch(tmp_path: Path) ->
 
     assert result.returncode != 0
     assert "manifest story_id 'US-AUTO-21' does not match requested story 'US-AUTO-19'" in result.stderr
+
 
 def test_analyze_story_run_surfaces_codex_failure_status(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
@@ -361,6 +364,7 @@ def test_analyze_story_run_surfaces_codex_failure_status(tmp_path: Path) -> None
     assert "Codex exit: 1" in result.stdout
     assert "RUN STATUS: BLOCKED (codex failing)" in result.stdout
 
+
 def test_analyze_story_run_surfaces_materialization_failure_status(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_17-10-00")
@@ -379,3 +383,49 @@ def test_analyze_story_run_surfaces_materialization_failure_status(tmp_path: Pat
     assert result.returncode == 0, result.stderr
     assert "Materialization: failed" in result.stdout
     assert "RUN STATUS: BLOCKED (materialization failed)" in result.stdout
+
+
+def test_analyze_story_run_blocks_ready_actions_when_working_tree_dirty(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    tracked.write_text("dirty\n", encoding="utf-8")
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_17-20-00")
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "automation/scripts/analyze_story_run.sh\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text(
+        "============================= test session starts ==============================\n"
+        "collected 4 items\n"
+        "4 passed\n",
+        encoding="utf-8",
+    )
+    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
+    assert "RUN STATUS: BLOCKED (working tree dirty; commit changes before review/classify/gate)" in result.stdout

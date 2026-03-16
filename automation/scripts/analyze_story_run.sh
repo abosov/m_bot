@@ -153,6 +153,44 @@ extract_merge_recommendation() {
   printf '%s\n' "${decisions[0]}"
 }
 
+working_tree_is_clean() {
+  if ! git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+
+  git -C "$ROOT_DIR" diff --quiet --ignore-submodules HEAD --
+}
+
+dirty_tree_reason() {
+  printf '%s\n' "working tree dirty; commit changes before review/classify/gate"
+}
+
+extract_pytest_summary() {
+  local pytest_file="$1"
+  [[ -f "$pytest_file" ]] || return 0
+
+  python3 - "$pytest_file" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+markers = ("passed", "failed", "error", "errors", "warning", "warnings", "skipped", "xfailed", "xpassed")
+candidates = []
+
+for line in lines:
+    lower = line.lower()
+    if any(marker in lower for marker in markers):
+        candidates.append(line)
+
+if candidates:
+    print(candidates[-1])
+elif lines:
+    print(lines[-1])
+PY
+}
+
 summarize_changed_files() {
   local changed_files_file="$1"
   local count preview
@@ -183,18 +221,18 @@ summarize_changed_files() {
 summarize_pytest() {
   local manifest_file="$1"
   local pytest_file="$2"
-  local pytest_exit_code pytest_head
+  local pytest_exit_code pytest_summary
 
   pytest_exit_code="$(manifest_value "$manifest_file" "pytest_exit_code")"
-  pytest_head="$(read_first_non_empty_line "$pytest_file")"
+  pytest_summary="$(extract_pytest_summary "$pytest_file")"
 
   if [[ -n "$pytest_exit_code" ]]; then
     case "$pytest_exit_code" in
       0) printf 'pass (exit 0';;
       *) printf 'fail (exit %s' "$pytest_exit_code";;
     esac
-    if [[ -n "$pytest_head" ]]; then
-      printf '; %s)\n' "$pytest_head"
+    if [[ -n "$pytest_summary" ]]; then
+      printf '; %s)\n' "$pytest_summary"
     else
       printf '; output unavailable)\n'
     fi
@@ -202,8 +240,8 @@ summarize_pytest() {
   fi
 
   if [[ -f "$pytest_file" ]]; then
-    if [[ -n "$pytest_head" ]]; then
-      printf 'artifact present (%s)\n' "$pytest_head"
+    if [[ -n "$pytest_summary" ]]; then
+      printf 'artifact present (%s)\n' "$pytest_summary"
     else
       printf 'artifact present (empty)\n'
     fi
@@ -286,6 +324,7 @@ final_status_line() {
     printf 'RUN STATUS: BLOCKED (gate %s/%s)\n' "${gate_decision:-unknown}" "${gate_status:-unknown}"
     return 0
   fi
+
   if [[ -n "$codex_exit_code" && "$codex_exit_code" != "0" ]]; then
     printf 'RUN STATUS: BLOCKED (codex failing)\n'
     return 0
@@ -307,7 +346,11 @@ final_status_line() {
   fi
 
   if [[ "$recommendation" == "approve" ]]; then
-    printf 'RUN STATUS: READY TO RUN GATE (classification approve)\n'
+    if working_tree_is_clean; then
+      printf 'RUN STATUS: READY TO RUN GATE (classification approve)\n'
+    else
+      printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
+    fi
     return 0
   fi
 
@@ -317,7 +360,11 @@ final_status_line() {
   fi
 
   if [[ -f "$ai_review_file" ]]; then
-    printf 'RUN STATUS: READY TO CLASSIFY (AI review present, no valid classification)\n'
+    if working_tree_is_clean; then
+      printf 'RUN STATUS: READY TO CLASSIFY (AI review present, no valid classification)\n'
+    else
+      printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
+    fi
     return 0
   fi
 
