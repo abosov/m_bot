@@ -114,10 +114,8 @@ display_value() {
 
 extract_merge_recommendation() {
   local classification_file="$1"
-  local -a normalized_lines=()
   local -a decisions=()
   local line normalized
-  local i next_line
 
   [[ -f "$classification_file" ]] || return 1
 
@@ -127,26 +125,11 @@ extract_merge_recommendation() {
         | tr '[:upper:]' '[:lower:]' \
         | sed -E 's/`//g; s/^[[:space:]]*[0-9]+[.)][[:space:]]*//; s/^[[:space:]]*[-*][[:space:]]*//; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//'
     )"
-    normalized_lines+=("$normalized")
-  done < "$classification_file"
 
-  for (( i=0; i<${#normalized_lines[@]}; i++ )); do
-    line="${normalized_lines[$i]}"
-    next_line=""
-    if (( i + 1 < ${#normalized_lines[@]} )); then
-      next_line="${normalized_lines[$((i + 1))]}"
-    fi
-
-    if [[ "$line" =~ ^merge[[:space:]]+recommendation([[:space:]]*[:=-]?[[:space:]]*|[[:space:]]+)(approve|reject)$ ]]; then
-      decisions+=("${BASH_REMATCH[2]}")
-      continue
-    fi
-
-    if [[ "$line" == "merge recommendation" && "$next_line" =~ ^(approve|reject)$ ]]; then
+    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation:[[:space:]]*(approve|reject)$ ]]; then
       decisions+=("${BASH_REMATCH[1]}")
-      continue
     fi
-  done
+  done < "$classification_file"
 
   if (( ${#decisions[@]} == 0 )); then
     return 1
@@ -435,7 +418,9 @@ final_status_line() {
   fi
 
   if [[ "$recommendation" == "approve" ]]; then
-    if working_tree_is_clean; then
+    if [[ "$prereq_status" != "ready" ]]; then
+      printf 'RUN STATUS: BLOCKED (missing review prerequisites: %s)\n' "${prereq_status#missing:}"
+    elif working_tree_is_clean; then
       printf 'RUN STATUS: READY TO RUN GATE (classification approve)\n'
     else
       printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
