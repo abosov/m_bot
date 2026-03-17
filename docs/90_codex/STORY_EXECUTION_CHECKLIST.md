@@ -86,7 +86,8 @@ Each story bundle must be executed in its own git branch.
 Workflow:
 
 1. Create branch:
-   git checkout -b <type>/<story-id>-<short-name>
+   git checkout -b feature/us-example-123-short-name
+   Example pattern: git checkout -b <type>/<story-id>-<short-name>
 
 2. Run Codex and perform all commits inside that branch.
 

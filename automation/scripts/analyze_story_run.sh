@@ -152,6 +152,81 @@ dirty_tree_reason() {
   printf '%s\n' "working tree dirty; commit changes before review/classify/gate"
 }
 
+current_checkout_head() {
+  if ! git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+
+  git -C "$ROOT_DIR" rev-parse --verify HEAD 2>/dev/null || true
+}
+
+manifest_source_of_truth_head() {
+  local manifest_file="$1"
+  local starting_head isolated_worktree_head
+
+  starting_head="$(manifest_value "$manifest_file" "starting_head")"
+  if [[ -n "$starting_head" ]]; then
+    printf '%s\n' "$starting_head"
+    return 0
+  fi
+
+  isolated_worktree_head="$(manifest_value "$manifest_file" "isolated_worktree_head")"
+  if [[ -n "$isolated_worktree_head" ]]; then
+    printf '%s\n' "$isolated_worktree_head"
+  fi
+}
+
+head_consistency_status() {
+  local manifest_file="$1"
+  local expected_head current_head
+
+  expected_head="$(manifest_source_of_truth_head "$manifest_file")"
+  if [[ -z "$expected_head" ]]; then
+    printf 'unknown:manifest_head_missing\n'
+    return 0
+  fi
+
+  current_head="$(current_checkout_head)"
+  if [[ -z "$current_head" ]]; then
+    printf 'unknown:current_head_unavailable:%s\n' "$expected_head"
+    return 0
+  fi
+
+  if [[ "$current_head" == "$expected_head" ]]; then
+    printf 'match:%s\n' "$current_head"
+    return 0
+  fi
+
+  printf 'mismatch:%s:%s\n' "$expected_head" "$current_head"
+}
+
+format_head_consistency_status() {
+  local manifest_file="$1"
+  local status expected_head current_head
+
+  status="$(head_consistency_status "$manifest_file")"
+  case "$status" in
+    match:*)
+      printf 'match (%s)\n' "${status#match:}"
+      ;;
+    mismatch:*)
+      expected_head="${status#mismatch:}"
+      current_head="${expected_head#*:}"
+      expected_head="${expected_head%%:*}"
+      printf 'stale (manifest %s != checkout %s)\n' "$expected_head" "$current_head"
+      ;;
+    unknown:manifest_head_missing)
+      printf 'unknown (manifest source-of-truth HEAD missing)\n'
+      ;;
+    unknown:current_head_unavailable:*)
+      printf 'unknown (checkout HEAD unavailable; manifest %s)\n' "${status#unknown:current_head_unavailable:}"
+      ;;
+    *)
+      printf 'unknown\n'
+      ;;
+  esac
+}
+
 review_prereq_status() {
   local run_dir="$1"
   local missing=()
@@ -358,6 +433,7 @@ final_status_line() {
   local gate_result_file="$7"
   local raw_output_file="$8"
   local gate_decision gate_status recommendation pytest_exit_code codex_exit_code materialization_status changed_files_count changed_files_detected prereq_status
+  local head_status expected_head current_head
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -367,6 +443,15 @@ final_status_line() {
   codex_exit_code="$(manifest_value "$manifest_file" "codex_exit_code")"
   materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
   prereq_status="$(review_prereq_status "$run_dir")"
+  head_status="$(head_consistency_status "$manifest_file")"
+
+  if [[ "$head_status" == mismatch:* ]]; then
+    expected_head="${head_status#mismatch:}"
+    current_head="${expected_head#*:}"
+    expected_head="${expected_head%%:*}"
+    printf 'RUN STATUS: BLOCKED (stale run evidence: manifest HEAD %s != current HEAD %s)\n' "$expected_head" "$current_head"
+    return 0
+  fi
 
   if [[ -f "$changed_files_file" ]]; then
     changed_files_count="$(sed '/^[[:space:]]*$/d' "$changed_files_file" | wc -l | tr -d ' ')"
@@ -375,7 +460,11 @@ final_status_line() {
   fi
 
   if [[ "$gate_decision" == "approve" && "$gate_status" == "passed" ]]; then
-    if working_tree_is_clean; then
+    if [[ "$head_status" == "unknown:manifest_head_missing" ]]; then
+      printf 'RUN STATUS: BLOCKED (cannot verify run evidence: manifest source-of-truth HEAD missing)\n'
+    elif [[ "$head_status" == unknown:current_head_unavailable:* ]]; then
+      printf 'RUN STATUS: BLOCKED (cannot verify run evidence: checkout HEAD unavailable)\n'
+    elif working_tree_is_clean; then
       printf 'RUN STATUS: READY FOR MERGE REVIEW (gate approve)\n'
     else
       printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
@@ -411,6 +500,10 @@ final_status_line() {
   if [[ "$recommendation" == "approve" ]]; then
     if [[ "$prereq_status" != "ready" ]]; then
       printf 'RUN STATUS: BLOCKED (missing review prerequisites: %s)\n' "${prereq_status#missing:}"
+    elif [[ "$head_status" == "unknown:manifest_head_missing" ]]; then
+      printf 'RUN STATUS: BLOCKED (cannot verify run evidence: manifest source-of-truth HEAD missing)\n'
+    elif [[ "$head_status" == unknown:current_head_unavailable:* ]]; then
+      printf 'RUN STATUS: BLOCKED (cannot verify run evidence: checkout HEAD unavailable)\n'
     elif working_tree_is_clean; then
       printf 'RUN STATUS: READY TO RUN GATE (classification approve)\n'
     else
@@ -503,6 +596,7 @@ printf 'Branch / Starting HEAD / Review Base\n'
 printf 'Branch: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "branch" || true)")"
 printf 'Starting HEAD: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "starting_head" || true)")"
 printf 'Review Base: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "review_base_ref" || true)")"
+printf 'Evidence HEAD Consistency: %s\n' "$(format_head_consistency_status "$MANIFEST_FILE")"
 printf '\n'
 
 printf 'Manifest Metadata\n'
