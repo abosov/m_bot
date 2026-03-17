@@ -164,16 +164,36 @@ manifest_source_of_truth_head() {
   local manifest_file="$1"
   local starting_head isolated_worktree_head
 
+  isolated_worktree_head="$(manifest_value "$manifest_file" "isolated_worktree_head")"
+  if [[ "$isolated_worktree_head" =~ ^[0-9a-f]{40}$ ]]; then
+    printf '%s\n' "$isolated_worktree_head"
+    return 0
+  fi
+
   starting_head="$(manifest_value "$manifest_file" "starting_head")"
   if [[ -n "$starting_head" ]]; then
     printf '%s\n' "$starting_head"
     return 0
   fi
 
-  isolated_worktree_head="$(manifest_value "$manifest_file" "isolated_worktree_head")"
   if [[ -n "$isolated_worktree_head" ]]; then
     printf '%s\n' "$isolated_worktree_head"
   fi
+}
+
+head_matches_expected() {
+  local expected_head="$1"
+  local current_head="$2"
+
+  if [[ "$expected_head" == "$current_head" ]]; then
+    return 0
+  fi
+
+  if [[ "$expected_head" =~ ^[0-9a-f]{7,39}$ ]] && [[ "$current_head" == "$expected_head"* ]]; then
+    return 0
+  fi
+
+  return 1
 }
 
 head_consistency_status() {
@@ -192,7 +212,7 @@ head_consistency_status() {
     return 0
   fi
 
-  if [[ "$current_head" == "$expected_head" ]]; then
+  if head_matches_expected "$expected_head" "$current_head"; then
     printf 'match:%s\n' "$current_head"
     return 0
   fi

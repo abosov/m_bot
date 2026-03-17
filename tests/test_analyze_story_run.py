@@ -543,7 +543,8 @@ def test_analyze_story_run_blocks_ready_actions_when_untracked_file_exists(tmp_p
 
     tracked = root_dir / "tracked.txt"
     tracked.write_text("base\n", encoding="utf-8")
-    subprocess.run(["git", "add", "tracked.txt"], cwd=root_dir, check=True)
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt", ".gitignore"], cwd=root_dir, check=True)
     subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
 
     untracked = root_dir / "new_untracked.txt"
@@ -742,7 +743,8 @@ def test_analyze_story_run_blocks_merge_ready_when_manifest_head_is_stale(tmp_pa
 
     tracked = root_dir / "tracked.txt"
     tracked.write_text("base\n", encoding="utf-8")
-    subprocess.run(["git", "add", "tracked.txt"], cwd=root_dir, check=True)
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt", ".gitignore"], cwd=root_dir, check=True)
     subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
 
     current_head = subprocess.run(
@@ -896,6 +898,62 @@ def test_analyze_story_run_blocks_gate_ready_when_classification_approved_but_ma
         "RUN STATUS: BLOCKED "
         f"(stale run evidence: manifest HEAD {stale_head} != current HEAD {current_head})"
     ) in result.stdout
+
+
+def test_analyze_story_run_accepts_short_starting_head_when_isolated_worktree_head_matches(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    current_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    short_head = current_head[:7]
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_22-06-00")
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        f"- starting_head: {short_head}\n"
+        f"- isolated_worktree_head: {current_head}\n"
+        "- codex_exit_code: 0\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "automation/scripts/analyze_story_run.sh\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert f"Starting HEAD: {short_head}" in result.stdout
+    assert "Evidence HEAD Consistency: match" in result.stdout
+    assert "stale run evidence" not in result.stdout
+    assert "RUN STATUS: READY TO RUN GATE (classification approve)" in result.stdout
 
 def test_analyze_story_run_rejects_dash_separator_recommendation_format(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
