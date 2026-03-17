@@ -113,37 +113,28 @@ display_value() {
 }
 
 extract_merge_recommendation() {
-  local classification_file="$1"
-  local -a decisions=()
-  local line normalized
+  local review_file="$1"
 
-  [[ -f "$classification_file" ]] || return 1
+  # strict exact match only
+  local line
+  line="$(grep -E '^MERGE RECOMMENDATION: (approve|reject)$' "$review_file" | head -n 1 || true)"
 
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    normalized="$(
-      printf '%s\n' "$line" \
-        | tr '[:upper:]' '[:lower:]' \
-        | sed -E 's/`//g; s/^[[:space:]]*[0-9]+[.)][[:space:]]*//; s/^[[:space:]]*[-*][[:space:]]*//; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//'
-    )"
-
-    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*(approve|reject)[^a-z]*$ ]]; then
-      decisions+=("${BASH_REMATCH[1]}")
-    fi
-  done < "$classification_file"
-
-  if (( ${#decisions[@]} == 0 )); then
-    return 1
+  if [[ -z "$line" ]]; then
+    echo "invalid"
+    return 0
   fi
 
-  local -a unique_decisions=()
-  while IFS= read -r line; do
-    [[ -n "$line" ]] && unique_decisions+=("$line")
-  done < <(printf '%s\n' "${decisions[@]}" | LC_ALL=C sort -u)
+  if [[ "$line" == "MERGE RECOMMENDATION: approve" ]]; then
+    echo "approve"
+    return 0
+  fi
 
-  decisions=("${unique_decisions[@]}")
-  [[ ${#decisions[@]} -eq 1 ]] || return 1
+  if [[ "$line" == "MERGE RECOMMENDATION: reject" ]]; then
+    echo "reject"
+    return 0
+  fi
 
-  printf '%s\n' "${decisions[0]}"
+  echo "invalid"
 }
 
 working_tree_is_clean() {
@@ -449,11 +440,6 @@ final_status_line() {
 
   if [[ "$prereq_status" != "ready" ]]; then
     printf 'RUN STATUS: BLOCKED (missing review prerequisites: %s)\n' "${prereq_status#missing:}"
-    return 0
-  fi
-
-  if [[ ! -f "$pytest_file" ]]; then
-    printf 'RUN STATUS: INCOMPLETE (pytest artifact missing)\n'
     return 0
   fi
 

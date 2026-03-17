@@ -201,7 +201,7 @@ def test_analyze_story_run_tolerates_missing_artifacts_and_incomplete_runs(tmp_p
     assert "pytest.txt: no" in result.stdout
     assert "Changed Files\nmissing" in result.stdout
     assert "Pytest\nmissing" in result.stdout
-    assert "Classification: present (invalid recommendation)" in result.stdout
+    assert "Classification: present (invalid)" in result.stdout
     assert "Gate: missing" in result.stdout
     assert "RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)" in result.stdout
     assert "RUN STATUS: CHECK RUN OUTPUT (no changed files detected)" not in result.stdout
@@ -234,7 +234,7 @@ def test_analyze_story_run_rejects_split_line_recommendation_for_gate_parity(tmp
     result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
 
     assert result.returncode == 0, result.stderr
-    assert "Classification: present (invalid recommendation)" in result.stdout
+    assert "Classification: present (invalid)" in result.stdout
     assert "RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)" in result.stdout
     assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
 
@@ -300,7 +300,7 @@ def test_analyze_story_run_marks_malformed_recommendation_as_invalid(tmp_path: P
     result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
 
     assert result.returncode == 0, result.stderr
-    assert "Classification: present (invalid recommendation)" in result.stdout
+    assert "Classification: present (invalid)" in result.stdout
     assert "RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)" in result.stdout
     assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
 
@@ -681,7 +681,7 @@ def test_analyze_story_run_blocks_gate_ready_when_classification_approved_but_re
     assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
     assert "RUN STATUS: BLOCKED (missing review prerequisites: review_bundle.md,chatgpt_review_prompt.md,diff.patch)" in result.stdout
 
-def test_analyze_story_run_accepts_dash_separator_recommendation_format(tmp_path: Path) -> None:
+def test_analyze_story_run_rejects_dash_separator_recommendation_format(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_19-40-00")
 
@@ -708,10 +708,10 @@ def test_analyze_story_run_accepts_dash_separator_recommendation_format(tmp_path
     result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
 
     assert result.returncode == 0, result.stderr
-    assert "Classification: present (approve)" in result.stdout
-    assert "RUN STATUS: READY TO RUN GATE (classification approve)" in result.stdout
+    assert "Classification: present (invalid)" in result.stdout
+    assert "RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)" in result.stdout
 
-def test_analyze_story_run_accepts_space_separator_recommendation_format(tmp_path: Path) -> None:
+def test_analyze_story_run_rejects_space_separator_recommendation_format(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_19-45-00")
 
@@ -738,5 +738,5 @@ def test_analyze_story_run_accepts_space_separator_recommendation_format(tmp_pat
     result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
 
     assert result.returncode == 0, result.stderr
-    assert "Classification: present (approve)" in result.stdout
-    assert "RUN STATUS: READY TO RUN GATE (classification approve)" in result.stdout
+    assert "Classification: present (invalid)" in result.stdout
+    assert "RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)" in result.stdout
