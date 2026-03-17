@@ -7,6 +7,9 @@ RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
 RUN_DIR_OVERRIDE="${AUTOMATION_RUN_DIR:-}"
 STORY_ID=""
 
+# shellcheck source=automation/scripts/merge_recommendation_contract.sh
+source "$SCRIPT_DIR/merge_recommendation_contract.sh"
+
 fail() {
   echo "ERROR: $*" >&2
   exit 1
@@ -115,26 +118,11 @@ display_value() {
 extract_merge_recommendation() {
   local review_file="$1"
 
-  # strict exact match only
-  local line
-  line="$(grep -E '^MERGE RECOMMENDATION: (approve|reject)$' "$review_file" | head -n 1 || true)"
-
-  if [[ -z "$line" ]]; then
+  if recommendation="$(extract_strict_merge_recommendation "$review_file")"; then
+    printf '%s\n' "$recommendation"
+  else
     echo "invalid"
-    return 0
   fi
-
-  if [[ "$line" == "MERGE RECOMMENDATION: approve" ]]; then
-    echo "approve"
-    return 0
-  fi
-
-  if [[ "$line" == "MERGE RECOMMENDATION: reject" ]]; then
-    echo "reject"
-    return 0
-  fi
-
-  echo "invalid"
 }
 
 working_tree_is_clean() {

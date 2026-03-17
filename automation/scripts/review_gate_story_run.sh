@@ -6,6 +6,9 @@ ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
 RUN_DIR_OVERRIDE="${AUTOMATION_RUN_DIR:-}"
 
+# shellcheck source=automation/scripts/merge_recommendation_contract.sh
+source "$SCRIPT_DIR/merge_recommendation_contract.sh"
+
 AI_REVIEW_SCRIPT="$SCRIPT_DIR/ai_review_story_run.sh"
 CLASSIFY_REVIEW_SCRIPT="$SCRIPT_DIR/classify_review_story_run.sh"
 
@@ -90,34 +93,8 @@ resolve_target_run_dir() {
 
 extract_merge_recommendation() {
   local classification_file="$1"
-  local -a decisions=()
-  local line normalized
 
-  while IFS= read -r line; do
-    normalized="$(
-      printf '%s\n' "$line" \
-        | tr '[:upper:]' '[:lower:]' \
-        | sed -E 's/`//g; s/^[[:space:]]*[0-9]+[.)][[:space:]]*//; s/^[[:space:]]*[-*][[:space:]]*//; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//'
-    )"
-
-    if [[ "$normalized" =~ ^merge[[:space:]]+recommendation[^a-z]*(approve|reject)[^a-z]*$ ]]; then
-      decisions+=("${BASH_REMATCH[1]}")
-    fi
-  done < "$classification_file"
-
-  if (( ${#decisions[@]} == 0 )); then
-    return 1
-  fi
-
-  local -a unique_decisions=()
-  while IFS= read -r line; do
-    [[ -n "$line" ]] && unique_decisions+=("$line")
-  done < <(printf '%s\n' "${decisions[@]}" | LC_ALL=C sort -u)
-
-  decisions=("${unique_decisions[@]}")
-  [[ ${#decisions[@]} -eq 1 ]] || return 1
-
-  printf '%s\n' "${decisions[0]}"
+  extract_strict_merge_recommendation "$classification_file"
 }
 
 json_escape() {
