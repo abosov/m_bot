@@ -518,7 +518,11 @@ final_status_line() {
   fi
 
   if [[ -f "$ai_review_file" ]]; then
-    if working_tree_is_clean; then
+    if [[ "$head_status" == "unknown:manifest_head_missing" ]]; then
+      printf 'RUN STATUS: BLOCKED (cannot verify run evidence: manifest source-of-truth HEAD missing)\n'
+    elif [[ "$head_status" == unknown:current_head_unavailable:* ]]; then
+      printf 'RUN STATUS: BLOCKED (cannot verify run evidence: checkout HEAD unavailable)\n'
+    elif working_tree_is_clean; then
       printf 'RUN STATUS: READY TO CLASSIFY (AI review present, no valid classification)\n'
     else
       printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
