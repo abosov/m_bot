@@ -1,0 +1,74 @@
+# US-AUTO-22 PROMPT 1 — Atomic task isolation rule for Codex workflow
+
+## Role
+You are the System Architect + Data Architect + UX + Developer + Tech Writer + QA + Security Reviewer for Zumbot.
+
+## Task
+Update Codex workflow documentation and prompt templates so Atomic Task Isolation becomes an explicit mandatory contract for story execution and follow-up execution.
+
+## Mandatory Context
+Read and follow:
+- `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
+- `docs/90_codex/STORY_BUNDLE_SPEC.md`
+- `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
+- `docs/40_ai/zumbot_codex/MASTER_PROMPT_TEMPLATE.md`
+- `docs/40_ai/zumbot_codex/FOLLOWUP_PROMPT_TEMPLATE.md`
+- `automation/bundles/active/US-AUTO-22/00_story.md`
+- `automation/bundles/active/US-AUTO-22/01_context_bundle.md`
+- `automation/bundles/active/US-AUTO-22/02_file_scope.md`
+
+## Goal
+Make Atomic Task Isolation explicit in the source-of-truth docs and prompt templates without changing runtime scripts or test infrastructure.
+
+## Non-goals
+Do not:
+- modify any automation shell scripts
+- change allowed-files guard behavior
+- change review gate behavior
+- add runtime enforcement
+- refactor unrelated documentation
+
+## Source of Truth
+- `automation/bundles/active/US-AUTO-22/00_story.md`
+- `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
+- `docs/90_codex/STORY_BUNDLE_SPEC.md`
+- `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
+
+## Files Allowed To Change
+- `docs/40_ai/zumbot_codex/MASTER_PROMPT_TEMPLATE.md`
+- `docs/40_ai/zumbot_codex/FOLLOWUP_PROMPT_TEMPLATE.md`
+- `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
+- `docs/90_codex/STORY_BUNDLE_SPEC.md`
+- `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
+
+## Files Not Allowed To Change
+- `automation/scripts/**`
+- `automation/run_codex_task.sh`
+- `tests/**`
+- `backend/**`
+
+## Implementation Rules
+- minimal patch only
+- no unrelated refactor
+- no formatting-only edits
+- update docs only when behavior/process changes require it
+- keep this story documentation-only
+- if shell enforcement is needed, record it as a follow-up story instead of implementing it here
+- explicitly declare task intent in one sentence before making changes
+- do not expand scope beyond declared intent
+- if out-of-scope issue is discovered, record it as follow-up instead of fixing it
+- if task cannot be completed within allowed scope, stop and require a new story
+
+## Test Plan
+- Validate that the story bundle materializes without unresolved placeholders.
+- Review changed documentation for explicit Atomic Task Isolation language.
+- No pytest changes required for this documentation-only story.
+
+## Output
+Return:
+1. changed files summary
+2. rationale
+3. validation results
+4. risks/follow-ups
+5. final diff
+

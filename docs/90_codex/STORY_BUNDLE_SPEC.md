@@ -37,19 +37,41 @@ Every story bundle must include all sections below:
 6. Source of truth
 7. Current code reality
 8. Target outcome
-9. Allowed files
-10. Forbidden files
-11. Risks
-12. Manual actions
-13. Acceptance notes
+9. Atomic Task Isolation contract
+10. Allowed files
+11. Forbidden files
+12. Risks
+13. Manual actions
+14. Acceptance notes
+
+The Atomic Task Isolation contract section must state:
+- the single purpose of the story
+- the exact intent statement
+- explicit out-of-scope items
+- the allowed file boundary
+- the forbidden file/area boundary
+- the hard-stop condition for scope breakage
+- how out-of-scope findings become follow-up work instead of inline changes
+- that each follow-up prompt isolates exactly one review finding or one narrowly defined blocker
+
+`03_master_prompt.md` and follow-up prompt entries in `05_followups.md` must each include:
+- explicit intent line
+- explicit out-of-scope line
+- allowed and forbidden file boundaries
+- hard-stop condition
+- execution-gate language that requires Codex to stop when the prompt is non-atomic, underspecified, or split across multiple findings
+- follow-up capture instruction for newly discovered out-of-scope findings
+
+Each follow-up entry in `05_followups.md` must identify exactly one target finding/blocker label from review artifacts and must not combine multiple independent findings in one prompt.
+Bundles are invalid for execution when master or follow-up prompts omit this execution-gate language or otherwise leave Atomic Task Isolation ambiguous.
 
 ## Bundle File Layout (Recommended)
-- `00_story.md`: story identity, objective, scope, non-goals, dependencies.
+- `00_story.md`: story identity, objective, scope, non-goals, dependencies, Atomic Task Isolation contract.
 - `01_context_bundle.md`: source-of-truth docs, current reality, architectural intent, risks.
-- `02_file_scope.md`: allowed and forbidden file list.
-- `03_master_prompt.md`: executable implementation prompt draft.
-- `04_review_checklist.md`: verification and review criteria.
-- `05_followups.md`: follow-up prompts and iteration notes.
+- `02_file_scope.md`: allowed and forbidden file list with explicit scope notes.
+- `03_master_prompt.md`: executable implementation prompt draft with explicit Atomic Task Isolation instructions for the current run.
+- `04_review_checklist.md`: verification and review criteria, including scope-drift checks and follow-up decomposition checks.
+- `05_followups.md`: follow-up prompts and iteration notes for out-of-scope findings and later improvements; each follow-up entry must remain atomic, independently reviewable, and limited to one finding or blocker.
 - `06_manual_actions.md`: out-of-band actions required by humans/systems.
 
 ## Validation Rules
@@ -67,4 +89,8 @@ Every story bundle must include all sections below:
 - Mark legacy behavior vs target architecture when both exist.
 - Separate implementation scope from future stories.
 - Keep file paths concrete and repository-valid.
+- Make the Atomic Task Isolation contract explicit enough that Codex can identify what is in scope, what is forbidden, and when it must stop.
+- Record newly discovered out-of-scope work in follow-up sections instead of folding it into the current story.
+- Do not use follow-up sections to batch unrelated cleanup; each follow-up must isolate a single narrowly scoped task.
+- When review produces multiple findings, split them into separate follow-up prompts instead of composing a multi-fix continuation.
 - Bundle must be usable by both humans and Codex without additional interpretation.

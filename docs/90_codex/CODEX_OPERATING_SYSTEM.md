@@ -25,6 +25,39 @@ These documents provide persistent repository context for Codex prompts and shou
 
 ---
 
+## Atomic Task Isolation Contract
+Atomic Task Isolation is a mandatory workflow contract for both initial story execution and follow-up execution.
+
+Every Codex task must satisfy all of the following:
+
+1. **One task, one purpose**: each prompt must describe one independently reviewable change only.
+2. **One follow-up, one finding**: each follow-up prompt must address exactly one review finding or one narrowly defined blocker only; multiple independent fixes require multiple follow-up prompts.
+3. **Explicit intent**: the task must state the exact change being made, why it belongs to the current story, and what is out of scope.
+4. **Explicit boundaries**: allowed files and forbidden files/areas must be declared before implementation.
+5. **No scope expansion**: adjacent fixes, opportunistic cleanup, and unrelated refactors are forbidden even when discovered during implementation.
+6. **Minimal patch only**: the diff must be limited to the smallest change set that satisfies the story or follow-up objective.
+7. **Mandatory follow-up capture**: out-of-scope findings must be recorded as explicit follow-up work instead of being absorbed into the current run.
+8. **Hard stop**: if completion requires breaking scope, touching unrelated concerns, or changing architecture outside the prompt, stop and require a new story or follow-up prompt.
+
+This contract is documentation-driven in this workflow. If runtime enforcement is needed, it must be introduced by a separate story rather than by broadening an active story.
+Follow-up prompts are not an exception path around this contract; they must isolate one review finding or one narrowly defined blocker per run unless a new prompt explicitly redefines scope.
+Review findings must be decomposed before execution. If a review produces multiple blockers or improvements, each independently reviewable item becomes its own follow-up prompt instead of being batched into one continuation run.
+
+### Mandatory prompt contract fields
+Every master or follow-up prompt must explicitly include all of the following fields so Atomic Task Isolation is auditable:
+- `TASK_INTENT` or `FOLLOW-UP_INTENT` (one sentence, exact purpose).
+- `OUT_OF_SCOPE` (explicit exclusions).
+- `FILES_ALLOWED_TO_CHANGE` (exact boundary).
+- `FILES_THAT_MUST_NOT_CHANGE` (explicit forbidden boundary).
+- `ATOMIC_TASK_ISOLATION` (single purpose + hard stop condition).
+- Follow-up capture rule stating that out-of-scope findings are recorded as separate follow-up work and never absorbed inline.
+- Execution gate stating that Codex must refuse implementation when the prompt is missing required fields, lacks a single atomic purpose, or batches multiple follow-up findings.
+
+If any required field is missing or ambiguous, execution must stop and the prompt must be corrected before implementation.
+Prompt completeness is a mandatory execution gate, not a best-effort prompt-quality guideline.
+
+---
+
 ## Layer Boundaries
 ### Architectural boundaries
 - **API / Application layer** handles transport concerns, validation, orchestration.
@@ -75,6 +108,11 @@ Documentation updates
 
 ### Prompt rules
 - Include explicit allowed file list.
+- Include explicit forbidden file/area list when scope boundaries matter.
+- Include an explicit intent statement and explicit out-of-scope statement.
+- Include explicit Atomic Task Isolation language for both initial execution and follow-up execution.
+- Include an explicit execution gate that tells Codex to refuse implementation when the prompt is non-atomic or underspecified.
+- Require a single independently reviewable purpose, and for follow-ups require a single review finding or blocker per prompt.
 - Include explicit forbidden actions (if needed).
 - Keep each prompt narrowly scoped and independently verifiable.
 - Do not combine unrelated refactoring with functional change.
@@ -110,7 +148,11 @@ Analysis and implementation must follow this role sequence without skipping role
 ## Red Flags
 Stop and revise the prompt/change if any of the following appears:
 - Prompt scope includes unrelated features.
+- Prompt is missing an execution gate or treats Atomic Task Isolation as optional guidance instead of a hard contract.
+- Prompt or follow-up tries to combine multiple independently reviewable fixes in one run.
+- Review output contains multiple independent findings but the next follow-up prompt does not isolate exactly one of them.
 - Missing constraints or allowed-file list.
+- Missing explicit task intent, out-of-scope statement, or follow-up handling for out-of-scope findings.
 - Changes require schema evolution but no migration plan is provided.
 - ORM and SQL migration defaults diverge.
 - Any `server_default` is introduced in ORM models.
@@ -134,6 +176,7 @@ Before deployment, verify:
 ## Definition of Done
 A Codex task is done only when all conditions are met:
 - Scope matches the atomic prompt.
+- Atomic Task Isolation rules were followed, including explicit boundaries and follow-up capture for out-of-scope findings.
 - Role-based design sequence was applied.
 - Architecture boundaries were respected.
 - Database rules were respected (including migration source-of-truth policy).

@@ -28,6 +28,24 @@ FILES_ALLOWED_TO_CHANGE
 FILES_THAT_MUST_NOT_CHANGE
 [EXACT FILE PATHS OR AREAS]
 
+TASK_INTENT
+[ONE SENTENCE: EXACT CHANGE AND WHY IT BELONGS TO THIS STORY]
+
+OUT_OF_SCOPE
+[EXACT ITEMS THAT MUST NOT BE CHANGED OR FIXED IN THIS RUN]
+
+ATOMIC_TASK_ISOLATION
+[STATE THE SINGLE PURPOSE OF THIS RUN, THE HARD SCOPE BOUNDARY, AND WHEN CODEX MUST STOP AND CREATE FOLLOW-UP WORK]
+
+FOLLOW_UP_SPLIT_RULE
+[IF REVIEW OR IMPLEMENTATION DISCOVERS MULTIPLE INDEPENDENT ISSUES, EACH ISSUE MUST BECOME ITS OWN FOLLOW-UP PROMPT; DO NOT BATCH THEM INTO THIS RUN]
+
+FOLLOW_UP_CAPTURE_RULE
+[ANY OUT-OF-SCOPE FINDING MUST BE RECORDED AS EXPLICIT FOLLOW-UP WORK IN THE OUTPUT; DO NOT IMPLEMENT IT IN THIS RUN]
+
+EXECUTION_GATE
+[IF THIS PROMPT IS MISSING INTENT, OUT_OF_SCOPE, ALLOWED/FORBIDDEN FILE BOUNDARIES, OR A SINGLE ATOMIC PURPOSE, CODEX MUST STOP AND REFUSE IMPLEMENTATION UNTIL THE PROMPT IS CORRECTED]
+
 BEFORE IMPLEMENTING
 1. Identify the exact existing files to modify.
 2. Identify the exact symbols, routes, handlers, services, models, migrations, tests, scripts, or components involved.
@@ -44,6 +62,47 @@ IMPLEMENTATION RULES
 - Do not touch files outside FILES_ALLOWED_TO_CHANGE.
 - Reuse existing patterns in the repo.
 - Preserve backward compatibility unless the story explicitly changes a contract.
+
+## ATOMIC TASK ISOLATION (MANDATORY)
+
+You must strictly follow Atomic Task Isolation.
+
+### 1. One Task = One Purpose
+- Implement ONLY the explicitly defined behavior of the story.
+- If multiple concerns appear → STOP and report.
+- This run must stay independently reviewable as one atomic change.
+- If completion would require a second independently reviewable fix, stop and spin that work into a separate follow-up task.
+
+### 2. No Scope Expansion
+- DO NOT modify anything outside FILES_ALLOWED_TO_CHANGE.
+- DO NOT modify FILES_THAT_MUST_NOT_CHANGE.
+- DO NOT fix adjacent issues.
+- If you see problems → report as follow-up tasks.
+- Do NOT use this run to absorb cleanup, opportunistic hardening, or secondary fixes.
+
+### 3. Explicit Intent Declaration
+Before making changes, you MUST state:
+- what exactly you are changing
+- why this change is required for THIS story
+
+### 4. Minimal Patch Rule
+- Only minimal required diff is allowed.
+- No refactoring unless explicitly requested.
+
+### 5. Follow-up Task Protocol
+If you detect issues outside scope, or multiple independent fixes are needed, you MUST stop that line of work and output one follow-up task per issue:
+
+FOLLOW-UP TASK:
+- Title:
+- Problem:
+- Suggested solution:
+- Why it is out of scope for this story:
+
+### 6. Hard Stop Condition
+If task requires breaking these rules:
+→ STOP and explain why task cannot be completed safely.
+Do not continue by widening scope implicitly.
+If this run reveals multiple independent fixes, implement none of the extra fixes here; emit one follow-up task per extra fix instead.
 
 DATABASE / API / DOMAIN RULES
 - SQL migrations are the source of truth for DB schema.
@@ -69,6 +128,8 @@ OUTPUT FORMAT
 - exact files to modify
 - exact symbols/components/routes involved
 - source of truth
+- exact one-sentence task intent
+- atomic task isolation statement
 - non-goals
 - risks/assumptions
 
@@ -83,3 +144,8 @@ OUTPUT FORMAT
 
 4. DOC UPDATES
 - exact docs to update
+
+5. FOLLOW-UP TASKS (REQUIRED WHEN APPLICABLE)
+- list every out-of-scope finding discovered during this run
+- one follow-up task per finding (no batching)
+- if none, state: `No out-of-scope findings discovered.`
