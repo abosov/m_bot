@@ -5,6 +5,7 @@
 Add a separate follow-up story for shell/script-level enforcement of Atomic Task Isolation if documentation alone proves insufficient.
 Add separate follow-up prompts if review finds multiple independent wording or bundle-structure gaps; do not batch them into one continuation run.
 Each follow-up prompt must name exactly one target finding or blocker and must be rejected if it tries to carry more than one independently reviewable fix.
+Follow-up mode is not an exception path around Atomic Task Isolation; do not use a follow-up prompt to absorb a second independently reviewable change.
 If the follow-up prompt is missing intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop details, stop and correct it before execution.
 
 ## Iteration Notes
@@ -42,6 +43,7 @@ Address only the specific documented finding from the previous run without expan
 - This prompt may address exactly one review finding or one narrowly defined blocker only.
 - If required intent, out-of-scope, file-boundary, target-finding, follow-up-capture, or hard-stop details are missing, stop and refuse implementation until the follow-up prompt is corrected.
 - If another independent issue appears, record it as a separate follow-up instead of fixing it here.
+- Follow-up mode is not an exception path around this contract; do not batch a second independently reviewable fix into this run.
 
 ## Out of Scope
 - Any second review finding, any unrelated cleanup, and any shell/runtime enforcement work.
@@ -56,11 +58,13 @@ Address only the specific documented finding from the previous run without expan
 
 ## Follow-Up Capture Rule
 - If this fix reveals another independently reviewable issue, record it as a separate follow-up task and do not implement it in this run.
+- Do not treat follow-up mode as permission to widen scope beyond the single target finding or blocker.
 
 ## Execution Gate
 - Refuse implementation if this follow-up targets more than one finding or blocker.
 - Refuse implementation if the target-finding label, intent, out-of-scope statement, allowed-file boundaries, forbidden-file boundaries, follow-up-capture rule, or hard-stop condition is missing or ambiguous.
 - Refuse implementation if resolving the target would require a second independently reviewable change; stop and create another follow-up prompt instead.
+- Refuse implementation if the prompt tries to use follow-up mode as an exception path around Atomic Task Isolation.
 
 ## Rules
 - keep patch minimal and scoped
@@ -83,4 +87,3 @@ Return:
 3. validation results
 4. residual risks
 5. final diff
-

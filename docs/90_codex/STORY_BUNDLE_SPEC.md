@@ -63,6 +63,7 @@ The Atomic Task Isolation contract section must state:
 - hard-stop condition
 - execution-gate language that requires Codex to stop when the prompt is non-atomic, underspecified, or split across multiple findings
 - follow-up capture instruction for newly discovered out-of-scope findings
+- explicit statement that follow-up prompts are not an exception path around Atomic Task Isolation
 
 Each follow-up entry in `05_followups.md` must identify exactly one target finding/blocker label from review artifacts and must not combine multiple independent findings in one prompt.
 Bundles are invalid for execution when master or follow-up prompts omit this execution-gate language or otherwise leave Atomic Task Isolation ambiguous.
@@ -97,4 +98,5 @@ Bundles are invalid for execution when master or follow-up prompts omit this exe
 - Record newly discovered out-of-scope work in follow-up sections instead of folding it into the current story.
 - Do not use follow-up sections to batch unrelated cleanup; each follow-up must isolate a single narrowly scoped task.
 - When review produces multiple findings, split them into separate follow-up prompts instead of composing a multi-fix continuation.
+- Follow-up templates must say explicitly that follow-up execution is still bound by the same one-purpose contract and cannot absorb a second independently reviewable fix.
 - Bundle must be usable by both humans and Codex without additional interpretation.

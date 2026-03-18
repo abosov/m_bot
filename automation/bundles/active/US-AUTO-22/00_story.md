@@ -32,8 +32,8 @@ Introduce a strict Atomic Task Isolation rule into the Codex workflow so each st
 - `docs/40_ai/zumbot_codex/FOLLOWUP_PROMPT_TEMPLATE.md`
 
 ## Current Code Reality
-- The master prompt already includes minimal-patch and allowed-files discipline, but did not yet define a complete Atomic Task Isolation rule with explicit stop conditions and mandatory follow-up handling.
-- The follow-up prompt already discouraged scope expansion and unrelated refactoring, but did not yet formalize decomposition and isolation as a documented workflow contract.
+- The source-of-truth Codex workflow docs already define Atomic Task Isolation as a mandatory contract, including explicit stop conditions, mandatory follow-up capture, and one-finding-per-follow-up execution.
+- The remaining work in this story is to align the prompt templates and story bundle artifacts so the same mandatory contract is explicit and auditable everywhere this workflow is executed.
 
 ## Target Outcome
 - Codex workflow docs explicitly define Atomic Task Isolation as a first-class rule.
@@ -61,10 +61,9 @@ Introduce Atomic Task Isolation as an explicit mandatory contract in Codex workf
 - If out-of-scope issues are discovered during implementation or review, they must be recorded as explicit follow-up tasks instead of being fixed inside this story.
 - Follow-up tasks must include a short title, the concrete problem, and the suggested next action.
 - Each follow-up task must isolate exactly one review finding or one narrowly defined blocker.
-- Follow-up prompts are not an exception path around this contract; they must satisfy the same atomic boundaries and execution-gate rules as the master prompt.
+- Follow-up prompts are not an exception path around this contract; they must satisfy the same atomic boundaries and execution-gate rules as the master prompt and must not absorb a second independently reviewable fix.
 
 ### Hard Stop
 - If completing this story requires runtime automation changes, shell enforcement, test-infrastructure changes, or unrelated refactoring, stop and open a separate story.
 - Do not expand this story beyond documentation, prompt templates, bundle pack updates, and materialized active bundle updates.
 - If the required intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop fields are missing or ambiguous in the executable prompt, stop and correct the prompt before implementation.
-

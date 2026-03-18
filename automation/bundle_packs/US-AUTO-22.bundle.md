@@ -39,8 +39,8 @@ Introduce a strict Atomic Task Isolation rule into the Codex workflow so each st
 - `docs/40_ai/zumbot_codex/FOLLOWUP_PROMPT_TEMPLATE.md`
 
 ## Current Code Reality
-- The master prompt already includes minimal-patch and allowed-files discipline, but did not yet define a complete Atomic Task Isolation rule with explicit stop conditions and mandatory follow-up handling.
-- The follow-up prompt already discouraged scope expansion and unrelated refactoring, but did not yet formalize decomposition and isolation as a documented workflow contract.
+- The source-of-truth Codex workflow docs already define Atomic Task Isolation as a mandatory contract, including explicit stop conditions, mandatory follow-up capture, and one-finding-per-follow-up execution.
+- The remaining work in this story is to align the prompt templates and story bundle artifacts so the same mandatory contract is explicit and auditable everywhere this workflow is executed.
 
 ## Target Outcome
 - Codex workflow docs explicitly define Atomic Task Isolation as a first-class rule.
@@ -68,7 +68,7 @@ Introduce Atomic Task Isolation as an explicit mandatory contract in Codex workf
 - If out-of-scope issues are discovered during implementation or review, they must be recorded as explicit follow-up tasks instead of being fixed inside this story.
 - Follow-up tasks must include a short title, the concrete problem, and the suggested next action.
 - Each follow-up task must isolate exactly one review finding or one narrowly defined blocker.
-- Follow-up prompts are not an exception path around this contract; they must satisfy the same atomic boundaries and execution-gate rules as the master prompt.
+- Follow-up prompts are not an exception path around this contract; they must satisfy the same atomic boundaries and execution-gate rules as the master prompt and must not absorb a second independently reviewable fix.
 
 ### Hard Stop
 - If completing this story requires runtime automation changes, shell enforcement, test-infrastructure changes, or unrelated refactoring, stop and open a separate story.
@@ -86,7 +86,7 @@ Introduce Atomic Task Isolation as an explicit mandatory contract in Codex workf
 - `docs/40_ai/zumbot_codex/FOLLOWUP_PROMPT_TEMPLATE.md`
 
 ## Current Code Reality
-- The Codex workflow already contains some scope-control language, but the contract is fragmented between templates and not stated as a single mandatory Atomic Task Isolation rule.
+- The source-of-truth Codex workflow docs already state Atomic Task Isolation as a mandatory contract, but the template and bundle language still needs alignment so that the same rule is explicit and audit-ready at execution time.
 - Story bundle workflow already expects explicit scope and source-of-truth discipline, so this change should strengthen existing behavior rather than introduce a new process family.
 
 ## Architectural Intent
@@ -96,6 +96,7 @@ Introduce Atomic Task Isolation as an explicit mandatory contract in Codex workf
 - Defer any shell enforcement or runtime automation to a separate future story.
 - Make Codex restate the exact one-sentence task or follow-up intent before edits so reviewers can verify that the run stayed atomic.
 - Require the executable prompt to stop when required intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop fields are missing or ambiguous.
+- Make follow-up prompts state explicitly that follow-up mode is not an exception path around Atomic Task Isolation and cannot batch a second independently reviewable fix.
 
 ## Risks
 - If wording is too vague, Codex may continue to broaden scope despite the new rule.
@@ -105,6 +106,7 @@ Introduce Atomic Task Isolation as an explicit mandatory contract in Codex workf
 - Bundle content must be fully resolved with no canonical placeholder tokens.
 - Materialized files must clearly express allowed scope, forbidden scope, and hard stop conditions.
 - Master and follow-up prompts must require a one-sentence intent declaration before edits and must state that Atomic Task Isolation is a mandatory execution contract.
+- Follow-up prompts must explicitly reject any attempt to use follow-up mode to batch a second independently reviewable fix.
 - The resulting story must remain documentation/prompt-template only.
 
 === FILE: 02_file_scope.md ===
@@ -150,6 +152,7 @@ Declare this exact sentence before making changes: `Introduce Atomic Task Isolat
 - If the required intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop fields are missing or ambiguous, stop and refuse implementation until the prompt is corrected.
 - If the prompt batches another independently reviewable documentation or process change, stop and split it into separate follow-up work before implementation.
 - If another independently reviewable documentation or process change is discovered, do not absorb it into this run; record it as a separate follow-up.
+- Follow-up prompts created from this run are not an exception path around this contract; each one must still isolate exactly one independently reviewable finding or blocker.
 
 ## Mandatory Context
 Read and follow:
@@ -217,6 +220,7 @@ Do not:
 ## Execution Gate
 - Refuse implementation if `Task Intent`, `Non-goals`, allowed-file boundaries, forbidden-file boundaries, follow-up capture, or hard-stop conditions are missing or ambiguous.
 - Refuse implementation if this prompt no longer represents one independently reviewable documentation/process change.
+- Refuse implementation if any resulting follow-up prompt would need to batch more than one independently reviewable finding or blocker.
 - Refuse implementation if completion would require automation shell script changes, runtime enforcement, test-infrastructure changes, or unrelated documentation cleanup.
 
 ## Test Plan
@@ -249,6 +253,7 @@ Return:
 - [ ] Master and follow-up materials state that Atomic Task Isolation is a mandatory execution contract
 - [ ] Master and follow-up materials explicitly require intent, out-of-scope, allowed-file, forbidden-file, follow-up-capture, and hard-stop fields
 - [ ] Missing or ambiguous Atomic Task Isolation fields are treated as execution blockers rather than optional guidance
+- [ ] Follow-up materials explicitly state that follow-up mode is not an exception path around the one-purpose contract
 
 ## Architecture / Source of Truth
 - [ ] Source-of-truth docs are listed and followed
@@ -256,6 +261,7 @@ Return:
 - [ ] Atomic Task Isolation is expressed consistently across docs and templates
 - [ ] Follow-up guidance requires one finding or blocker per prompt with explicit split behavior
 - [ ] Missing Atomic Task Isolation contract fields would block execution rather than being deferred to review-time interpretation
+- [ ] Follow-up guidance explicitly rejects batching a second independently reviewable fix under follow-up mode
 
 ## Verification
 - [ ] Validation commands are recorded
@@ -306,6 +312,7 @@ or
 Add a separate follow-up story for shell/script-level enforcement of Atomic Task Isolation if documentation alone proves insufficient.
 Add separate follow-up prompts if review finds multiple independent wording or bundle-structure gaps; do not batch them into one continuation run.
 Each follow-up prompt must name exactly one target finding or blocker and must be rejected if it tries to carry more than one independently reviewable fix.
+Follow-up mode is not an exception path around Atomic Task Isolation; do not use a follow-up prompt to absorb a second independently reviewable change.
 If the follow-up prompt is missing intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop details, stop and correct it before execution.
 
 ## Iteration Notes
@@ -343,6 +350,7 @@ Address only the specific documented finding from the previous run without expan
 - This prompt may address exactly one review finding or one narrowly defined blocker only.
 - If required intent, out-of-scope, file-boundary, target-finding, follow-up-capture, or hard-stop details are missing, stop and refuse implementation until the follow-up prompt is corrected.
 - If another independent issue appears, record it as a separate follow-up instead of fixing it here.
+- Follow-up mode is not an exception path around this contract; do not batch a second independently reviewable fix into this run.
 
 ## Out of Scope
 - Any second review finding, any unrelated cleanup, and any shell/runtime enforcement work.
@@ -357,11 +365,13 @@ Address only the specific documented finding from the previous run without expan
 
 ## Follow-Up Capture Rule
 - If this fix reveals another independently reviewable issue, record it as a separate follow-up task and do not implement it in this run.
+- Do not treat follow-up mode as permission to widen scope beyond the single target finding or blocker.
 
 ## Execution Gate
 - Refuse implementation if this follow-up targets more than one finding or blocker.
 - Refuse implementation if the target-finding label, intent, out-of-scope statement, allowed-file boundaries, forbidden-file boundaries, follow-up-capture rule, or hard-stop condition is missing or ambiguous.
 - Refuse implementation if resolving the target would require a second independently reviewable change; stop and create another follow-up prompt instead.
+- Refuse implementation if the prompt tries to use follow-up mode as an exception path around Atomic Task Isolation.
 
 ## Rules
 - keep patch minimal and scoped
@@ -399,6 +409,7 @@ Return:
 - This story should not proceed into implementation until the active bundle is fully materialized and validated.
 - Confirm the master and follow-up prompts both include a one-sentence intent declaration requirement before edits and state that Atomic Task Isolation is a mandatory execution contract.
 - Confirm the master and follow-up prompts both treat missing or ambiguous intent, out-of-scope, file-boundary, follow-up-capture, and hard-stop fields as execution blockers.
+- Confirm follow-up prompts explicitly state that follow-up mode is not an exception path around Atomic Task Isolation and cannot batch a second independently reviewable fix.
 - If implementation pressure pushes toward script enforcement, stop and create a separate story instead.
 - If review yields multiple independent findings, split them into separate follow-up prompts before the next run.
 

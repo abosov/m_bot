@@ -14,6 +14,7 @@
 - [ ] Master and follow-up materials state that Atomic Task Isolation is a mandatory execution contract
 - [ ] Master and follow-up materials explicitly require intent, out-of-scope, allowed-file, forbidden-file, follow-up-capture, and hard-stop fields
 - [ ] Missing or ambiguous Atomic Task Isolation fields are treated as execution blockers rather than optional guidance
+- [ ] Follow-up materials explicitly state that follow-up mode is not an exception path around the one-purpose contract
 
 ## Architecture / Source of Truth
 - [ ] Source-of-truth docs are listed and followed
@@ -21,6 +22,7 @@
 - [ ] Atomic Task Isolation is expressed consistently across docs and templates
 - [ ] Follow-up guidance requires one finding or blocker per prompt with explicit split behavior
 - [ ] Missing Atomic Task Isolation contract fields would block execution rather than being deferred to review-time interpretation
+- [ ] Follow-up guidance explicitly rejects batching a second independently reviewable fix under follow-up mode
 
 ## Verification
 - [ ] Validation commands are recorded
@@ -62,4 +64,3 @@ Include the final recommendation as an exact standalone line:
 `MERGE RECOMMENDATION: approve`
 or
 `MERGE RECOMMENDATION: reject`
-

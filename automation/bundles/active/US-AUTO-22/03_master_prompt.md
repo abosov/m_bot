@@ -15,6 +15,7 @@ Declare this exact sentence before making changes: `Introduce Atomic Task Isolat
 - If the required intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop fields are missing or ambiguous, stop and refuse implementation until the prompt is corrected.
 - If the prompt batches another independently reviewable documentation or process change, stop and split it into separate follow-up work before implementation.
 - If another independently reviewable documentation or process change is discovered, do not absorb it into this run; record it as a separate follow-up.
+- Follow-up prompts created from this run are not an exception path around this contract; each one must still isolate exactly one independently reviewable finding or blocker.
 
 ## Mandatory Context
 Read and follow:
@@ -82,6 +83,7 @@ Do not:
 ## Execution Gate
 - Refuse implementation if `Task Intent`, `Non-goals`, allowed-file boundaries, forbidden-file boundaries, follow-up capture, or hard-stop conditions are missing or ambiguous.
 - Refuse implementation if this prompt no longer represents one independently reviewable documentation/process change.
+- Refuse implementation if any resulting follow-up prompt would need to batch more than one independently reviewable finding or blocker.
 - Refuse implementation if completion would require automation shell script changes, runtime enforcement, test-infrastructure changes, or unrelated documentation cleanup.
 
 ## Test Plan
@@ -96,4 +98,3 @@ Return:
 3. validation results
 4. risks/follow-ups
 5. final diff
-
