@@ -3,6 +3,7 @@
 ## Follow-Up Prompt Queue
 
 Add a separate follow-up story for shell/script-level enforcement of Atomic Task Isolation if documentation alone proves insufficient.
+Add separate follow-up prompts if review finds multiple independent wording or bundle-structure gaps; do not batch them into one continuation run.
 
 ## Iteration Notes
 
@@ -28,6 +29,12 @@ Address only the specific documented finding from the previous run without expan
 ## Findings To Address
 - <paste exact finding>
 
+## Follow-Up Intent
+- Declare one exact sentence for the single finding being fixed before making changes.
+
+## Out of Scope
+- Any second review finding, any unrelated cleanup, and any shell/runtime enforcement work.
+
 ## Files Allowed To Change
 - <list exact allowed files for the follow-up>
 
@@ -40,7 +47,10 @@ Address only the specific documented finding from the previous run without expan
 - keep patch minimal and scoped
 - preserve architecture boundaries
 - do not introduce new features beyond listed findings
+- fix exactly one finding or one narrowly defined blocker in this prompt
+- restate the exact one-sentence follow-up intent before edits
 - if another issue is discovered, record it as a new follow-up instead of fixing it here
+- if the finding cannot be resolved without a second independent change, stop and create a separate follow-up prompt
 
 ## Tests
 - Record validation performed for the addressed finding.
@@ -52,4 +62,3 @@ Return:
 3. validation results
 4. residual risks
 5. final diff
-

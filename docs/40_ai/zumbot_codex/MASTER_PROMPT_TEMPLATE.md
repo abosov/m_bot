@@ -46,6 +46,9 @@ FOLLOW_UP_CAPTURE_RULE
 EXECUTION_GATE
 [IF THIS PROMPT IS MISSING INTENT, OUT_OF_SCOPE, ALLOWED/FORBIDDEN FILE BOUNDARIES, OR A SINGLE ATOMIC PURPOSE, CODEX MUST STOP AND REFUSE IMPLEMENTATION UNTIL THE PROMPT IS CORRECTED]
 
+TASK_INTENT_DECLARATION
+[BEFORE MAKING CHANGES, STATE THE ONE-SENTENCE TASK INTENT EXACTLY AS WRITTEN IN TASK_INTENT AND CONFIRM THAT NO OTHER INDEPENDENT CHANGE IS INCLUDED IN THIS RUN]
+
 BEFORE IMPLEMENTING
 1. Identify the exact existing files to modify.
 2. Identify the exact symbols, routes, handlers, services, models, migrations, tests, scripts, or components involved.
@@ -84,6 +87,7 @@ You must strictly follow Atomic Task Isolation.
 Before making changes, you MUST state:
 - what exactly you are changing
 - why this change is required for THIS story
+- that this run contains no second independently reviewable change
 
 ### 4. Minimal Patch Rule
 - Only minimal required diff is allowed.

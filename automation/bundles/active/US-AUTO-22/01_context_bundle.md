@@ -15,6 +15,7 @@
 - Make Atomic Task Isolation an explicit workflow contract across story prompts and follow-up prompts.
 - Keep the implementation documentation-only in this story.
 - Defer any shell enforcement or runtime automation to a separate future story.
+- Make Codex restate the exact one-sentence task or follow-up intent before edits so reviewers can verify that the run stayed atomic.
 
 ## Risks
 - If wording is too vague, Codex may continue to broaden scope despite the new rule.
@@ -23,5 +24,5 @@
 ## Acceptance Notes
 - Bundle content must be fully resolved with no canonical placeholder tokens.
 - Materialized files must clearly express allowed scope, forbidden scope, and hard stop conditions.
+- Master and follow-up prompts must require a one-sentence intent declaration before edits.
 - The resulting story must remain documentation/prompt-template only.
-

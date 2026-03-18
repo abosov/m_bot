@@ -9,6 +9,7 @@
 ## Execution Notes
 
 - This story should not proceed into implementation until the active bundle is fully materialized and validated.
+- Confirm the master and follow-up prompts both include a one-sentence intent declaration requirement before edits.
 - If implementation pressure pushes toward script enforcement, stop and create a separate story instead.
 
 ## Completion Status

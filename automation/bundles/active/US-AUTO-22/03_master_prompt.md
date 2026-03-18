@@ -6,6 +6,9 @@ You are the System Architect + Data Architect + UX + Developer + Tech Writer + Q
 ## Task
 Update Codex workflow documentation and prompt templates so Atomic Task Isolation becomes an explicit mandatory contract for story execution and follow-up execution.
 
+## Task Intent
+Declare this exact sentence before making changes: `Introduce Atomic Task Isolation as an explicit mandatory contract in Codex workflow docs and prompt templates for this story.`
+
 ## Mandatory Context
 Read and follow:
 - `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
@@ -67,6 +70,7 @@ Do not:
 - do not expand scope beyond declared intent
 - if out-of-scope issue is discovered, record it as follow-up instead of fixing it
 - if task cannot be completed within allowed scope, stop and require a new story
+- if another independently reviewable documentation/process change is discovered, do not absorb it into this run; record it as a separate follow-up
 
 ## Test Plan
 - Validate that the story bundle materializes without unresolved placeholders.
@@ -80,4 +84,3 @@ Return:
 3. validation results
 4. risks/follow-ups
 5. final diff
-
