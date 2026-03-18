@@ -96,6 +96,8 @@ Introduce a strict Atomic Task Isolation rule into Codex prompts and workflow do
 # US-AUTO-22: File Scope
 
 ## Files Allowed To Change
+- `automation/bundle_packs/US-AUTO-22.bundle.md`
+- `automation/bundles/active/US-AUTO-22/**`
 - `docs/40_ai/zumbot_codex/MASTER_PROMPT_TEMPLATE.md`
 - `docs/40_ai/zumbot_codex/FOLLOWUP_PROMPT_TEMPLATE.md`
 - `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
@@ -111,7 +113,7 @@ Introduce a strict Atomic Task Isolation rule into Codex prompts and workflow do
 - `backend/**`
 
 ## Scope Notes
-- This story is documentation and prompt-template only.
+- This allowlist aligns the reviewed US-AUTO-22 implementation surface across the bundle pack, active bundle artifacts, and Codex workflow docs/prompt templates updated by this story.
 - Do not change runtime automation, enforcement scripts, or tests in this story.
 - If script enforcement is needed, create a separate follow-up story.
 
@@ -153,6 +155,14 @@ Do not:
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 
 ## Files Allowed To Change
+- `automation/bundle_packs/US-AUTO-22.bundle.md`
+- `automation/bundles/active/US-AUTO-22/00_story.md`
+- `automation/bundles/active/US-AUTO-22/01_context_bundle.md`
+- `automation/bundles/active/US-AUTO-22/02_file_scope.md`
+- `automation/bundles/active/US-AUTO-22/03_master_prompt.md`
+- `automation/bundles/active/US-AUTO-22/04_review_checklist.md`
+- `automation/bundles/active/US-AUTO-22/05_followups.md`
+- `automation/bundles/active/US-AUTO-22/06_manual_actions.md`
 - `docs/40_ai/zumbot_codex/MASTER_PROMPT_TEMPLATE.md`
 - `docs/40_ai/zumbot_codex/FOLLOWUP_PROMPT_TEMPLATE.md`
 - `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
@@ -170,8 +180,13 @@ Do not:
 - no unrelated refactor
 - no formatting-only edits
 - update docs only when behavior/process changes require it
-- keep this story documentation-only
+- keep this story documentation/prompt-template only
+- keep the executable prompt allowlist aligned with the legitimate story implementation surface so bundle artifacts used by this story are not under-declared
 - if shell enforcement is needed, record it as a follow-up story instead of implementing it here
+- explicitly declare task intent in one sentence before making changes
+- do not expand scope beyond declared intent
+- if out-of-scope issue is discovered, record it as follow-up instead of fixing it
+- if task cannot be completed within allowed scope, stop and require a new story
 
 ## Test Plan
 - Validate that the story bundle materializes without unresolved placeholders.
@@ -191,6 +206,7 @@ Return:
 
 ## Scope Validation
 - [ ] Changes stay inside `02_file_scope.md`
+- [ ] `03_master_prompt.md` does not under-declare bundle files legitimately in scope for this story
 - [ ] Source-of-truth files are complete and resolved
 - [ ] No unrelated refactor or formatting-only edits
 
