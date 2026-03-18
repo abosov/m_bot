@@ -17,6 +17,7 @@
 - Keep the implementation documentation-only in this story.
 - Defer any shell enforcement or runtime automation to a separate future story.
 - Make Codex restate the exact one-sentence task or follow-up intent before edits so reviewers can verify that the run stayed atomic.
+- Require the executable prompt to stop when required intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop fields are missing or ambiguous.
 
 ## Risks
 - If wording is too vague, Codex may continue to broaden scope despite the new rule.

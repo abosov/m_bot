@@ -13,6 +13,7 @@ Declare this exact sentence before making changes: `Introduce Atomic Task Isolat
 - This run has one purpose only: make Atomic Task Isolation explicit and mandatory in Codex workflow docs and prompt templates for this story.
 - Atomic Task Isolation is a mandatory execution contract for this run, not optional guidance.
 - If the required intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop fields are missing or ambiguous, stop and refuse implementation until the prompt is corrected.
+- If the prompt batches another independently reviewable documentation or process change, stop and split it into separate follow-up work before implementation.
 - If another independently reviewable documentation or process change is discovered, do not absorb it into this run; record it as a separate follow-up.
 
 ## Mandatory Context
@@ -77,6 +78,11 @@ Do not:
 - if out-of-scope issue is discovered, record it as follow-up instead of fixing it
 - if task cannot be completed within allowed scope, stop and require a new story
 - if another independently reviewable documentation/process change is discovered, do not absorb it into this run; record it as a separate follow-up
+
+## Execution Gate
+- Refuse implementation if `Task Intent`, `Non-goals`, allowed-file boundaries, forbidden-file boundaries, follow-up capture, or hard-stop conditions are missing or ambiguous.
+- Refuse implementation if this prompt no longer represents one independently reviewable documentation/process change.
+- Refuse implementation if completion would require automation shell script changes, runtime enforcement, test-infrastructure changes, or unrelated documentation cleanup.
 
 ## Test Plan
 - Validate that the story bundle materializes without unresolved placeholders.

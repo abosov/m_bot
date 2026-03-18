@@ -5,6 +5,7 @@
 Add a separate follow-up story for shell/script-level enforcement of Atomic Task Isolation if documentation alone proves insufficient.
 Add separate follow-up prompts if review finds multiple independent wording or bundle-structure gaps; do not batch them into one continuation run.
 Each follow-up prompt must name exactly one target finding or blocker and must be rejected if it tries to carry more than one independently reviewable fix.
+If the follow-up prompt is missing intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop details, stop and correct it before execution.
 
 ## Iteration Notes
 
@@ -27,9 +28,11 @@ You are the System Architect + Developer + QA + Security Reviewer for Zumbot.
 ## Target
 Address only the specific documented finding from the previous run without expanding scope.
 
-## Findings To Address
-- <paste exact finding>
+## Follow-Up Target Finding
 - <paste exact finding identifier or blocker label only once>
+
+## Findings To Address
+- <paste exact finding text for the single target only>
 
 ## Follow-Up Intent
 - Declare one exact sentence for the single finding being fixed before making changes.
@@ -51,6 +54,14 @@ Address only the specific documented finding from the previous run without expan
 - `tests/**`
 - any files unrelated to the listed finding
 
+## Follow-Up Capture Rule
+- If this fix reveals another independently reviewable issue, record it as a separate follow-up task and do not implement it in this run.
+
+## Execution Gate
+- Refuse implementation if this follow-up targets more than one finding or blocker.
+- Refuse implementation if the target-finding label, intent, out-of-scope statement, allowed-file boundaries, forbidden-file boundaries, follow-up-capture rule, or hard-stop condition is missing or ambiguous.
+- Refuse implementation if resolving the target would require a second independently reviewable change; stop and create another follow-up prompt instead.
+
 ## Rules
 - keep patch minimal and scoped
 - preserve architecture boundaries
@@ -60,6 +71,7 @@ Address only the specific documented finding from the previous run without expan
 - if another issue is discovered, record it as a new follow-up instead of fixing it here
 - if the finding cannot be resolved without a second independent change, stop and create a separate follow-up prompt
 - if this prompt targets more than one finding or blocker, stop and split it before implementation
+- declare the exact one-sentence follow-up intent before edits and confirm no second finding is included in this run
 
 ## Tests
 - Record validation performed for the addressed finding.

@@ -66,4 +66,5 @@ Introduce Atomic Task Isolation as an explicit mandatory contract in Codex workf
 ### Hard Stop
 - If completing this story requires runtime automation changes, shell enforcement, test-infrastructure changes, or unrelated refactoring, stop and open a separate story.
 - Do not expand this story beyond documentation, prompt templates, bundle pack updates, and materialized active bundle updates.
+- If the required intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop fields are missing or ambiguous in the executable prompt, stop and correct the prompt before implementation.
 

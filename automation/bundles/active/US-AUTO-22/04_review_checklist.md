@@ -12,6 +12,8 @@
 - [ ] Story remains documentation/prompt-template only
 - [ ] Master and follow-up materials require a one-sentence intent declaration before edits
 - [ ] Master and follow-up materials state that Atomic Task Isolation is a mandatory execution contract
+- [ ] Master and follow-up materials explicitly require intent, out-of-scope, allowed-file, forbidden-file, follow-up-capture, and hard-stop fields
+- [ ] Missing or ambiguous Atomic Task Isolation fields are treated as execution blockers rather than optional guidance
 
 ## Architecture / Source of Truth
 - [ ] Source-of-truth docs are listed and followed
