@@ -2,6 +2,7 @@
 
 ## Scope Validation
 - [ ] Changes stay inside `02_file_scope.md`
+- [ ] `03_master_prompt.md` does not under-declare bundle files legitimately in scope for this story
 - [ ] Source-of-truth files are complete and resolved
 - [ ] No unrelated refactor or formatting-only edits
 
