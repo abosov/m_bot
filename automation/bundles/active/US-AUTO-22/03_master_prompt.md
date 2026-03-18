@@ -9,6 +9,12 @@ Update Codex workflow documentation and prompt templates so Atomic Task Isolatio
 ## Task Intent
 Declare this exact sentence before making changes: `Introduce Atomic Task Isolation as an explicit mandatory contract in Codex workflow docs and prompt templates for this story.`
 
+## Atomic Task Isolation Contract
+- This run has one purpose only: make Atomic Task Isolation explicit and mandatory in Codex workflow docs and prompt templates for this story.
+- Atomic Task Isolation is a mandatory execution contract for this run, not optional guidance.
+- If the required intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop fields are missing or ambiguous, stop and refuse implementation until the prompt is corrected.
+- If another independently reviewable documentation or process change is discovered, do not absorb it into this run; record it as a separate follow-up.
+
 ## Mandatory Context
 Read and follow:
 - `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
@@ -84,3 +90,4 @@ Return:
 3. validation results
 4. risks/follow-ups
 5. final diff
+

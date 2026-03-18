@@ -11,12 +11,14 @@
 - [ ] Validation blocks unresolved placeholders and incomplete structure
 - [ ] Story remains documentation/prompt-template only
 - [ ] Master and follow-up materials require a one-sentence intent declaration before edits
+- [ ] Master and follow-up materials state that Atomic Task Isolation is a mandatory execution contract
 
 ## Architecture / Source of Truth
 - [ ] Source-of-truth docs are listed and followed
 - [ ] Architecture boundaries remain intact
 - [ ] Atomic Task Isolation is expressed consistently across docs and templates
 - [ ] Follow-up guidance requires one finding or blocker per prompt with explicit split behavior
+- [ ] Missing Atomic Task Isolation contract fields would block execution rather than being deferred to review-time interpretation
 
 ## Verification
 - [ ] Validation commands are recorded
@@ -58,3 +60,4 @@ Include the final recommendation as an exact standalone line:
 `MERGE RECOMMENDATION: approve`
 or
 `MERGE RECOMMENDATION: reject`
+

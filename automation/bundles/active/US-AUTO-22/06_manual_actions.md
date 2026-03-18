@@ -9,8 +9,9 @@
 ## Execution Notes
 
 - This story should not proceed into implementation until the active bundle is fully materialized and validated.
-- Confirm the master and follow-up prompts both include a one-sentence intent declaration requirement before edits.
+- Confirm the master and follow-up prompts both include a one-sentence intent declaration requirement before edits and state that Atomic Task Isolation is a mandatory execution contract.
 - If implementation pressure pushes toward script enforcement, stop and create a separate story instead.
+- If review yields multiple independent findings, split them into separate follow-up prompts before the next run.
 
 ## Completion Status
 

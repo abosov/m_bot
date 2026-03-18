@@ -27,6 +27,7 @@ These documents provide persistent repository context for Codex prompts and shou
 
 ## Atomic Task Isolation Contract
 Atomic Task Isolation is a mandatory workflow contract for both initial story execution and follow-up execution.
+It is an execution blocker, not optional guidance: Codex must refuse implementation until the prompt clearly satisfies this contract.
 
 Every Codex task must satisfy all of the following:
 
@@ -52,6 +53,7 @@ Every master or follow-up prompt must explicitly include all of the following fi
 - `ATOMIC_TASK_ISOLATION` (single purpose + hard stop condition).
 - Follow-up capture rule stating that out-of-scope findings are recorded as separate follow-up work and never absorbed inline.
 - Execution gate stating that Codex must refuse implementation when the prompt is missing required fields, lacks a single atomic purpose, or batches multiple follow-up findings.
+- Exact declaration rule stating that Codex must restate the one-sentence task or follow-up intent before making changes.
 
 If any required field is missing or ambiguous, execution must stop and the prompt must be corrected before implementation.
 Prompt completeness is a mandatory execution gate, not a best-effort prompt-quality guideline.

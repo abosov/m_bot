@@ -37,6 +37,9 @@ OUT_OF_SCOPE
 ATOMIC_TASK_ISOLATION
 [STATE THE SINGLE PURPOSE OF THIS RUN, THE HARD SCOPE BOUNDARY, AND WHEN CODEX MUST STOP AND CREATE FOLLOW-UP WORK]
 
+ATOMIC_TASK_ISOLATION_ENFORCEMENT
+[STATE THAT ATOMIC TASK ISOLATION IS A MANDATORY CONTRACT FOR THIS RUN AND THAT CODEX MUST REFUSE IMPLEMENTATION IF THE PROMPT VIOLATES IT]
+
 FOLLOW_UP_SPLIT_RULE
 [IF REVIEW OR IMPLEMENTATION DISCOVERS MULTIPLE INDEPENDENT ISSUES, EACH ISSUE MUST BECOME ITS OWN FOLLOW-UP PROMPT; DO NOT BATCH THEM INTO THIS RUN]
 
@@ -69,6 +72,7 @@ IMPLEMENTATION RULES
 ## ATOMIC TASK ISOLATION (MANDATORY)
 
 You must strictly follow Atomic Task Isolation.
+Atomic Task Isolation is a mandatory execution contract for this story run. If the prompt is missing any required contract field or includes more than one independently reviewable change, you must refuse implementation until the prompt is corrected.
 
 ### 1. One Task = One Purpose
 - Implement ONLY the explicitly defined behavior of the story.

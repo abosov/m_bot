@@ -13,6 +13,7 @@
 
 ## Architectural Intent
 - Make Atomic Task Isolation an explicit workflow contract across story prompts and follow-up prompts.
+- Treat missing Atomic Task Isolation fields or multi-purpose prompts as execution blockers rather than review-time suggestions.
 - Keep the implementation documentation-only in this story.
 - Defer any shell enforcement or runtime automation to a separate future story.
 - Make Codex restate the exact one-sentence task or follow-up intent before edits so reviewers can verify that the run stayed atomic.
@@ -24,5 +25,6 @@
 ## Acceptance Notes
 - Bundle content must be fully resolved with no canonical placeholder tokens.
 - Materialized files must clearly express allowed scope, forbidden scope, and hard stop conditions.
-- Master and follow-up prompts must require a one-sentence intent declaration before edits.
+- Master and follow-up prompts must require a one-sentence intent declaration before edits and must state that Atomic Task Isolation is a mandatory execution contract.
 - The resulting story must remain documentation/prompt-template only.
+

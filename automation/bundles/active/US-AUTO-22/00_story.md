@@ -51,7 +51,7 @@ Introduce a strict Atomic Task Isolation rule into the Codex workflow so each st
 - No changes to test infrastructure.
 
 ### Intent (one sentence)
-Introduce a strict Atomic Task Isolation rule into Codex prompts and workflow documentation.
+Introduce Atomic Task Isolation as an explicit mandatory contract in Codex workflow docs and prompt templates for this story.
 
 ### Out of Scope
 - Enforcement in shell scripts (separate story).
@@ -61,7 +61,9 @@ Introduce a strict Atomic Task Isolation rule into Codex prompts and workflow do
 - If out-of-scope issues are discovered during implementation or review, they must be recorded as explicit follow-up tasks instead of being fixed inside this story.
 - Follow-up tasks must include a short title, the concrete problem, and the suggested next action.
 - Each follow-up task must isolate exactly one review finding or one narrowly defined blocker.
+- Follow-up prompts are not an exception path around this contract; they must satisfy the same atomic boundaries and execution-gate rules as the master prompt.
 
 ### Hard Stop
 - If completing this story requires runtime automation changes, shell enforcement, test-infrastructure changes, or unrelated refactoring, stop and open a separate story.
 - Do not expand this story beyond documentation, prompt templates, bundle pack updates, and materialized active bundle updates.
+

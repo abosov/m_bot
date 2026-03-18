@@ -21,3 +21,4 @@
 - This allowlist aligns the reviewed US-AUTO-22 implementation surface across the bundle pack, active bundle artifacts, and Codex workflow docs/prompt templates updated by this story.
 - Do not change runtime automation, enforcement scripts, or tests in this story.
 - If script enforcement is needed, create a separate follow-up story.
+
