@@ -1,7 +1,8 @@
 # US-AUTO-22: Review Checklist
 
 ## Scope Validation
-- [ ] Changes stay inside `02_file_scope.md`
+- [ ] Changes stay inside the exact reviewed changed-file set declared in `02_file_scope.md`
+- [ ] `03_master_prompt.md` and `02_file_scope.md` declare the same allowed implementation surface
 - [ ] Source-of-truth files are complete and resolved
 - [ ] No unrelated refactor or formatting-only edits
 

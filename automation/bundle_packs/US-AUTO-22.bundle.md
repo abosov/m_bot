@@ -96,6 +96,14 @@ Introduce a strict Atomic Task Isolation rule into Codex prompts and workflow do
 # US-AUTO-22: File Scope
 
 ## Files Allowed To Change
+- `automation/bundle_packs/US-AUTO-22.bundle.md`
+- `automation/bundles/active/US-AUTO-22/00_story.md`
+- `automation/bundles/active/US-AUTO-22/01_context_bundle.md`
+- `automation/bundles/active/US-AUTO-22/02_file_scope.md`
+- `automation/bundles/active/US-AUTO-22/03_master_prompt.md`
+- `automation/bundles/active/US-AUTO-22/04_review_checklist.md`
+- `automation/bundles/active/US-AUTO-22/05_followups.md`
+- `automation/bundles/active/US-AUTO-22/06_manual_actions.md`
 - `docs/40_ai/zumbot_codex/MASTER_PROMPT_TEMPLATE.md`
 - `docs/40_ai/zumbot_codex/FOLLOWUP_PROMPT_TEMPLATE.md`
 - `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
@@ -111,7 +119,7 @@ Introduce a strict Atomic Task Isolation rule into Codex prompts and workflow do
 - `backend/**`
 
 ## Scope Notes
-- This story is documentation and prompt-template only.
+- This exact allowlist matches the reviewed US-AUTO-22 changed-file set: the bundle pack, all seven materialized active-bundle files, and the five Codex docs/template files updated by the story.
 - Do not change runtime automation, enforcement scripts, or tests in this story.
 - If script enforcement is needed, create a separate follow-up story.
 
@@ -136,7 +144,7 @@ Read and follow:
 - `automation/bundles/active/US-AUTO-22/02_file_scope.md`
 
 ## Goal
-Make Atomic Task Isolation explicit in the source-of-truth docs and prompt templates without changing runtime scripts or test infrastructure.
+Make Atomic Task Isolation explicit in the source-of-truth docs, prompt templates, and US-AUTO-22 bundle artifacts without changing runtime scripts or test infrastructure.
 
 ## Non-goals
 Do not:
@@ -153,6 +161,14 @@ Do not:
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 
 ## Files Allowed To Change
+- `automation/bundle_packs/US-AUTO-22.bundle.md`
+- `automation/bundles/active/US-AUTO-22/00_story.md`
+- `automation/bundles/active/US-AUTO-22/01_context_bundle.md`
+- `automation/bundles/active/US-AUTO-22/02_file_scope.md`
+- `automation/bundles/active/US-AUTO-22/03_master_prompt.md`
+- `automation/bundles/active/US-AUTO-22/04_review_checklist.md`
+- `automation/bundles/active/US-AUTO-22/05_followups.md`
+- `automation/bundles/active/US-AUTO-22/06_manual_actions.md`
 - `docs/40_ai/zumbot_codex/MASTER_PROMPT_TEMPLATE.md`
 - `docs/40_ai/zumbot_codex/FOLLOWUP_PROMPT_TEMPLATE.md`
 - `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
@@ -170,7 +186,8 @@ Do not:
 - no unrelated refactor
 - no formatting-only edits
 - update docs only when behavior/process changes require it
-- keep this story documentation-only
+- keep this story documentation/prompt-template only
+- keep the allowlist aligned to the reviewed story changed-file set; do not under-declare bundle files that this story legitimately updates
 - if shell enforcement is needed, record it as a follow-up story instead of implementing it here
 
 ## Test Plan
@@ -190,7 +207,8 @@ Return:
 # US-AUTO-22: Review Checklist
 
 ## Scope Validation
-- [ ] Changes stay inside `02_file_scope.md`
+- [ ] Changes stay inside the exact reviewed changed-file set declared in `02_file_scope.md`
+- [ ] `03_master_prompt.md` and `02_file_scope.md` declare the same allowed implementation surface
 - [ ] Source-of-truth files are complete and resolved
 - [ ] No unrelated refactor or formatting-only edits
 
