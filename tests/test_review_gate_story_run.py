@@ -224,6 +224,10 @@ fi
 
     assert result.returncode == 0, result.stderr
     assert "Final decision: approve" in result.stdout
+    assert (
+        f"Run analysis command: AUTOMATION_RUN_DIR={run_dir} "
+        "automation/scripts/analyze_story_run.sh US-AUTO-16"
+    ) in result.stdout
 
     gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
     assert '"decision": "approve"' in gate_result
@@ -546,6 +550,8 @@ cat >/dev/null
     assert "review gate blocked for 'US-AUTO-21'" in result.stderr
     assert "would not match committed state" in result.stderr
     assert "run_story.sh US-AUTO-21" in result.stderr
+    assert f"AUTOMATION_RUN_DIR={run_dir}" in result.stderr
+    assert "analyze_story_run.sh US-AUTO-21" in result.stderr
     assert "review_gate_story_run.sh US-AUTO-21" in result.stderr
     assert not ai_invocation_marker.exists()
     assert not (run_dir / "review_gate_result.json").exists()

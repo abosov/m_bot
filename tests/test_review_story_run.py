@@ -1,3 +1,4 @@
+# file: tests/test_review_story_run.py
 from pathlib import Path
 import os
 import subprocess
@@ -108,7 +109,15 @@ def test_review_story_run_reports_latest_run_with_manifest(tmp_path: Path) -> No
     assert f"Latest run: {latest_run_dir}" in result.stdout
     assert f" - {latest_run_dir / 'manifest.md'}" in result.stdout
     assert "Review safety: SAFE" in result.stdout
-    assert f"Deterministic resume command: AUTOMATION_RUN_DIR={latest_run_dir}" in result.stdout
+    assert (
+        f"Workflow helper (source of truth): AUTOMATION_RUN_DIR={latest_run_dir} "
+        "automation/scripts/analyze_story_run.sh US-AUTO-7"
+    ) in result.stdout
+    assert (
+        "Use analyze_story_run.sh to determine current stage, resume safety, "
+        "and next recommended command."
+    ) in result.stdout
+    assert "does not enforce workflow transitions" in result.stdout
 
 
 def test_review_story_run_fails_when_manifest_is_missing(tmp_path: Path) -> None:
@@ -155,5 +164,42 @@ def test_review_story_run_blocks_when_working_tree_is_dirty(tmp_path: Path) -> N
     assert result.returncode != 0
     assert "Review safety: BLOCKED" in result.stdout
     assert "working tree contains uncommitted materialized changes" in result.stdout
-    assert "review_gate_story_run.sh US-AUTO-21" in result.stdout
+    assert f"AUTOMATION_RUN_DIR={latest_run_dir}" in result.stdout
+    assert "analyze_story_run.sh US-AUTO-21" in result.stdout
+    assert "follow the next recommended command from analyze output" in result.stdout
     assert "not commit-consistent" in result.stderr
+
+
+def test_review_story_run_accepts_relative_run_dir_override(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    older_run_dir = make_run_dir(root_dir, "US-AUTO-7", "2026-03-13_10-00-00")
+    selected_run_dir = make_run_dir(root_dir, "US-AUTO-7", "2026-03-13_11-00-00")
+    write_artifacts(older_run_dir)
+    write_artifacts(selected_run_dir)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = os.path.relpath(selected_run_dir, root_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-7"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=root_dir,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"Latest run: {selected_run_dir}" in result.stdout
+    assert (
+        f"Workflow helper (source of truth): AUTOMATION_RUN_DIR={selected_run_dir} "
+        "automation/scripts/analyze_story_run.sh US-AUTO-7"
+    ) in result.stdout
+    assert (
+        "Use analyze_story_run.sh to determine current stage, resume safety, "
+        "and next recommended command."
+    ) in result.stdout
+    assert "does not enforce workflow transitions" in result.stdout

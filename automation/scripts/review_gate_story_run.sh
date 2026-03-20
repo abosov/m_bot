@@ -29,13 +29,20 @@ working_tree_dirty() {
 
 fail_review_gate_dirty_working_tree() {
   local story_id="$1"
+  local run_dir="${2:-}"
   {
     printf "ERROR: review gate blocked for '%s'\n" "$story_id"
     printf 'Reason: current branch has uncommitted changes; review artifacts would not match committed state\n'
     printf 'Required action:\n'
     printf ' - inspect and commit the materialized changes\n'
     printf ' - if needed, rerun automation/scripts/run_story.sh %s\n' "$story_id"
-    printf ' - rerun automation/scripts/review_gate_story_run.sh %s\n' "$story_id"
+    if [[ -n "$run_dir" ]]; then
+      printf ' - inspect the pinned run with AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$run_dir" "$story_id"
+      printf ' - rerun AUTOMATION_RUN_DIR=%q automation/scripts/review_gate_story_run.sh %q\n' "$run_dir" "$story_id"
+    else
+      printf ' - inspect the latest run with automation/scripts/analyze_story_run.sh %s\n' "$story_id"
+      printf ' - rerun automation/scripts/review_gate_story_run.sh %s\n' "$story_id"
+    fi
   } >&2
   exit 1
 }
@@ -47,6 +54,7 @@ Usage:
 
 Example:
   automation/scripts/review_gate_story_run.sh US-AUTO-16
+  AUTOMATION_RUN_DIR=automation/runs/US-AUTO-16/2026-03-14_18-56-10 automation/scripts/review_gate_story_run.sh US-AUTO-16
 EOF
   exit 1
 }
@@ -211,7 +219,7 @@ GATE_RESULT_FILE="$LATEST_RUN_DIR/$GATE_RESULT_FILE_NAME"
 MANIFEST_FILE="$LATEST_RUN_DIR/manifest.md"
 
 if working_tree_dirty; then
-  fail_review_gate_dirty_working_tree "$STORY_ID"
+  fail_review_gate_dirty_working_tree "$STORY_ID" "$LATEST_RUN_DIR"
 fi
 
 set +e
@@ -290,6 +298,7 @@ write_gate_result \
 update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
 printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
 printf 'Final decision: %s\n' "$decision"
+printf 'Run analysis command: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$LATEST_RUN_DIR" "$STORY_ID"
 
 if [[ $classification_exit_code -ne 0 ]]; then
   fail "review classification step failed for '$STORY_ID' (exit $classification_exit_code); gate rejected"
