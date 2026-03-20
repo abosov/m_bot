@@ -95,7 +95,7 @@ The registry does **not** replace story bundles.
 | US-AUTO-24 | Loop detection preflight | Detect likely repeat execution before run | enforcement | Planned | P1 | Draft bundle | US-AUTO-23 | N/A | Uses ledger signals to stop obvious loop entry before work starts |
 | US-AUTO-25 | Expensive run budget guard | Cap repeated high-cost reruns | enforcement | Planned | P1 | Draft bundle | US-AUTO-24 | N/A | Reduces loop cost by blocking repeated expensive run patterns |
 | US-AUTO-26 | Pipeline zone cap | Limit repeat passes within pipeline zones | enforcement | Planned | P1 | Draft bundle | US-AUTO-25 | N/A | Prevents cross-zone cycling by capping retries per workflow zone |
-| US-AUTO-27 | Escalation gate for loop-risk stories | Require operator escalation on risky loops | governance | Planned | P1 | Draft bundle | US-AUTO-26 | N/A | Forces human review when loop-risk signals persist |
+| US-AUTO-27 | Escalation gate for loop-risk stories | Require operator escalation on risky loops | enforcement | Planned | P1 | Draft bundle | US-AUTO-26 | N/A | Forces human review when loop-risk signals persist |
 | US-AUTO-28 | Targeted test strategy | Narrow validation to impacted scope | follow-up | Planned | P2 | Draft bundle | US-AUTO-27 | N/A | Lowers iteration cost by avoiding unnecessarily broad rerun test scope |
 | US-AUTO-29 | Review reuse / cache guard | Reuse prior review context safely | follow-up | Planned | P2 | Draft bundle | US-AUTO-28 | N/A | Cuts repeat review work while guarding against stale-cache loop behavior |
 | US-AUTO-30 | Post-run checkpoint workflow | Add checkpoint before another full cycle | follow-up | Planned | P2 | Draft bundle | US-AUTO-29 | N/A | Encourages checkpoint decisions instead of immediate full rerun loops |
