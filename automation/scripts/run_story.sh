@@ -83,4 +83,15 @@ echo "[INFO] Bundle dir: $BUNDLE_DIR" >&2
 echo "[INFO] Master prompt: $MASTER_PROMPT" >&2
 echo "[INFO] Delegating to: $RUNNER" >&2
 
+append_story_change_ledger_entry \
+  "$STORY_ID" \
+  "story_started" \
+  "started" \
+  "" \
+  "" \
+  "" \
+  "run_story" \
+  "automation/bundles/active/$STORY_ID/03_master_prompt.md" \
+  "run_story delegated to runner" || true
+
 exec "$RUNNER" "$MASTER_PROMPT"
