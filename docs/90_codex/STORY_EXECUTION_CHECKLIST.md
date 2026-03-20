@@ -97,6 +97,14 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 - Epic registry row updated to reflect the committed story outcome and any created follow-up/split story IDs.
 - PR description linked to the story bundle.
 
+### Story Change Ledger Evidence
+
+- Treat `automation/story_change_ledger.jsonl` as an append-only workflow evidence artifact.
+- Every ledger line must remain valid single-line JSON that downstream automation can parse with standard JSON tooling.
+- Ledger evidence is considered durable for downstream consumers only after the operator commits the workflow state that includes the relevant ledger update.
+- Scripts must not rely on implicit self-committing behavior for ledger durability.
+- Before merge/finalize decisions, verify the branch is in a committed state consistent with the reviewed run artifacts.
+
 ## Failure Stops
 Stop and revise before merge if any condition is true:
 - Bundle pack is not materialized from `automation/bundle_packs/<STORY-ID>.bundle.md`.

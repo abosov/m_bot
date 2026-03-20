@@ -5,19 +5,6 @@ LEDGER_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LEDGER_ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$LEDGER_SCRIPT_DIR/../.." && pwd)}"
 LEDGER_FILE_PATH="${AUTOMATION_STORY_CHANGE_LEDGER_FILE:-$LEDGER_ROOT_DIR/automation/story_change_ledger.jsonl}"
 
-ledger_json_escape() {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
-}
-
-ledger_json_value_or_null() {
-  local value="${1:-}"
-  if [[ -n "$value" ]]; then
-    printf '"%s"' "$(ledger_json_escape "$value")"
-  else
-    printf 'null'
-  fi
-}
-
 ledger_now_utc() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
@@ -54,8 +41,37 @@ append_story_change_ledger_entry() {
   mkdir -p "$(dirname "$LEDGER_FILE_PATH")"
   touch "$LEDGER_FILE_PATH"
 
-  cat >>"$LEDGER_FILE_PATH" <<EOF
-{"ts":"$(ledger_json_escape "$timestamp")","story_id":"$(ledger_json_escape "$story_id")","event":"$(ledger_json_escape "$event")","outcome":$(ledger_json_value_or_null "$outcome"),"run_id":$(ledger_json_value_or_null "$run_id"),"branch":$(ledger_json_value_or_null "$branch"),"pr_number":$(ledger_json_value_or_null "$pr_number"),"decision_source":$(ledger_json_value_or_null "$decision_source"),"artifact":$(ledger_json_value_or_null "$artifact"),"note":$(ledger_json_value_or_null "$note")}
-EOF
+  LEDGER_TS="$timestamp" \
+  LEDGER_STORY_ID="$story_id" \
+  LEDGER_EVENT="$event" \
+  LEDGER_OUTCOME="${outcome:-}" \
+  LEDGER_RUN_ID="${run_id:-}" \
+  LEDGER_BRANCH="${branch:-}" \
+  LEDGER_PR_NUMBER="${pr_number:-}" \
+  LEDGER_DECISION_SOURCE="${decision_source:-}" \
+  LEDGER_ARTIFACT="${artifact:-}" \
+  LEDGER_NOTE="${note:-}" \
+  python3 - <<'PY' >> "$LEDGER_FILE_PATH"
+import json
+import os
+
+def value(name: str):
+    raw = os.environ.get(name, "")
+    return raw if raw != "" else None
+
+record = {
+    "ts": os.environ["LEDGER_TS"],
+    "story_id": os.environ["LEDGER_STORY_ID"],
+    "event": os.environ["LEDGER_EVENT"],
+    "outcome": value("LEDGER_OUTCOME"),
+    "run_id": value("LEDGER_RUN_ID"),
+    "branch": value("LEDGER_BRANCH"),
+    "pr_number": value("LEDGER_PR_NUMBER"),
+    "decision_source": value("LEDGER_DECISION_SOURCE"),
+    "artifact": value("LEDGER_ARTIFACT"),
+    "note": value("LEDGER_NOTE"),
 }
 
+print(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
+PY
+}

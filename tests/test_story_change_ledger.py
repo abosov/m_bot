@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import subprocess
+import json
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -238,3 +239,63 @@ def test_run_codex_task_records_story_started_when_invoked_directly(tmp_path: Pa
     assert '"event":"story_started"' in line
     assert '"decision_source":"automation/run_codex_task.sh"' in line
     assert '"note":"runner started without run_story wrapper"' in line
+
+def test_append_story_change_ledger_entry_writes_valid_jsonl(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    ledger_path = root_dir / "automation" / "story_change_ledger.jsonl"
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+
+    cmd = (
+        f"source {LEDGER_HELPER} && "
+        "append_story_change_ledger_entry "
+        "US-AUTO-23 review_outcome approve 2026-03-20_10-00-00 "
+        "feature/us-auto-23 123 review_classification "
+        "automation/runs/US-AUTO-23/2026-03-20_10-00-00/review_gate_result.json "
+        "'review completed'"
+    )
+    result = run_bash(cmd, env)
+
+    assert result.returncode == 0, result.stderr
+    line = ledger_path.read_text(encoding="utf-8").strip()
+
+    entry = json.loads(line)
+    assert entry["story_id"] == "US-AUTO-23"
+    assert entry["event"] == "review_outcome"
+    assert entry["outcome"] == "approve"
+    assert entry["run_id"] == "2026-03-20_10-00-00"
+    assert entry["branch"] == "feature/us-auto-23"
+    assert entry["pr_number"] == "123"
+    assert entry["decision_source"] == "review_classification"
+    assert entry["artifact"] == "automation/runs/US-AUTO-23/2026-03-20_10-00-00/review_gate_result.json"
+    assert entry["note"] == "review completed"
+
+
+def test_append_story_change_ledger_entry_escapes_control_characters(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    ledger_path = root_dir / "automation" / "story_change_ledger.jsonl"
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+
+    cmd = (
+        f"source {LEDGER_HELPER} && "
+        "append_story_change_ledger_entry "
+        "US-AUTO-23 review_outcome reject 2026-03-20_10-00-00 "
+        "'feature/us-auto-23' '' review_classification "
+        "'automation/runs/tab\tpath.json' "
+        "$'line1\nline2\rline3'"
+    )
+    result = run_bash(cmd, env)
+
+    assert result.returncode == 0, result.stderr
+
+    lines = ledger_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+
+    entry = json.loads(lines[0])
+    assert entry["event"] == "review_outcome"
+    assert entry["outcome"] == "reject"
+    assert entry["artifact"] == "automation/runs/tab\tpath.json"
+    assert entry["note"] == "line1\nline2\rline3"
