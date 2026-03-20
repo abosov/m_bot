@@ -31,6 +31,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    Use `automation/run_codex_task.sh --full-context <master-prompt-path>` only when the story needs the full bundle context.
    `automation/scripts/run_story.sh <STORY-ID>` continues to use the runner defaults.
    Before execution, confirm the prompt explicitly contains intent, out-of-scope, allowed-files, forbidden-files, a statement that Atomic Task Isolation is mandatory for this run, hard-stop, follow-up capture language, a requirement to restate the one-sentence task intent before edits, and an execution gate that tells Codex to refuse non-atomic or underspecified prompts or prompts that batch another independently reviewable change.
+   `run_story.sh` should append one evidence-only `story_started` entry to `automation/story_change_ledger.jsonl`.
 14. Verify the Codex output stayed within the declared atomic task, implemented only one independently reviewable purpose, and captured any out-of-scope findings as follow-up work instead of inline changes.
 15. Run required tests (minimum: targeted `pytest` scope for changed behavior).
 16. Collect implementation and review artifacts into the story bundle.
@@ -51,6 +52,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    The gate resolves the latest run once, reuses that exact run directory for AI review and classification, writes `review_gate_result.json`, and must exit non-zero when the final decision is `reject` or cannot be derived from the classification artifact.
    Missing, invalid, or ambiguous `MERGE RECOMMENDATION:` output must be treated as a fail-closed reject.
    The gate artifact must distinguish malformed classification output from a classification step that failed before producing an artifact.
+   The gate should append evidence-only ledger entries for `review_outcome` and, when rejected, `story_rejected`.
 21. Use `automation/scripts/analyze_story_run.sh <STORY-ID>` when you need a read-only summary of the latest run artifacts, pytest state, review pipeline state, and recommended next operator action.
    By default the command inspects the latest run directory under `automation/runs/<STORY-ID>/`.
    Operators may also point it at a specific run with `AUTOMATION_RUN_DIR=automation/runs/<STORY-ID>/<RUN-ID> automation/scripts/analyze_story_run.sh <STORY-ID>`.
@@ -71,6 +73,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 24. Prepare PR with scope, risks, verification, docs impact, and any deferred follow-up tasks.
 25. Update the epic registry when the story status changes, when a split/follow-up story is created, and when the latest outcome changes the epic-level picture.
 26. Finalize the story with `automation/scripts/finalize_story.sh [PR_NUMBER]` after checks and review approvals pass.
+   Finalization should append one evidence-only `story_finalized` entry when the story ID can be resolved from the finalized branch/ref.
 27. Before merge/finalization, synchronize the epic registry row with the actual story outcome, including any new follow-up, split, cancelled, or superseded state.
 28. The finalization script must merge with `gh pr merge --squash`, switch to local `main`, run `git pull --ff-only origin main`, and delete the merged story branch locally/remotely.
 29. If scripted finalization cannot complete, stop and fix the blocking condition instead of finishing cleanup manually without documenting it.

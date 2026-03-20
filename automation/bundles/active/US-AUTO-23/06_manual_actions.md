@@ -1,8 +1,8 @@
 # US-AUTO-23: Manual Actions
 
 ## Required Human Actions
-- Run one real story lifecycle that reaches a normal review/finalize path and inspect the resulting ledger entries.
-- Run one story lifecycle that produces a reject or follow-up outcome and confirm the ledger records that outcome clearly.
+- Run one real story lifecycle that reaches a normal review/finalize path and inspect `automation/story_change_ledger.jsonl`.
+- Run one story lifecycle that produces a reject outcome and confirm `review_outcome` + `story_rejected` entries are appended.
 - Review ledger readability in git diff and confirm it is suitable for future preflight automation.
 
 ## Execution Notes

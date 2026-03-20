@@ -91,7 +91,7 @@ The registry does **not** replace story bundles.
 
 | US-AUTO-18 | Operator UX | Improve console UX | follow-up | Planned | P3 | Keep downstream from anti-cycle roadmap | US-AUTO-17 | N/A | Operator-facing UX only; do not absorb enforcement logic |
 | US-AUTO-20 | Workflow chaining | Resume + next step logic | follow-up | Implemented | P1 | None | US-AUTO-19 | automation/bundles/active/US-AUTO-20/ | Stage + next-command resume helper shipped |
-| US-AUTO-23 | Story change ledger | Record story-level change history | governance | Planned | P1 | Draft bundle | New | N/A | First anti-cycle story; creates durable history to detect repeated iteration |
+| US-AUTO-23 | Story change ledger | Record story-level change history | governance | Implemented | P1 | Start US-AUTO-24 bundle | New | automation/bundles/active/US-AUTO-23/ | Evidence-only ledger primitive shipped; records start, review outcome, and finalize outcome |
 | US-AUTO-24 | Loop detection preflight | Detect likely repeat execution before run | enforcement | Planned | P1 | Draft bundle | US-AUTO-23 | N/A | Uses ledger signals to stop obvious loop entry before work starts |
 | US-AUTO-25 | Expensive run budget guard | Cap repeated high-cost reruns | enforcement | Planned | P1 | Draft bundle | US-AUTO-24 | N/A | Reduces loop cost by blocking repeated expensive run patterns |
 | US-AUTO-26 | Pipeline zone cap | Limit repeat passes within pipeline zones | enforcement | Planned | P1 | Draft bundle | US-AUTO-25 | N/A | Prevents cross-zone cycling by capping retries per workflow zone |

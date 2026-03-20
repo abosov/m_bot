@@ -42,11 +42,9 @@ Field names may vary for implementation simplicity, but the schema should remain
 
 Prefer a narrow stable event vocabulary:
 - `story_started`
-- `review_recorded`
+- `review_outcome`
 - `story_rejected`
-- `followup_required`
 - `story_finalized`
-- `story_abandoned`
 
 Prefer exactly three integration areas:
 1. start path

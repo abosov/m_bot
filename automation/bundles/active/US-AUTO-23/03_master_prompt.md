@@ -7,7 +7,7 @@ You are the System Architect + Data Architect + Developer + QA + Security Review
 Implement only the durable story ledger primitive for `US-AUTO-23`:
 - add one repository-visible append-only ledger artifact
 - add one small append helper
-- record lifecycle events at minimal stable checkpoints for story start, review outcome, and finalize/close outcome
+- record lifecycle events at minimal stable checkpoints for story start, review outcome, and finalize outcome
 - add focused tests
 - update docs/checklist/registry accordingly
 
@@ -31,6 +31,7 @@ Before editing anything:
 - Accept missing optional metadata gracefully.
 - Keep event vocabulary intentionally narrow.
 - Favor fewer touched files and fewer lifecycle call sites.
+- Do not modify bundle tooling tests or general bundle validation tests for this story.
 
 ## Files Allowed To Change
 See `automation/bundles/active/US-AUTO-23/02_file_scope.md`.
@@ -48,6 +49,7 @@ If implementation would require any of the following, do not implement it in thi
 - merge recommendation redesign
 - operator dashboarding or UX expansion
 - changes outside allowed files
+- changes to `tests/test_story_bundle_scripts.py`
 
 ## Output
 Return:

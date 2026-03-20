@@ -90,9 +90,9 @@ The exact field names may be adjusted for implementation simplicity, but the con
 ## Lifecycle Event Minimum Set
 Record only stable checkpoints:
 - story_started
-- review_recorded
-- story_rejected or followup_required when applicable
-- story_finalized or story_abandoned/closed when applicable
+- review_outcome
+- story_rejected when applicable
+- story_finalized when applicable
 
 Do not add speculative intermediate states.
 
@@ -165,7 +165,7 @@ Reviewers must verify:
 
 ## Manual Actions
 - Inspect the ledger file after one successful run/review/finalize sequence.
-- Inspect the ledger file after one rejected or follow-up-producing review sequence.
+- Inspect the ledger file after one rejected review sequence and confirm `review_outcome` + `story_rejected` entries are appended.
 - Confirm the resulting history is easy to read and sufficient for later preflight logic.
 
 ## Follow-Up Boundary

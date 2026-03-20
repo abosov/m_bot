@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 GIT_BIN="${FINALIZE_STORY_GIT_BIN:-git}"
 GH_BIN="${FINALIZE_STORY_GH_BIN:-gh}"
 MAIN_BRANCH="${FINALIZE_STORY_MAIN_BRANCH:-main}"
+# shellcheck source=automation/scripts/story_change_ledger.sh
+source "$SCRIPT_DIR/story_change_ledger.sh"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -117,6 +121,19 @@ delete_remote_branch_if_present() {
   fi
 }
 
+extract_story_id() {
+  local value="${1:-}"
+  local upper_value
+
+  upper_value="$(printf '%s' "$value" | tr '[:lower:]' '[:upper:]')"
+  if [[ "$upper_value" =~ (US-[A-Z0-9]+(-[A-Z0-9]+)*) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  return 1
+}
+
 [[ $# -le 1 ]] || usage
 
 PR_SELECTOR="${1:-}"
@@ -146,5 +163,19 @@ merge_pull_request "$PR_NUMBER"
 
 delete_local_branch_if_present "$STORY_BRANCH"
 delete_remote_branch_if_present "$STORY_BRANCH"
+
+final_story_id="$(extract_story_id "$PR_HEAD_REF" || true)"
+if [[ -n "$final_story_id" ]]; then
+  append_story_change_ledger_entry \
+    "$final_story_id" \
+    "story_finalized" \
+    "finalized" \
+    "" \
+    "$STORY_BRANCH" \
+    "$PR_NUMBER" \
+    "finalize_story" \
+    "pr:$PR_NUMBER" \
+    "finalize_story completed" || true
+fi
 
 echo "[INFO] Finalization complete on '$MAIN_BRANCH'" >&2

@@ -11,7 +11,7 @@
 - [ ] Ledger append behavior is implemented
 - [ ] Story start is recorded
 - [ ] Review outcome is recorded
-- [ ] Reject/follow-up is recorded when applicable
+- [ ] Reject outcome is recorded when applicable
 - [ ] Finalize/close outcome is recorded
 - [ ] Missing optional metadata does not break recording
 
