@@ -10,6 +10,8 @@ CONTEXT_MODE="lean"
 GENERATED_CONTEXT_FILES=()
 REVIEW_BASE_REF="origin/main"
 REVIEW_DIFF_RANGE="$REVIEW_BASE_REF...HEAD"
+# shellcheck source=automation/scripts/story_change_ledger.sh
+source "$ROOT_DIR/automation/scripts/story_change_ledger.sh"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -471,6 +473,18 @@ CODEX_MODEL="${CODEX_MODEL:-}"
 CODEX_EXTRA_ARGS="${CODEX_EXTRA_ARGS:-}"
 
 STORY_ID="$(derive_story_id "$PROMPT_FILE")"
+
+append_story_change_ledger_entry \
+  "$STORY_ID" \
+  "story_started" \
+  "started" \
+  "" \
+  "$BRANCH_NAME" \
+  "" \
+  "automation/run_codex_task.sh" \
+  "${PROMPT_FILE#$ROOT_DIR/}" \
+  "run_story delegated after clean-check" || true
+
 RUN_ID="$(date -u +"%Y-%m-%d_%H-%M-%S")"
 RUN_DIR="$RUNS_ROOT/$STORY_ID/$RUN_ID"
 WORKTREE_DIR=""
