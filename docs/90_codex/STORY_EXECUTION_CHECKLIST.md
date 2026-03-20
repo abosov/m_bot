@@ -91,6 +91,8 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
   The classification artifact must include an exact standalone `MERGE RECOMMENDATION:` line with `approve` or `reject`.
 - Durable review gate result artifact for the reviewed run (`review_gate_result.json`).
   The artifact must include machine-readable `decision`, `status`, and `decision_source` fields.
+- Durable evidence-only story ledger artifact (`automation/story_change_ledger.jsonl`).
+  The ledger must remain append-only and may record `story_started`, `review_outcome`, `story_rejected`, and `story_finalized`, but it must not decide whether a story may continue in this workflow story.
 - Follow-up capture for any out-of-scope finding discovered during implementation or review.
 - Epic registry row updated to reflect the committed story outcome and any created follow-up/split story IDs.
 - PR description linked to the story bundle.

@@ -5,6 +5,7 @@ import subprocess
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LEDGER_HELPER = REPO_ROOT / "automation" / "scripts" / "story_change_ledger.sh"
+RUN_STORY_SCRIPT = REPO_ROOT / "automation" / "scripts" / "run_story.sh"
 
 
 def run_bash(cmd: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -83,3 +84,106 @@ def test_append_story_change_ledger_entry_rejects_unknown_event(tmp_path: Path) 
 
     assert result.returncode != 0
     assert not ledger_path.exists()
+
+
+def test_append_story_change_ledger_entry_appends_without_rewriting_existing_lines(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    ledger_path = root_dir / "automation" / "story_change_ledger.jsonl"
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+
+    first = (
+        f"source {LEDGER_HELPER} && "
+        "append_story_change_ledger_entry US-AUTO-23 story_started started"
+    )
+    second = (
+        f"source {LEDGER_HELPER} && "
+        "append_story_change_ledger_entry US-AUTO-23 review_outcome approve"
+    )
+
+    first_result = run_bash(first, env)
+    second_result = run_bash(second, env)
+
+    assert first_result.returncode == 0, first_result.stderr
+    assert second_result.returncode == 0, second_result.stderr
+    lines = ledger_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    assert '"event":"story_started"' in lines[0]
+    assert '"event":"review_outcome"' in lines[1]
+
+
+def test_run_story_appends_story_started_entry_before_runner_exec(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    bundle_dir = root_dir / "automation" / "bundles" / "active" / "US-AUTO-23"
+    bundle_dir.mkdir(parents=True)
+
+    for file_name in [
+        "00_story.md",
+        "01_context_bundle.md",
+        "02_file_scope.md",
+        "03_master_prompt.md",
+        "04_review_checklist.md",
+        "05_followups.md",
+        "06_manual_actions.md",
+    ]:
+        (bundle_dir / file_name).write_text(f"# {file_name}\n", encoding="utf-8")
+
+    validator = tmp_path / "validate_story_bundle.sh"
+    validator.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    validator.chmod(0o755)
+
+    runner = tmp_path / "fake_runner.sh"
+    runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'printf "%s\\n" "$1" > "${RUNNER_OUTPUT_FILE:?}"\n',
+        encoding="utf-8",
+    )
+    runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(runner)
+    env["RUNNER_OUTPUT_FILE"] = str(tmp_path / "runner_output.txt")
+
+    scripts_dir = root_dir / "automation" / "scripts"
+    scripts_dir.mkdir(parents=True)
+    helper_copy = scripts_dir / "story_change_ledger.sh"
+    helper_copy.write_text(LEDGER_HELPER.read_text(encoding="utf-8"), encoding="utf-8")
+    helper_copy.chmod(0o755)
+    validator_copy = scripts_dir / "validate_story_bundle.sh"
+    validator_copy.write_text(validator.read_text(encoding="utf-8"), encoding="utf-8")
+    validator_copy.chmod(0o755)
+
+    subprocess.run(
+        ["git", "init"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    result = subprocess.run(
+        ["bash", str(RUN_STORY_SCRIPT), "US-AUTO-23"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "runner_output.txt").read_text(encoding="utf-8").strip() == str(
+        bundle_dir / "03_master_prompt.md"
+    )
+
+    ledger_text = (
+        root_dir / "automation" / "story_change_ledger.jsonl"
+    ).read_text(encoding="utf-8")
+    assert '"story_id":"US-AUTO-23"' in ledger_text
+    assert '"event":"story_started"' in ledger_text
+    assert '"outcome":"started"' in ledger_text
+    assert '"decision_source":"run_story"' in ledger_text
+    assert '"artifact":"automation/bundles/active/US-AUTO-23/03_master_prompt.md"' in ledger_text

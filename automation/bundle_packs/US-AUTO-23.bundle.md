@@ -131,7 +131,7 @@ If the implementation appears to require any of the following, Codex must stop a
 - `frontend/**`
 - `database/**`
 - `migrations/**`
-- `automation/scripts/run_codex_task.sh`
+- `automation/run_codex_task.sh`
 - bundle materialization logic, unless absolutely required for this story and explicitly justified in the review
 - validation policy unrelated to ledger presence
 - review classification contracts beyond what is necessary to record existing outcomes

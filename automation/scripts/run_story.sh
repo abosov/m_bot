@@ -6,6 +6,8 @@ ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 BUNDLES_ROOT="${AUTOMATION_BUNDLES_ROOT:-$ROOT_DIR/automation/bundles/active}"
 RUNNER="${AUTOMATION_RUNNER:-$ROOT_DIR/automation/run_codex_task.sh}"
 VALIDATOR_SCRIPT="$ROOT_DIR/automation/scripts/validate_story_bundle.sh"
+# shellcheck source=automation/scripts/story_change_ledger.sh
+source "$SCRIPT_DIR/story_change_ledger.sh"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -75,6 +77,28 @@ require_file "$MASTER_PROMPT"
 
 echo "[INFO] Validating story bundle: $BUNDLE_DIR" >&2
 "$VALIDATOR_SCRIPT" "$STORY_ID"
+
+append_story_started_ledger_event() {
+  local branch_name
+
+  branch_name="$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  if [[ "$branch_name" == "HEAD" ]]; then
+    branch_name=""
+  fi
+
+  append_story_change_ledger_entry \
+    "$STORY_ID" \
+    "story_started" \
+    "started" \
+    "" \
+    "$branch_name" \
+    "" \
+    "run_story" \
+    "automation/bundles/active/$STORY_ID/03_master_prompt.md" \
+    "run_story delegated to runner" || true
+}
+
+append_story_started_ledger_event
 
 echo "[INFO] STORY_ID: $STORY_ID" >&2
 echo "[INFO] Bundle dir: $BUNDLE_DIR" >&2

@@ -26,7 +26,6 @@
 - `frontend/**`
 - `database/**`
 - `migrations/**`
-- `automation/scripts/run_codex_task.sh`
 - `automation/scripts/materialize_story_bundle.sh`
 - `automation/scripts/validate_story_bundle.sh`
 - `tests/test_story_bundle_scripts.py`
