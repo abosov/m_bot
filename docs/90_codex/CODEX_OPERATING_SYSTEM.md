@@ -39,6 +39,7 @@ Every Codex task must satisfy all of the following:
 6. **Minimal patch only**: the diff must be limited to the smallest change set that satisfies the story or follow-up objective.
 7. **Mandatory follow-up capture**: out-of-scope findings must be recorded as explicit follow-up work instead of being absorbed into the current run.
 8. **Hard stop**: if completion requires breaking scope, touching unrelated concerns, or changing architecture outside the prompt, stop and require a new story or follow-up prompt.
+9. **Epic registry alignment**: do not start a new story in an epic until the epic registry reflects the current known state of relevant prior stories, and record split/follow-up/cancelled/superseded outcomes in the registry instead of leaving them only in conversation history.
 
 This contract is documentation-driven in this workflow. If runtime enforcement is needed, it must be introduced by a separate story rather than by broadening an active story.
 Follow-up prompts are not an exception path around this contract; they must isolate one review finding or one narrowly defined blocker per run unless a new prompt explicitly redefines scope.
