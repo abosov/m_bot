@@ -49,13 +49,11 @@ The registry does **not** replace story bundles.
 
 ### Gaps (blocking efficiency)
 - US-AUTO-18 — operator UX missing
-- US-AUTO-20 — workflow chaining missing
 - US-AUTO-23 — change ledger missing
 
 ### Next Recommended Story
-1. US-AUTO-20 — workflow chaining
-2. US-AUTO-23 — change ledger
-3. US-AUTO-18 — operator UX
+1. US-AUTO-23 — change ledger
+2. US-AUTO-18 — operator UX
 
 ---
 
@@ -78,7 +76,7 @@ The registry does **not** replace story bundles.
 | US-AUTO-22 | Atomic isolation rule | Governance rule | governance | Docs Only | P1 | None | US-AUTO-19 | automation/bundles/active/US-AUTO-22/ | Docs only |
 
 | US-AUTO-18 | Operator UX | Improve console UX | follow-up | Planned | P2 | Define UX spec | US-AUTO-17 | N/A | Missing |
-| US-AUTO-20 | Workflow chaining | Resume + next step logic | follow-up | Planned | P1 | Draft bundle | US-AUTO-19 | N/A | Critical |
+| US-AUTO-20 | Workflow chaining | Resume + next step logic | follow-up | Implemented | P1 | None | US-AUTO-19 | automation/bundles/active/US-AUTO-20/ | Stage + next-command resume helper shipped |
 | US-AUTO-23 | Story change ledger | Prevent loops via history | governance | Planned | P1 | Draft bundle | New | N/A | Critical anti-cycle |
 
 ---

@@ -51,6 +51,12 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 21. Use `automation/scripts/analyze_story_run.sh <STORY-ID>` when you need a read-only summary of the latest run artifacts, pytest state, review pipeline state, and recommended next operator action.
    By default the command inspects the latest run directory under `automation/runs/<STORY-ID>/`.
    Operators may also point it at a specific run with `AUTOMATION_RUN_DIR=automation/runs/<STORY-ID>/<RUN-ID> automation/scripts/analyze_story_run.sh <STORY-ID>`.
+   The command must report a deterministic workflow chaining/resume section with:
+   - current stage,
+   - latest valid stage,
+   - resume safety (`safe` or `blocked`),
+   - exact next recommended command.
+   Resume commands should pin `AUTOMATION_RUN_DIR` to the selected run directory for deterministic continuation.
    The command is intentionally read-only and should be the first inspection step for missing artifacts, incomplete review stages, or gate failures.
 22. Run follow-up prompts for merge blockers and accepted improvements.
    Decompose review output before execution so each follow-up prompt remains atomic, addresses exactly one review finding or one narrowly defined blocker, reuses the original scope boundaries unless explicitly changed, and captures any new out-of-scope findings as separate follow-up work.
