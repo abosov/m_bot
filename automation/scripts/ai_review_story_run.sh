@@ -48,17 +48,53 @@ resolve_latest_run_dir() {
   printf '%s\n' "$latest_run_dir"
 }
 
+normalize_path() {
+  local path="$1"
+
+  if [[ "$path" = /* ]]; then
+    printf '%s\n' "$path"
+  else
+    printf '%s\n' "$ROOT_DIR/$path"
+  fi
+}
+
+canonicalize_path() {
+  local path="$1"
+
+  python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$path"
+}
+
+manifest_value() {
+  local manifest_file="$1"
+  local key="$2"
+  [[ -f "$manifest_file" ]] || return 0
+
+  sed -n -E "s/^-[[:space:]]+${key}:[[:space:]]*(.*)$/\\1/p" "$manifest_file" | head -n 1
+}
+
 resolve_target_run_dir() {
   local story_runs_root="$1"
   local run_dir_override="$2"
+  local normalized_override canonical_override canonical_story_runs_root manifest_story_id
 
   if [[ -n "$run_dir_override" ]]; then
-    [[ -d "$run_dir_override" ]] || fail "AUTOMATION_RUN_DIR does not exist: $run_dir_override"
-    case "$run_dir_override" in
-      "$story_runs_root"/*) ;;
+    normalized_override="$(normalize_path "$run_dir_override")"
+    [[ -d "$normalized_override" ]] || fail "AUTOMATION_RUN_DIR does not exist: $normalized_override"
+
+    canonical_override="$(canonicalize_path "$normalized_override")"
+    canonical_story_runs_root="$(canonicalize_path "$story_runs_root")"
+
+    case "$canonical_override" in
+      "$canonical_story_runs_root"/*) ;;
       *) fail "AUTOMATION_RUN_DIR must be inside story run root: $story_runs_root" ;;
     esac
-    printf '%s\n' "$run_dir_override"
+
+    manifest_story_id="$(manifest_value "$canonical_override/manifest.md" "story_id" || true)"
+    if [[ -n "$manifest_story_id" && "$manifest_story_id" != "$STORY_ID" ]]; then
+      fail "AUTOMATION_RUN_DIR manifest story_id '$manifest_story_id' does not match requested story '$STORY_ID'"
+    fi
+
+    printf '%s\n' "$canonical_override"
     return 0
   fi
 
