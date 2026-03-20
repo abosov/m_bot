@@ -6,6 +6,17 @@ You are the System Architect + Data Architect + UX + Developer + Tech Writer + Q
 ## Task
 Update Codex workflow documentation and prompt templates so Atomic Task Isolation becomes an explicit mandatory contract for story execution and follow-up execution.
 
+## Task Intent
+Declare this exact sentence before making changes: `Introduce Atomic Task Isolation as an explicit mandatory contract in Codex workflow docs and prompt templates for this story.`
+
+## Atomic Task Isolation Contract
+- This run has one purpose only: make Atomic Task Isolation explicit and mandatory in Codex workflow docs and prompt templates for this story.
+- Atomic Task Isolation is a mandatory execution contract for this run, not optional guidance.
+- If the required intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop fields are missing or ambiguous, stop and refuse implementation until the prompt is corrected.
+- If the prompt batches another independently reviewable documentation or process change, stop and split it into separate follow-up work before implementation.
+- If another independently reviewable documentation or process change is discovered, do not absorb it into this run; record it as a separate follow-up.
+- Follow-up prompts created from this run are not an exception path around this contract; each one must still isolate exactly one independently reviewable finding or blocker.
+
 ## Mandatory Context
 Read and follow:
 - `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
@@ -35,6 +46,14 @@ Do not:
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 
 ## Files Allowed To Change
+- `automation/bundle_packs/US-AUTO-22.bundle.md`
+- `automation/bundles/active/US-AUTO-22/00_story.md`
+- `automation/bundles/active/US-AUTO-22/01_context_bundle.md`
+- `automation/bundles/active/US-AUTO-22/02_file_scope.md`
+- `automation/bundles/active/US-AUTO-22/03_master_prompt.md`
+- `automation/bundles/active/US-AUTO-22/04_review_checklist.md`
+- `automation/bundles/active/US-AUTO-22/05_followups.md`
+- `automation/bundles/active/US-AUTO-22/06_manual_actions.md`
 - `docs/40_ai/zumbot_codex/MASTER_PROMPT_TEMPLATE.md`
 - `docs/40_ai/zumbot_codex/FOLLOWUP_PROMPT_TEMPLATE.md`
 - `docs/90_codex/CODEX_OPERATING_SYSTEM.md`
@@ -52,12 +71,20 @@ Do not:
 - no unrelated refactor
 - no formatting-only edits
 - update docs only when behavior/process changes require it
-- keep this story documentation-only
+- keep this story documentation/prompt-template only
+- keep the executable prompt allowlist aligned with the legitimate story implementation surface so bundle artifacts used by this story are not under-declared
 - if shell enforcement is needed, record it as a follow-up story instead of implementing it here
 - explicitly declare task intent in one sentence before making changes
 - do not expand scope beyond declared intent
 - if out-of-scope issue is discovered, record it as follow-up instead of fixing it
 - if task cannot be completed within allowed scope, stop and require a new story
+- if another independently reviewable documentation/process change is discovered, do not absorb it into this run; record it as a separate follow-up
+
+## Execution Gate
+- Refuse implementation if `Task Intent`, `Non-goals`, allowed-file boundaries, forbidden-file boundaries, follow-up capture, or hard-stop conditions are missing or ambiguous.
+- Refuse implementation if this prompt no longer represents one independently reviewable documentation/process change.
+- Refuse implementation if any resulting follow-up prompt would need to batch more than one independently reviewable finding or blocker.
+- Refuse implementation if completion would require automation shell script changes, runtime enforcement, test-infrastructure changes, or unrelated documentation cleanup.
 
 ## Test Plan
 - Validate that the story bundle materializes without unresolved placeholders.
@@ -71,4 +98,3 @@ Return:
 3. validation results
 4. risks/follow-ups
 5. final diff
-

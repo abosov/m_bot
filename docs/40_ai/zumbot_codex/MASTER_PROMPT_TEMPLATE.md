@@ -37,6 +37,9 @@ OUT_OF_SCOPE
 ATOMIC_TASK_ISOLATION
 [STATE THE SINGLE PURPOSE OF THIS RUN, THE HARD SCOPE BOUNDARY, AND WHEN CODEX MUST STOP AND CREATE FOLLOW-UP WORK]
 
+ATOMIC_TASK_ISOLATION_ENFORCEMENT
+[STATE THAT ATOMIC TASK ISOLATION IS A MANDATORY CONTRACT FOR THIS RUN AND THAT CODEX MUST REFUSE IMPLEMENTATION IF THE PROMPT VIOLATES IT]
+
 FOLLOW_UP_SPLIT_RULE
 [IF REVIEW OR IMPLEMENTATION DISCOVERS MULTIPLE INDEPENDENT ISSUES, EACH ISSUE MUST BECOME ITS OWN FOLLOW-UP PROMPT; DO NOT BATCH THEM INTO THIS RUN]
 
@@ -44,7 +47,10 @@ FOLLOW_UP_CAPTURE_RULE
 [ANY OUT-OF-SCOPE FINDING MUST BE RECORDED AS EXPLICIT FOLLOW-UP WORK IN THE OUTPUT; DO NOT IMPLEMENT IT IN THIS RUN]
 
 EXECUTION_GATE
-[IF THIS PROMPT IS MISSING INTENT, OUT_OF_SCOPE, ALLOWED/FORBIDDEN FILE BOUNDARIES, OR A SINGLE ATOMIC PURPOSE, CODEX MUST STOP AND REFUSE IMPLEMENTATION UNTIL THE PROMPT IS CORRECTED]
+[IF THIS PROMPT IS MISSING OR LEAVES AMBIGUOUS THE INTENT, OUT_OF_SCOPE, ALLOWED/FORBIDDEN FILE BOUNDARIES, FOLLOW_UP_CAPTURE_RULE, HARD-STOP CONDITIONS, OR A SINGLE ATOMIC PURPOSE, OR IF IT BATCHES ANOTHER INDEPENDENTLY REVIEWABLE CHANGE, CODEX MUST STOP AND REFUSE IMPLEMENTATION UNTIL THE PROMPT IS CORRECTED]
+
+TASK_INTENT_DECLARATION
+[BEFORE MAKING CHANGES, STATE THE ONE-SENTENCE TASK INTENT EXACTLY AS WRITTEN IN TASK_INTENT AND CONFIRM THAT NO OTHER INDEPENDENT CHANGE IS INCLUDED IN THIS RUN]
 
 BEFORE IMPLEMENTING
 1. Identify the exact existing files to modify.
@@ -66,6 +72,7 @@ IMPLEMENTATION RULES
 ## ATOMIC TASK ISOLATION (MANDATORY)
 
 You must strictly follow Atomic Task Isolation.
+Atomic Task Isolation is a mandatory execution contract for this story run. If the prompt is missing any required contract field or includes more than one independently reviewable change, you must refuse implementation until the prompt is corrected.
 
 ### 1. One Task = One Purpose
 - Implement ONLY the explicitly defined behavior of the story.
@@ -84,6 +91,7 @@ You must strictly follow Atomic Task Isolation.
 Before making changes, you MUST state:
 - what exactly you are changing
 - why this change is required for THIS story
+- that this run contains no second independently reviewable change
 
 ### 4. Minimal Patch Rule
 - Only minimal required diff is allowed.
@@ -91,6 +99,7 @@ Before making changes, you MUST state:
 
 ### 5. Follow-up Task Protocol
 If you detect issues outside scope, or multiple independent fixes are needed, you MUST stop that line of work and output one follow-up task per issue:
+Follow-up prompts are not an exception path around this contract; each one must still isolate exactly one independently reviewable finding or blocker.
 
 FOLLOW-UP TASK:
 - Title:
@@ -103,6 +112,7 @@ If task requires breaking these rules:
 → STOP and explain why task cannot be completed safely.
 Do not continue by widening scope implicitly.
 If this run reveals multiple independent fixes, implement none of the extra fixes here; emit one follow-up task per extra fix instead.
+If the intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop fields are missing or ambiguous, do not infer them; stop until the prompt is corrected.
 
 DATABASE / API / DOMAIN RULES
 - SQL migrations are the source of truth for DB schema.

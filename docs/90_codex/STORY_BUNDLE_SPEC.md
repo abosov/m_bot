@@ -58,9 +58,12 @@ The Atomic Task Isolation contract section must state:
 - explicit intent line
 - explicit out-of-scope line
 - allowed and forbidden file boundaries
+- explicit statement that Atomic Task Isolation is a mandatory contract for this run
+- explicit statement that Codex must declare the one-sentence task intent before making changes
 - hard-stop condition
 - execution-gate language that requires Codex to stop when the prompt is non-atomic, underspecified, or split across multiple findings
 - follow-up capture instruction for newly discovered out-of-scope findings
+- explicit statement that follow-up prompts are not an exception path around Atomic Task Isolation
 
 Each follow-up entry in `05_followups.md` must identify exactly one target finding/blocker label from review artifacts and must not combine multiple independent findings in one prompt.
 Bundles are invalid for execution when master or follow-up prompts omit this execution-gate language or otherwise leave Atomic Task Isolation ambiguous.
@@ -90,7 +93,10 @@ Bundles are invalid for execution when master or follow-up prompts omit this exe
 - Separate implementation scope from future stories.
 - Keep file paths concrete and repository-valid.
 - Make the Atomic Task Isolation contract explicit enough that Codex can identify what is in scope, what is forbidden, and when it must stop.
+- Require Codex to restate the one-sentence intent before edits so reviewers can verify the run stayed atomic.
+- Treat missing Atomic Task Isolation prompt fields as a bundle defect that blocks execution until corrected.
 - Record newly discovered out-of-scope work in follow-up sections instead of folding it into the current story.
 - Do not use follow-up sections to batch unrelated cleanup; each follow-up must isolate a single narrowly scoped task.
 - When review produces multiple findings, split them into separate follow-up prompts instead of composing a multi-fix continuation.
+- Follow-up templates must say explicitly that follow-up execution is still bound by the same one-purpose contract and cannot absorb a second independently reviewable fix.
 - Bundle must be usable by both humans and Codex without additional interpretation.

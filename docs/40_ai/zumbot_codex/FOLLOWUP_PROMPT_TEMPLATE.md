@@ -34,11 +34,20 @@ OUT_OF_SCOPE
 ATOMIC_TASK_ISOLATION
 [STATE THE SINGLE REVIEW FINDING OR BLOCKER BEING FIXED, THE HARD SCOPE BOUNDARY, AND WHEN CODEX MUST STOP AND SPIN OUT ANOTHER FOLLOW-UP]
 
+ATOMIC_TASK_ISOLATION_ENFORCEMENT
+[STATE THAT ATOMIC TASK ISOLATION IS A MANDATORY CONTRACT FOR THIS FOLLOW-UP RUN AND THAT CODEX MUST REFUSE IMPLEMENTATION IF THE PROMPT TARGETS MORE THAN ONE FINDING OR OMITS REQUIRED ISOLATION FIELDS]
+
 FOLLOW_UP_INPUT_RULE
 [LIST EXACTLY ONE REVIEW FINDING OR ONE BLOCKER HERE; IF REVIEW FOUND MULTIPLE ISSUES, SPLIT THEM INTO MULTIPLE FOLLOW-UP PROMPTS BEFORE EXECUTION]
 
+FOLLOW_UP_CAPTURE_RULE
+[IF THIS FIX REVEALS ANOTHER INDEPENDENT ISSUE, RECORD IT AS A SEPARATE FOLLOW-UP TASK AND DO NOT IMPLEMENT IT IN THIS RUN; FOLLOW-UP PROMPTS ARE NOT AN EXCEPTION PATH AROUND ATOMIC TASK ISOLATION]
+
 EXECUTION_GATE
-[IF THIS FOLLOW-UP DOES NOT TARGET EXACTLY ONE FINDING/BLOCKER OR IS MISSING INTENT, OUT_OF_SCOPE, OR FILE BOUNDARIES, CODEX MUST STOP AND REFUSE IMPLEMENTATION UNTIL THE FOLLOW-UP PROMPT IS SPLIT OR CORRECTED]
+[IF THIS FOLLOW-UP DOES NOT TARGET EXACTLY ONE FINDING/BLOCKER OR IS MISSING OR LEAVES AMBIGUOUS THE TARGET FINDING, INTENT, OUT_OF_SCOPE, ALLOWED/FORBIDDEN FILE BOUNDARIES, FOLLOW_UP_CAPTURE_RULE, OR HARD-STOP CONDITIONS, OR IF IT BATCHES A SECOND INDEPENDENTLY REVIEWABLE FIX, CODEX MUST STOP AND REFUSE IMPLEMENTATION UNTIL THE FOLLOW-UP PROMPT IS SPLIT OR CORRECTED]
+
+TASK_INTENT_DECLARATION
+[BEFORE MAKING CHANGES, STATE THE ONE-SENTENCE FOLLOW-UP INTENT EXACTLY AS WRITTEN IN FOLLOW-UP_INTENT AND CONFIRM THAT NO SECOND FINDING OR INDEPENDENT CHANGE IS INCLUDED IN THIS RUN]
 
 TASK
 Implement only the required fixes.
@@ -51,6 +60,7 @@ Before making changes, state:
 - why this fix is the minimum sufficient fix
 - what is explicitly out of scope
 - the atomic task isolation statement for this follow-up
+- the one-sentence follow-up intent exactly as written in `FOLLOW-UP_INTENT`
 
 2. PATCH SUMMARY
 
@@ -66,6 +76,8 @@ Before making changes, state:
 ## ATOMIC TASK ISOLATION (FOLLOW-UP MODE)
 
 You are working in follow-up mode. The same Atomic Task Isolation rules apply, with stricter constraints.
+Atomic Task Isolation is a mandatory execution contract for this follow-up run. If the prompt targets more than one finding or omits required isolation fields, you must refuse implementation until it is corrected.
+Follow-up mode is not an exception path around the contract; one follow-up prompt still equals one independently reviewable finding or blocker.
 
 ### 1. Do NOT expand original scope
 - You must ONLY address the exact issue from the previous run.
@@ -113,3 +125,4 @@ If the fix requires:
 
 → STOP and explain why a new story is required
 → Do not widen this follow-up to absorb the second issue; record that issue as a separate follow-up task instead
+→ If the target finding, intent, out-of-scope, file-boundary, follow-up-capture, or hard-stop fields are missing or ambiguous, stop instead of inferring them

@@ -29,7 +29,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    After changed-files collection, the runner must enforce `02_file_scope.md` with the allowed-files guard before pytest and downstream review continue.
    Use `automation/run_codex_task.sh --full-context <master-prompt-path>` only when the story needs the full bundle context.
    `automation/scripts/run_story.sh <STORY-ID>` continues to use the runner defaults.
-   Before execution, confirm the prompt explicitly contains intent, out-of-scope, allowed-files, forbidden-files, hard-stop, follow-up capture language, and an execution gate that tells Codex to refuse non-atomic or underspecified prompts.
+   Before execution, confirm the prompt explicitly contains intent, out-of-scope, allowed-files, forbidden-files, a statement that Atomic Task Isolation is mandatory for this run, hard-stop, follow-up capture language, a requirement to restate the one-sentence task intent before edits, and an execution gate that tells Codex to refuse non-atomic or underspecified prompts or prompts that batch another independently reviewable change.
 13. Verify the Codex output stayed within the declared atomic task, implemented only one independently reviewable purpose, and captured any out-of-scope findings as follow-up work instead of inline changes.
 14. Run required tests (minimum: targeted `pytest` scope for changed behavior).
 15. Collect implementation and review artifacts into the story bundle.
@@ -54,7 +54,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 21. Run follow-up prompts for merge blockers and accepted improvements.
    Decompose review output before execution so each follow-up prompt remains atomic, addresses exactly one review finding or one narrowly defined blocker, reuses the original scope boundaries unless explicitly changed, and captures any new out-of-scope findings as separate follow-up work.
    Each follow-up prompt must declare exactly one target finding/blocker identifier from the review artifacts; if more than one target is needed, split before execution.
-   Before execution, confirm the follow-up prompt contains an execution gate that refuses implementation if more than one finding/blocker is present or if required isolation fields are missing.
+   Before execution, confirm the follow-up prompt contains an explicit statement that Atomic Task Isolation is mandatory for the follow-up run, explicitly says follow-up mode is not an exception path around that contract, includes an execution gate that refuses implementation if more than one finding/blocker is present or if required isolation fields are missing, and requires Codex to restate the exact one-sentence follow-up intent before edits.
 22. Re-run tests after follow-up changes.
 23. Prepare PR with scope, risks, verification, docs impact, and any deferred follow-up tasks.
 24. Finalize the story with `automation/scripts/finalize_story.sh [PR_NUMBER]` after checks and review approvals pass.
@@ -83,7 +83,9 @@ Stop and revise before merge if any condition is true:
 - Bundle validation fails (missing file, empty file, unresolved canonical placeholder token, or missing required section).
 - Missing allowed/forbidden file scope.
 - Missing Atomic Task Isolation contract, explicit out-of-scope statement, or follow-up capture for newly discovered out-of-scope work.
+- Missing explicit requirement for Codex to restate the one-sentence task or follow-up intent before editing.
 - Missing execution-gate language telling Codex to refuse non-atomic or underspecified prompts.
+- Missing language stating that follow-up prompts cannot batch a second independently reviewable fix under follow-up mode.
 - Follow-up prompt bundles multiple fixes, cleanup items, or architecture changes under one run without an explicit new scope definition.
 - Review produced multiple independent findings, but follow-up work was not split into separate atomic prompts.
 - Missing source-of-truth statement.
