@@ -187,3 +187,53 @@ def test_run_story_appends_story_started_entry_before_runner_exec(tmp_path: Path
     assert '"outcome":"started"' in ledger_text
     assert '"decision_source":"run_story"' in ledger_text
     assert '"artifact":"automation/bundles/active/US-AUTO-23/03_master_prompt.md"' in ledger_text
+
+
+def test_run_codex_task_skips_duplicate_story_started_when_wrapper_already_recorded(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    ledger_path = root_dir / "automation" / "story_change_ledger.jsonl"
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_STORY_START_LEDGER_RECORDED"] = "1"
+
+    cmd = (
+        f"source {LEDGER_HELPER} && "
+        'if [[ "${AUTOMATION_STORY_START_LEDGER_RECORDED:-0}" != "1" ]]; then '
+        "append_story_change_ledger_entry "
+        "US-AUTO-23 story_started started '' feature/us-auto-23 '' "
+        "automation/run_codex_task.sh automation/bundles/active/US-AUTO-23/03_master_prompt.md "
+        "'runner started without run_story wrapper'; "
+        "fi"
+    )
+    result = run_bash(cmd, env)
+
+    assert result.returncode == 0, result.stderr
+    assert not ledger_path.exists()
+
+
+def test_run_codex_task_records_story_started_when_invoked_directly(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    ledger_path = root_dir / "automation" / "story_change_ledger.jsonl"
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+
+    cmd = (
+        f"source {LEDGER_HELPER} && "
+        'if [[ "${AUTOMATION_STORY_START_LEDGER_RECORDED:-0}" != "1" ]]; then '
+        "append_story_change_ledger_entry "
+        "US-AUTO-23 story_started started '' feature/us-auto-23 '' "
+        "automation/run_codex_task.sh automation/bundles/active/US-AUTO-23/03_master_prompt.md "
+        "'runner started without run_story wrapper'; "
+        "fi"
+    )
+    result = run_bash(cmd, env)
+
+    assert result.returncode == 0, result.stderr
+    line = ledger_path.read_text(encoding='utf-8').strip()
+    assert '"event":"story_started"' in line
+    assert '"decision_source":"automation/run_codex_task.sh"' in line
+    assert '"note":"runner started without run_story wrapper"' in line

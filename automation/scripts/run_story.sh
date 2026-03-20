@@ -94,4 +94,5 @@ append_story_change_ledger_entry \
   "automation/bundles/active/$STORY_ID/03_master_prompt.md" \
   "run_story delegated to runner" || true
 
+export AUTOMATION_STORY_START_LEDGER_RECORDED=1
 exec "$RUNNER" "$MASTER_PROMPT"
