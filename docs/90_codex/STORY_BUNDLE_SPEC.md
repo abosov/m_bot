@@ -6,7 +6,14 @@ Define the single-source bundle pack format and the required materialized bundle
 ## Source of Truth
 - Canonical bundle source: `automation/bundle_packs/<STORY-ID>.bundle.md`
 - Materialized runtime bundle: `automation/bundles/active/<STORY-ID>/`
+- Epic-level lifecycle registry: `docs/90_codex/epics/<EPIC-ID>_REGISTRY.md`
 - Bootstrap helper: `automation/scripts/new_story_bundle.sh` (pack scaffold only)
+
+The boundary is intentional:
+- Epic registry = epic-level source of truth for story lifecycle, status, and cross-story relationships.
+- Bundle pack / active bundle = story-level execution artifact for one story only.
+- Story follow-ups in `05_followups.md` queue future work locally, but they do not replace epic-level registry tracking.
+- Every story should be traceable from the epic registry to a concrete story artifact or an explicit planning note.
 
 ## Bundle Pack Format
 Pack files must be deterministic markdown with:
@@ -74,7 +81,7 @@ Bundles are invalid for execution when master or follow-up prompts omit this exe
 - `02_file_scope.md`: allowed and forbidden file list with explicit scope notes.
 - `03_master_prompt.md`: executable implementation prompt draft with explicit Atomic Task Isolation instructions for the current run.
 - `04_review_checklist.md`: verification and review criteria, including scope-drift checks and follow-up decomposition checks.
-- `05_followups.md`: follow-up prompts and iteration notes for out-of-scope findings and later improvements; each follow-up entry must remain atomic, independently reviewable, and limited to one finding or blocker.
+- `05_followups.md`: follow-up prompts and iteration notes for out-of-scope findings and later improvements; each follow-up entry must remain atomic, independently reviewable, and limited to one finding or blocker. Epic registries must capture any resulting new story IDs and lifecycle state at the epic level.
 - `06_manual_actions.md`: out-of-band actions required by humans/systems.
 
 ## Validation Rules
@@ -96,6 +103,7 @@ Bundles are invalid for execution when master or follow-up prompts omit this exe
 - Require Codex to restate the one-sentence intent before edits so reviewers can verify the run stayed atomic.
 - Treat missing Atomic Task Isolation prompt fields as a bundle defect that blocks execution until corrected.
 - Record newly discovered out-of-scope work in follow-up sections instead of folding it into the current story.
+- When a follow-up becomes a real story ID, add or update the corresponding epic registry entry so story-local planning is reflected at epic level.
 - Do not use follow-up sections to batch unrelated cleanup; each follow-up must isolate a single narrowly scoped task.
 - When review produces multiple findings, split them into separate follow-up prompts instead of composing a multi-fix continuation.
 - Follow-up templates must say explicitly that follow-up execution is still bound by the same one-purpose contract and cannot absorb a second independently reviewable fix.
