@@ -633,9 +633,23 @@ run_pytest() {
   echo "$exit_code"
 }
 
+filter_materialization_exclusions() {
+  local tmp_file
+
+  tmp_file="$(mktemp)"
+  grep -vx 'automation/story_change_ledger.jsonl' "$WORKTREE_TRACKED_LIST_FILE" > "$tmp_file" || true
+  mv "$tmp_file" "$WORKTREE_TRACKED_LIST_FILE"
+
+  tmp_file="$(mktemp)"
+  grep -vx 'automation/story_change_ledger.jsonl' "$WORKTREE_UNTRACKED_LIST_FILE" > "$tmp_file" || true
+  mv "$tmp_file" "$WORKTREE_UNTRACKED_LIST_FILE"
+}
+
 load_worktree_changes() {
   git -C "$WORKTREE_DIR" diff --name-only "$WORKTREE_HEAD" -- > "$WORKTREE_TRACKED_LIST_FILE" || true
   git -C "$WORKTREE_DIR" ls-files --others --exclude-standard > "$WORKTREE_UNTRACKED_LIST_FILE" || true
+
+  filter_materialization_exclusions
 
   MATERIALIZED_TRACKED_COUNT="$(wc -l < "$WORKTREE_TRACKED_LIST_FILE" | tr -d ' ')"
   MATERIALIZED_UNTRACKED_COUNT="$(wc -l < "$WORKTREE_UNTRACKED_LIST_FILE" | tr -d ' ')"
