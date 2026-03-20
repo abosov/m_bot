@@ -20,6 +20,7 @@
 - `tests/test_story_change_ledger.py`
 - `tests/test_review_gate_story_run.py`
 - `tests/test_finalize_story_script.py`
+- `automation/run_codex_task.sh`
 
 ## Files Not Allowed To Change
 - `backend/**`
