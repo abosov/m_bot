@@ -460,7 +460,7 @@ require_git_ref "$REVIEW_BASE_REF"
 
 BRANCH_NAME="$(git rev-parse --abbrev-ref HEAD)"
 CURRENT_HEAD="$(git rev-parse --short HEAD)"
-GIT_STATUS="$(git status --porcelain)"
+GIT_STATUS="$(git status --porcelain | grep -v 'automation/story_change_ledger.jsonl' || true)"
 PROMPT_CONTENT="$(cat "$PROMPT_FILE")"
 
 [[ "$BRANCH_NAME" != "main" ]] || fail "do not run automation on main; switch to a feature branch first"
