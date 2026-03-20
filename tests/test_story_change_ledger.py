@@ -220,6 +220,7 @@ def test_run_codex_task_records_story_started_when_invoked_directly(tmp_path: Pa
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env.pop("AUTOMATION_STORY_START_LEDGER_RECORDED", None)
 
     cmd = (
         f"source {LEDGER_HELPER} && "
