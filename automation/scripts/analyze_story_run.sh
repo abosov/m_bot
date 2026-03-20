@@ -431,6 +431,210 @@ summarize_review_pipeline() {
   printf 'Gate: %s\n' "$gate_status"
 }
 
+resume_next_command() {
+  local script_name="$1"
+  local story_id="$2"
+  local run_dir="$3"
+
+  printf 'AUTOMATION_RUN_DIR=%q automation/scripts/%s %q\n' "$run_dir" "$script_name" "$story_id"
+}
+
+run_story_command() {
+  local story_id="$1"
+
+  printf 'automation/scripts/run_story.sh %q\n' "$story_id"
+}
+
+summarize_workflow_resume() {
+  local story_id="$1"
+  local run_dir="$2"
+  local manifest_file="$3"
+  local changed_files_file="$4"
+  local pytest_file="$5"
+  local ai_review_file="$6"
+  local classification_file="$7"
+  local gate_result_file="$8"
+  local raw_output_file="$9"
+  local gate_decision gate_status recommendation pytest_exit_code codex_exit_code materialization_status changed_files_count changed_files_detected prereq_status
+  local head_status expected_head current_head stage latest_valid_stage resume_safety blocked_reason next_command decision_source
+
+  gate_decision="$(json_value "$gate_result_file" "decision")"
+  gate_status="$(json_value "$gate_result_file" "status")"
+  decision_source="$(json_value "$gate_result_file" "decision_source")"
+  recommendation="$(extract_merge_recommendation "$classification_file" 2>/dev/null || true)"
+  pytest_exit_code="$(manifest_value "$manifest_file" "pytest_exit_code")"
+  changed_files_detected="$(manifest_value "$manifest_file" "changed_files_detected")"
+  codex_exit_code="$(manifest_value "$manifest_file" "codex_exit_code")"
+  materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
+  prereq_status="$(review_prereq_status "$run_dir")"
+  head_status="$(head_consistency_status "$manifest_file")"
+
+  if [[ -f "$changed_files_file" ]]; then
+    changed_files_count="$(sed '/^[[:space:]]*$/d' "$changed_files_file" | wc -l | tr -d ' ')"
+  else
+    changed_files_count=""
+  fi
+
+  stage="run_artifacts_pending"
+  latest_valid_stage="none"
+  resume_safety="safe"
+  blocked_reason=""
+  next_command="$(run_story_command "$story_id")"
+
+  if [[ "$head_status" == mismatch:* ]]; then
+    expected_head="${head_status#mismatch:}"
+    current_head="${expected_head#*:}"
+    expected_head="${expected_head%%:*}"
+    stage="blocked_stale_run_evidence"
+    latest_valid_stage="none"
+    resume_safety="blocked"
+    blocked_reason="manifest HEAD $expected_head does not match checkout HEAD $current_head"
+    next_command="none"
+  elif [[ -n "$codex_exit_code" && "$codex_exit_code" != "0" ]]; then
+    stage="blocked_codex_failed"
+    latest_valid_stage="none"
+    resume_safety="blocked"
+    blocked_reason="Codex execution failed (codex_exit_code=$codex_exit_code)"
+    next_command="automation/scripts/run_story.sh $story_id"
+  elif [[ -n "$materialization_status" && "$materialization_status" != "applied" && "$materialization_status" != "not_needed" ]]; then
+    stage="blocked_materialization_failed"
+    latest_valid_stage="none"
+    resume_safety="blocked"
+    blocked_reason="materialization_status=$materialization_status"
+    next_command="automation/scripts/run_story.sh $story_id"
+  elif [[ -n "$pytest_exit_code" && "$pytest_exit_code" != "0" ]]; then
+    stage="blocked_pytest_failed"
+    latest_valid_stage="none"
+    resume_safety="blocked"
+    blocked_reason="pytest failed (pytest_exit_code=$pytest_exit_code)"
+    next_command="automation/scripts/run_story.sh $story_id"
+  elif [[ "$changed_files_detected" == "no" || "$changed_files_count" == "0" ]]; then
+    stage="blocked_no_changed_files"
+    latest_valid_stage="none"
+    resume_safety="blocked"
+    blocked_reason="run reported no changed files"
+    next_command="automation/scripts/run_story.sh $story_id"
+  elif [[ "$prereq_status" != "ready" ]]; then
+    stage="blocked_review_prerequisites_missing"
+    latest_valid_stage="none"
+    resume_safety="blocked"
+    blocked_reason="missing review prerequisites: ${prereq_status#missing:}"
+    next_command="automation/scripts/run_story.sh $story_id"
+  else
+    stage="run_artifacts_ready"
+    latest_valid_stage="run_artifacts_ready"
+    next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
+
+    if [[ -f "$raw_output_file" && ! -f "$ai_review_file" ]]; then
+      stage="blocked_ai_review_failed"
+      latest_valid_stage="run_artifacts_ready"
+      next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
+    elif [[ -f "$ai_review_file" ]]; then
+      stage="ai_review_completed"
+      latest_valid_stage="ai_review_completed"
+      next_command="$(resume_next_command "classify_review_story_run.sh" "$story_id" "$run_dir")"
+
+      if [[ "$recommendation" == "approve" ]]; then
+        stage="classification_approved"
+        latest_valid_stage="classification_approved"
+        next_command="$(resume_next_command "review_gate_story_run.sh" "$story_id" "$run_dir")"
+      elif [[ "$recommendation" == "reject" ]]; then
+        stage="blocked_classification_rejected"
+        latest_valid_stage="ai_review_completed"
+        resume_safety="blocked"
+        blocked_reason="classification merge recommendation is reject"
+        next_command="none"
+      elif [[ -f "$classification_file" ]]; then
+        stage="blocked_classification_invalid"
+        latest_valid_stage="ai_review_completed"
+        next_command="$(resume_next_command "classify_review_story_run.sh" "$story_id" "$run_dir")"
+      fi
+    fi
+  fi
+
+  if [[ -f "$gate_result_file" ]]; then
+    if [[ "$gate_decision" == "approve" && "$gate_status" == "passed" ]]; then
+      stage="review_gate_passed"
+      latest_valid_stage="review_gate_passed"
+      next_command="none"
+      if [[ "$head_status" == "unknown:manifest_head_missing" ]]; then
+        stage="blocked_manifest_head_missing"
+        resume_safety="blocked"
+        blocked_reason="manifest source-of-truth HEAD missing"
+      elif [[ "$head_status" == unknown:current_head_unavailable:* ]]; then
+        stage="blocked_checkout_head_unavailable"
+        resume_safety="blocked"
+        blocked_reason="checkout HEAD unavailable for evidence verification"
+      elif working_tree_is_clean; then
+        resume_safety="safe"
+        blocked_reason=""
+      else
+        stage="blocked_dirty_working_tree"
+        resume_safety="blocked"
+        blocked_reason="$(dirty_tree_reason)"
+      fi
+    else
+      stage="blocked_review_gate_rejected"
+      if [[ "$recommendation" == "approve" ]]; then
+        latest_valid_stage="classification_approved"
+      elif [[ -f "$ai_review_file" ]]; then
+        latest_valid_stage="ai_review_completed"
+      else
+        latest_valid_stage="run_artifacts_ready"
+      fi
+      resume_safety="blocked"
+      blocked_reason="gate decision ${gate_decision:-unknown}/${gate_status:-unknown}${decision_source:+ via $decision_source}"
+      next_command="none"
+    fi
+  elif [[ "$stage" == "classification_approved" ]]; then
+    if [[ "$head_status" == "unknown:manifest_head_missing" ]]; then
+      stage="blocked_manifest_head_missing"
+      resume_safety="blocked"
+      blocked_reason="manifest source-of-truth HEAD missing"
+      next_command="none"
+    elif [[ "$head_status" == unknown:current_head_unavailable:* ]]; then
+      stage="blocked_checkout_head_unavailable"
+      resume_safety="blocked"
+      blocked_reason="checkout HEAD unavailable for evidence verification"
+      next_command="none"
+    elif working_tree_is_clean; then
+      resume_safety="safe"
+    else
+      stage="blocked_dirty_working_tree"
+      resume_safety="blocked"
+      blocked_reason="$(dirty_tree_reason)"
+      next_command="none"
+    fi
+  elif [[ "$stage" == "ai_review_completed" ]]; then
+    if [[ "$head_status" == "unknown:manifest_head_missing" ]]; then
+      stage="blocked_manifest_head_missing"
+      resume_safety="blocked"
+      blocked_reason="manifest source-of-truth HEAD missing"
+      next_command="none"
+    elif [[ "$head_status" == unknown:current_head_unavailable:* ]]; then
+      stage="blocked_checkout_head_unavailable"
+      resume_safety="blocked"
+      blocked_reason="checkout HEAD unavailable for evidence verification"
+      next_command="none"
+    elif working_tree_is_clean; then
+      resume_safety="safe"
+    else
+      stage="blocked_dirty_working_tree"
+      resume_safety="blocked"
+      blocked_reason="$(dirty_tree_reason)"
+      next_command="none"
+    fi
+  fi
+
+  printf 'Current stage: %s\n' "$stage"
+  printf 'Latest valid stage: %s\n' "$latest_valid_stage"
+  printf 'Resume safety: %s\n' "$resume_safety"
+  printf 'Next recommended command: %s\n' "$next_command"
+  if [[ -n "$blocked_reason" ]]; then
+    printf 'Blocked reason: %s\n' "$blocked_reason"
+  fi
+}
+
 final_status_line() {
   local run_dir="$1"
   local manifest_file="$2"
@@ -627,6 +831,19 @@ printf '\n'
 
 printf 'Review Pipeline\n'
 summarize_review_pipeline "$RUN_DIR" "$AI_REVIEW_FILE" "$CLASSIFICATION_FILE" "$GATE_RESULT_FILE" "$AI_REVIEW_RAW_OUTPUT_FILE"
+printf '\n'
+
+printf 'Workflow Chaining / Resume\n'
+summarize_workflow_resume \
+  "$STORY_ID" \
+  "$RUN_DIR" \
+  "$MANIFEST_FILE" \
+  "$CHANGED_FILES_FILE" \
+  "$PYTEST_FILE" \
+  "$AI_REVIEW_FILE" \
+  "$CLASSIFICATION_FILE" \
+  "$GATE_RESULT_FILE" \
+  "$AI_REVIEW_RAW_OUTPUT_FILE"
 printf '\n'
 
 final_status_line \

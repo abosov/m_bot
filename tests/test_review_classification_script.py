@@ -192,3 +192,103 @@ printf '%s\\n' 'raw-classification-output'
     assert (
         runs_dir / "review_classification_raw_output.txt"
     ).read_text(encoding="utf-8").strip() == "raw-classification-output"
+
+
+def test_review_classification_script_accepts_relative_run_dir_override(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    runs_dir = root_dir / "automation" / "runs" / "US-AUTO-6" / "2026-03-13_16-16-10"
+    runs_dir.mkdir(parents=True)
+
+    (runs_dir / "manifest.md").write_text("- story_id: US-AUTO-6\n", encoding="utf-8")
+    (runs_dir / "ai_review_result.md").write_text("# AI Review Result\n\n- Finding A\n", encoding="utf-8")
+
+    rules_file = root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("# Rules\n\nClassify findings.\n", encoding="utf-8")
+
+    fake_bin_dir = tmp_path / "bin_relative"
+    fake_bin_dir.mkdir()
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+cat >/dev/null
+printf '%s\\n' '# Review Classification' > "$output"
+printf '%s\\n' 'MERGE RECOMMENDATION: approve' >> "$output"
+printf '%s\\n' 'raw-classification-output'
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = os.path.relpath(runs_dir, root_dir)
+    env["CLASSIFICATION_RULES_FILE"] = str(rules_file)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-6"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=root_dir,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Merge recommendation: approve" in result.stdout
+    classification_text = (runs_dir / "review_classification.md").read_text(encoding="utf-8")
+    assert "MERGE RECOMMENDATION: approve" in classification_text
+
+
+def test_review_classification_script_rejects_manifest_story_id_mismatch_for_run_override(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    runs_dir = root_dir / "automation" / "runs" / "US-AUTO-6" / "2026-03-13_16-16-11"
+    runs_dir.mkdir(parents=True)
+
+    (runs_dir / "manifest.md").write_text("- story_id: US-AUTO-999\n", encoding="utf-8")
+    (runs_dir / "ai_review_result.md").write_text("# AI Review Result\n", encoding="utf-8")
+
+    rules_file = root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("# Rules\n", encoding="utf-8")
+
+    fake_bin_dir = tmp_path / "bin_mismatch"
+    fake_bin_dir.mkdir()
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(runs_dir)
+    env["CLASSIFICATION_RULES_FILE"] = str(rules_file)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-6"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "AUTOMATION_RUN_DIR manifest story_id 'US-AUTO-999'" in result.stderr

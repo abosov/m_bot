@@ -29,13 +29,20 @@ working_tree_dirty() {
 
 fail_review_gate_dirty_working_tree() {
   local story_id="$1"
+  local run_dir="${2:-}"
   {
     printf "ERROR: review gate blocked for '%s'\n" "$story_id"
     printf 'Reason: current branch has uncommitted changes; review artifacts would not match committed state\n'
     printf 'Required action:\n'
     printf ' - inspect and commit the materialized changes\n'
     printf ' - if needed, rerun automation/scripts/run_story.sh %s\n' "$story_id"
-    printf ' - rerun automation/scripts/review_gate_story_run.sh %s\n' "$story_id"
+    if [[ -n "$run_dir" ]]; then
+      printf ' - inspect the pinned run with AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$run_dir" "$story_id"
+      printf ' - rerun AUTOMATION_RUN_DIR=%q automation/scripts/review_gate_story_run.sh %q\n' "$run_dir" "$story_id"
+    else
+      printf ' - inspect the latest run with automation/scripts/analyze_story_run.sh %s\n' "$story_id"
+      printf ' - rerun automation/scripts/review_gate_story_run.sh %s\n' "$story_id"
+    fi
   } >&2
   exit 1
 }
@@ -47,6 +54,7 @@ Usage:
 
 Example:
   automation/scripts/review_gate_story_run.sh US-AUTO-16
+  AUTOMATION_RUN_DIR=automation/runs/US-AUTO-16/2026-03-14_18-56-10 automation/scripts/review_gate_story_run.sh US-AUTO-16
 EOF
   exit 1
 }
@@ -74,17 +82,53 @@ resolve_latest_run_dir() {
   printf '%s\n' "$latest_run_dir"
 }
 
+normalize_path() {
+  local path="$1"
+
+  if [[ "$path" = /* ]]; then
+    printf '%s\n' "$path"
+  else
+    printf '%s\n' "$ROOT_DIR/$path"
+  fi
+}
+
+canonicalize_path() {
+  local path="$1"
+
+  python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$path"
+}
+
+manifest_value() {
+  local manifest_file="$1"
+  local key="$2"
+  [[ -f "$manifest_file" ]] || return 0
+
+  sed -n -E "s/^-[[:space:]]+${key}:[[:space:]]*(.*)$/\\1/p" "$manifest_file" | head -n 1
+}
+
 resolve_target_run_dir() {
   local story_runs_root="$1"
   local run_dir_override="$2"
+  local normalized_override canonical_override canonical_story_runs_root manifest_story_id
 
   if [[ -n "$run_dir_override" ]]; then
-    [[ -d "$run_dir_override" ]] || fail "AUTOMATION_RUN_DIR does not exist: $run_dir_override"
-    case "$run_dir_override" in
-      "$story_runs_root"/*) ;;
+    normalized_override="$(normalize_path "$run_dir_override")"
+    [[ -d "$normalized_override" ]] || fail "AUTOMATION_RUN_DIR does not exist: $normalized_override"
+
+    canonical_override="$(canonicalize_path "$normalized_override")"
+    canonical_story_runs_root="$(canonicalize_path "$story_runs_root")"
+
+    case "$canonical_override" in
+      "$canonical_story_runs_root"/*) ;;
       *) fail "AUTOMATION_RUN_DIR must be inside story run root: $story_runs_root" ;;
     esac
-    printf '%s\n' "$run_dir_override"
+
+    manifest_story_id="$(manifest_value "$canonical_override/manifest.md" "story_id" || true)"
+    if [[ -n "$manifest_story_id" && "$manifest_story_id" != "$STORY_ID" ]]; then
+      fail "AUTOMATION_RUN_DIR manifest story_id '$manifest_story_id' does not match requested story '$STORY_ID'"
+    fi
+
+    printf '%s\n' "$canonical_override"
     return 0
   fi
 
@@ -175,7 +219,7 @@ GATE_RESULT_FILE="$LATEST_RUN_DIR/$GATE_RESULT_FILE_NAME"
 MANIFEST_FILE="$LATEST_RUN_DIR/manifest.md"
 
 if working_tree_dirty; then
-  fail_review_gate_dirty_working_tree "$STORY_ID"
+  fail_review_gate_dirty_working_tree "$STORY_ID" "$LATEST_RUN_DIR"
 fi
 
 set +e
@@ -254,6 +298,7 @@ write_gate_result \
 update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
 printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
 printf 'Final decision: %s\n' "$decision"
+printf 'Run analysis command: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$LATEST_RUN_DIR" "$STORY_ID"
 
 if [[ $classification_exit_code -ne 0 ]]; then
   fail "review classification step failed for '$STORY_ID' (exit $classification_exit_code); gate rejected"
