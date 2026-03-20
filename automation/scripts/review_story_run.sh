@@ -61,6 +61,14 @@ resolve_latest_run_dir() {
   printf '%s\n' "$latest_run_dir"
 }
 
+resume_next_command() {
+  local script_name="$1"
+  local story_id="$2"
+  local run_dir="$3"
+
+  printf 'AUTOMATION_RUN_DIR=%q automation/scripts/%s %q\n' "$run_dir" "$script_name" "$story_id"
+}
+
 [[ $# -eq 1 ]] || usage
 
 STORY_ID="$1"
@@ -133,5 +141,6 @@ fi
 print_review_safety_safe
 printf '\n'
 printf 'Next step: run automation/scripts/review_gate_story_run.sh %s to generate the final gate artifact for %s.\n' "$STORY_ID" "$LATEST_RUN_DIR"
+printf 'Deterministic resume command: %s\n' "$(resume_next_command "review_gate_story_run.sh" "$STORY_ID" "$LATEST_RUN_DIR")"
 printf 'The gate resolves the latest run once and reuses that exact run directory for AI review and classification.\n'
 printf 'The gate artifact is review_gate_result.json with a machine-readable decision, status, and source.\n'

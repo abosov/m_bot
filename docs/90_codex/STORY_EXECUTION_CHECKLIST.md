@@ -38,6 +38,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 17. Resolve the latest review artifacts for the story (`automation/scripts/review_story_run.sh <STORY-ID>`).
    Review can proceed only when the current branch working tree is clean (commit-consistent with review evidence).
    If the working tree is dirty with materialized changes, inspect and commit first; then rerun story execution if needed.
+   Use the printed deterministic resume command (`AUTOMATION_RUN_DIR=<run-dir> automation/scripts/review_gate_story_run.sh <STORY-ID>`) when chaining directly into gate execution for that same run.
 18. Execute and persist the AI review result for the latest run (`automation/scripts/ai_review_story_run.sh <STORY-ID>`).
 19. Execute and persist the review classification result for the latest run (`automation/scripts/classify_review_story_run.sh <STORY-ID>`).
    The classification artifact must contain an exact standalone `MERGE RECOMMENDATION: approve` or `MERGE RECOMMENDATION: reject` line for the gate.
@@ -56,7 +57,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    - latest valid stage,
    - resume safety (`safe` or `blocked`),
    - exact next recommended command.
-   Resume commands should pin `AUTOMATION_RUN_DIR` to the selected run directory for deterministic continuation.
+   Resume commands should pin `AUTOMATION_RUN_DIR` to the selected run directory for deterministic continuation, and downstream scripts must accept both absolute and repository-relative pinned run paths.
    The command is intentionally read-only and should be the first inspection step for missing artifacts, incomplete review stages, or gate failures.
 22. Run follow-up prompts for merge blockers and accepted improvements.
    Decompose review output before execution so each follow-up prompt remains atomic, addresses exactly one review finding or one narrowly defined blocker, reuses the original scope boundaries unless explicitly changed, and captures any new out-of-scope findings as separate follow-up work.

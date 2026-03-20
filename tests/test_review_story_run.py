@@ -108,6 +108,7 @@ def test_review_story_run_reports_latest_run_with_manifest(tmp_path: Path) -> No
     assert f"Latest run: {latest_run_dir}" in result.stdout
     assert f" - {latest_run_dir / 'manifest.md'}" in result.stdout
     assert "Review safety: SAFE" in result.stdout
+    assert f"Deterministic resume command: AUTOMATION_RUN_DIR={latest_run_dir}" in result.stdout
 
 
 def test_review_story_run_fails_when_manifest_is_missing(tmp_path: Path) -> None:
