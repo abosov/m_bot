@@ -198,5 +198,6 @@ print_review_safety_safe
 printf '\n'
 
 printf 'Workflow helper (source of truth): %s\n' "$(resume_next_command "analyze_story_run.sh" "$STORY_ID" "$LATEST_RUN_DIR")"
+printf 'Deterministic gate command: %s\n' "$(resume_next_command "review_gate_story_run.sh" "$STORY_ID" "$LATEST_RUN_DIR")"
 printf 'Use analyze_story_run.sh to determine current stage, resume safety, and next recommended command.\n'
 printf 'This script only provides a summary of artifacts and safety state and does not enforce workflow transitions.\n'

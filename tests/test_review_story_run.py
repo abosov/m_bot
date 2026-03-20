@@ -114,6 +114,10 @@ def test_review_story_run_reports_latest_run_with_manifest(tmp_path: Path) -> No
         "automation/scripts/analyze_story_run.sh US-AUTO-7"
     ) in result.stdout
     assert (
+        f"Deterministic gate command: AUTOMATION_RUN_DIR={latest_run_dir} "
+        "automation/scripts/review_gate_story_run.sh US-AUTO-7"
+    ) in result.stdout
+    assert (
         "Use analyze_story_run.sh to determine current stage, resume safety, "
         "and next recommended command."
     ) in result.stdout
@@ -197,6 +201,10 @@ def test_review_story_run_accepts_relative_run_dir_override(tmp_path: Path) -> N
     assert (
         f"Workflow helper (source of truth): AUTOMATION_RUN_DIR={selected_run_dir} "
         "automation/scripts/analyze_story_run.sh US-AUTO-7"
+    ) in result.stdout
+    assert (
+        f"Deterministic gate command: AUTOMATION_RUN_DIR={selected_run_dir} "
+        "automation/scripts/review_gate_story_run.sh US-AUTO-7"
     ) in result.stdout
     assert (
         "Use analyze_story_run.sh to determine current stage, resume safety, "

@@ -109,5 +109,6 @@ Bundles are invalid for execution when master or follow-up prompts omit this exe
 - Follow-up templates must say explicitly that follow-up execution is still bound by the same one-purpose contract and cannot absorb a second independently reviewable fix.
 - For automation workflow stories, prefer deterministic stage models and exact next-command output that can safely resume from existing artifacts without hidden state.
 - For automation workflow stories, document the canonical resumable stage sequence explicitly and treat reject/invalid/stale/dirty conditions as blocked states rather than implicit stages.
+- For automation workflow stories, reserve `latest valid stage` for canonical resumable checkpoints only; blocked conditions should report the last valid checkpoint separately instead of becoming new resumable stages.
 - For automation workflow stories, next-command output should pin `AUTOMATION_RUN_DIR` to one concrete run directory and downstream resume scripts should accept both absolute and repository-relative pinned run paths.
 - Bundle must be usable by both humans and Codex without additional interpretation.

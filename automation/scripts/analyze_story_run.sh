@@ -439,6 +439,12 @@ resume_next_command() {
   printf 'AUTOMATION_RUN_DIR=%q automation/scripts/%s %q\n' "$run_dir" "$script_name" "$story_id"
 }
 
+run_story_command() {
+  local story_id="$1"
+
+  printf 'automation/scripts/run_story.sh %q\n' "$story_id"
+}
+
 summarize_workflow_resume() {
   local story_id="$1"
   local run_dir="$2"
@@ -473,7 +479,7 @@ summarize_workflow_resume() {
   latest_valid_stage="none"
   resume_safety="safe"
   blocked_reason=""
-  next_command="$(resume_next_command "run_story.sh" "$story_id" "$run_dir")"
+  next_command="$(run_story_command "$story_id")"
 
   if [[ "$head_status" == mismatch:* ]]; then
     expected_head="${head_status#mismatch:}"
@@ -520,7 +526,7 @@ summarize_workflow_resume() {
     next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
 
     if [[ -f "$raw_output_file" && ! -f "$ai_review_file" ]]; then
-      stage="ai_review_failed"
+      stage="blocked_ai_review_failed"
       latest_valid_stage="run_artifacts_ready"
       next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
     elif [[ -f "$ai_review_file" ]]; then
@@ -533,13 +539,13 @@ summarize_workflow_resume() {
         latest_valid_stage="classification_approved"
         next_command="$(resume_next_command "review_gate_story_run.sh" "$story_id" "$run_dir")"
       elif [[ "$recommendation" == "reject" ]]; then
-        stage="classification_rejected"
-        latest_valid_stage="classification_rejected"
+        stage="blocked_classification_rejected"
+        latest_valid_stage="ai_review_completed"
         resume_safety="blocked"
         blocked_reason="classification merge recommendation is reject"
         next_command="none"
       elif [[ -f "$classification_file" ]]; then
-        stage="classification_invalid"
+        stage="blocked_classification_invalid"
         latest_valid_stage="ai_review_completed"
         next_command="$(resume_next_command "classify_review_story_run.sh" "$story_id" "$run_dir")"
       fi
@@ -552,53 +558,68 @@ summarize_workflow_resume() {
       latest_valid_stage="review_gate_passed"
       next_command="none"
       if [[ "$head_status" == "unknown:manifest_head_missing" ]]; then
+        stage="blocked_manifest_head_missing"
         resume_safety="blocked"
         blocked_reason="manifest source-of-truth HEAD missing"
       elif [[ "$head_status" == unknown:current_head_unavailable:* ]]; then
+        stage="blocked_checkout_head_unavailable"
         resume_safety="blocked"
         blocked_reason="checkout HEAD unavailable for evidence verification"
       elif working_tree_is_clean; then
         resume_safety="safe"
         blocked_reason=""
       else
+        stage="blocked_dirty_working_tree"
         resume_safety="blocked"
         blocked_reason="$(dirty_tree_reason)"
       fi
     else
-      stage="review_gate_rejected"
-      latest_valid_stage="review_gate_rejected"
+      stage="blocked_review_gate_rejected"
+      if [[ "$recommendation" == "approve" ]]; then
+        latest_valid_stage="classification_approved"
+      elif [[ -f "$ai_review_file" ]]; then
+        latest_valid_stage="ai_review_completed"
+      else
+        latest_valid_stage="run_artifacts_ready"
+      fi
       resume_safety="blocked"
       blocked_reason="gate decision ${gate_decision:-unknown}/${gate_status:-unknown}${decision_source:+ via $decision_source}"
       next_command="none"
     fi
   elif [[ "$stage" == "classification_approved" ]]; then
     if [[ "$head_status" == "unknown:manifest_head_missing" ]]; then
+      stage="blocked_manifest_head_missing"
       resume_safety="blocked"
       blocked_reason="manifest source-of-truth HEAD missing"
       next_command="none"
     elif [[ "$head_status" == unknown:current_head_unavailable:* ]]; then
+      stage="blocked_checkout_head_unavailable"
       resume_safety="blocked"
       blocked_reason="checkout HEAD unavailable for evidence verification"
       next_command="none"
     elif working_tree_is_clean; then
       resume_safety="safe"
     else
+      stage="blocked_dirty_working_tree"
       resume_safety="blocked"
       blocked_reason="$(dirty_tree_reason)"
       next_command="none"
     fi
   elif [[ "$stage" == "ai_review_completed" ]]; then
     if [[ "$head_status" == "unknown:manifest_head_missing" ]]; then
+      stage="blocked_manifest_head_missing"
       resume_safety="blocked"
       blocked_reason="manifest source-of-truth HEAD missing"
       next_command="none"
     elif [[ "$head_status" == unknown:current_head_unavailable:* ]]; then
+      stage="blocked_checkout_head_unavailable"
       resume_safety="blocked"
       blocked_reason="checkout HEAD unavailable for evidence verification"
       next_command="none"
     elif working_tree_is_clean; then
       resume_safety="safe"
     else
+      stage="blocked_dirty_working_tree"
       resume_safety="blocked"
       blocked_reason="$(dirty_tree_reason)"
       next_command="none"
