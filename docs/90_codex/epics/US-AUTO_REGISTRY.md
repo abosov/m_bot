@@ -49,24 +49,26 @@ The registry does **not** replace story bundles.
 - US-AUTO-22 — docs-only governance guidance, not runtime enforcement
 
 ### Current Gaps
-- Anti-cycle enforcement layer not yet implemented beyond docs/policy guidance
-- Cycle-cost reduction work not yet implemented
-- Operator UX remains planned and should stay downstream from enforcement work
+- Story change ledger durability contract is internally inconsistent across run, review, and finalize phases.
+- Review artifacts can become stale when ledger commits are required after the reviewed snapshot is produced.
+- Clean-tree enforcement currently tolerates ledger dirtiness too broadly for a durable evidence workflow.
+- Anti-cycle enforcement must stay blocked until the ledger workflow contract is redesigned in a workflow-safe way.
 
 ### Optimization Roadmap
-- P1 anti-cycle enforcement: US-AUTO-23 → US-AUTO-27
-- P2 cycle cost reduction: US-AUTO-28 → US-AUTO-30
-- P3 operator UX: US-AUTO-18
+- P1 durable ledger workflow redesign: US-AUTO-24
+- P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28
+- P3 cycle cost reduction: US-AUTO-29 → US-AUTO-31
+- P4 operator UX: US-AUTO-18
 
 ### Next Recommended Story
-1. US-AUTO-23 — change ledger
-2. US-AUTO-24 — loop detection preflight
-3. US-AUTO-25 — expensive run budget guard
-4. US-AUTO-26 — pipeline zone cap
-5. US-AUTO-27 — escalation gate for loop-risk stories
-6. US-AUTO-28 — targeted test strategy
-7. US-AUTO-29 — review reuse / cache guard
-8. US-AUTO-30 — post-run checkpoint workflow
+1. US-AUTO-24 — durable ledger workflow redesign
+2. US-AUTO-25 — loop detection preflight
+3. US-AUTO-26 — expensive run budget guard
+4. US-AUTO-27 — pipeline zone cap
+5. US-AUTO-28 — escalation gate for loop-risk stories
+6. US-AUTO-29 — targeted test strategy
+7. US-AUTO-30 — review reuse / cache guard
+8. US-AUTO-31 — post-run checkpoint workflow
 9. US-AUTO-18 — operator UX
 
 ---
