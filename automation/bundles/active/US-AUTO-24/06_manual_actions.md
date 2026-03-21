@@ -13,5 +13,5 @@
 - If operators need a different branch/merge sequence than the recommendation, capture that as a separate design follow-up before implementation.
 
 ## Completion Status
-- [ ] No manual actions required
+- [ ] Manual actions pending completion
 - [ ] Manual actions completed and documented
