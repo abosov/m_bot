@@ -37,7 +37,7 @@ The durable ledger workflow introduced by `US-AUTO-23` is useful as an evidence 
 
 ### Option A — Feature-branch durability before review
 - Write all review-relevant events on the feature branch.
-- Commit them before generating or consuming downstream review aifacts.
+- Commit them before generating or consuming downstream review artifacts.
 - Treat `story_finalized` as the terminal event for the branch snapshot that is actually reviewed.
 - Pros: review and durable history stay aligned; downstream automation sees one canonical branch history.
 - Cons: finalization timing must move earlier than the current post-merge cleanup script.
@@ -51,7 +51,7 @@ The durable ledger workflow introduced by `US-AUTO-23` is useful as an evidence 
 ### Option C — Dedicated follow-up commit after review
 - Review the feature branch, then require a ledger-only commit before merge or immediately after review approval.
 - Pros: preserves a commit for ledger evidence.
-- Cons: review artifacts become stale unless review reruns; creates an avoidable extra staransition.
+- Cons: review artifacts become stale unless review reruns; creates an avoidable extra state transition.
 
 ### Option D — Externalized durable sink
 - Store terminal evidence outside the feature branch in a separate durable system.
@@ -67,7 +67,7 @@ This is the only option that satisfies all core workflow goals without introduci
 
 | Event | Producer | Timing | Commit required before downstream consumption? | Workflow state | Contract notes |
 |---|---|---|---|---|---|
-| `story_started` | Story run launcher for the active story | Immediately after clean-tree preflight passes and the story run is officially started | Yes | Feature-branch state | This is the first durable evidence that a new attempt exists. It must land on the feature branch before later review or anti-cylogic treats the attempt as canonical history. |
+| `story_started` | Story run launcher for the active story | Immediately after clean-tree preflight passes and the story run is officially started | Yes | Feature-branch state | This is the first durable evidence that a new attempt exists. It must land on the feature branch before later review or anti-cycle logic treats the attempt as canonical history. |
 | `review_outcome` | Review gate / review classification step | Immediately after the review result for the current branch snapshot is finalized | Yes | Review state | The review artifact and the ledger write must describe the same reviewed commit range. If the review outcome changes, the review step must regenerate both together. |
 | `story_rejected` | Review gate when the review outcome requires follow-up instead of merge | Written in the same review step that produces the rejecting `review_outcome` | Yes | Review state | This event is not a later operator annotation; it is the durable branch-local evidence that the reviewed snapshot was rejected and needs another attempt. |
 | `story_finalized` | Finalization step for an approved feature-branch snapshot | After the branch is review-complete and ready for merge, but before merge/cleanup occurs | Yes | Feature-branch state | Terminal evidence must exist in the same reviewed feature-branch history as the rest of the story ledger. Merge/cleanup may still happen later, but they are operational steps rather than the source of durable terminal evidence. |
@@ -86,7 +86,7 @@ Review artifacts remain valid only when all of the following are true:
 1. the branch is clean before the review step begins,
 2. any review-generated ledger event for that step is written during the same review operation,
 3. the ledger write is committed before the review artifact is treated as final downstream evidence, and
-4. no extra commitinserted between the reviewed snapshot and the merge candidate.
+4. no extra commit is inserted between the reviewed snapshot and the merge candidate.
 
 Operationally, this means a review bundle must correspond to the exact commit range that already contains the relevant `review_outcome`, `story_rejected`, or approved-path `story_finalized` evidence for that review cycle.
 

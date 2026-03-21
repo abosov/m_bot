@@ -49,10 +49,10 @@ The registry does **not** replace story bundles.
 - US-AUTO-22 — docs-only governance guidance, not runtime enforcement
 
 ### Current Gaps
-- Story change ledger durability contract is internally inconsistent across run, review, and finalize phases.
+- Story change ledger runtime behavior is not yet aligned to the redesigned workflow-safe durability contract.
 - Review artifacts can become stale when ledger commits are required after the reviewed snapshot is produced.
 - Clean-tree enforcement currently tolerates ledger dirtiness too broadly for a durable evidence workflow.
-- Anti-cycle enforcement must stay blocked until the ledger workflow contract is redesigned in a workflow-safe way.
+- Anti-cycle enforcement must stay blocked until the redesigned workflow-safe contract is adopted in runtime scripts.
 
 ### Optimization Roadmap
 - P1 durable ledger workflow redesign: US-AUTO-24
@@ -94,13 +94,14 @@ The registry does **not** replace story bundles.
 | US-AUTO-18 | Operator UX | Improve console UX | follow-up | Planned | P3 | Keep downstream from anti-cycle roadmap | US-AUTO-17 | N/A | Operator-facing UX only; do not absorb enforcement logic |
 | US-AUTO-20 | Workflow chaining | Resume + next step logic | follow-up | Implemented | P1 | None | US-AUTO-19 | automation/bundles/active/US-AUTO-20/ | Stage + next-command resume helper shipped |
 | US-AUTO-23 | Story change ledger | Record story-level change history | governance | Implemented | P1 | Start US-AUTO-24 bundle | New | automation/bundles/active/US-AUTO-23/ | Evidence-only ledger primitive shipped at `automation/story_change_ledger.jsonl`; records start, review outcome, reject, and finalize outcome |
-| US-AUTO-24 | Loop detection preflight | Detect likely repeat execution before run | enforcement | Planned | P1 | Draft bundle | US-AUTO-23 | N/A | Uses ledger signals to stop obvious loop entry before work starts |
-| US-AUTO-25 | Expensive run budget guard | Cap repeated high-cost reruns | enforcement | Planned | P1 | Draft bundle | US-AUTO-24 | N/A | Reduces loop cost by blocking repeated expensive run patterns |
-| US-AUTO-26 | Pipeline zone cap | Limit repeat passes within pipeline zones | enforcement | Planned | P1 | Draft bundle | US-AUTO-25 | N/A | Prevents cross-zone cycling by capping retries per workflow zone |
-| US-AUTO-27 | Escalation gate for loop-risk stories | Require operator escalation on risky loops | enforcement | Planned | P1 | Draft bundle | US-AUTO-26 | N/A | Forces human review when loop-risk signals persist |
-| US-AUTO-28 | Targeted test strategy | Narrow validation to impacted scope | follow-up | Planned | P2 | Draft bundle | US-AUTO-27 | N/A | Lowers iteration cost by avoiding unnecessarily broad rerun test scope |
-| US-AUTO-29 | Review reuse / cache guard | Reuse prior review context safely | follow-up | Planned | P2 | Draft bundle | US-AUTO-28 | N/A | Cuts repeat review work while guarding against stale-cache loop behavior |
-| US-AUTO-30 | Post-run checkpoint workflow | Add checkpoint before another full cycle | follow-up | Planned | P2 | Draft bundle | US-AUTO-29 | N/A | Encourages checkpoint decisions instead of immediate full rerun loops |
+| US-AUTO-24 | Durable ledger workflow redesign | Resolve ledger durability, review artifact freshness, clean-tree boundary, and finalization timing contradictions | docs-only | Bundle Ready | P1 | Use as prerequisite contract for runtime implementation follow-up and US-AUTO-25 | US-AUTO-23 | automation/bundles/active/US-AUTO-24/ | Design-only contract established; no runtime script changes in scope |
+| US-AUTO-25 | Loop detection preflight | Detect likely repeat execution before run | enforcement | Planned | P1 | Draft bundle | US-AUTO-24 | N/A | Uses redesigned ledger contract to stop obvious loop entry before work starts |
+| US-AUTO-26 | Expensive run budget guard | Cap repeated high-cost reruns | enforcement | Planned | P1 | Draft bundle | US-AUTO-25 | N/A | Reduces loop cost by blocking repeated expensive run patterns |
+| US-AUTO-27 | Pipeline zone cap | Limit repeat passes within pipeline zones | enforcement | Planned | P1 | Draft bundle | US-AUTO-26 | N/A | Prevents cross-zone cycling by capping retries per workflow zone |
+| US-AUTO-28 | Escalation gate for loop-risk stories | Require operator escalation on risky loops | enforcement | Planned | P1 | Draft bundle | US-AUTO-27 | N/A | Forces human review when loop-risk signals persist |
+| US-AUTO-29 | Targeted test strategy | Narrow validation to impacted scope | follow-up | Planned | P2 | Draft bundle | US-AUTO-28 | N/A | Lowers iteration cost by avoiding unnecessarily broad rerun test scope |
+| US-AUTO-30 | Review reuse / cache guard | Reuse prior review context safely | follow-up | Planned | P2 | Draft bundle | US-AUTO-29 | N/A | Cuts repeat review work while guarding against stale-cache loop behavior |
+| US-AUTO-31 | Post-run checkpoint workflow | Add checkpoint before another full cycle | follow-up | Planned | P2 | Draft bundle | US-AUTO-30 | N/A | Encourages checkpoint decisions instead of immediate full rerun loops |
 
 ---
 

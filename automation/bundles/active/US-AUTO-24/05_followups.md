@@ -6,6 +6,9 @@
 - `US-AUTO-26` — Expensive run budget guard once event timing and durability are trustworthy.
 - `US-AUTO-27` — Pipeline zone cap after the redesigned evidence contract is implemented.
 - `US-AUTO-28` — Escalation gate for loop-risk stories after loop signals and clean-tree semantics are stable.
+- `US-AUTO-29` — Targeted test strategy after anti-cycle enforcement semantics stabilize.
+- `US-AUTO-30` — Review reuse / cache guard after the redesigned ledger workflow is runtime-enforced.
+- `US-AUTO-31` — Post-run checkpoint workflow to reduce immediate rerun loops.
 
 ## Iteration Notes
 - Do not implement runtime fixes inside this design story.

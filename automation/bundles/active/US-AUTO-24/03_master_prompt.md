@@ -16,7 +16,7 @@ Read and follow:
 - `automation/bundles/active/US-AUTO-23/00_story.md`
 - `automation/bundles/active/US-AUTO-23/01_context_bundle.md`
 - `automation/bundles/active/US-AUTO-23/04_review_checklist.md`
-- `automation/bundles/active/US-AUTO-24/00_sry.md`
+- `automation/bundles/active/US-AUTO-24/00_story.md`
 - `automation/bundles/active/US-AUTO-24/01_context_bundle.md`
 - `automation/bundles/active/US-AUTO-24/02_file_scope.md`
 
@@ -99,7 +99,7 @@ Evaluate at least these options in the design:
 - dedicated follow-up commit after review
 - another workflow-safe mechanism if clearly justified
 
-Tundle must state the chosen recommendation and why the other options were rejected.
+The bundle must state the chosen recommendation and why the other options were rejected.
 
 ## Constraints
 - Do not implement runtime code changes.
