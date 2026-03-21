@@ -55,21 +55,23 @@ The registry does **not** replace story bundles.
 - Anti-cycle enforcement must stay blocked until the redesigned workflow-safe contract is adopted in runtime scripts.
 
 ### Optimization Roadmap
-- P1 durable ledger workflow redesign: US-AUTO-24
+- P1 runtime alignment after durable ledger contract: US-AUTO-32 → US-AUTO-34
 - P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28
 - P3 cycle cost reduction: US-AUTO-29 → US-AUTO-31
 - P4 operator UX: US-AUTO-18
 
 ### Next Recommended Story
-1. US-AUTO-24 — durable ledger workflow redesign
-2. US-AUTO-25 — loop detection preflight
-3. US-AUTO-26 — expensive run budget guard
-4. US-AUTO-27 — pipeline zone cap
-5. US-AUTO-28 — escalation gate for loop-risk stories
-6. US-AUTO-29 — targeted test strategy
-7. US-AUTO-30 — review reuse / cache guard
-8. US-AUTO-31 — post-run checkpoint workflow
-9. US-AUTO-18 — operator UX
+1. US-AUTO-32 — pre-merge finalized ledger contract
+2. US-AUTO-33 — clean-tree and ledger dirtiness enforcement
+3. US-AUTO-34 — review/ledger snapshot consistency + finalize hardening
+4. US-AUTO-25 — loop detection preflight
+5. US-AUTO-26 — expensive run budget guard
+6. US-AUTO-27 — pipeline zone cap
+7. US-AUTO-28 — escalation gate for loop-risk stories
+8. US-AUTO-29 — targeted test strategy
+9. US-AUTO-30 — review reuse / cache guard
+10. US-AUTO-31 — post-run checkpoint workflow
+11. US-AUTO-18 — operator UX
 
 ---
 
@@ -94,7 +96,10 @@ The registry does **not** replace story bundles.
 | US-AUTO-18 | Operator UX | Improve console UX | follow-up | Planned | P3 | Keep downstream from anti-cycle roadmap | US-AUTO-17 | N/A | Operator-facing UX only; do not absorb enforcement logic |
 | US-AUTO-20 | Workflow chaining | Resume + next step logic | follow-up | Implemented | P1 | None | US-AUTO-19 | automation/bundles/active/US-AUTO-20/ | Stage + next-command resume helper shipped |
 | US-AUTO-23 | Story change ledger | Record story-level change history | governance | Implemented | P1 | Start US-AUTO-24 bundle | New | automation/bundles/active/US-AUTO-23/ | Evidence-only ledger primitive shipped at `automation/story_change_ledger.jsonl`; records start, review outcome, reject, and finalize outcome |
-| US-AUTO-24 | Durable ledger workflow redesign | Resolve ledger durability, review artifact freshness, clean-tree boundary, and finalization timing contradictions | docs-only | Bundle Ready | P1 | Use as prerequisite contract for runtime implementation follow-up and US-AUTO-25 | US-AUTO-23 | automation/bundles/active/US-AUTO-24/ | Design-only contract established; no runtime script changes in scope |
+| US-AUTO-24 | Durable ledger workflow redesign | Resolve ledger durability, review artifact freshness, clean-tree boundary, and finalization timing contradictions | docs-only | Docs Only | P1 | Start US-AUTO-32 bundle | US-AUTO-23 | automation/bundles/active/US-AUTO-24/ | Design contract merged in PR #212; runtime alignment split into US-AUTO-32 → US-AUTO-34 before anti-cycle enforcement |
+| US-AUTO-32 | Pre-merge finalized ledger contract | Move `story_finalized` into pre-merge durable reviewed branch history | implementation | Planned | P0 | Draft bundle | US-AUTO-24 | N/A | First runtime-alignment story; fixes finalized-event semantics before anti-cycle work |
+| US-AUTO-33 | Clean-tree and ledger dirtiness enforcement | Remove broad ledger dirtiness tolerance and restore strict clean-tree boundary | enforcement | Planned | P0 | Draft bundle | US-AUTO-32 | N/A | Blocks ambiguous local ledger state and restores deterministic run preconditions |
+| US-AUTO-34 | Review snapshot consistency and finalize hardening | Align review artifacts with ledger snapshot and harden finalize GitHub/network behavior | follow-up | Planned | P1 | Draft bundle | US-AUTO-33 | N/A | Adds retry/fallback behavior and eliminates stale review vs ledger drift |
 | US-AUTO-25 | Loop detection preflight | Detect likely repeat execution before run | enforcement | Planned | P1 | Draft bundle | US-AUTO-24 | N/A | Uses redesigned ledger contract to stop obvious loop entry before work starts |
 | US-AUTO-26 | Expensive run budget guard | Cap repeated high-cost reruns | enforcement | Planned | P1 | Draft bundle | US-AUTO-25 | N/A | Reduces loop cost by blocking repeated expensive run patterns |
 | US-AUTO-27 | Pipeline zone cap | Limit repeat passes within pipeline zones | enforcement | Planned | P1 | Draft bundle | US-AUTO-26 | N/A | Prevents cross-zone cycling by capping retries per workflow zone |
