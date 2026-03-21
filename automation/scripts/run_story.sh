@@ -6,6 +6,8 @@ ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 BUNDLES_ROOT="${AUTOMATION_BUNDLES_ROOT:-$ROOT_DIR/automation/bundles/active}"
 RUNNER="${AUTOMATION_RUNNER:-$ROOT_DIR/automation/run_codex_task.sh}"
 VALIDATOR_SCRIPT="$ROOT_DIR/automation/scripts/validate_story_bundle.sh"
+# shellcheck source=automation/scripts/story_change_ledger.sh
+source "$SCRIPT_DIR/story_change_ledger.sh"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -81,4 +83,16 @@ echo "[INFO] Bundle dir: $BUNDLE_DIR" >&2
 echo "[INFO] Master prompt: $MASTER_PROMPT" >&2
 echo "[INFO] Delegating to: $RUNNER" >&2
 
+append_story_change_ledger_entry \
+  "$STORY_ID" \
+  "story_started" \
+  "started" \
+  "" \
+  "" \
+  "" \
+  "run_story" \
+  "automation/bundles/active/$STORY_ID/03_master_prompt.md" \
+  "run_story delegated to runner" || true
+
+export AUTOMATION_STORY_START_LEDGER_RECORDED=1
 exec "$RUNNER" "$MASTER_PROMPT"

@@ -8,6 +8,8 @@ RUN_DIR_OVERRIDE="${AUTOMATION_RUN_DIR:-}"
 
 # shellcheck source=automation/scripts/merge_recommendation_contract.sh
 source "$SCRIPT_DIR/merge_recommendation_contract.sh"
+# shellcheck source=automation/scripts/story_change_ledger.sh
+source "$SCRIPT_DIR/story_change_ledger.sh"
 
 AI_REVIEW_SCRIPT="$SCRIPT_DIR/ai_review_story_run.sh"
 CLASSIFY_REVIEW_SCRIPT="$SCRIPT_DIR/classify_review_story_run.sh"
@@ -203,6 +205,45 @@ update_manifest_gate_artifacts() {
   done
 }
 
+append_review_ledger_events() {
+  local decision="$1"
+  local decision_source="$2"
+  local status="$3"
+  local reason="$4"
+  local branch_name
+  local artifact_path
+
+  branch_name="$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  if [[ "$branch_name" == "HEAD" ]]; then
+    branch_name=""
+  fi
+  artifact_path="automation/runs/$STORY_ID/$RUN_ID/$GATE_RESULT_FILE_NAME"
+
+  append_story_change_ledger_entry \
+    "$STORY_ID" \
+    "review_outcome" \
+    "$decision" \
+    "$RUN_ID" \
+    "$branch_name" \
+    "" \
+    "$decision_source" \
+    "$artifact_path" \
+    "$status: $reason" || true
+
+  if [[ "$decision" != "approve" ]]; then
+    append_story_change_ledger_entry \
+      "$STORY_ID" \
+      "story_rejected" \
+      "$decision" \
+      "$RUN_ID" \
+      "$branch_name" \
+      "" \
+      "$decision_source" \
+      "$artifact_path" \
+      "$reason" || true
+  fi
+}
+
 [[ $# -eq 1 ]] || usage
 
 STORY_ID="$1"
@@ -239,6 +280,7 @@ if [[ $ai_review_exit_code -ne 0 ]]; then
     "failed" \
     "AI review step failed"
   update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
+  append_review_ledger_events "reject" "ai_review_failed" "failed" "AI review step failed"
   fail "AI review step failed for '$STORY_ID' (exit $ai_review_exit_code)"
 fi
 
@@ -296,6 +338,7 @@ write_gate_result \
   "$reason"
 
 update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
+append_review_ledger_events "$decision" "$decision_source" "$status" "$reason"
 printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
 printf 'Final decision: %s\n' "$decision"
 printf 'Run analysis command: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$LATEST_RUN_DIR" "$STORY_ID"

@@ -10,6 +10,15 @@ CONTEXT_MODE="lean"
 GENERATED_CONTEXT_FILES=()
 REVIEW_BASE_REF="origin/main"
 REVIEW_DIFF_RANGE="$REVIEW_BASE_REF...HEAD"
+LEDGER_HELPER="$ROOT_DIR/automation/scripts/story_change_ledger.sh"
+if [[ -f "$LEDGER_HELPER" ]]; then
+  # shellcheck source=automation/scripts/story_change_ledger.sh
+  source "$LEDGER_HELPER"
+else
+  append_story_change_ledger_entry() {
+    return 0
+  }
+fi
 
 fail() {
   echo "ERROR: $*" >&2
@@ -458,7 +467,7 @@ require_git_ref "$REVIEW_BASE_REF"
 
 BRANCH_NAME="$(git rev-parse --abbrev-ref HEAD)"
 CURRENT_HEAD="$(git rev-parse --short HEAD)"
-GIT_STATUS="$(git status --porcelain)"
+GIT_STATUS="$(git status --porcelain | grep -v 'automation/story_change_ledger.jsonl' || true)"
 PROMPT_CONTENT="$(cat "$PROMPT_FILE")"
 
 [[ "$BRANCH_NAME" != "main" ]] || fail "do not run automation on main; switch to a feature branch first"
@@ -471,6 +480,20 @@ CODEX_MODEL="${CODEX_MODEL:-}"
 CODEX_EXTRA_ARGS="${CODEX_EXTRA_ARGS:-}"
 
 STORY_ID="$(derive_story_id "$PROMPT_FILE")"
+
+if [[ "${AUTOMATION_STORY_START_LEDGER_RECORDED:-0}" != "1" ]]; then
+  append_story_change_ledger_entry \
+    "$STORY_ID" \
+    "story_started" \
+    "started" \
+    "" \
+    "$BRANCH_NAME" \
+    "" \
+    "automation/run_codex_task.sh" \
+    "${PROMPT_FILE#$ROOT_DIR/}" \
+    "runner started without run_story wrapper" || true
+fi
+
 RUN_ID="$(date -u +"%Y-%m-%d_%H-%M-%S")"
 RUN_DIR="$RUNS_ROOT/$STORY_ID/$RUN_ID"
 WORKTREE_DIR=""
@@ -619,9 +642,23 @@ run_pytest() {
   echo "$exit_code"
 }
 
+filter_materialization_exclusions() {
+  local tmp_file
+
+  tmp_file="$(mktemp)"
+  grep -vx 'automation/story_change_ledger.jsonl' "$WORKTREE_TRACKED_LIST_FILE" > "$tmp_file" || true
+  mv "$tmp_file" "$WORKTREE_TRACKED_LIST_FILE"
+
+  tmp_file="$(mktemp)"
+  grep -vx 'automation/story_change_ledger.jsonl' "$WORKTREE_UNTRACKED_LIST_FILE" > "$tmp_file" || true
+  mv "$tmp_file" "$WORKTREE_UNTRACKED_LIST_FILE"
+}
+
 load_worktree_changes() {
   git -C "$WORKTREE_DIR" diff --name-only "$WORKTREE_HEAD" -- > "$WORKTREE_TRACKED_LIST_FILE" || true
   git -C "$WORKTREE_DIR" ls-files --others --exclude-standard > "$WORKTREE_UNTRACKED_LIST_FILE" || true
+
+  filter_materialization_exclusions
 
   MATERIALIZED_TRACKED_COUNT="$(wc -l < "$WORKTREE_TRACKED_LIST_FILE" | tr -d ' ')"
   MATERIALIZED_UNTRACKED_COUNT="$(wc -l < "$WORKTREE_UNTRACKED_LIST_FILE" | tr -d ' ')"

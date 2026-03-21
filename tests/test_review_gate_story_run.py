@@ -151,6 +151,12 @@ fi
     gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
     assert '"decision": "reject"' in gate_result
     assert '"decision_source": "review_classification"' in gate_result
+    ledger_text = (
+        root_dir / "automation" / "story_change_ledger.jsonl"
+    ).read_text(encoding="utf-8")
+    assert '"event":"review_outcome"' in ledger_text
+    assert '"event":"story_rejected"' in ledger_text
+    assert '"outcome":"reject"' in ledger_text
 
 
 def test_review_gate_story_run_passes_on_approve(tmp_path: Path) -> None:
@@ -237,6 +243,12 @@ fi
     assert "- ai_review_result.md" in manifest_text
     assert "- review_classification.md" in manifest_text
     assert "- review_gate_result.json" in manifest_text
+    ledger_text = (
+        root_dir / "automation" / "story_change_ledger.jsonl"
+    ).read_text(encoding="utf-8")
+    assert '"event":"review_outcome"' in ledger_text
+    assert '"outcome":"approve"' in ledger_text
+    assert '"event":"story_rejected"' not in ledger_text
 
 
 def test_review_gate_story_run_rejects_when_decision_cannot_be_derived(

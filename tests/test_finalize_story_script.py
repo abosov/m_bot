@@ -133,6 +133,7 @@ def base_env(tmp_path: Path) -> dict[str, str]:
     env["FINALIZE_TEST_LOG"] = str(log_file)
     env["FINALIZE_STORY_GIT_BIN"] = str(git_bin)
     env["FINALIZE_STORY_GH_BIN"] = str(gh_bin)
+    env["AUTOMATION_ROOT_DIR"] = str(tmp_path / "automation_root")
     env["FINALIZE_TEST_GIT_BRANCH"] = "feature/us-auto-13"
     env["FINALIZE_TEST_PR_HEAD_REF"] = "feature/us-auto-13"
     return env
@@ -186,6 +187,12 @@ def test_finalize_story_runs_expected_commands_on_success(tmp_path: Path) -> Non
         "git ls-remote --exit-code --heads origin feature/us-auto-13",
         "git push origin --delete feature/us-auto-13",
     ]
+    ledger_text = (
+        tmp_path / "automation_root" / "automation" / "story_change_ledger.jsonl"
+    ).read_text(encoding="utf-8")
+    assert '"story_id":"US-AUTO-13"' in ledger_text
+    assert '"event":"story_finalized"' in ledger_text
+    assert '"pr_number":"42"' in ledger_text
 
 
 def test_finalize_story_blocks_merge_when_checks_fail(tmp_path: Path) -> None:
