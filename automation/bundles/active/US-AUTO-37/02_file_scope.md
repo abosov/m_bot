@@ -15,6 +15,7 @@
 - `automation/bundle_packs/US-AUTO-37.bundle.md`
 - `automation/bundles/active/US-AUTO-37/**`
 - `automation/story_change_ledger.jsonl`
+- `tests/test_finalize_story_script.py`
 
 ## Files Not Allowed To Change
 - `backend/**`
