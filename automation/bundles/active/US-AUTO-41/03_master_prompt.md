@@ -20,6 +20,7 @@ Implement **US-AUTO-41 — Story artifacts commit handoff before run** as a narr
 - `docs/90_codex/STORY_BUNDLE_SPEC.md`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
+- `automation/run_codex_task.sh`
 - only the minimum test files required for this story
 
 ## Files Not Allowed To Change

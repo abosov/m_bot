@@ -171,6 +171,7 @@ Keep this story narrow. The goal is to make the missing handoff canonical, not t
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `tests/test_run_story.py`
 - `tests/test_story_bundle_scripts.py`
+- `automation/run_codex_task.sh`
 
 ## Files Not Allowed To Change
 - rollback lifecycle implementation introduced by US-AUTO-38, except where strictly necessary for compatibility within `automation/scripts/run_story.sh`
@@ -220,6 +221,7 @@ Implement **US-AUTO-41 — Story artifacts commit handoff before run** as a narr
 - `docs/90_codex/STORY_BUNDLE_SPEC.md`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
+- `automation/run_codex_task.sh`
 - only the minimum test files required for this story
 
 ## Files Not Allowed To Change
