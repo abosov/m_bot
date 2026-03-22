@@ -9,6 +9,8 @@
 - `docs/90_codex/STORY_BUNDLE_SPEC.md`
 - `automation/bundle_packs/US-AUTO-38.bundle.md`
 - `automation/bundles/active/US-AUTO-38/**`
+- `tests/test_run_story.py`
+- `tests/test_run_codex_task.py`
 
 ## Files Not Allowed To Change
 - `backend/**`
