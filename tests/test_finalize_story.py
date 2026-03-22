@@ -158,3 +158,24 @@ def test_finalize_story_allows_ledger_only_dirty_status(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert "Finalization complete on 'main'" in result.stderr
+
+
+def test_finalize_story_rejects_non_ledger_dirty_status(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir)
+
+    fake_git = tmp_path / "fake_git.sh"
+    fake_gh = tmp_path / "fake_gh.sh"
+    write_fake_git(fake_git)
+    write_fake_gh(fake_gh)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["FINALIZE_STORY_GIT_BIN"] = str(fake_git)
+    env["FINALIZE_STORY_GH_BIN"] = str(fake_gh)
+    env["FINALIZE_TEST_GIT_STATUS_OUTPUT"] = " M README.md"
+
+    result = run(["bash", str(SCRIPT_PATH)], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "working tree must be clean before finalization" in result.stderr

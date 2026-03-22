@@ -106,3 +106,42 @@ def test_run_story_cleans_ephemeral_ledger_when_runner_fails(tmp_path: Path) -> 
     status = run(["git", "status", "--porcelain", "--", "automation/story_change_ledger.jsonl"], cwd=root_dir)
     assert status.returncode == 0, status.stderr
     assert status.stdout.strip() == ""
+
+
+def test_run_story_keeps_non_ledger_runner_changes_visible(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    fake_runner = root_dir / "fake_runner.sh"
+    non_ledger_output = root_dir / "implementation_output.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' changed > {str(non_ledger_output)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert non_ledger_output.read_text(encoding="utf-8").strip() == "changed"
+
+    ledger_status = run(
+        ["git", "status", "--porcelain", "--", "automation/story_change_ledger.jsonl"],
+        cwd=root_dir,
+    )
+    assert ledger_status.returncode == 0, ledger_status.stderr
+    assert ledger_status.stdout.strip() == ""
+
+    non_ledger_status = run(
+        ["git", "status", "--porcelain", "--", "implementation_output.txt"],
+        cwd=root_dir,
+    )
+    assert non_ledger_status.returncode == 0, non_ledger_status.stderr
+    assert non_ledger_status.stdout.strip() == "?? implementation_output.txt"

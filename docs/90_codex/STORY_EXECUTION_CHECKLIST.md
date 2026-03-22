@@ -31,14 +31,14 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    Use `automation/run_codex_task.sh --full-context <master-prompt-path>` only when the story needs the full bundle context.
    `automation/scripts/run_story.sh <STORY-ID>` continues to use the runner defaults.
    Before execution, confirm the prompt explicitly contains intent, out-of-scope, allowed-files, forbidden-files, a statement that Atomic Task Isolation is mandatory for this run, hard-stop, follow-up capture language, a requirement to restate the one-sentence task intent before edits, and an execution gate that tells Codex to refuse non-atomic or underspecified prompts or prompts that batch another independently reviewable change.
-   `run_story.sh` should record one evidence-only `story_started` event for `automation/story_change_ledger.jsonl`, and treat that path as ephemeral workflow state rather than implementation diff.
-   `run_story.sh` and `automation/run_codex_task.sh` should restore the ephemeral ledger path on exit so ledger writes do not persist as happy-path implementation drift.
+   `run_story.sh` should record one evidence-only `story_started` event for `automation/story_change_ledger.jsonl`, and treat that exact path as ephemeral workflow state rather than implementation diff.
+   `run_story.sh` and `automation/run_codex_task.sh` should restore the same exact path on exit so ledger writes do not persist as happy-path implementation drift.
 14. Verify the Codex output stayed within the declared atomic task, implemented only one independently reviewable purpose, and captured any out-of-scope findings as follow-up work instead of inline changes.
 15. Run required tests (minimum: targeted `pytest` scope for changed behavior).
 16. Collect implementation and review artifacts into the story bundle.
    Review evidence is derived from the materialized primary checkout state rooted at the `origin/main` merge-base so committed and newly materialized working-tree changes are both captured before cleanup.
 17. Resolve the latest review artifacts for the story (`automation/scripts/review_story_run.sh <STORY-ID>`).
-   Review can proceed only when the current branch working tree is clean (commit-consistent with review evidence), excluding the ephemeral ledger path `automation/story_change_ledger.jsonl`.
+   Review can proceed only when the current branch working tree is clean (commit-consistent with review evidence), excluding only the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
    If the working tree is dirty with materialized changes, inspect and commit first; then rerun story execution if needed.
    The review summary prints the canonical pinned inspection helper (`AUTOMATION_RUN_DIR=<run-dir> automation/scripts/analyze_story_run.sh <STORY-ID>`) plus the deterministic pinned gate command for that same run.
    The review summary must use the exact selected run directory for both printed commands so operators can continue deterministically from that run.
@@ -48,7 +48,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    The classification artifact must contain an exact standalone `MERGE RECOMMENDATION: approve` or `MERGE RECOMMENDATION: reject` line for the gate.
    If classification text is malformed or ambiguous, preserve `review_classification.md` for debugging and fail closed instead of deleting the artifact.
 20. Execute the review gate for the latest run (`automation/scripts/review_gate_story_run.sh <STORY-ID>`).
-   The gate must fail closed before AI review/classification when the current branch working tree has uncommitted changes outside the ephemeral ledger path `automation/story_change_ledger.jsonl`.
+   The gate must fail closed before AI review/classification when the current branch working tree has uncommitted changes outside the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
    The gate must also fail closed when the selected run's manifest HEAD does not match the current checkout HEAD; stale pre-finalize approval is never merge-valid.
    The gate must fail closed when review artifacts are not faithful to the authoritative branch diff reconstructed from the run manifest `review_artifact_base` and current checkout `HEAD`.
    Fidelity enforcement compares the selected run's `changed_files.txt` and `diff.patch` against regenerated git outputs for `review_artifact_base..HEAD`; any mismatch is a deterministic reject.
