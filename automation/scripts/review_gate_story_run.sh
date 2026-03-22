@@ -215,6 +215,77 @@ head_consistency_status() {
   printf 'mismatch:%s:%s\n' "$expected_head" "$current_head"
 }
 
+resolve_review_artifact_base() {
+  local manifest_file="$1"
+  local review_artifact_base
+
+  review_artifact_base="$(manifest_value "$manifest_file" "review_artifact_base")"
+  if [[ -z "$review_artifact_base" ]]; then
+    return 1
+  fi
+
+  git -C "$ROOT_DIR" rev-parse --verify "${review_artifact_base}^{commit}" 2>/dev/null || return 1
+}
+
+review_artifact_fidelity_status() {
+  local run_dir="$1"
+  local manifest_file="$2"
+  local diff_artifact changed_files_artifact
+  local review_artifact_base
+  local expected_diff_file expected_changed_files_file artifact_changed_files_file
+
+  diff_artifact="$run_dir/diff.patch"
+  changed_files_artifact="$run_dir/changed_files.txt"
+
+  if [[ ! -f "$diff_artifact" ]]; then
+    printf 'reject\treview_diff_artifact_missing\trequired file not found: %s\n' "$diff_artifact"
+    return 0
+  fi
+
+  if [[ ! -f "$changed_files_artifact" ]]; then
+    printf 'reject\treview_changed_files_artifact_missing\trequired file not found: %s\n' "$changed_files_artifact"
+    return 0
+  fi
+
+  if ! review_artifact_base="$(resolve_review_artifact_base "$manifest_file")"; then
+    printf 'reject\treview_artifact_base_missing\trun manifest is missing or has invalid review_artifact_base; rerun automation/scripts/run_story.sh %s\n' "$STORY_ID"
+    return 0
+  fi
+
+  expected_diff_file="$(mktemp)"
+  expected_changed_files_file="$(mktemp)"
+  artifact_changed_files_file="$(mktemp)"
+
+  if ! git -C "$ROOT_DIR" diff "$review_artifact_base" -- > "$expected_diff_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
+    printf 'reject\treview_diff_generation_failed\tunable to regenerate authoritative diff from review_artifact_base %s\n' "$review_artifact_base"
+    return 0
+  fi
+
+  if ! git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" -- | sed '/^$/d' | LC_ALL=C sort -u > "$expected_changed_files_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
+    printf 'reject\treview_changed_files_generation_failed\tunable to regenerate authoritative changed_files from review_artifact_base %s\n' "$review_artifact_base"
+    return 0
+  fi
+
+  sed '/^$/d' "$changed_files_artifact" | LC_ALL=C sort -u > "$artifact_changed_files_file"
+
+  if ! cmp -s "$artifact_changed_files_file" "$expected_changed_files_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
+    printf 'reject\treview_changed_files_mismatch\treview artifact changed_files.txt is stale or inconsistent with current HEAD diff; rerun automation/scripts/run_story.sh %s\n' "$STORY_ID"
+    return 0
+  fi
+
+  if ! cmp -s "$diff_artifact" "$expected_diff_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
+    printf 'reject\treview_diff_patch_mismatch\treview artifact diff.patch is stale or inconsistent with current HEAD diff; rerun automation/scripts/run_story.sh %s\n' "$STORY_ID"
+    return 0
+  fi
+
+  rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
+  printf 'ok\treview_artifact_fidelity_valid\tartifact fidelity verified against review_artifact_base %s\n' "$review_artifact_base"
+}
+
 write_gate_result() {
   local gate_result_file="$1"
   local story_id="$2"
@@ -378,6 +449,31 @@ if [[ -n "$decision_source" ]]; then
   printf 'Final decision: reject\n'
   printf 'Run analysis command: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$LATEST_RUN_DIR" "$STORY_ID"
   fail "review gate rejected merge for '$STORY_ID' ($reason)"
+fi
+
+fidelity_status="$(review_artifact_fidelity_status "$LATEST_RUN_DIR" "$MANIFEST_FILE")"
+IFS=$'\t' read -r fidelity_decision fidelity_source fidelity_reason <<< "$fidelity_status"
+
+if [[ "$fidelity_decision" == "reject" ]]; then
+  write_gate_result \
+    "$GATE_RESULT_FILE" \
+    "$STORY_ID" \
+    "$RUN_ID" \
+    "$LATEST_RUN_DIR" \
+    "$AI_REVIEW_FILE" \
+    "$CLASSIFICATION_FILE" \
+    "$reviewed_head" \
+    "$checkout_head" \
+    "reject" \
+    "$fidelity_source" \
+    "failed" \
+    "$fidelity_reason"
+  update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
+  append_review_ledger_events "reject" "$fidelity_source" "failed" "$fidelity_reason"
+  printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
+  printf 'Final decision: reject\n'
+  printf 'Run analysis command: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$LATEST_RUN_DIR" "$STORY_ID"
+  fail "review gate rejected merge for '$STORY_ID' ($fidelity_reason)"
 fi
 
 set +e
