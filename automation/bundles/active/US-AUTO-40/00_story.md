@@ -39,5 +39,18 @@ The workflow must enforce a deterministic artifact-fidelity contract such that:
 - faithful artifacts continue to allow normal review approval;
 - docs and tests clearly describe and verify the invariant.
 
+## Scope
+In scope:
+- enforce artifact fidelity between review artifacts and actual branch diff;
+- implement focused review/gate checks for stale or incomplete artifact state;
+- add or update targeted tests for approve and reject paths;
+- update focused operator documentation and active bundle files to reflect the contract.
+
+Out of scope:
+- full single-source-of-truth redesign for bundle scope files;
+- ledger runtime hygiene or rollback automation;
+- broader run-resolution redesign;
+- generic preflight hygiene redesign.
+
 ## Notes
 This story should remain tightly scoped to artifact fidelity enforcement and operator clarity.

@@ -1,5 +1,8 @@
 # US-AUTO-40 PROMPT 1
 
+## Role
+You are the System Architect + Workflow Designer + Developer + Tech Writer + QA for Zumbot, working under the CODEX Operating System workflow.
+
 ## Goal
 Design and implement a strict workflow contract ensuring that review artifacts used by the review/gate flow are faithful to the actual code under review, and that stale or materially inconsistent artifacts are rejected fail-closed.
 
