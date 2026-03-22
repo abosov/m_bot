@@ -6,6 +6,7 @@ ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 BUNDLES_ROOT="${AUTOMATION_BUNDLES_ROOT:-$ROOT_DIR/automation/bundles/active}"
 RUNNER="${AUTOMATION_RUNNER:-$ROOT_DIR/automation/run_codex_task.sh}"
 VALIDATOR_SCRIPT="$ROOT_DIR/automation/scripts/validate_story_bundle.sh"
+EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
 # shellcheck source=automation/scripts/story_change_ledger.sh
 source "$SCRIPT_DIR/story_change_ledger.sh"
 
@@ -36,7 +37,16 @@ require_file() {
   [[ -f "$path" ]] || fail "required file not found: $path"
 }
 
+restore_ephemeral_story_change_ledger() {
+  git -C "$ROOT_DIR" restore --worktree --source=HEAD -- "$EPHEMERAL_LEDGER_PATH" >/dev/null 2>&1 || true
+}
+
+cleanup_ephemeral_story_change_ledger() {
+  restore_ephemeral_story_change_ledger
+}
+
 [[ $# -eq 1 ]] || usage
+trap cleanup_ephemeral_story_change_ledger EXIT
 
 STORY_ID="$1"
 validate_story_id "$STORY_ID"
@@ -95,4 +105,9 @@ append_story_change_ledger_entry \
   "run_story delegated to runner" || true
 
 export AUTOMATION_STORY_START_LEDGER_RECORDED=1
-exec "$RUNNER" "$MASTER_PROMPT"
+set +e
+"$RUNNER" "$MASTER_PROMPT"
+runner_exit_code=$?
+set -e
+
+exit "$runner_exit_code"

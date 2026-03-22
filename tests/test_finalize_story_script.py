@@ -148,7 +148,7 @@ def test_finalize_story_rejects_dirty_tree(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert "working tree must be clean" in result.stderr
     assert (tmp_path / "commands.log").read_text(encoding="utf-8").splitlines() == [
-        "git status --porcelain"
+        "git status --porcelain -- . :(exclude)automation/story_change_ledger.jsonl"
     ]
 
 
@@ -161,7 +161,7 @@ def test_finalize_story_rejects_main_branch(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert "refusing to finalize from 'main'" in result.stderr
     assert (tmp_path / "commands.log").read_text(encoding="utf-8").splitlines() == [
-        "git status --porcelain",
+        "git status --porcelain -- . :(exclude)automation/story_change_ledger.jsonl",
         "git rev-parse --abbrev-ref HEAD",
     ]
 
@@ -174,7 +174,7 @@ def test_finalize_story_runs_expected_commands_on_success(tmp_path: Path) -> Non
     assert result.returncode == 0, result.stderr
     assert "Finalization complete on 'main'" in result.stderr
     assert (tmp_path / "commands.log").read_text(encoding="utf-8").splitlines() == [
-        "git status --porcelain",
+        "git status --porcelain -- . :(exclude)automation/story_change_ledger.jsonl",
         "git rev-parse --abbrev-ref HEAD",
         "gh pr view feature/us-auto-13 --json number --jq .number",
         "gh pr view 42 --json headRefName --jq .headRefName",
@@ -204,7 +204,7 @@ def test_finalize_story_blocks_merge_when_checks_fail(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert "does not have green required checks" in result.stderr
     assert (tmp_path / "commands.log").read_text(encoding="utf-8").splitlines() == [
-        "git status --porcelain",
+        "git status --porcelain -- . :(exclude)automation/story_change_ledger.jsonl",
         "git rev-parse --abbrev-ref HEAD",
         "gh pr view feature/us-auto-13 --json number --jq .number",
         "gh pr view 42 --json headRefName --jq .headRefName",

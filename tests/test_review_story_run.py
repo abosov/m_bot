@@ -174,6 +174,48 @@ def test_review_story_run_blocks_when_working_tree_is_dirty(tmp_path: Path) -> N
     assert "not commit-consistent" in result.stderr
 
 
+def test_review_story_run_ignores_ephemeral_ledger_dirty_state(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    latest_run_dir = make_run_dir(root_dir, "US-AUTO-21", "2026-03-13_11-00-00")
+    write_artifacts(latest_run_dir)
+
+    ledger_path = root_dir / "automation" / "story_change_ledger.jsonl"
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path.write_text("", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "automation/story_change_ledger.jsonl"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "track ledger"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    ledger_path.write_text('{"dirty":true}\n', encoding="utf-8")
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-21"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Review safety: SAFE" in result.stdout
+    assert "Review safety: BLOCKED" not in result.stdout
+
+
 def test_review_story_run_accepts_relative_run_dir_override(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     setup_git_repo(root_dir)

@@ -10,6 +10,8 @@ CONTEXT_MODE="lean"
 GENERATED_CONTEXT_FILES=()
 REVIEW_BASE_REF="origin/main"
 REVIEW_DIFF_RANGE="$REVIEW_BASE_REF...HEAD"
+EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
+EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC=":(exclude)$EPHEMERAL_LEDGER_PATH"
 LEDGER_HELPER="$ROOT_DIR/automation/scripts/story_change_ledger.sh"
 if [[ -f "$LEDGER_HELPER" ]]; then
   # shellcheck source=automation/scripts/story_change_ledger.sh
@@ -31,6 +33,10 @@ info() {
 
 warn() {
   echo "[WARN] $*" >&2
+}
+
+restore_ephemeral_story_change_ledger() {
+  git -C "$ROOT_DIR" restore --worktree --source=HEAD -- "$EPHEMERAL_LEDGER_PATH" >/dev/null 2>&1 || true
 }
 
 usage() {
@@ -467,7 +473,7 @@ require_git_ref "$REVIEW_BASE_REF"
 
 BRANCH_NAME="$(git rev-parse --abbrev-ref HEAD)"
 CURRENT_HEAD="$(git rev-parse --short HEAD)"
-GIT_STATUS="$(git status --porcelain | grep -v 'automation/story_change_ledger.jsonl' || true)"
+GIT_STATUS="$(git status --porcelain -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" || true)"
 PROMPT_CONTENT="$(cat "$PROMPT_FILE")"
 
 [[ "$BRANCH_NAME" != "main" ]] || fail "do not run automation on main; switch to a feature branch first"
@@ -530,6 +536,7 @@ REPOSITORY_MAP_SOURCE_DOCS=""
 
 cleanup_worktree() {
   local exit_code=$?
+  restore_ephemeral_story_change_ledger
   if [[ "$WORKTREE_CREATED" == "1" && -n "$WORKTREE_DIR" ]]; then
     git worktree remove --force "$WORKTREE_DIR" >/dev/null 2>&1 || true
     rm -rf "$WORKTREE_DIR" >/dev/null 2>&1 || true
@@ -646,11 +653,11 @@ filter_materialization_exclusions() {
   local tmp_file
 
   tmp_file="$(mktemp)"
-  grep -vx 'automation/story_change_ledger.jsonl' "$WORKTREE_TRACKED_LIST_FILE" > "$tmp_file" || true
+  grep -vx "$EPHEMERAL_LEDGER_PATH" "$WORKTREE_TRACKED_LIST_FILE" > "$tmp_file" || true
   mv "$tmp_file" "$WORKTREE_TRACKED_LIST_FILE"
 
   tmp_file="$(mktemp)"
-  grep -vx 'automation/story_change_ledger.jsonl' "$WORKTREE_UNTRACKED_LIST_FILE" > "$tmp_file" || true
+  grep -vx "$EPHEMERAL_LEDGER_PATH" "$WORKTREE_UNTRACKED_LIST_FILE" > "$tmp_file" || true
   mv "$tmp_file" "$WORKTREE_UNTRACKED_LIST_FILE"
 }
 
@@ -763,9 +770,9 @@ collect_git_artifacts() {
   untracked_names_file="$RUN_DIR/.untracked_names.txt"
 
   info "Collecting git artifacts"
-  git diff --stat "$merge_base" -- > "$STAT_FILE" || true
-  git diff "$merge_base" -- > "$DIFF_FILE" || true
-  git diff --name-only "$merge_base" -- > "$tracked_names_file" || true
+  git diff --stat "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$STAT_FILE" || true
+  git diff "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$DIFF_FILE" || true
+  git diff --name-only "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$tracked_names_file" || true
   cp "$WORKTREE_UNTRACKED_LIST_FILE" "$untracked_names_file"
   cat "$tracked_names_file" "$untracked_names_file" | sed '/^$/d' | sort -u > "$NAMEONLY_FILE"
   append_untracked_artifacts
