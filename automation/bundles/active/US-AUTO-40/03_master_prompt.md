@@ -1,52 +1,64 @@
 # US-AUTO-40 PROMPT 1
 
-## Role
+## Goal
+Design and implement a strict workflow contract ensuring that review artifacts used by the review/gate flow are faithful to the actual code under review, and that stale or materially inconsistent artifacts are rejected fail-closed.
 
-You are the System Architect + Workflow Designer + Developer + Tech Writer + QA for Zumbot, working under the CODEX Operating System workflow.
+## Source of Truth
+- The authoritative reviewed code delta is the actual git diff for the branch under review, normally `origin/main...HEAD` unless the current workflow already defines a tighter equivalent.
+- Existing review/gate scripts, tests, and docs in the allowed scope are the implementation baseline.
+- The final active bundle must reflect the implemented contract after completion.
 
-## Story
+## Files Allowed To Change
+- automation/scripts/review_story_run.sh
+- automation/scripts/review_gate_story_run.sh
+- docs/90_codex/STORY_EXECUTION_CHECKLIST.md
+- docs/90_codex/STORY_BUNDLE_SPEC.md
+- tests/test_review_story_run.py
+- tests/test_review_gate_story_run.py
+- automation/bundles/active/US-AUTO-40/01_context_bundle.md
+- automation/bundles/active/US-AUTO-40/02_file_scope.md
+- automation/bundles/active/US-AUTO-40/04_review_checklist.md
+- automation/bundles/active/US-AUTO-40/05_followups.md
+- automation/bundles/active/US-AUTO-40/06_manual_actions.md
 
-US-AUTO-40 — Review artifact fidelity to actual HEAD diff
+## Files Not Allowed To Change
+Do not broaden scope into:
+- ledger runtime hygiene / rollback implementation
+- unrelated automation runner redesign
+- broader bundle scope-authority redesign reserved for US-AUTO-41
+- unrelated registry/backlog files unless absolutely required for correctness
+
+## Output
+Make the required code, test, and documentation changes directly in the repository.
+
+The result must:
+- preserve US-AUTO-39 HEAD-binding behavior;
+- enforce artifact fidelity against actual diff;
+- reject stale/incomplete artifacts deterministically;
+- keep the implementation tightly scoped to US-AUTO-40;
+- update the active bundle to reflect the final contract.
 
 ## Context
+US-AUTO-39 solved "wrong HEAD" approval by binding review/gate decisions to reviewed HEAD and rejecting checkout HEAD mismatch fail-closed.
 
-The workflow already improved one important invariant in US-AUTO-39:
+The remaining integrity gap is that review artifacts may still describe a change set that no longer fully matches the actual branch diff.
 
-- review/gate is now HEAD-bound;
-- stale checkout HEAD mismatch is rejected fail-closed;
-- review gate result records `reviewed_head` and `checkout_head`.
+This story closes that gap.
 
-That solved "wrong HEAD" approval.
+## Constraints
+- Preserve fail-closed behavior.
+- Do not create a second competing source of truth for reviewed content.
+- Prefer machine-verifiable checks based on real repository state.
+- Keep blast radius minimal.
 
-A new integrity gap remains:
-
-- review artifacts can still describe a change set that does not fully match the actual branch HEAD diff;
-- artifact content may become stale after follow-up commits or partial bundle updates;
-- review may therefore operate on an incomplete or misleading narrative of the real branch delta.
-
-This story is about **artifact fidelity to actual HEAD diff**.
-
-## Objective
-
-Design and implement a strict workflow contract ensuring that review artifacts used by the review/gate flow are faithful to the actual code under review.
-
-The contract must make the actual branch diff the authoritative technical reality and prevent approval when review artifacts materially drift from that reality.
-
-## Required Design Principles
-
-1. **Actual diff is authoritative**
-   The workflow must have one clear authoritative diff for review, based on the real branch comparison against base (normally `origin/main...HEAD`, unless the current automation contract already defines a tighter equivalent).
-
-2. **Fail closed**
-   If review artifacts are stale, partial, or materially inconsistent with the authoritative diff, review/gate must reject or fail rather than silently continue.
-
-3. **No duplicate competing truth**
-   Do not introduce a second ambiguous contract for "what is being reviewed".
-   The implementation should clarify and enforce one authoritative relationship between:
-   - actual git diff
-   - review artifacts
-   - review/gate decision
-
-4. **Minimal blast radius**
-   Keep the solution tightly scoped to artifact fidelity.
-   Do not try to solve the broader "single source of truth for
+## Tasks
+1. Inspect where artifact fidelity can drift from actual HEAD diff.
+2. Define the fidelity contract:
+   - authoritative diff,
+   - compared artifact data,
+   - enforcement point,
+   - reject/failure condition,
+   - remediation path.
+3. Implement the smallest robust enforcement change set.
+4. Add focused tests for approve vs reject paths.
+5. Update docs and active bundle to reflect the new contract.

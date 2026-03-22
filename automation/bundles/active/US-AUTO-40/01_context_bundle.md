@@ -1,88 +1,48 @@
 # Context Bundle — US-AUTO-40
 
-## Story
-US-AUTO-40 — Review artifact fidelity to actual HEAD diff
+## Source of Truth
+- Authoritative reviewed code reality is the actual git diff for the branch under review, normally `origin/main...HEAD`.
+- The primary implementation baseline is the current behavior of:
+  - `automation/scripts/review_story_run.sh`
+  - `automation/scripts/review_gate_story_run.sh`
+  - `tests/test_review_story_run.py`
+  - `tests/test_review_gate_story_run.py`
+  - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
+  - `docs/90_codex/STORY_BUNDLE_SPEC.md`
 
-## Why this story exists
-US-AUTO-39 closed one major integrity gap by making gate evaluation HEAD-bound:
-
-- review/gate now records the reviewed HEAD;
+## Current Code Reality
+After US-AUTO-39:
+- review/gate records reviewed HEAD;
 - gate compares reviewed HEAD with current checkout HEAD;
 - mismatch is rejected fail-closed.
 
-That solved the problem of approving the wrong checkout state.
+Remaining gap:
+- review artifacts can still be stale relative to current HEAD diff;
+- artifact-declared scope may omit files actually changed in `origin/main...HEAD`;
+- review can therefore approve based on a narrative that is not fully faithful to the real branch delta.
 
-A separate problem remains open:
+## Architectural Intent
+The actual branch diff must be the only authoritative technical reality for review.
 
-- review artifacts may still describe a change set that is not fully faithful to the actual branch diff;
-- artifact text can become stale after follow-up commits or partial bundle updates;
-- review can therefore operate using an outdated or incomplete representation of what is actually in `HEAD`.
+Review artifacts remain useful, but only if they are faithful to that actual diff.  
+The workflow must reject stale, incomplete, or misleading artifacts instead of silently tolerating drift.
 
-## Confirmed workflow risk
-The current workflow can still drift in the following way:
+This story should enforce fidelity with machine-verifiable checks, not with additional prose alone.
 
-1. bundle / review artifacts are created for an earlier branch state;
-2. additional commits or scope adjustmentspen;
-3. review artifacts are only partially updated, or not updated at all;
-4. review/gate still evaluates with artifact inputs that no longer faithfully represent `origin/main...HEAD`.
+## Risks
+- Solving too much and drifting into US-AUTO-41 scope redesign.
+- Introducing a second competing source of truth for reviewed scope.
+- Weakening existing fail-closed review/gate discipline.
+- Adding a brittle check that is overly text-dependent instead of git-state-dependent.
 
-Even with correct HEAD-binding, this creates review-quality drift because the narrative under review is no longer guaranteed to match the real technical delta.
+## Acceptance Notes
+The implementation should make the following true:
+- faithful artifacts can still pass review/gate;
+- stale or incomplete artifacts fail deterministically;
+- operator-facing messaging explains what drift was detected and how to recover;
+- docs reflect the new invariant and rerun/remediation expectation.
 
-## Core integrity principle for this story
-The actual branch diff is the only authoritative technical reality for review.
-
-Review artifacts are allowed only if they remain faithful to that actual diff.
-If they materially drift, workflow must reject or fail closed.
-
-## What this story should produce
-This story should define and implement a machine-enforceable fidelity contract that answers:
-
-- what exact diff is authoritative for review;
-- which artifact(s) declare or summarize reviewed scope;
-- how that artifact state is compared against actual git state;
-- where the workflow rejects stale / partial / misleading artifact state;
-- what the operator must do to recover.
-
-## What this story should not try to solve
-This story should stay narrow.
-
-It should **not** fully redesign bundle scope authority across all files.
-That broader contract cleanup belongs to **US-AUTO-41**.
-
-It should also **not** solve runtime ledger hygiene or automatic rollback after failed runs.
-Those belong to **US-AUTO-37** and **US-AUTO-38**.
-
-## Likely implementation direction
-The preferred solution is to enforce fidelity using machine-verifiable repository state rather than trusting free-form narrative text.
-
-Good implementation directions may include:
-
-- deriving reviewed file set from actual git diff;
-- comparing declared reviewed scope against actual changed file set;
-- rejecting when actual changed files are missing from review-declared scope;
-- rejecting when artifacts are stale relative to current HEAD.
-
-## Expected operator outcome
-After this story:
-
-- review artifacts should not silently drift from actual code under review;
-- operators should get a clear failure reason when artifacts no longer match HEAD;
-- rerunning or refreshing review should become the obvious remediation path.
-
-## Dependencies / sequence
-This story logically comes after:
-
-- US-AUTO-39 — HEAD-bound finalized post-commit re-review / re-gate
-
-This story should come before:
-
-- US-AUTO-41 — single source of truth for scope contract
-- US-AUTO-37 — ephemeral automation paths contract
-- US-AUTO-38 — automatic rollback after failed automation run
-
-## Operational reminder
-Until the ledger side-effect stories are implemented, after any run:
-
-- check `git status --short`
-- if the only dirt is `M automation/story_change_ledger.jsonl`
-- run `git restore automation/story_change_ledger.jsonl`
+## Operational Reminder
+Until US-AUTO-37 / US-AUTO-38 are implemented:
+- run `git status --short` after `run_story.sh` and `finalize_story.sh`;
+- if the only dirt is `M automation/story_change_ledger.jsonl`, restore it immediately.

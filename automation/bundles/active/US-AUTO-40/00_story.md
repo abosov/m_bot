@@ -1,62 +1,43 @@
-## Epic
-US-AUTO
+# US-AUTO-40
 
-## Story
-As the automation operator,
-I want review artifacts to be provably faithful to the actual branch HEAD diff,
-so that review and gate decisions are always made against the real code under review rather than a stale or partially matching artifact description.
+## Story ID and Title
+US-AUTO-40 — Review artifact fidelity to actual HEAD diff
 
-## Problem / Context
-US-AUTO-39 strengthened the gate invariant by binding approval to the reviewed HEAD and rejecting stale checkout HEAD mismatches. That closed one important class of review drift.
+## Objective
+Enforce a workflow contract in which review artifacts used by review/gate are provably faithful to the actual branch diff under review, so approval cannot proceed on stale, partial, or misleading artifact descriptions.
 
-However, a separate fidelity gap remains:
+## Non-goals
+- Do not redesign the full single-source-of-truth scope model across bundle files; that belongs to US-AUTO-41.
+- Do not solve runtime hygiene for `automation/story_change_ledger.jsonl`; that belongs to US-AUTO-37 / US-AUTO-38.
+- Do not redesign broader run resolution behavior beyond what is necessary for artifact fidelity enforcement; that belongs to US-AUTO-35.
+- Do not broaden into generic preflight hygiene redesign; that belongs to US-AUTO-36.
 
-- review artifacts may describe a change set that does not fully match the current `origin/main...HEAD` diff;
-- artifact text can become stale after additional commits, scope edits, or follow-up adjustments;
-- review may still pass while relying on artifact content that is only partially faithful to the real branch delta.
+## Dependencies
+- US-AUTO-39 — HEAD-bound finalized post-commit re-review / re-gate
+- Existing review/gate workflow under `automation/scripts/review_story_run.sh` and `automation/scripts/review_gate_story_run.sh`
 
-This is a workflow integrity problem. Even if HEAD binding is correct, review quality is still degraded if the review inputs are not guaranteed to reflect the actual code under review.
+## Source of Truth
+- Actual repository diff for review must be derived from the real branch state against base, normally `origin/main...HEAD` unless the existing workflow already defines a tighter equivalent.
+- The current repository scripts, tests, and docs in scope are the authoritative implementation baseline.
+- The active bundle for US-AUTO-40 must reflect the implemented contract after the story is completed.
 
-## Goal
-Introduce an explicit workflow contract that makes review artifact fidelity to actual HEAD diff enforceable and testable.
+## Current Code Reality
+US-AUTO-39 strengthened review/gate by binding decisions to reviewed HEAD and rejecting checkout HEAD mismatches fail-closed.
 
-The resulting design must ensure that review is grounded in the real branch diff and cannot silently proceed on stale, partial, or misleading artifact descriptions.
+However, review artifacts can still drift from the real branch diff:
+- artifact prose or declared review scope may describe an earlier branch state;
+- follow-up commits can change HEAD after artifacts were prepared;
+- partial artifact refresh can leave review operating on a stale or incomplete description of the code under review.
 
-## Desired Outcome
-Define and implement a deterministic contract for review artifact fidelity such that:
+This means HEAD identity can be correct while artifact fidelity is still wrong.
 
-1. the authoritative code delta for review is the actual branch diff against base (`origin/main...HEAD`, or the repo’s equivalent review base contract);
-2. review artifacts are either:
-   - generated from that diff, or
-   - explicitly validated against that diff before review/gate can approve;
-3. if artifacts are stale, partial, or inconsistent with the actual diff, the workflow fails closed or returns an explicit reject;
-4. documentation and runbook guidance explain how operators keep artifacts aligned with the real reviewed change set.
+## Target Outcome
+The workflow must enforce a deterministic artifact-fidelity contract such that:
+- the authoritative code delta for review is the actual branch diff;
+- review artifacts are generated from or validated against that diff;
+- stale or materially inconsistent artifacts are rejected fail-closed;
+- faithful artifacts continue to allow normal review approval;
+- docs and tests clearly describe and verify the invariant.
 
-## Scope
-In scope:
-
-- review artifact fidelity contract design;
-- detection of mismatch between artifact-declared review scope and actual branch HEAD diff;
-- enforcement point(s) in review and/or gate flow;
-- tests covering approve/reject behavior for faithful vs stale artifacts;
-- documentation updates for the new contract.
-
-Out of scope:
-
-- full redesign of scope-authority model across all bundle files (that belongs to US-AUTO-41);
-- runtime hygiene for `automation/story_change_ledger.jsonl` (belongs to US-AUTO-37 / US-AUTO-38);
-- broader run-selection redesign beyond fidelity enforcement (belongs to US-AUTO-35).
-
-## Constraints
-- Preserve fail-closed workflow behavior.
-- Do not weaken the clean-tree / review-gate discipline established by earlier stories.
-- Avoid introducing a second competing source of truth for actual review content.
-- Keep the design compatible with current bundle-based workflow unless a strictly better contract is documented and implemented.
-
-## Acceptance Criteria
-1. The workflow has a documented and implemented definition of what counts as the authoritative diff for review.
-2. Review/gate no longer approves when review artifacts are stale or materially inconsistent with the actual `origin/main...HEAD` diff.
-3. Faithful artifacts still allow normal review approval flow.
-4. Automated tests cover at least:
-   - faithful artifact → approve path;
-   - stale or incomplete
+## Notes
+This story should remain tightly scoped to artifact fidelity enforcement and operator clarity.

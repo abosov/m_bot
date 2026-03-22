@@ -1,60 +1,38 @@
 # File Scope — US-AUTO-40
 
-## In Scope
-
+## Files Allowed To Change
 Primary implementation targets:
-
 - automation/scripts/review_story_run.sh
 - automation/scripts/review_gate_story_run.sh
 
 Supporting documentation:
-
 - docs/90_codex/STORY_EXECUTION_CHECKLIST.md
-- docs/90_codex/STORY_BUNDLE_SPEC:
+- docs/90_codex/STORY_BUNDLE_SPEC.md
 
+Primary tests:
 - tests/test_review_story_run.py
 - tests/test_review_gate_story_run.py
 
-## Scope Intent
+Bundle alignment updates if needed:
+- automation/bundles/active/US-AUTO-40/01_context_bundle.md
+- automation/bundles/active/US-AUTO-40/02_file_scope.md
+- automation/bundles/active/US-AUTO-40/04_review_checklist.md
+- automation/bundles/active/US-AUTO-40/05_followups.md
+- automation/bundles/active/US-AUTO-40/06_manual_actions.md
 
-This story should implement fidelity enforcement between review artifacts and the actual branch diff.
+## Files Not Allowed To Change
+Unless strictly required by the implementation, do not modify:
+- unrelated automation scripts outside the review/gate path
+- runtime hygiene / rollback scripts for ledger cleanup
+- registry / backlog documents unrelated to US-AUTO-40
+- broader scope-contract architecture files beyond focused documentation updates
 
-The expected code change should stay concentrated in the review / gate workflow layer and its tests/docs.
+## Scope Notes
+This story is limited to enforcing fidelity between review artifacts and the actual branch diff.
 
-## Allowed Secondary Touches
-
-Secondary bundle/documentation alignment updates are allowed only if required to:
-
-- document the fidelity contract;
-- reflect result schema changes;
-- explain remediation steps for stale artifacts.
-
-## Out of Scope
-
-Do not use this story to redesign the full scope authority model across bundle files.
-That belongs to US-AUTO-41.
-
-Do not solve runtime side-effects of:
-
-- automation/story_change_ledger.jsonl
-
-That belongs to US-AUTO-37 / US-AUTO-38.
-
-Do not broaden into run selection redesign or unrelated preflight work:
-
-- run-local resolution redesign belongs to US-AUTO-35
-- hygiene guard redesign belongs to US-AUTO-36
-
-## Review Expectation
-
-The implemented diff should be explainable as:
-
-- one fidelity contract;
-- one enforcement path;
-- focused tests;
-- focused docs.
-
-## Drift Guard
-
-If implementation requires modifying files outside this scope, that should only happen when directly necessary for the fidelity contract to work end-to-end.
-Any such expansion should remain minimal and justified by the actual implementation.
+Keep the blast radius small and do not use this story to solve:
+- US-AUTO-41 single-source-of-truth redesign
+- US-AUTO-37 ephemeral automation paths contract
+- US-AUTO-38 automatic rollback after failed automation run
+- US-AUTO-35 run-local resolution redesign
+- US-AUTO-36 preflight hygiene redesign
