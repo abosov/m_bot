@@ -26,9 +26,13 @@ EOF
   exit 1
 }
 
+restore_ephemeral_story_change_ledger() {
+  git -C "$ROOT_DIR" restore --worktree --source=HEAD -- automation/story_change_ledger.jsonl >/dev/null 2>&1 || true
+}
+
 require_clean_tree() {
   local status_output
-  if ! status_output="$("$GIT_BIN" status --porcelain)"; then
+  if ! status_output="$("$GIT_BIN" status --porcelain -- . ':(exclude)automation/story_change_ledger.jsonl')"; then
     fail "failed to inspect git working tree"
   fi
 
@@ -177,5 +181,7 @@ if [[ -n "$final_story_id" ]]; then
     "pr:$PR_NUMBER" \
     "finalize_story completed" || true
 fi
+
+restore_ephemeral_story_change_ledger
 
 echo "[INFO] Finalization complete on '$MAIN_BRANCH'" >&2

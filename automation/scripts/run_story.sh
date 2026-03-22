@@ -36,6 +36,10 @@ require_file() {
   [[ -f "$path" ]] || fail "required file not found: $path"
 }
 
+restore_ephemeral_story_change_ledger() {
+  git -C "$ROOT_DIR" restore --worktree --source=HEAD -- automation/story_change_ledger.jsonl >/dev/null 2>&1 || true
+}
+
 [[ $# -eq 1 ]] || usage
 
 STORY_ID="$1"
@@ -95,4 +99,10 @@ append_story_change_ledger_entry \
   "run_story delegated to runner" || true
 
 export AUTOMATION_STORY_START_LEDGER_RECORDED=1
-exec "$RUNNER" "$MASTER_PROMPT"
+set +e
+"$RUNNER" "$MASTER_PROMPT"
+runner_exit_code=$?
+set -e
+
+restore_ephemeral_story_change_ledger
+exit "$runner_exit_code"

@@ -100,14 +100,29 @@ def write_required_review_artifacts(
 ) -> None:
     artifact_base = review_artifact_base or current_head(root_dir)
     diff_patch = subprocess.run(
-        ["git", "diff", artifact_base, "--"],
+        [
+            "git",
+            "diff",
+            artifact_base,
+            "--",
+            ".",
+            ":(exclude)automation/story_change_ledger.jsonl",
+        ],
         check=True,
         cwd=root_dir,
         capture_output=True,
         text=True,
     ).stdout
     changed_files_output = subprocess.run(
-        ["git", "diff", "--name-only", artifact_base, "--"],
+        [
+            "git",
+            "diff",
+            "--name-only",
+            artifact_base,
+            "--",
+            ".",
+            ":(exclude)automation/story_change_ledger.jsonl",
+        ],
         check=True,
         cwd=root_dir,
         capture_output=True,
@@ -577,6 +592,91 @@ cat >/dev/null
     assert "review_gate_story_run.sh US-AUTO-21" in result.stderr
     assert not ai_invocation_marker.exists()
     assert not (run_dir / "review_gate_result.json").exists()
+
+
+def test_review_gate_story_run_ignores_ephemeral_ledger_dirty_state(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    run_dir = make_run_dir(root_dir, "US-AUTO-21", "2026-03-14_18-56-10")
+
+    ledger_path = root_dir / "automation" / "story_change_ledger.jsonl"
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path.write_text("", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "automation/story_change_ledger.jsonl"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "track ledger"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    ledger_path.write_text('{"dirty":true}\n', encoding="utf-8")
+
+    write_required_review_artifacts(run_dir, root_dir)
+    write_manifest(run_dir, root_dir, "US-AUTO-21")
+
+    fake_bin_dir = tmp_path / "bin_ephemeral_ledger"
+    fake_bin_dir.mkdir()
+
+    write_executable(
+        fake_bin_dir / "codex",
+        """#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+cat >/dev/null
+if [[ "$output" == *"ai_review_result.md" ]]; then
+  printf '%s\n' '# AI Review Result' > "$output"
+elif [[ "$output" == *"review_classification.md" ]]; then
+  printf '%s\n' '# Review Classification' > "$output"
+  printf '%s\n' 'MERGE RECOMMENDATION: approve' >> "$output"
+else
+  : > "$output"
+fi
+""",
+    )
+
+    rules_file = root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text("# Rules\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+    env["CODEX_BIN"] = str(fake_bin_dir / "codex")
+    env["CLASSIFICATION_RULES_FILE"] = str(rules_file)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-21"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Final decision: approve" in result.stdout
+    assert "review gate blocked" not in result.stderr
 
 
 def test_review_gate_story_run_rejects_stale_changed_files_before_ai_review(

@@ -13,7 +13,7 @@ fail() {
 
 working_tree_dirty() {
   local status_output
-  status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal 2>/dev/null || true)"
+  status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal -- . ':(exclude)automation/story_change_ledger.jsonl' 2>/dev/null || true)"
   [[ -n "$status_output" ]]
 }
 

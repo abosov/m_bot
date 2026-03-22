@@ -25,7 +25,7 @@ fail() {
 
 working_tree_dirty() {
   local status_output
-  status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal 2>/dev/null || true)"
+  status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal -- . ':(exclude)automation/story_change_ledger.jsonl' 2>/dev/null || true)"
   [[ -n "$status_output" ]]
 }
 
@@ -256,13 +256,13 @@ review_artifact_fidelity_status() {
   expected_changed_files_file="$(mktemp)"
   artifact_changed_files_file="$(mktemp)"
 
-  if ! git -C "$ROOT_DIR" diff "$review_artifact_base" -- > "$expected_diff_file"; then
+  if ! git -C "$ROOT_DIR" diff "$review_artifact_base" -- . ':(exclude)automation/story_change_ledger.jsonl' > "$expected_diff_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
     printf 'reject\treview_diff_generation_failed\tunable to regenerate authoritative diff from review_artifact_base %s\n' "$review_artifact_base"
     return 0
   fi
 
-  if ! git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" -- | sed '/^$/d' | LC_ALL=C sort -u > "$expected_changed_files_file"; then
+  if ! git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" -- . ':(exclude)automation/story_change_ledger.jsonl' | sed '/^$/d' | LC_ALL=C sort -u > "$expected_changed_files_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
     printf 'reject\treview_changed_files_generation_failed\tunable to regenerate authoritative changed_files from review_artifact_base %s\n' "$review_artifact_base"
     return 0
