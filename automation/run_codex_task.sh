@@ -573,8 +573,14 @@ rollback_repository_state() {
     clean_status=$?
   fi
 
+  # BEFORE
   if [[ -n "$RUN_DIR" ]]; then
     rm -rf "$RUN_DIR"
+    story_runs_dir="$(dirname "$RUN_DIR")"
+
+  # AFTER
+  if [[ -n "$RUN_DIR" ]]; then
+    echo "[INFO] preserving run artifacts at: $RUN_DIR (failure debugging enabled)"
     story_runs_dir="$(dirname "$RUN_DIR")"
     rmdir "$story_runs_dir" >/dev/null 2>&1 || true
   fi
