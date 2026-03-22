@@ -27,7 +27,7 @@
 - Preserve durable pre-merge finalization.
 - Make the finalized HEAD the canonical merge target.
 - Require review/gate evidence to be explicitly bound to a specific HEAD identity.
-- Fail closed when current HEAD differs from reviewed/gated HEAD.
+- Fail closed when current HEAD differs from reviewed/gated HEAD, and persist both identities in gate evidence.
 - Restore the invariant: reviewed HEAD == finalized HEAD == merged HEAD.
 
 ## Risks
@@ -43,4 +43,3 @@
 - Any approval from the pre-finalize HEAD must become stale if HEAD changes.
 - Re-review / re-gate on the finalized HEAD must be required before merge readiness is restored.
 - The implementation must remain narrowly scoped to this contract.
-

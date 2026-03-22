@@ -147,6 +147,74 @@ json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+current_checkout_head() {
+  if ! git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+
+  git -C "$ROOT_DIR" rev-parse --verify HEAD 2>/dev/null || true
+}
+
+manifest_source_of_truth_head() {
+  local manifest_file="$1"
+  local starting_head isolated_worktree_head
+
+  isolated_worktree_head="$(manifest_value "$manifest_file" "isolated_worktree_head")"
+  if [[ "$isolated_worktree_head" =~ ^[0-9a-f]{40}$ ]]; then
+    printf '%s\n' "$isolated_worktree_head"
+    return 0
+  fi
+
+  starting_head="$(manifest_value "$manifest_file" "starting_head")"
+  if [[ -n "$starting_head" ]]; then
+    printf '%s\n' "$starting_head"
+    return 0
+  fi
+
+  if [[ -n "$isolated_worktree_head" ]]; then
+    printf '%s\n' "$isolated_worktree_head"
+  fi
+}
+
+head_matches_expected() {
+  local expected_head="$1"
+  local current_head="$2"
+
+  if [[ "$expected_head" == "$current_head" ]]; then
+    return 0
+  fi
+
+  if [[ "$expected_head" =~ ^[0-9a-f]{7,39}$ ]] && [[ "$current_head" == "$expected_head"* ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+head_consistency_status() {
+  local manifest_file="$1"
+  local expected_head current_head
+
+  expected_head="$(manifest_source_of_truth_head "$manifest_file")"
+  if [[ -z "$expected_head" ]]; then
+    printf 'unknown:manifest_head_missing\n'
+    return 0
+  fi
+
+  current_head="$(current_checkout_head)"
+  if [[ -z "$current_head" ]]; then
+    printf 'unknown:current_head_unavailable:%s\n' "$expected_head"
+    return 0
+  fi
+
+  if head_matches_expected "$expected_head" "$current_head"; then
+    printf 'match:%s\n' "$current_head"
+    return 0
+  fi
+
+  printf 'mismatch:%s:%s\n' "$expected_head" "$current_head"
+}
+
 write_gate_result() {
   local gate_result_file="$1"
   local story_id="$2"
@@ -154,10 +222,12 @@ write_gate_result() {
   local run_dir="$4"
   local ai_review_file="$5"
   local classification_file="$6"
-  local decision="$7"
-  local decision_source="$8"
-  local status="$9"
-  local reason="${10}"
+  local reviewed_head="$7"
+  local checkout_head="$8"
+  local decision="$9"
+  local decision_source="${10}"
+  local status="${11}"
+  local reason="${12}"
   local tmp_file
 
   tmp_file="$(mktemp "${gate_result_file}.tmp.XXXXXX")"
@@ -169,6 +239,8 @@ write_gate_result() {
   "run_dir": "$(json_escape "$run_dir")",
   "ai_review_result": "$(json_escape "$ai_review_file")",
   "review_classification_result": "$(json_escape "$classification_file")",
+  "reviewed_head": "$(json_escape "$reviewed_head")",
+  "checkout_head": "$(json_escape "$checkout_head")",
   "decision": "$(json_escape "$decision")",
   "status": "$(json_escape "$status")",
   "decision_source": "$(json_escape "$decision_source")",
@@ -263,6 +335,51 @@ if working_tree_dirty; then
   fail_review_gate_dirty_working_tree "$STORY_ID" "$LATEST_RUN_DIR"
 fi
 
+reviewed_head="$(manifest_source_of_truth_head "$MANIFEST_FILE")"
+checkout_head="$(current_checkout_head)"
+head_status="$(head_consistency_status "$MANIFEST_FILE")"
+
+case "$head_status" in
+  mismatch:*)
+    reason="Reviewed HEAD $reviewed_head does not match current checkout HEAD $checkout_head"
+    decision_source="review_head_mismatch"
+    ;;
+  unknown:manifest_head_missing)
+    reason="Run manifest is missing the reviewed HEAD contract"
+    decision_source="review_head_missing"
+    ;;
+  unknown:current_head_unavailable:*)
+    reason="Current checkout HEAD is unavailable for reviewed HEAD $reviewed_head"
+    decision_source="checkout_head_unavailable"
+    ;;
+  *)
+    reason=""
+    decision_source=""
+    ;;
+esac
+
+if [[ -n "$decision_source" ]]; then
+  write_gate_result \
+    "$GATE_RESULT_FILE" \
+    "$STORY_ID" \
+    "$RUN_ID" \
+    "$LATEST_RUN_DIR" \
+    "$AI_REVIEW_FILE" \
+    "$CLASSIFICATION_FILE" \
+    "$reviewed_head" \
+    "$checkout_head" \
+    "reject" \
+    "$decision_source" \
+    "failed" \
+    "$reason"
+  update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
+  append_review_ledger_events "reject" "$decision_source" "failed" "$reason"
+  printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
+  printf 'Final decision: reject\n'
+  printf 'Run analysis command: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$LATEST_RUN_DIR" "$STORY_ID"
+  fail "review gate rejected merge for '$STORY_ID' ($reason)"
+fi
+
 set +e
 AUTOMATION_RUN_DIR="$LATEST_RUN_DIR" "$AI_REVIEW_SCRIPT" "$STORY_ID"
 ai_review_exit_code=$?
@@ -275,6 +392,8 @@ if [[ $ai_review_exit_code -ne 0 ]]; then
     "$LATEST_RUN_DIR" \
     "$AI_REVIEW_FILE" \
     "$CLASSIFICATION_FILE" \
+    "$reviewed_head" \
+    "$checkout_head" \
     "reject" \
     "ai_review_failed" \
     "failed" \
@@ -332,6 +451,8 @@ write_gate_result \
   "$LATEST_RUN_DIR" \
   "$AI_REVIEW_FILE" \
   "$CLASSIFICATION_FILE" \
+  "$reviewed_head" \
+  "$checkout_head" \
   "$decision" \
   "$decision_source" \
   "$status" \
