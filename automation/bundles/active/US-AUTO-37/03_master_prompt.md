@@ -32,6 +32,7 @@ Implement a minimal, safe, and explicit workflow contract for `automation/story_
 - `tests/test_review_gate_story_run.py`
 - `automation/bundle_packs/US-AUTO-37.bundle.md`
 - `automation/bundles/active/US-AUTO-37/**`
+- `automation/story_change_ledger.jsonl`
 
 ## Files Not Allowed To Change
 - `backend/**`
