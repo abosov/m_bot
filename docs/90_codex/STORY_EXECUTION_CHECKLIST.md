@@ -48,8 +48,10 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    If classification text is malformed or ambiguous, preserve `review_classification.md` for debugging and fail closed instead of deleting the artifact.
 20. Execute the review gate for the latest run (`automation/scripts/review_gate_story_run.sh <STORY-ID>`).
    The gate must fail closed before AI review/classification when the current branch working tree has uncommitted changes.
+   The gate must also fail closed when the selected run's manifest HEAD does not match the current checkout HEAD; stale pre-finalize approval is never merge-valid.
    Operator recovery path: inspect and commit materialized changes, rerun `automation/scripts/run_story.sh <STORY-ID>` if needed, then rerun gate.
    The gate resolves the latest run once, reuses that exact run directory for AI review and classification, writes `review_gate_result.json`, and must exit non-zero when the final decision is `reject` or cannot be derived from the classification artifact.
+   `review_gate_result.json` must record both the reviewed HEAD from the run manifest and the current checkout HEAD used by the gate decision.
    Missing, invalid, or ambiguous `MERGE RECOMMENDATION:` output must be treated as a fail-closed reject.
    The gate artifact must distinguish malformed classification output from a classification step that failed before producing an artifact.
    The gate should append evidence-only ledger entries for `review_outcome` and, when rejected, `story_rejected`.
