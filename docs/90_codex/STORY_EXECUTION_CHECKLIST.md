@@ -33,6 +33,9 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    Before execution, confirm the prompt explicitly contains intent, out-of-scope, allowed-files, forbidden-files, a statement that Atomic Task Isolation is mandatory for this run, hard-stop, follow-up capture language, a requirement to restate the one-sentence task intent before edits, and an execution gate that tells Codex to refuse non-atomic or underspecified prompts or prompts that batch another independently reviewable change.
    `run_story.sh` should record one evidence-only `story_started` event for `automation/story_change_ledger.jsonl`, and treat that exact path as ephemeral workflow state rather than implementation diff.
    `run_story.sh` and `automation/run_codex_task.sh` should restore the same exact path on exit so ledger writes do not persist as happy-path implementation drift.
+   When the primary checkout is clean before execution begins, `automation/run_codex_task.sh` owns the rollback lifecycle for the whole run: capture the baseline before repository-visible writes, arm rollback immediately after that capture, and disarm it only after the final success gate.
+   Any failed or interrupted run from that clean baseline must restore tracked files to the captured `HEAD` state and remove run-owned untracked artifacts, including automation run directories created for the failed attempt.
+   If automatic rollback itself fails, the runner must exit non-zero and print an explicit rollback failure instead of allowing the run to appear successful.
 14. Verify the Codex output stayed within the declared atomic task, implemented only one independently reviewable purpose, and captured any out-of-scope findings as follow-up work instead of inline changes.
 15. Run required tests (minimum: targeted `pytest` scope for changed behavior).
 16. Collect implementation and review artifacts into the story bundle.

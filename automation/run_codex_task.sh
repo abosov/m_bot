@@ -506,6 +506,8 @@ WORKTREE_DIR=""
 WORKTREE_HEAD=""
 WORKTREE_CREATED="0"
 
+ROLLBACK_BASE_HEAD="$(git rev-parse HEAD)"
+ROLLBACK_ARMED="1"
 mkdir -p "$RUN_DIR"
 
 MANIFEST_FILE="$RUN_DIR/manifest.md"
@@ -535,16 +537,91 @@ REPOSITORY_MAP_INJECTION_STATUS="pending"
 REPOSITORY_MAP_SOURCE_DOCS=""
 
 cleanup_worktree() {
-  local exit_code=$?
-  restore_ephemeral_story_change_ledger
   if [[ "$WORKTREE_CREATED" == "1" && -n "$WORKTREE_DIR" ]]; then
     git worktree remove --force "$WORKTREE_DIR" >/dev/null 2>&1 || true
     rm -rf "$WORKTREE_DIR" >/dev/null 2>&1 || true
   fi
-  return "$exit_code"
 }
 
-trap cleanup_worktree EXIT
+rollback_repository_state() {
+  local restore_status=0
+  local clean_status=0
+  local status_output=""
+  local current_head=""
+  local story_runs_dir=""
+  local -a untracked_paths=()
+
+  info "Run failed before success boundary; restoring clean pre-run repository state"
+
+  current_head="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+  if [[ -z "$ROLLBACK_BASE_HEAD" || "$current_head" != "$ROLLBACK_BASE_HEAD" ]]; then
+    echo "ERROR: rollback aborted because current HEAD '$current_head' does not match baseline '$ROLLBACK_BASE_HEAD'" >&2
+    return 1
+  fi
+
+  git -C "$ROOT_DIR" restore --source="$ROLLBACK_BASE_HEAD" --staged --worktree -- .
+  restore_status=$?
+
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    [[ "$path" == "$EPHEMERAL_LEDGER_PATH" ]] && continue
+    untracked_paths+=("$path")
+  done < <(git -C "$ROOT_DIR" ls-files --others --exclude-standard)
+
+  if (( ${#untracked_paths[@]} > 0 )); then
+    git -C "$ROOT_DIR" clean -fdq -- "${untracked_paths[@]}"
+    clean_status=$?
+  fi
+
+  if [[ -n "$RUN_DIR" ]]; then
+    rm -rf "$RUN_DIR"
+    story_runs_dir="$(dirname "$RUN_DIR")"
+    rmdir "$story_runs_dir" >/dev/null 2>&1 || true
+  fi
+
+  status_output="$(git -C "$ROOT_DIR" status --porcelain -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" || true)"
+
+  if [[ "$restore_status" -ne 0 || "$clean_status" -ne 0 || -n "$status_output" ]]; then
+    echo "ERROR: automatic rollback failed" >&2
+    if [[ "$restore_status" -ne 0 ]]; then
+      echo "ERROR: tracked restore failed with exit code $restore_status" >&2
+    fi
+    if [[ "$clean_status" -ne 0 ]]; then
+      echo "ERROR: untracked cleanup failed with exit code $clean_status" >&2
+    fi
+    if [[ -n "$status_output" ]]; then
+      echo "ERROR: repository remains dirty after rollback:" >&2
+      printf '%s\n' "$status_output" >&2
+    fi
+    return 1
+  fi
+
+  info "Rollback restored repository to the clean pre-run state"
+}
+
+handle_exit() {
+  local exit_code="$1"
+  local final_exit_code="$exit_code"
+
+  set +e
+  if [[ "$ROLLBACK_ARMED" == "1" ]]; then
+    rollback_repository_state
+    if [[ $? -ne 0 ]]; then
+      final_exit_code=1
+    elif [[ "$exit_code" -eq 0 ]]; then
+      final_exit_code=1
+    fi
+  fi
+
+  restore_ephemeral_story_change_ledger
+  cleanup_worktree
+  trap - EXIT INT TERM
+  exit "$final_exit_code"
+}
+
+trap 'handle_exit $?' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 setup_isolated_worktree() {
   WORKTREE_HEAD="$(git rev-parse HEAD)"
@@ -945,8 +1022,6 @@ $PYTEST_OUTPUT_CONTENT
 PROMPT
 
 info "Artifacts generated in: $RUN_DIR"
-info "Done"
-
 if [[ "$CODEX_EXIT" != "0" ]]; then
   echo "ERROR: Codex finished with non-zero exit code: $CODEX_EXIT" >&2
   exit "$CODEX_EXIT"
@@ -956,3 +1031,6 @@ if [[ "$PYTEST_EXIT" != "0" && "$PYTEST_EXIT" != "SKIPPED" ]]; then
   echo "ERROR: pytest finished with non-zero exit code: $PYTEST_EXIT" >&2
   exit "$PYTEST_EXIT"
 fi
+
+ROLLBACK_ARMED="0"
+info "Done"

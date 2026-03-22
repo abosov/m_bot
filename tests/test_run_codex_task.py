@@ -1,6 +1,9 @@
 from pathlib import Path
 import os
+import shutil
+import signal
 import subprocess
+import time
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "automation" / "run_codex_task.sh"
@@ -38,6 +41,12 @@ def latest_run_dir(root_dir: Path, story_id: str = "US-AUTO-7") -> Path:
     run_dirs = sorted(path for path in runs_root.iterdir() if path.is_dir())
     assert len(run_dirs) == 1
     return run_dirs[0]
+
+
+def assert_no_story_run_artifacts(root_dir: Path, story_id: str = "US-AUTO-7") -> None:
+    runs_root = root_dir / "automation" / "runs" / story_id
+    if runs_root.exists():
+        assert list(runs_root.iterdir()) == []
 
 
 def setup_story_repo(tmp_path: Path) -> tuple[Path, Path]:
@@ -343,18 +352,9 @@ printf '%s\\n' 'codex summary' > "$output"
 
     assert result.returncode != 0
 
-    run_dir = latest_run_dir(root_dir)
-    repository_map_runtime = (run_dir / "repository_map_runtime.md").read_text(encoding="utf-8")
-
-    assert "- story_id: US-AUTO-7" in repository_map_runtime
-    assert "- active_bundle_path: automation/bundles/active/US-AUTO-7" in repository_map_runtime
-    assert "- scope_file: automation/bundles/active/US-AUTO-7/02_file_scope.md" in repository_map_runtime
-    assert "- bundle_status: present" in repository_map_runtime
-    assert "- scope_parse_status: missing" in repository_map_runtime
-    assert "- files_not_allowed_parse_status: missing" in repository_map_runtime
-    assert "- story_scope_constraints: unavailable" in repository_map_runtime
-    assert "- files_allowed_to_change:\n  unavailable" in repository_map_runtime
-    assert "- files_not_allowed_to_change:\n  unavailable" in repository_map_runtime
+    assert_no_story_run_artifacts(root_dir)
+    status = run(["git", "status", "--porcelain"], cwd=root_dir)
+    assert status.stdout.strip() == ""
 
 
 def test_run_codex_task_marks_scope_parse_status_unparseable(tmp_path: Path) -> None:
@@ -420,18 +420,9 @@ printf '%s\\n' 'codex summary' > "$output"
 
     assert result.returncode != 0
 
-    run_dir = latest_run_dir(root_dir)
-    repository_map_runtime = (run_dir / "repository_map_runtime.md").read_text(encoding="utf-8")
-
-    assert "- story_id: US-AUTO-7" in repository_map_runtime
-    assert "- active_bundle_path: automation/bundles/active/US-AUTO-7" in repository_map_runtime
-    assert "- scope_file: automation/bundles/active/US-AUTO-7/02_file_scope.md" in repository_map_runtime
-    assert "- bundle_status: present" in repository_map_runtime
-    assert "- scope_parse_status: unparseable" in repository_map_runtime
-    assert "- files_not_allowed_parse_status: unavailable" in repository_map_runtime
-    assert "- story_scope_constraints: unavailable" in repository_map_runtime
-    assert "- files_allowed_to_change:\n  unavailable" in repository_map_runtime
-    assert "- files_not_allowed_to_change:\n  unavailable" in repository_map_runtime
+    assert_no_story_run_artifacts(root_dir)
+    status = run(["git", "status", "--porcelain"], cwd=root_dir)
+    assert status.stdout.strip() == ""
 
 def test_run_codex_task_marks_scope_parse_status_unparseable_when_blocked_scope_list_is_missing(
     tmp_path: Path,
@@ -562,9 +553,12 @@ exit 42
     codex_cwd = Path((tmp_path / "codex_cwd_failure.txt").read_text(encoding="utf-8").strip())
     assert codex_cwd.name.startswith("zumbot-codex-worktree-")
     assert not codex_cwd.exists()
+    assert_no_story_run_artifacts(root_dir)
+    status = run(["git", "status", "--porcelain"], cwd=root_dir)
+    assert status.stdout.strip() == ""
 
 
-def test_run_codex_task_materializes_changes_when_codex_exits_non_zero(tmp_path: Path) -> None:
+def test_run_codex_task_rolls_back_changes_when_codex_exits_non_zero(tmp_path: Path) -> None:
     root_dir, prompt_file = setup_story_repo(tmp_path)
 
     fake_bin_dir = tmp_path / "bin"
@@ -609,14 +603,10 @@ exit 23
     )
 
     assert result.returncode == 23, result.stderr
-    assert (root_dir / "tracked.txt").read_text(encoding="utf-8") == (
-        "base\nstory change\nnon-zero run with changes\n"
-    )
-
-    manifest = (latest_run_dir(root_dir) / "manifest.md").read_text(encoding="utf-8")
-    assert "- codex_exit_code: 23" in manifest
-    assert "- materialization_status: applied" in manifest
-    assert "- materialized_tracked_changes: 1" in manifest
+    assert (root_dir / "tracked.txt").read_text(encoding="utf-8") == "base\nstory change\n"
+    assert_no_story_run_artifacts(root_dir)
+    status = run(["git", "status", "--porcelain"], cwd=root_dir)
+    assert status.stdout.strip() == ""
 
 
 def test_run_codex_task_fails_when_expected_materialization_does_not_reach_primary_checkout(
@@ -672,6 +662,9 @@ printf '%s\\n' 'codex summary' > "$output"
     assert result.returncode != 0
     assert "materialization missing untracked path in primary checkout: generated/missing.txt" in result.stderr
     assert not (root_dir / "generated" / "missing.txt").exists()
+    assert_no_story_run_artifacts(root_dir)
+    status = run(["git", "status", "--porcelain"], cwd=root_dir)
+    assert status.stdout.strip() == ""
 
 
 def test_run_codex_task_records_materialized_untracked_files_in_artifacts(tmp_path: Path) -> None:
@@ -730,3 +723,133 @@ printf '%s\\n' 'codex summary' > "$output"
     assert "artifact body" in diff_patch
     assert "Untracked files materialized into primary checkout:" in diff_stat
     assert "reports/materialized.txt" in diff_stat
+
+
+def test_run_codex_task_treats_sigterm_as_failure_and_rolls_back(tmp_path: Path) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    started_file = tmp_path / "codex_started.txt"
+    write_executable(
+        fake_bin_dir / "codex",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+output=""
+workdir=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    -C)
+      workdir="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '%s\\n' "$workdir" > {str(started_file)!r}
+trap 'exit 143' TERM
+cat >/dev/null &
+wait
+""",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["SKIP_PYTEST"] = "1"
+
+    process = subprocess.Popen(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+
+    deadline = time.time() + 5
+    while time.time() < deadline and not started_file.exists():
+      time.sleep(0.05)
+
+    assert started_file.exists()
+
+    os.killpg(process.pid, signal.SIGTERM)
+    stdout, stderr = process.communicate(timeout=5)
+
+    assert stdout == ""
+    assert process.returncode == 143, stderr
+    assert (root_dir / "tracked.txt").read_text(encoding="utf-8") == "base\nstory change\n"
+    assert_no_story_run_artifacts(root_dir)
+    status = run(["git", "status", "--porcelain"], cwd=root_dir)
+    assert status.stdout.strip() == ""
+
+
+def test_run_codex_task_surfaces_rollback_failure(tmp_path: Path) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    write_executable(
+        fake_bin_dir / "codex",
+        """#!/usr/bin/env bash
+set -euo pipefail
+output=""
+workdir=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    -C)
+      workdir="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '%s\\n' 'rollback should fail' >> "$workdir/tracked.txt"
+cat >/dev/null
+printf '%s\\n' 'codex summary' > "$output"
+exit 23
+""",
+    )
+    real_git = shutil.which("git")
+    assert real_git is not None
+    write_executable(
+        fake_bin_dir / "git",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${{FAIL_ROLLBACK_RESTORE:-0}}" == "1" && "${{1:-}}" == "-C" && "${{3:-}}" == "restore" ]]; then
+  exit 55
+fi
+exec {real_git!r} "$@"
+""",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["SKIP_PYTEST"] = "1"
+    env["FAIL_ROLLBACK_RESTORE"] = "1"
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "ERROR: automatic rollback failed" in result.stderr
+    assert "ERROR: tracked restore failed with exit code 55" in result.stderr
+    assert (root_dir / "tracked.txt").read_text(encoding="utf-8") == (
+        "base\nstory change\nrollback should fail\n"
+    )
