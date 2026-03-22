@@ -10,8 +10,8 @@
 
 ## Current Code Reality
 - `automation/story_change_ledger.jsonl` is a workflow-generated side effect.
-- It can remain modified after story run and after story finalization.
-- The current workaround is manual cleanup with `git restore automation/story_change_ledger.jsonl`.
+- Existing scripts exclude this path from strict implementation-diff enforcement.
+- Happy-path workflow should restore this path to `HEAD` on exit to keep the branch clean.
 
 ## Architectural Intent
 - Introduce one explicit contract for ephemeral automation paths.
@@ -27,4 +27,3 @@
 - Happy-path run should not leave ledger dirt in the working tree.
 - Happy-path finalize should not leave ledger dirt in the working tree.
 - Scope handling must remain strict for non-ephemeral file changes.
-

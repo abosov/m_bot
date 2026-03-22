@@ -38,13 +38,12 @@ Define and implement a safe workflow contract for ephemeral automation-generated
 
 ## Current Code Reality
 - `automation/story_change_ledger.jsonl` is generated as a workflow side effect.
-- After `run_story.sh` and after `finalize_story.sh`, this file can leave the working tree dirty.
-- The operator currently has to run `git restore automation/story_change_ledger.jsonl` as manual cleanup.
-- This creates workflow noise for clean-tree discipline and scope interpretation.
+- Existing workflow scripts already treat this path as ephemeral for clean-tree and review-fidelity checks.
+- Happy-path automation should restore this path to `HEAD` on exit so workflow evidence does not masquerade as implementation drift.
+- The contract remains fragile if path handling drifts across run/review/finalize scripts.
 
 ## Target Outcome
 - `automation/story_change_ledger.jsonl` is treated as an ephemeral automation path rather than normal implementation diff.
 - Happy-path `run_story.sh` does not leave the repo dirty only because of this file.
 - Happy-path `finalize_story.sh` does not leave the repo dirty only because of this file.
 - Scope validation remains strict for real implementation changes.
-

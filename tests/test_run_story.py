@@ -80,3 +80,29 @@ def test_run_story_cleans_ephemeral_ledger_on_success(tmp_path: Path) -> None:
     status = run(["git", "status", "--porcelain", "--", "automation/story_change_ledger.jsonl"], cwd=root_dir)
     assert status.returncode == 0, status.stderr
     assert status.stdout.strip() == ""
+
+
+def test_run_story_cleans_ephemeral_ledger_when_runner_fails(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    fake_runner = root_dir / "fake_runner_fail.sh"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "exit 17\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode == 17
+    status = run(["git", "status", "--porcelain", "--", "automation/story_change_ledger.jsonl"], cwd=root_dir)
+    assert status.returncode == 0, status.stderr
+    assert status.stdout.strip() == ""

@@ -6,6 +6,8 @@ ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 GIT_BIN="${FINALIZE_STORY_GIT_BIN:-git}"
 GH_BIN="${FINALIZE_STORY_GH_BIN:-gh}"
 MAIN_BRANCH="${FINALIZE_STORY_MAIN_BRANCH:-main}"
+EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
+EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC=":(exclude)$EPHEMERAL_LEDGER_PATH"
 # shellcheck source=automation/scripts/story_change_ledger.sh
 source "$SCRIPT_DIR/story_change_ledger.sh"
 
@@ -27,12 +29,16 @@ EOF
 }
 
 restore_ephemeral_story_change_ledger() {
-  git -C "$ROOT_DIR" restore --worktree --source=HEAD -- automation/story_change_ledger.jsonl >/dev/null 2>&1 || true
+  git -C "$ROOT_DIR" restore --worktree --source=HEAD -- "$EPHEMERAL_LEDGER_PATH" >/dev/null 2>&1 || true
+}
+
+cleanup_ephemeral_story_change_ledger() {
+  restore_ephemeral_story_change_ledger
 }
 
 require_clean_tree() {
   local status_output
-  if ! status_output="$("$GIT_BIN" status --porcelain -- . ':(exclude)automation/story_change_ledger.jsonl')"; then
+  if ! status_output="$("$GIT_BIN" status --porcelain -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC")"; then
     fail "failed to inspect git working tree"
   fi
 
@@ -139,6 +145,7 @@ extract_story_id() {
 }
 
 [[ $# -le 1 ]] || usage
+trap cleanup_ephemeral_story_change_ledger EXIT
 
 PR_SELECTOR="${1:-}"
 
@@ -181,7 +188,5 @@ if [[ -n "$final_story_id" ]]; then
     "pr:$PR_NUMBER" \
     "finalize_story completed" || true
 fi
-
-restore_ephemeral_story_change_ledger
 
 echo "[INFO] Finalization complete on '$MAIN_BRANCH'" >&2

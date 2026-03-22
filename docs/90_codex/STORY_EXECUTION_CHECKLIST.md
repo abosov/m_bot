@@ -32,6 +32,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    `automation/scripts/run_story.sh <STORY-ID>` continues to use the runner defaults.
    Before execution, confirm the prompt explicitly contains intent, out-of-scope, allowed-files, forbidden-files, a statement that Atomic Task Isolation is mandatory for this run, hard-stop, follow-up capture language, a requirement to restate the one-sentence task intent before edits, and an execution gate that tells Codex to refuse non-atomic or underspecified prompts or prompts that batch another independently reviewable change.
    `run_story.sh` should record one evidence-only `story_started` event for `automation/story_change_ledger.jsonl`, and treat that path as ephemeral workflow state rather than implementation diff.
+   `run_story.sh` and `automation/run_codex_task.sh` should restore the ephemeral ledger path on exit so ledger writes do not persist as happy-path implementation drift.
 14. Verify the Codex output stayed within the declared atomic task, implemented only one independently reviewable purpose, and captured any out-of-scope findings as follow-up work instead of inline changes.
 15. Run required tests (minimum: targeted `pytest` scope for changed behavior).
 16. Collect implementation and review artifacts into the story bundle.
@@ -78,6 +79,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 25. Update the epic registry when the story status changes, when a split/follow-up story is created, and when the latest outcome changes the epic-level picture.
 26. Finalize the story with `automation/scripts/finalize_story.sh [PR_NUMBER]` after checks and review approvals pass.
    Finalization should append one evidence-only `story_finalized` entry when the story ID can be resolved from the finalized branch/ref.
+   `finalize_story.sh` should restore the ephemeral ledger path on exit so happy-path finalization is clean.
 27. Before merge/finalization, synchronize the epic registry row with the actual story outcome, including any new follow-up, split, cancelled, or superseded state.
 28. The finalization script must merge with `gh pr merge --squash`, switch to local `main`, run `git pull --ff-only origin main`, and delete the merged story branch locally/remotely.
 29. If scripted finalization cannot complete, stop and fix the blocking condition instead of finishing cleanup manually without documenting it.
