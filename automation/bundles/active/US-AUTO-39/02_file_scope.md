@@ -10,7 +10,8 @@
 - `automation/scripts/run_story.sh`
 - `automation/scripts/run_codex_task.sh`
 - `tests/test_finalize_story_script.py`
-- targeted review/gate orchestration tests directly required for HEAD-bound approval
+- `tests/test_review_gate_story_run.py`
+- `automation/story_change_ledger.jsonl`
 - `docs/90_codex/**`
 - `automation/bundles/active/US-AUTO-39/**`
 - `automation/bundle_packs/US-AUTO-39.bundle.md`
