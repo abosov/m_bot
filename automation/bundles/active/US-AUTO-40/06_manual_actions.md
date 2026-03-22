@@ -19,7 +19,7 @@ Before PR:
 3. Confirm active bundle reflects final implementation.
 
 ## Completion Status
-Current status: bundle repair required to satisfy validator contract before story execution.
+Current status: implementation complete; verify via targeted review/gate tests and documentation diff review.
 
 Completion for this story means:
 - bundle validates successfully;

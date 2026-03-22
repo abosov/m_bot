@@ -11,6 +11,9 @@
 - Does mismatch fail closed or produce explicit reject?
 - Does faithful artifact state still allow normal approval?
 - Does US-AUTO-39 HEAD-binding behavior remain intact?
+- Does gate validate `diff.patch` fidelity against regenerated `git diff <review_artifact_base> --`?
+- Does gate validate `changed_files.txt` fidelity against regenerated `git diff --name-only <review_artifact_base> --`?
+- Do fidelity failures stop before AI review/classification execution?
 
 ## Verification
 - Are automated tests present for approve and reject paths?

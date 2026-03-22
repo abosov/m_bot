@@ -38,12 +38,15 @@ def write_manifest(
     story_id: str,
     *,
     starting_head: str | None = None,
+    review_artifact_base: str | None = None,
 ) -> None:
     manifest_head = starting_head or current_head(root_dir)
+    artifact_base = review_artifact_base or current_head(root_dir)
     (run_dir / "manifest.md").write_text(
         "# Manifest\n"
         f"- story_id: {story_id}\n"
         f"- starting_head: {manifest_head}\n\n"
+        f"- review_artifact_base: {artifact_base}\n\n"
         "## Artifacts\n- manifest.md\n",
         encoding="utf-8",
     )
@@ -89,6 +92,42 @@ def setup_git_repo(root_dir: Path) -> None:
     )
 
 
+def write_required_review_artifacts(
+    run_dir: Path,
+    root_dir: Path,
+    *,
+    review_artifact_base: str | None = None,
+) -> None:
+    artifact_base = review_artifact_base or current_head(root_dir)
+    diff_patch = subprocess.run(
+        ["git", "diff", artifact_base, "--"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    ).stdout
+    changed_files_output = subprocess.run(
+        ["git", "diff", "--name-only", artifact_base, "--"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    ).stdout
+    changed_files = sorted({line for line in changed_files_output.splitlines() if line.strip()})
+
+    (run_dir / "review_bundle.md").write_text("review_bundle.md\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text(
+        "chatgpt_review_prompt.md\n",
+        encoding="utf-8",
+    )
+    (run_dir / "diff.patch").write_text(diff_patch, encoding="utf-8")
+    (run_dir / "changed_files.txt").write_text(
+        ("\n".join(changed_files) + ("\n" if changed_files else "")),
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("pytest.txt\n", encoding="utf-8")
+
+
 def test_review_gate_story_run_exists() -> None:
     assert SCRIPT_PATH.exists()
 
@@ -108,14 +147,7 @@ def test_review_gate_story_run_writes_gate_result_and_rejects(tmp_path: Path) ->
     setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
 
-    for artifact_name in [
-        "review_bundle.md",
-        "chatgpt_review_prompt.md",
-        "diff.patch",
-        "changed_files.txt",
-        "pytest.txt",
-    ]:
-        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    write_required_review_artifacts(run_dir, root_dir)
     write_manifest(run_dir, root_dir, "US-AUTO-16")
 
     fake_bin_dir = tmp_path / "bin"
@@ -190,14 +222,7 @@ def test_review_gate_story_run_passes_on_approve(tmp_path: Path) -> None:
     setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
 
-    for artifact_name in [
-        "review_bundle.md",
-        "chatgpt_review_prompt.md",
-        "diff.patch",
-        "changed_files.txt",
-        "pytest.txt",
-    ]:
-        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    write_required_review_artifacts(run_dir, root_dir)
     write_manifest(run_dir, root_dir, "US-AUTO-16")
 
     fake_bin_dir = tmp_path / "bin"
@@ -283,14 +308,7 @@ def test_review_gate_story_run_rejects_when_decision_cannot_be_derived(
     setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
 
-    for artifact_name in [
-        "review_bundle.md",
-        "chatgpt_review_prompt.md",
-        "diff.patch",
-        "changed_files.txt",
-        "pytest.txt",
-    ]:
-        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    write_required_review_artifacts(run_dir, root_dir)
     write_manifest(run_dir, root_dir, "US-AUTO-16")
 
     fake_bin_dir = tmp_path / "bin"
@@ -364,14 +382,7 @@ def test_review_gate_story_run_rejects_when_classification_fails_before_artifact
     setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
 
-    for artifact_name in [
-        "review_bundle.md",
-        "chatgpt_review_prompt.md",
-        "diff.patch",
-        "changed_files.txt",
-        "pytest.txt",
-    ]:
-        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    write_required_review_artifacts(run_dir, root_dir)
     write_manifest(run_dir, root_dir, "US-AUTO-16")
 
     fake_bin_dir = tmp_path / "bin"
@@ -447,14 +458,7 @@ def test_review_gate_story_run_rejects_when_ai_review_fails(
     setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
 
-    for artifact_name in [
-        "review_bundle.md",
-        "chatgpt_review_prompt.md",
-        "diff.patch",
-        "changed_files.txt",
-        "pytest.txt",
-    ]:
-        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    write_required_review_artifacts(run_dir, root_dir)
     write_manifest(run_dir, root_dir, "US-AUTO-16")
 
     fake_bin_dir = tmp_path / "bin"
@@ -526,14 +530,7 @@ def test_review_gate_story_run_blocks_before_ai_review_when_working_tree_is_dirt
     setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-21", "2026-03-14_18-56-10")
 
-    for artifact_name in [
-        "review_bundle.md",
-        "chatgpt_review_prompt.md",
-        "diff.patch",
-        "changed_files.txt",
-        "pytest.txt",
-    ]:
-        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    write_required_review_artifacts(run_dir, root_dir)
     write_manifest(run_dir, root_dir, "US-AUTO-21")
 
     fake_bin_dir = tmp_path / "bin"
@@ -581,6 +578,109 @@ cat >/dev/null
     assert not ai_invocation_marker.exists()
     assert not (run_dir / "review_gate_result.json").exists()
 
+
+def test_review_gate_story_run_rejects_stale_changed_files_before_ai_review(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
+    write_required_review_artifacts(run_dir, root_dir)
+    write_manifest(run_dir, root_dir, "US-AUTO-16")
+    (run_dir / "changed_files.txt").write_text("README.md\n", encoding="utf-8")
+
+    fake_bin_dir = tmp_path / "bin_stale_changed"
+    fake_bin_dir.mkdir()
+    ai_invocation_marker = tmp_path / "ai_invoked_stale_changed.txt"
+    write_executable(
+        fake_bin_dir / "codex",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' 'invoked' > "{ai_invocation_marker}"
+cat >/dev/null
+""",
+    )
+
+    rules_file = root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text("# Rules\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+    env["CODEX_BIN"] = str(fake_bin_dir / "codex")
+    env["CLASSIFICATION_RULES_FILE"] = str(rules_file)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-16"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "Final decision: reject" in result.stdout
+    assert "changed_files.txt is stale or inconsistent" in result.stderr
+    assert not ai_invocation_marker.exists()
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision": "reject"' in gate_result
+    assert '"decision_source": "review_changed_files_mismatch"' in gate_result
+
+
+def test_review_gate_story_run_rejects_stale_diff_patch_before_ai_review(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-11")
+    write_required_review_artifacts(run_dir, root_dir)
+    write_manifest(run_dir, root_dir, "US-AUTO-16")
+    (run_dir / "diff.patch").write_text("stale diff\n", encoding="utf-8")
+
+    fake_bin_dir = tmp_path / "bin_stale_diff"
+    fake_bin_dir.mkdir()
+    ai_invocation_marker = tmp_path / "ai_invoked_stale_diff.txt"
+    write_executable(
+        fake_bin_dir / "codex",
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' 'invoked' > "{ai_invocation_marker}"
+cat >/dev/null
+""",
+    )
+
+    rules_file = root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text("# Rules\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+    env["CODEX_BIN"] = str(fake_bin_dir / "codex")
+    env["CLASSIFICATION_RULES_FILE"] = str(rules_file)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-16"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "Final decision: reject" in result.stdout
+    assert "diff.patch is stale or inconsistent" in result.stderr
+    assert not ai_invocation_marker.exists()
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision": "reject"' in gate_result
+    assert '"decision_source": "review_diff_patch_mismatch"' in gate_result
+
+
 def test_review_gate_story_run_rejects_conflicting_exact_recommendations(
     tmp_path: Path,
 ) -> None:
@@ -588,14 +688,7 @@ def test_review_gate_story_run_rejects_conflicting_exact_recommendations(
     setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-11")
 
-    for artifact_name in [
-        "review_bundle.md",
-        "chatgpt_review_prompt.md",
-        "diff.patch",
-        "changed_files.txt",
-        "pytest.txt",
-    ]:
-        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    write_required_review_artifacts(run_dir, root_dir)
     write_manifest(run_dir, root_dir, "US-AUTO-16")
 
     fake_bin_dir = tmp_path / "bin_conflict"
@@ -663,14 +756,7 @@ def test_review_gate_story_run_accepts_relative_run_dir_override(tmp_path: Path)
     setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-12")
 
-    for artifact_name in [
-        "review_bundle.md",
-        "chatgpt_review_prompt.md",
-        "diff.patch",
-        "changed_files.txt",
-        "pytest.txt",
-    ]:
-        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    write_required_review_artifacts(run_dir, root_dir)
     write_manifest(run_dir, root_dir, "US-AUTO-16")
 
     fake_bin_dir = tmp_path / "bin_relative"
@@ -739,14 +825,7 @@ def test_review_gate_story_run_rejects_stale_run_evidence_and_accepts_fresh_run(
     fresh_run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-14")
 
     for run_dir in [stale_run_dir, fresh_run_dir]:
-        for artifact_name in [
-            "review_bundle.md",
-            "chatgpt_review_prompt.md",
-            "diff.patch",
-            "changed_files.txt",
-            "pytest.txt",
-        ]:
-            (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+        write_required_review_artifacts(run_dir, root_dir)
 
     write_manifest(stale_run_dir, root_dir, "US-AUTO-16", starting_head="f" * 40)
     write_manifest(fresh_run_dir, root_dir, "US-AUTO-16")
@@ -833,14 +912,7 @@ def test_review_gate_story_run_rejects_manifest_story_id_mismatch_for_run_overri
     setup_git_repo(root_dir)
     run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-13")
 
-    for artifact_name in [
-        "review_bundle.md",
-        "chatgpt_review_prompt.md",
-        "diff.patch",
-        "changed_files.txt",
-        "pytest.txt",
-    ]:
-        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+    write_required_review_artifacts(run_dir, root_dir)
     (run_dir / "manifest.md").write_text(
         "# Manifest\n- story_id: US-AUTO-999\n",
         encoding="utf-8",

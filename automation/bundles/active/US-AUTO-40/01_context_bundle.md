@@ -29,6 +29,12 @@ The workflow must reject stale, incomplete, or misleading artifacts instead of s
 
 This story should enforce fidelity with machine-verifiable checks, not with additional prose alone.
 
+Implemented enforcement shape:
+- use immutable `review_artifact_base` from run manifest as diff base;
+- regenerate expected `diff.patch` and normalized `changed_files.txt` from repository state at gate time;
+- compare regenerated outputs to run artifacts byte-for-byte (for diff) and normalized set equality (for changed files);
+- reject fail-closed before AI review/classification when mismatch is detected.
+
 ## Risks
 - Solving too much and drifting into US-AUTO-41 scope redesign.
 - Introducing a second competing source of truth for reviewed scope.

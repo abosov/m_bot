@@ -39,6 +39,13 @@ The workflow must enforce a deterministic artifact-fidelity contract such that:
 - faithful artifacts continue to allow normal review approval;
 - docs and tests clearly describe and verify the invariant.
 
+Implemented contract for this story:
+- authoritative diff source: `git diff <review_artifact_base> --` and `git diff --name-only <review_artifact_base> --` where `review_artifact_base` is read from run `manifest.md`;
+- compared artifacts: `diff.patch` and `changed_files.txt` from the selected run directory;
+- enforcement point: `automation/scripts/review_gate_story_run.sh` before AI review/classification;
+- reject condition: missing/invalid `review_artifact_base` or any artifact mismatch against regenerated diff outputs;
+- remediation: rerun `automation/scripts/run_story.sh <STORY-ID>` to regenerate faithful artifacts, then rerun gate.
+
 ## Scope
 In scope:
 - enforce artifact fidelity between review artifacts and actual branch diff;

@@ -67,3 +67,10 @@ This story closes that gap.
 3. Implement the smallest robust enforcement change set.
 4. Add focused tests for approve vs reject paths.
 5. Update docs and active bundle to reflect the new contract.
+
+## Implemented Contract Notes
+- Gate enforces fidelity before AI review/classification.
+- Gate reconstructs authoritative diff from `review_artifact_base` in run `manifest.md` against current checkout `HEAD`.
+- Gate compares reconstructed outputs with run `diff.patch` and `changed_files.txt`.
+- Gate rejects fail-closed with deterministic `decision_source` when manifest base is missing/invalid or artifacts mismatch.
+- Remediation path is explicit: rerun `automation/scripts/run_story.sh <STORY-ID>` and then rerun gate on the regenerated run.

@@ -10,6 +10,10 @@
 ## Iteration Notes
 US-AUTO-40 should enforce artifact fidelity without trying to redesign the full multi-file scope-authority model.
 
+Implemented in this story:
+- fail-closed gate fidelity checks for `diff.patch` and `changed_files.txt` against regenerated diff data from manifest `review_artifact_base`.
+- deterministic reject reasons for stale/mismatched fidelity artifacts.
+
 Depending on implementation details, future work may still need to:
 - centralize reviewed file-set declaration;
 - formalize artifact freshness markers;
