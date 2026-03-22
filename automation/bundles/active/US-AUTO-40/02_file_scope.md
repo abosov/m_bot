@@ -4,6 +4,8 @@
 Primary implementation targets:
 - automation/scripts/review_story_run.sh
 - automation/scripts/review_gate_story_run.sh
+- automation/bundles/active/US-AUTO-40/00_story.md
+- automation/bundles/active/US-AUTO-40/03_master_prompt.md
 
 Supporting documentation:
 - docs/90_codex/STORY_EXECUTION_CHECKLIST.md

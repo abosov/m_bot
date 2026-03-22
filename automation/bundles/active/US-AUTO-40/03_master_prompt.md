@@ -23,6 +23,8 @@ Design and implement a strict workflow contract ensuring that review artifacts u
 - automation/bundles/active/US-AUTO-40/04_review_checklist.md
 - automation/bundles/active/US-AUTO-40/05_followups.md
 - automation/bundles/active/US-AUTO-40/06_manual_actions.md
+- automation/bundles/active/US-AUTO-40/00_story.md
+- automation/bundles/active/US-AUTO-40/03_master_prompt.md
 
 ## Files Not Allowed To Change
 Do not broaden scope into:
