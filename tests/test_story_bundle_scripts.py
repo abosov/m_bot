@@ -304,6 +304,40 @@ def test_commit_story_artifacts_fails_on_unrelated_dirty_paths(tmp_path: Path) -
     assert "README.md" in result.stderr
 
 
+def test_commit_story_artifacts_ignores_ephemeral_ledger_path(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    story_id = "US-AUTO-99"
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    bundle_dir = root_dir / "automation" / "bundles" / "active" / story_id
+    ledger_path = root_dir / "automation" / "story_change_ledger.jsonl"
+
+    init_git_repo(root_dir)
+    write_pack(pack_path, story_id)
+    write_bundle(bundle_dir, story_id)
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path.write_text("", encoding="utf-8")
+    commit_all(root_dir, "init")
+
+    (bundle_dir / "03_master_prompt.md").write_text("# Prompt\n\nupdated\n", encoding="utf-8")
+    ledger_path.write_text('{"event":"story_started"}\n', encoding="utf-8")
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+
+    result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
+
+    assert result.returncode == 0, result.stderr
+
+    status = subprocess.run(
+        ["git", "status", "--short"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert status.stdout.strip() == "M automation/story_change_ledger.jsonl"
+
+
 def test_commit_story_artifacts_commits_bundle_only_when_pack_is_absent(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     story_id = "US-AUTO-99"

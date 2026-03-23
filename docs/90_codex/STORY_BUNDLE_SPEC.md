@@ -35,6 +35,8 @@ Pack files are expanded by `automation/scripts/materialize_story_bundle.sh`.
 Materialization must parse + validate before replacing the active bundle directory.
 Materialized story artifacts remain in a draft state until they are committed with
 `automation/scripts/commit_story_artifacts.sh <STORY-ID>`.
+That handoff stages only the canonical story-local artifact roots:
+`automation/bundle_packs/<STORY-ID>.bundle.md` and `automation/bundles/active/<STORY-ID>/`.
 
 ## Required Sections
 Every story bundle must include all sections below:
@@ -99,6 +101,8 @@ Bundles are invalid for execution when master or follow-up prompts omit this exe
 `automation/scripts/run_story.sh` must also refuse execution when the requested story's bundle pack or
 materialized active-bundle files are still dirty, and it must print the deterministic remediation command
 `automation/scripts/commit_story_artifacts.sh <STORY-ID>`.
+Both scripts must fail closed on dirty paths outside those allowlisted story artifacts, excluding only the
+exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
 
 ## Quality Requirements
 - Keep sections explicit and short.

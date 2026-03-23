@@ -16,6 +16,11 @@ fail() {
   exit 1
 }
 
+commit_artifacts_command() {
+  local story_id="$1"
+  echo "$COMMIT_ARTIFACTS_HINT $story_id"
+}
+
 usage() {
   cat >&2 <<'EOF'
 Usage:
@@ -72,7 +77,7 @@ ensure_story_artifacts_committed() {
     {
       echo "ERROR: story artifacts for '$story_id' must be committed before run:"
       printf ' - %s\n' "${dirty_story_paths[@]}"
-      echo "Remediation: $COMMIT_ARTIFACTS_HINT $story_id"
+      echo "Remediation: $(commit_artifacts_command "$story_id")"
     } >&2
     exit 1
   fi

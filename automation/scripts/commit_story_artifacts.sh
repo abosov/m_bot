@@ -10,6 +10,11 @@ fail() {
   exit 1
 }
 
+commit_message() {
+  local story_id="$1"
+  echo "chore(story): commit story artifacts for $story_id before run"
+}
+
 usage() {
   cat >&2 <<'EOF'
 Usage:
@@ -49,10 +54,9 @@ is_story_artifact_path() {
 STORY_ID="$1"
 validate_story_id "$STORY_ID"
 
-COMMIT_MESSAGE="chore(story): commit story artifacts for $STORY_ID before run"
-
 eligible_paths=()
 unrelated_paths=()
+STAGE_PATHS=()
 
 while IFS= read -r path; do
   [[ -n "$path" ]] || continue
@@ -77,5 +81,13 @@ if (( ${#eligible_paths[@]} == 0 )); then
   fail "no eligible story artifact changes found for '$STORY_ID'"
 fi
 
-git -C "$ROOT_DIR" add -- "${eligible_paths[@]}"
-git -C "$ROOT_DIR" commit -m "$COMMIT_MESSAGE"
+if printf '%s\n' "${eligible_paths[@]}" | grep -Fqx "automation/bundle_packs/$STORY_ID.bundle.md"; then
+  STAGE_PATHS+=("automation/bundle_packs/$STORY_ID.bundle.md")
+fi
+
+if printf '%s\n' "${eligible_paths[@]}" | grep -Eq "^automation/bundles/active/$STORY_ID(/|$)"; then
+  STAGE_PATHS+=("automation/bundles/active/$STORY_ID")
+fi
+
+git -C "$ROOT_DIR" add -- "${STAGE_PATHS[@]}"
+git -C "$ROOT_DIR" commit -m "$(commit_message "$STORY_ID")"

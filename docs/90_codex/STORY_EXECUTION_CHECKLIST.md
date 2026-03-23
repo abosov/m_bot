@@ -24,6 +24,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    This step may stage and commit only:
    - `automation/bundle_packs/<STORY-ID>.bundle.md`
    - `automation/bundles/active/<STORY-ID>/**`
+   The script stages those canonical artifact roots only; it must not stage unrelated paths opportunistically.
    The handoff must fail when no eligible story-artifact changes exist.
    The handoff must fail closed when any unrelated dirty path exists elsewhere in the repo, excluding only the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
    The commit message must stay deterministic: `chore(story): commit story artifacts for <STORY-ID> before run`.
