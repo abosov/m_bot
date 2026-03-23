@@ -51,10 +51,8 @@ The registry does **not** replace story bundles.
 - US-AUTO-38 — automatic rollback after failed runs
 
 ### Current Gaps
-- Story execution workflow has a missing handoff between bundle materialization and clean-tree enforcement before `run_story.sh`.
-- Story artifacts (`bundle.md` and `bundles/active`) are expected to be created uncommitted, but no canonical commit step exists.
-- This creates repeated operator friction and risks pressure to weaken clean-tree contract.
-- Operator workflow still lacks a deterministic bridge between authoring and execution phases.
+- P1 workflow integrity gap closed by US-AUTO-41: the canonical handoff is now `materialize -> commit_story_artifacts -> run_story`.
+- Remaining workflow improvements are downstream optimization stories, not missing clean-tree contract work.
 
 ### Optimization Roadmap
 - P1 runtime alignment (completed): US-AUTO-32 → US-AUTO-34
@@ -63,17 +61,17 @@ The registry does **not** replace story bundles.
 - P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28
 - P3 cycle cost reduction: US-AUTO-29 → US-AUTO-31
 - P4 operator UX: US-AUTO-18
+- Future workflow simplification: make bundle pack the single source of truth and treat bundles/active as materialized-only output
 
 ### Next Recommended Story
-1. US-AUTO-41 — Story artifacts commit handoff before run
-2. US-AUTO-25 — loop detection preflight
-3. US-AUTO-26 — expensive run budget guard
-4. US-AUTO-27 — pipeline zone cap
-5. US-AUTO-28 — escalation gate for loop-risk stories
-6. US-AUTO-29 — targeted test strategy
-7. US-AUTO-30 — review reuse / cache guard
-8. US-AUTO-31 — post-run checkpoint workflow
-9. US-AUTO-18 — operator UX
+1. US-AUTO-25 — loop detection preflight
+2. US-AUTO-26 — expensive run budget guard
+3. US-AUTO-27 — pipeline zone cap
+4. US-AUTO-28 — escalation gate for loop-risk stories
+5. US-AUTO-29 — targeted test strategy
+6. US-AUTO-30 — review reuse / cache guard
+7. US-AUTO-31 — post-run checkpoint workflow
+8. US-AUTO-18 — operator UX
 
 ---
 
@@ -98,7 +96,7 @@ The registry does **not** replace story bundles.
 | US-AUTO-37 | Ephemeral automation paths contract | Remove false dirty-tree from workflow-owned artifacts | enforcement | Implemented | P1 | None | US-AUTO-24 | automation/bundles/active/US-AUTO-37/ | Stabilized ledger + ephemeral paths |
 | US-AUTO-38 | Automatic rollback after failed automation run | Restore clean pre-run state after failed execution | implementation | Implemented | P1 | Start US-AUTO-41 bundle | US-AUTO-37 | automation/bundles/active/US-AUTO-38/ | Merged in PR #217; added automatic rollback for failed or interrupted runs and updated rollback contract docs/tests |
 
-| US-AUTO-41 | Story artifacts commit handoff before run | Add explicit commit step between bundle creation and run | follow-up | Planned | P1 | Draft bundle | US-AUTO-38 | N/A | Fixes repeated clean-tree friction before run |
+| US-AUTO-41 | Story artifacts commit handoff before run | Add explicit commit step between bundle creation and run | follow-up | Implemented | P1 | None | US-AUTO-38 | automation/bundle_packs/US-AUTO-41.bundle.md | Added `commit_story_artifacts.sh`, restricted staging to canonical story-artifact roots, kept unrelated dirty paths fail-closed except the exact ephemeral ledger path, and made `run_story.sh` print deterministic remediation |
 
 | US-AUTO-18 | Operator UX | Improve console UX | follow-up | Planned | P3 | Keep downstream | US-AUTO-17 | N/A | UX only |
 

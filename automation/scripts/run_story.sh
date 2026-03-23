@@ -6,6 +6,7 @@ ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 BUNDLES_ROOT="${AUTOMATION_BUNDLES_ROOT:-$ROOT_DIR/automation/bundles/active}"
 RUNNER="${AUTOMATION_RUNNER:-$ROOT_DIR/automation/run_codex_task.sh}"
 VALIDATOR_SCRIPT="$ROOT_DIR/automation/scripts/validate_story_bundle.sh"
+COMMIT_ARTIFACTS_HINT="automation/scripts/commit_story_artifacts.sh"
 EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
 # shellcheck source=automation/scripts/story_change_ledger.sh
 source "$SCRIPT_DIR/story_change_ledger.sh"
@@ -13,6 +14,11 @@ source "$SCRIPT_DIR/story_change_ledger.sh"
 fail() {
   echo "ERROR: $*" >&2
   exit 1
+}
+
+commit_artifacts_command() {
+  local story_id="$1"
+  echo "$COMMIT_ARTIFACTS_HINT $story_id"
 }
 
 usage() {
@@ -35,6 +41,46 @@ validate_story_id() {
 require_file() {
   local path="$1"
   [[ -f "$path" ]] || fail "required file not found: $path"
+}
+
+collect_dirty_paths() {
+  {
+    git -C "$ROOT_DIR" diff --name-only HEAD --
+    git -C "$ROOT_DIR" ls-files --others --exclude-standard
+  } | awk 'NF { print }' | sort -u
+}
+
+is_story_artifact_path() {
+  local story_id="$1"
+  local candidate="$2"
+
+  [[ "$candidate" == "automation/bundle_packs/$story_id.bundle.md" ]] && return 0
+  [[ "$candidate" == "automation/bundles/active/$story_id" ]] && return 0
+  [[ "$candidate" == "automation/bundles/active/$story_id/"* ]] && return 0
+  return 1
+}
+
+ensure_story_artifacts_committed() {
+  local story_id="$1"
+  local dirty_story_paths=()
+  local path
+
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    [[ "$path" == "$EPHEMERAL_LEDGER_PATH" ]] && continue
+    if is_story_artifact_path "$story_id" "$path"; then
+      dirty_story_paths+=("$path")
+    fi
+  done < <(collect_dirty_paths)
+
+  if (( ${#dirty_story_paths[@]} > 0 )); then
+    {
+      echo "ERROR: story artifacts for '$story_id' must be committed before run:"
+      printf ' - %s\n' "${dirty_story_paths[@]}"
+      echo "Remediation: $(commit_artifacts_command "$story_id")"
+    } >&2
+    exit 1
+  fi
 }
 
 restore_ephemeral_story_change_ledger() {
@@ -84,6 +130,8 @@ fi
 require_file "$RUNNER"
 require_file "$VALIDATOR_SCRIPT"
 require_file "$MASTER_PROMPT"
+
+ensure_story_artifacts_committed "$STORY_ID"
 
 echo "[INFO] Validating story bundle: $BUNDLE_DIR" >&2
 "$VALIDATOR_SCRIPT" "$STORY_ID"

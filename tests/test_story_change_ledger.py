@@ -132,6 +132,13 @@ def test_run_story_appends_story_started_entry_before_runner_exec(tmp_path: Path
     ]:
         (bundle_dir / file_name).write_text(f"# {file_name}\n", encoding="utf-8")
 
+    pack_path = root_dir / "automation" / "bundle_packs" / "US-AUTO-23.bundle.md"
+    pack_path.parent.mkdir(parents=True, exist_ok=True)
+    pack_path.write_text(
+        "# Story Bundle Pack\nStory-ID: US-AUTO-23\nVersion: 1\n",
+        encoding="utf-8",
+    )
+
     validator = tmp_path / "validate_story_bundle.sh"
     validator.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
     validator.chmod(0o755)
@@ -166,6 +173,34 @@ def test_run_story_appends_story_started_entry_before_runner_exec(tmp_path: Path
         capture_output=True,
         text=True,
     )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "add", "automation/bundles/active/US-AUTO-23", "automation/bundle_packs/US-AUTO-23.bundle.md"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "test: seed committed story artifacts"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
 
     result = subprocess.run(
         ["bash", str(RUN_STORY_SCRIPT), "US-AUTO-23"],
@@ -176,18 +211,20 @@ def test_run_story_appends_story_started_entry_before_runner_exec(tmp_path: Path
     )
 
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "runner_output.txt").read_text(encoding="utf-8").strip() == str(
-        bundle_dir / "03_master_prompt.md"
-    )
+    ledger_path = root_dir / "automation" / "story_change_ledger.jsonl"
+    assert ledger_path.exists()
+    lines = ledger_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
 
-    ledger_text = (
-        root_dir / "automation" / "story_change_ledger.jsonl"
-    ).read_text(encoding="utf-8")
-    assert '"story_id":"US-AUTO-23"' in ledger_text
-    assert '"event":"story_started"' in ledger_text
-    assert '"outcome":"started"' in ledger_text
-    assert '"decision_source":"run_story"' in ledger_text
-    assert '"artifact":"automation/bundles/active/US-AUTO-23/03_master_prompt.md"' in ledger_text
+    entry = json.loads(lines[0])
+    assert entry["story_id"] == "US-AUTO-23"
+    assert entry["event"] == "story_started"
+    assert entry["outcome"] == "started"
+    assert entry["decision_source"] == "run_story"
+    assert entry["artifact"] == "automation/bundles/active/US-AUTO-23/03_master_prompt.md"
+
+    runner_output = Path(env["RUNNER_OUTPUT_FILE"]).read_text(encoding="utf-8").strip()
+    assert runner_output.endswith("automation/bundles/active/US-AUTO-23/03_master_prompt.md")
 
 
 def test_run_codex_task_skips_duplicate_story_started_when_wrapper_already_recorded(

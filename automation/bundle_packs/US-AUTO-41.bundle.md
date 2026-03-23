@@ -1,10 +1,4 @@
 Story-ID: US-AUTO-41
-Title: Story artifacts commit handoff before run
-Epic: US-AUTO
-Status: Draft
-Owner: Codex workflow
-Bundle-Type: story
-Bundle-Format-Version: 1
 
 === FILE: 00_story.md ===
 # US-AUTO-41 — Story artifacts commit handoff before run
@@ -103,11 +97,9 @@ with these guarantees:
 Story is done only when implementation, tests, documentation, and registry updates all reflect the canonical explicit handoff:
 `materialize -> commit -> run`
 
+
 === FILE: 01_context_bundle.md ===
 # Context Bundle — US-AUTO-41
-
-## Why This Story Exists
-US-AUTO-38 fixed rollback and cleanup behavior after failed or interrupted runs. That reduced dirty-tree problems after execution, but it did not address the operator friction before execution. Bundle creation and materialization still generate files that must be committed manually before `run_story.sh` can pass its clean-tree preflight.
 
 ## Source of Truth
 - `automation/scripts/new_story_bundle.sh`
@@ -118,14 +110,18 @@ US-AUTO-38 fixed rollback and cleanup behavior after failed or interrupted runs.
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 
 ## Current Code Reality
-The current operator flow is effectively:
+US-AUTO-38 fixed rollback and cleanup behavior after failed or interrupted runs. That reduced dirty-tree problems after execution, but it did not address operator friction before execution.
+
+After `new_story_bundle.sh` and `materialize_story_bundle.sh`, the repository contains generated story artifacts that must be committed before `run_story.sh` can pass its clean-tree preflight.
+
+The effective operator flow before this story was:
 1. create bundle
 2. materialize bundle
 3. hit clean-tree block in `run_story.sh`
 4. manually inspect and commit generated story files
 5. rerun
 
-This is not a correctness bug in `run_story.sh`; it is a missing explicit workflow state transition.
+This is not a correctness bug in `run_story.sh`; it is a missing explicit workflow transition.
 
 ## Architectural Intent
 Formalize a distinct transition state between materialization and execution:
@@ -135,10 +131,7 @@ Formalize a distinct transition state between materialization and execution:
 
 The design intent is to preserve strict clean-tree enforcement while removing guesswork around what must be committed.
 
-## UX Intent
-The operator should no longer have to infer the next step. When story artifacts are dirty, the system should point to one explicit command that performs the narrow, contract-backed commit handoff.
-
-Desired operator flow:
+The canonical operator flow should become:
 1. create bundle
 2. materialize
 3. `automation/scripts/commit_story_artifacts.sh <STORY_ID>`
@@ -151,7 +144,6 @@ Desired operator flow:
 
 ## Acceptance Notes
 Keep this story narrow. The goal is to make the missing handoff canonical, not to introduce automation layers beyond that handoff.
-
 === FILE: 02_file_scope.md ===
 # File Scope — US-AUTO-41
 
@@ -166,21 +158,21 @@ Keep this story narrow. The goal is to make the missing handoff canonical, not t
 - `automation/bundles/active/US-AUTO-41/06_manual_actions.md`
 - `automation/scripts/commit_story_artifacts.sh`
 - `automation/scripts/run_story.sh`
+- `automation/run_codex_task.sh`
 - `docs/90_codex/STORY_BUNDLE_SPEC.md`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `tests/test_run_story.py`
 - `tests/test_story_bundle_scripts.py`
-- `automation/run_codex_task.sh`
+- `tests/test_story_change_ledger.py`
 
 ## Files Not Allowed To Change
 - rollback lifecycle implementation introduced by US-AUTO-38, except where strictly necessary for compatibility within `automation/scripts/run_story.sh`
 - bundle generation semantics outside the US-AUTO-41 bundle artifacts listed above
 - unrelated workflow scripts
 - application code outside automation/docs/tests scope
-- any tests other than:
-  - `tests/test_run_story.py`
-  - `tests/test_story_bundle_scripts.py`
+- unrelated tests outside the explicit allowed file list
+- `automation/story_change_ledger.jsonl`
 
 ## Implementation Notes
 The new handoff script must allowlist only these artifact paths for `<STORY_ID>`:
@@ -191,13 +183,15 @@ For this story, the bundle artifacts themselves are also part of the allowed cha
 
 `run_story.sh` must remain strict and must not auto-commit. It may only improve targeted preflight messaging for dirty story artifacts.
 
+`run_codex_task.sh` remains execution-only. It must not become the owner of the commit-handoff contract.
+
 ## Test Notes
 Cover at minimum:
 - artifact-only commit succeeds
 - unrelated changes cause failure
 - nothing-to-commit causes failure
 - `run_story.sh` blocks on dirty story artifacts and prints remediation
-
+- ledger-related regression coverage remains compatible with the committed-artifact contract
 === FILE: 03_master_prompt.md ===
 # Master Prompt — US-AUTO-41
 
@@ -259,7 +253,6 @@ Before finishing:
 - run relevant tests
 - verify docs match behavior
 - confirm no unrelated files changed
-
 === FILE: 04_review_checklist.md ===
 # Review Checklist — US-AUTO-41
 
@@ -283,38 +276,42 @@ Before finishing:
 - [ ] docs updated
 - [ ] epic registry updated
 - [ ] operator flow is documented as `materialize -> commit -> run`
-
 === FILE: 05_followups.md ===
-# Follow-ups — US-AUTO-41
+# US-AUTO-41: Follow-Ups
 
 ## Follow-Up Prompt Queue
-1. Add a helper to preview exact pending artifact paths before commit handoff.
-2. Detect partially materialized story artifacts before commit.
-3. Add a higher-level operator helper that chains materialize and commit when explicitly requested.
-4. Add broader story lifecycle state introspection.
-5. Revisit adjacent workflow friction around ledger artifacts if it remains visible after this handoff lands.
+- Preview exact pending story artifact paths before commit handoff.
+- Detect partially materialized story artifacts before commit handoff.
+- Add an explicit operator helper that chains materialize and commit only when intentionally invoked.
+- Add broader story lifecycle state introspection as a separate story.
+- Revisit adjacent ledger-artifact workflow friction only if it remains visible after this handoff lands.
 
 ## Iteration Notes
-Keep US-AUTO-41 narrow and contract-focused. Future UX polish should build on this explicit handoff rather than replacing it with hidden behavior.
-
+- Keep `US-AUTO-41` narrow and contract-focused.
+- Do not replace the explicit `materialize -> commit -> run` handoff with hidden auto-commit behavior.
+- Treat future UX polish as separate follow-up work rather than extending this story.
 === FILE: 06_manual_actions.md ===
-# Manual Actions — US-AUTO-41
+# US-AUTO-41: Manual Actions
 
 ## Required Human Actions
-1. update the bundle pack
-2. materialize the bundle
-3. run the story workflow after implementation is prepared
-4. review tests, docs, and registry updates
-5. open PR and finalize via the standard US-AUTO flow
+- Rebuild bundle pack after any bundle changes.
+- Materialize the active bundle before execution.
+- Commit story artifacts using `commit_story_artifacts.sh`.
+- Run the story workflow using `run_story.sh`.
+- Perform review, classification, and review gate steps.
+- Open PR and finalize via the standard US-AUTO flow.
 
 ## Completion Status
-Current state:
-- bundle draft prepared
-- validator corrections applied
-- awaiting successful materialization
 
-Expected future operator flow after implementation:
+### Current State
+- Bundle draft prepared.
+- Validator corrections applied.
+- Awaiting stable materialization and clean review pass.
+
+### Expected Operator Flow
 1. `new_story_bundle.sh <STORY_ID>`
-2. materialize
+2. materialize bundle
 3. `automation/scripts/commit_story_artifacts.sh <STORY_ID>`
 4. `automation/scripts/run_story.sh <STORY_ID>`
+5. review → classify → review_gate
+6. finalize story via PR

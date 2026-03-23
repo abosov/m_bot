@@ -1,12 +1,13 @@
-# Follow-ups — US-AUTO-41
+# US-AUTO-41: Follow-Ups
 
 ## Follow-Up Prompt Queue
-1. Add a helper to preview exact pending artifact paths before commit handoff.
-2. Detect partially materialized story artifacts before commit.
-3. Add a higher-level operator helper that chains materialize and commit when explicitly requested.
-4. Add broader story lifecycle state introspection.
-5. Revisit adjacent workflow friction around ledger artifacts if it remains visible after this handoff lands.
+- Preview exact pending story artifact paths before commit handoff.
+- Detect partially materialized story artifacts before commit handoff.
+- Add an explicit operator helper that chains materialize and commit only when intentionally invoked.
+- Add broader story lifecycle state introspection as a separate story.
+- Revisit adjacent ledger-artifact workflow friction only if it remains visible after this handoff lands.
 
 ## Iteration Notes
-Keep US-AUTO-41 narrow and contract-focused. Future UX polish should build on this explicit handoff rather than replacing it with hidden behavior.
-
+- Keep `US-AUTO-41` narrow and contract-focused.
+- Do not replace the explicit `materialize -> commit -> run` handoff with hidden auto-commit behavior.
+- Treat future UX polish as separate follow-up work rather than extending this story.

@@ -1,8 +1,5 @@
 # Context Bundle — US-AUTO-41
 
-## Why This Story Exists
-US-AUTO-38 fixed rollback and cleanup behavior after failed or interrupted runs. That reduced dirty-tree problems after execution, but it did not address the operator friction before execution. Bundle creation and materialization still generate files that must be committed manually before `run_story.sh` can pass its clean-tree preflight.
-
 ## Source of Truth
 - `automation/scripts/new_story_bundle.sh`
 - `automation/scripts/materialize_story_bundle.sh`
@@ -12,14 +9,18 @@ US-AUTO-38 fixed rollback and cleanup behavior after failed or interrupted runs.
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 
 ## Current Code Reality
-The current operator flow is effectively:
+US-AUTO-38 fixed rollback and cleanup behavior after failed or interrupted runs. That reduced dirty-tree problems after execution, but it did not address operator friction before execution.
+
+After `new_story_bundle.sh` and `materialize_story_bundle.sh`, the repository contains generated story artifacts that must be committed before `run_story.sh` can pass its clean-tree preflight.
+
+The effective operator flow before this story was:
 1. create bundle
 2. materialize bundle
 3. hit clean-tree block in `run_story.sh`
 4. manually inspect and commit generated story files
 5. rerun
 
-This is not a correctness bug in `run_story.sh`; it is a missing explicit workflow state transition.
+This is not a correctness bug in `run_story.sh`; it is a missing explicit workflow transition.
 
 ## Architectural Intent
 Formalize a distinct transition state between materialization and execution:
@@ -29,10 +30,7 @@ Formalize a distinct transition state between materialization and execution:
 
 The design intent is to preserve strict clean-tree enforcement while removing guesswork around what must be committed.
 
-## UX Intent
-The operator should no longer have to infer the next step. When story artifacts are dirty, the system should point to one explicit command that performs the narrow, contract-backed commit handoff.
-
-Desired operator flow:
+The canonical operator flow should become:
 1. create bundle
 2. materialize
 3. `automation/scripts/commit_story_artifacts.sh <STORY_ID>`
@@ -45,4 +43,3 @@ Desired operator flow:
 
 ## Acceptance Notes
 Keep this story narrow. The goal is to make the missing handoff canonical, not to introduce automation layers beyond that handoff.
-
