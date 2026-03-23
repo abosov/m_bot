@@ -184,9 +184,10 @@ def init_git_repo(root_dir: Path) -> None:
     )
 
 
-def checkout_story_branch(root_dir: Path, story_id: str) -> None:
+def checkout_story_branch(root_dir: Path, story_id: str, branch_name: str | None = None) -> None:
+    target_branch = branch_name or f"feat/{story_id.lower()}"
     subprocess.run(
-        ["git", "checkout", "-b", f"feat/{story_id.lower()}"],
+        ["git", "checkout", "-b", target_branch],
         cwd=root_dir,
         check=True,
         capture_output=True,
@@ -289,7 +290,7 @@ def test_commit_story_artifacts_fails_on_main_branch(tmp_path: Path) -> None:
     result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
 
     assert result.returncode != 0
-    assert f"matching story branch for '{story_id}'" in result.stderr
+    assert "must run on a story branch" in result.stderr
 
 
 def test_commit_story_artifacts_fails_on_non_story_branch(tmp_path: Path) -> None:
@@ -318,7 +319,7 @@ def test_commit_story_artifacts_fails_on_non_story_branch(tmp_path: Path) -> Non
     result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
 
     assert result.returncode != 0
-    assert f"matching story branch for '{story_id}'" in result.stderr
+    assert "must run on a story branch" in result.stderr
 
 
 def test_commit_story_artifacts_fails_on_mismatched_story_branch(tmp_path: Path) -> None:
@@ -347,7 +348,7 @@ def test_commit_story_artifacts_fails_on_mismatched_story_branch(tmp_path: Path)
     result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
 
     assert result.returncode != 0
-    assert f"matching story branch for '{story_id}'" in result.stderr
+    assert "must run on a story branch" in result.stderr
 
 
 def test_commit_story_artifacts_fails_when_no_eligible_changes_exist(tmp_path: Path) -> None:
@@ -672,3 +673,53 @@ printf 'called\\n' > "{runner_marker}"
     assert result.returncode != 0
     assert "unresolved canonical placeholder" in result.stderr
     assert not runner_marker.exists()
+
+
+def test_commit_story_artifacts_allows_feature_branch_for_story(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    story_id = "US-AUTO-41"
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    bundle_dir = root_dir / "automation" / "bundles" / "active" / story_id
+
+    init_git_repo(root_dir)
+    write_pack(pack_path, story_id)
+    write_bundle(bundle_dir, story_id)
+    commit_all(root_dir, "init")
+    checkout_story_branch(root_dir, story_id, branch_name="feature/us-auto-41-commit-handoff")
+
+    pack_path.write_text(
+        pack_path.read_text(encoding="utf-8") + "\nupdated\n",
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+
+    result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_commit_story_artifacts_allows_generic_type_branch_for_story(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    story_id = "US-AUTO-41"
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    bundle_dir = root_dir / "automation" / "bundles" / "active" / story_id
+
+    init_git_repo(root_dir)
+    write_pack(pack_path, story_id)
+    write_bundle(bundle_dir, story_id)
+    commit_all(root_dir, "init")
+    checkout_story_branch(root_dir, story_id, branch_name="bugfix/us-auto-41-commit-handoff")
+
+    pack_path.write_text(
+        pack_path.read_text(encoding="utf-8") + "\nupdated\n",
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+
+    result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
+
+    assert result.returncode == 0, result.stderr
