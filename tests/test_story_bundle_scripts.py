@@ -289,7 +289,65 @@ def test_commit_story_artifacts_fails_on_main_branch(tmp_path: Path) -> None:
     result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
 
     assert result.returncode != 0
-    assert "must run on a story branch" in result.stderr
+    assert f"matching story branch for '{story_id}'" in result.stderr
+
+
+def test_commit_story_artifacts_fails_on_non_story_branch(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    story_id = "US-AUTO-41"
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    bundle_dir = root_dir / "automation" / "bundles" / "active" / story_id
+
+    init_git_repo(root_dir)
+    write_pack(pack_path, story_id)
+    write_bundle(bundle_dir, story_id)
+    commit_all(root_dir, "init")
+    subprocess.run(
+        ["git", "checkout", "-b", "feat/random-work"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    pack_path.write_text(pack_path.read_text(encoding="utf-8") + "\nupdated\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+
+    result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
+
+    assert result.returncode != 0
+    assert f"matching story branch for '{story_id}'" in result.stderr
+
+
+def test_commit_story_artifacts_fails_on_mismatched_story_branch(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    story_id = "US-AUTO-41"
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    bundle_dir = root_dir / "automation" / "bundles" / "active" / story_id
+
+    init_git_repo(root_dir)
+    write_pack(pack_path, story_id)
+    write_bundle(bundle_dir, story_id)
+    commit_all(root_dir, "init")
+    subprocess.run(
+        ["git", "checkout", "-b", "feat/us-auto-42-something"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    pack_path.write_text(pack_path.read_text(encoding="utf-8") + "\nupdated\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+
+    result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
+
+    assert result.returncode != 0
+    assert f"matching story branch for '{story_id}'" in result.stderr
 
 
 def test_commit_story_artifacts_fails_when_no_eligible_changes_exist(tmp_path: Path) -> None:

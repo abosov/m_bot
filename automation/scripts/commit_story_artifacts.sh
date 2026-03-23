@@ -55,13 +55,18 @@ STORY_ID="$1"
 validate_story_id "$STORY_ID"
 
 CURRENT_BRANCH="$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD)"
+STORY_BRANCH_ID="$(printf '%s' "$STORY_ID" | tr '[:upper:]' '[:lower:]')"
 
 if [[ "$CURRENT_BRANCH" == "HEAD" ]]; then
-  fail "commit handoff must run on a story branch, not detached HEAD"
+  fail "commit handoff must run on the matching story branch for '$STORY_ID', not detached HEAD"
 fi
 
 if [[ "$CURRENT_BRANCH" == "main" ]]; then
-  fail "commit handoff must run on a story branch, not 'main'"
+  fail "commit handoff must run on the matching story branch for '$STORY_ID', not 'main'"
+fi
+
+if [[ ! "$CURRENT_BRANCH" =~ ^(feat|fix|chore)/${STORY_BRANCH_ID}(-.*)?$ ]]; then
+  fail "commit handoff must run on the matching story branch for '$STORY_ID' (for example: feat/${STORY_BRANCH_ID}-..., fix/${STORY_BRANCH_ID}-..., or chore/${STORY_BRANCH_ID}-...)"
 fi
 
 eligible_paths=()
