@@ -137,6 +137,7 @@ Reason:
 - tests/test_run_codex_task.py
 - docs/90_codex/STORY_EXECUTION_CHECKLIST.md
 - docs/90_codex/epics/US-AUTO_REGISTRY.md
+- tests/test_story_change_ledger.py
 
 ## Files Not Allowed To Change
 

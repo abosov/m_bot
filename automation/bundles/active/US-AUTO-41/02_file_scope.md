@@ -17,6 +17,7 @@
 - `tests/test_run_story.py`
 - `tests/test_story_bundle_scripts.py`
 - `automation/run_codex_task.sh`
+- tests/test_story_change_ledger.py
 
 ## Files Not Allowed To Change
 - rollback lifecycle implementation introduced by US-AUTO-38, except where strictly necessary for compatibility within `automation/scripts/run_story.sh`
@@ -26,6 +27,7 @@
 - any tests other than:
   - `tests/test_run_story.py`
   - `tests/test_story_bundle_scripts.py`
+  
 
 ## Implementation Notes
 The new handoff script must allowlist only these artifact paths for `<STORY_ID>`:
