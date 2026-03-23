@@ -4,6 +4,7 @@ import subprocess
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+COMMIT_SCRIPT = REPO_ROOT / "automation" / "scripts" / "commit_story_artifacts.sh"
 MATERIALIZE_SCRIPT = REPO_ROOT / "automation" / "scripts" / "materialize_story_bundle.sh"
 VALIDATE_SCRIPT = REPO_ROOT / "automation" / "scripts" / "validate_story_bundle.sh"
 RUN_STORY_SCRIPT = REPO_ROOT / "automation" / "scripts" / "run_story.sh"
@@ -158,6 +159,48 @@ def write_pack(pack_path: Path, story_id: str) -> None:
     pack_path.write_text("\n".join(parts).rstrip() + "\n", encoding="utf-8")
 
 
+def init_git_repo(root_dir: Path) -> None:
+    root_dir.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["git", "init", "-b", "main"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "codex@example.com"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Codex Test"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def commit_all(root_dir: Path, message: str) -> None:
+    subprocess.run(
+        ["git", "add", "."],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", message],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 def test_bundle_materialization_creates_required_files(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     story_id = "US-AUTO-99"
@@ -173,6 +216,92 @@ def test_bundle_materialization_creates_required_files(tmp_path: Path) -> None:
     bundle_dir = root_dir / "automation" / "bundles" / "active" / story_id
     assert bundle_dir.is_dir()
     assert sorted(path.name for path in bundle_dir.iterdir()) == REQUIRED_FILES
+
+
+def test_commit_story_artifacts_commits_only_story_artifacts(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    story_id = "US-AUTO-99"
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    bundle_dir = root_dir / "automation" / "bundles" / "active" / story_id
+
+    init_git_repo(root_dir)
+    write_pack(pack_path, story_id)
+    write_bundle(bundle_dir, story_id)
+    commit_all(root_dir, "init")
+
+    pack_path.write_text(pack_path.read_text(encoding="utf-8") + "\nupdated\n", encoding="utf-8")
+    (bundle_dir / "03_master_prompt.md").write_text("# Prompt\n\nupdated\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+
+    result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
+
+    assert result.returncode == 0, result.stderr
+
+    commit_message = subprocess.run(
+        ["git", "log", "-1", "--pretty=%s"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert commit_message.stdout.strip() == (
+        f"chore(story): commit story artifacts for {story_id} before run"
+    )
+
+    status = subprocess.run(
+        ["git", "status", "--short"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert status.stdout.strip() == ""
+
+
+def test_commit_story_artifacts_fails_when_no_eligible_changes_exist(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    story_id = "US-AUTO-99"
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    bundle_dir = root_dir / "automation" / "bundles" / "active" / story_id
+
+    init_git_repo(root_dir)
+    write_pack(pack_path, story_id)
+    write_bundle(bundle_dir, story_id)
+    commit_all(root_dir, "init")
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+
+    result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
+
+    assert result.returncode != 0
+    assert f"no eligible story artifact changes found for '{story_id}'" in result.stderr
+
+
+def test_commit_story_artifacts_fails_on_unrelated_dirty_paths(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    story_id = "US-AUTO-99"
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    bundle_dir = root_dir / "automation" / "bundles" / "active" / story_id
+
+    init_git_repo(root_dir)
+    write_pack(pack_path, story_id)
+    write_bundle(bundle_dir, story_id)
+    commit_all(root_dir, "init")
+
+    pack_path.write_text(pack_path.read_text(encoding="utf-8") + "\nupdated\n", encoding="utf-8")
+    (root_dir / "README.md").write_text("unrelated\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+
+    result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
+
+    assert result.returncode != 0
+    assert "commit handoff blocked by unrelated dirty paths:" in result.stderr
+    assert "README.md" in result.stderr
 
 
 def test_validate_story_bundle_fails_on_unresolved_placeholder(tmp_path: Path) -> None:

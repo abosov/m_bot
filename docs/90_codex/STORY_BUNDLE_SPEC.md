@@ -6,6 +6,7 @@ Define the single-source bundle pack format and the required materialized bundle
 ## Source of Truth
 - Canonical bundle source: `automation/bundle_packs/<STORY-ID>.bundle.md`
 - Materialized runtime bundle: `automation/bundles/active/<STORY-ID>/`
+- Canonical artifact commit handoff: `automation/scripts/commit_story_artifacts.sh <STORY-ID>`
 - Epic-level lifecycle registry: `docs/90_codex/epics/<EPIC-ID>_REGISTRY.md`
 - Bootstrap helper: `automation/scripts/new_story_bundle.sh` (pack scaffold only)
 
@@ -32,6 +33,8 @@ Pack files must be deterministic markdown with:
 
 Pack files are expanded by `automation/scripts/materialize_story_bundle.sh`.
 Materialization must parse + validate before replacing the active bundle directory.
+Materialized story artifacts remain in a draft state until they are committed with
+`automation/scripts/commit_story_artifacts.sh <STORY-ID>`.
 
 ## Required Sections
 Every story bundle must include all sections below:
@@ -93,6 +96,9 @@ Bundles are invalid for execution when master or follow-up prompts omit this exe
 - required core sections are missing
 
 `automation/scripts/run_story.sh` must invoke validation before execution and refuse invalid bundles.
+`automation/scripts/run_story.sh` must also refuse execution when the requested story's bundle pack or
+materialized active-bundle files are still dirty, and it must print the deterministic remediation command
+`automation/scripts/commit_story_artifacts.sh <STORY-ID>`.
 
 ## Quality Requirements
 - Keep sections explicit and short.
@@ -108,6 +114,8 @@ Bundles are invalid for execution when master or follow-up prompts omit this exe
 - When review produces multiple findings, split them into separate follow-up prompts instead of composing a multi-fix continuation.
 - Follow-up templates must say explicitly that follow-up execution is still bound by the same one-purpose contract and cannot absorb a second independently reviewable fix.
 - For automation workflow stories, prefer deterministic stage models and exact next-command output that can safely resume from existing artifacts without hidden state.
+- For automation workflow stories that materialize versioned story artifacts, keep the handoff explicit:
+  materialize first, commit only the story-local bundle artifacts second, then execute from a clean tree.
 - For automation workflow stories, document the canonical resumable stage sequence explicitly and treat reject/invalid/stale/dirty conditions as blocked states rather than implicit stages.
 - For automation workflow stories, reserve `latest valid stage` for canonical resumable checkpoints only; blocked conditions should report the last valid checkpoint separately instead of becoming new resumable stages.
 - For automation workflow stories, next-command output should pin `AUTOMATION_RUN_DIR` to one concrete run directory and downstream resume scripts should accept both absolute and repository-relative pinned run paths.

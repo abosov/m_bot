@@ -39,6 +39,10 @@ def setup_repo(root_dir: Path, story_id: str) -> None:
     for file_name in REQUIRED_BUNDLE_FILES:
         (bundle_dir / file_name).write_text(f"# {file_name}\n", encoding="utf-8")
 
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    pack_path.parent.mkdir(parents=True, exist_ok=True)
+    pack_path.write_text(f"# Story Bundle Pack\nStory-ID: {story_id}\nVersion: 1\n", encoding="utf-8")
+
     ledger_path = root_dir / "automation" / "story_change_ledger.jsonl"
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     ledger_path.write_text("", encoding="utf-8")
@@ -145,3 +149,33 @@ def test_run_story_keeps_non_ledger_runner_changes_visible(tmp_path: Path) -> No
     )
     assert non_ledger_status.returncode == 0, non_ledger_status.stderr
     assert non_ledger_status.stdout.strip() == "?? implementation_output.txt"
+
+
+def test_run_story_blocks_dirty_story_artifacts_with_commit_hint(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    bundle_story = root_dir / "automation" / "bundles" / "active" / story_id / "03_master_prompt.md"
+    bundle_story.write_text("# dirty\n", encoding="utf-8")
+
+    fake_runner = root_dir / "fake_runner.sh"
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert f"ERROR: story artifacts for '{story_id}' must be committed before run:" in result.stderr
+    assert f"Remediation: automation/scripts/commit_story_artifacts.sh {story_id}" in result.stderr
+    assert not runner_marker.exists()
