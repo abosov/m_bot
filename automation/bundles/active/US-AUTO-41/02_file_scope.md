@@ -11,23 +11,21 @@
 - `automation/bundles/active/US-AUTO-41/06_manual_actions.md`
 - `automation/scripts/commit_story_artifacts.sh`
 - `automation/scripts/run_story.sh`
+- `automation/run_codex_task.sh`
 - `docs/90_codex/STORY_BUNDLE_SPEC.md`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `tests/test_run_story.py`
 - `tests/test_story_bundle_scripts.py`
-- `automation/run_codex_task.sh`
-- tests/test_story_change_ledger.py
+- `tests/test_story_change_ledger.py`
 
 ## Files Not Allowed To Change
 - rollback lifecycle implementation introduced by US-AUTO-38, except where strictly necessary for compatibility within `automation/scripts/run_story.sh`
 - bundle generation semantics outside the US-AUTO-41 bundle artifacts listed above
 - unrelated workflow scripts
 - application code outside automation/docs/tests scope
-- any tests other than:
-  - `tests/test_run_story.py`
-  - `tests/test_story_bundle_scripts.py`
-  
+- unrelated tests outside the explicit allowed file list
+- `automation/story_change_ledger.jsonl`
 
 ## Implementation Notes
 The new handoff script must allowlist only these artifact paths for `<STORY_ID>`:
@@ -38,10 +36,12 @@ For this story, the bundle artifacts themselves are also part of the allowed cha
 
 `run_story.sh` must remain strict and must not auto-commit. It may only improve targeted preflight messaging for dirty story artifacts.
 
+`run_codex_task.sh` remains execution-only. It must not become the owner of the commit-handoff contract.
+
 ## Test Notes
 Cover at minimum:
 - artifact-only commit succeeds
 - unrelated changes cause failure
 - nothing-to-commit causes failure
 - `run_story.sh` blocks on dirty story artifacts and prints remediation
-
+- ledger-related regression coverage remains compatible with the committed-artifact contract
