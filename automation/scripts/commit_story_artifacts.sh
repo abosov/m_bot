@@ -54,6 +54,16 @@ is_story_artifact_path() {
 STORY_ID="$1"
 validate_story_id "$STORY_ID"
 
+CURRENT_BRANCH="$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD)"
+
+if [[ "$CURRENT_BRANCH" == "HEAD" ]]; then
+  fail "commit handoff must run on a story branch, not detached HEAD"
+fi
+
+if [[ "$CURRENT_BRANCH" == "main" ]]; then
+  fail "commit handoff must run on a story branch, not 'main'"
+fi
+
 eligible_paths=()
 unrelated_paths=()
 STAGE_PATHS=()

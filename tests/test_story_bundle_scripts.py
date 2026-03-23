@@ -184,6 +184,15 @@ def init_git_repo(root_dir: Path) -> None:
     )
 
 
+def checkout_story_branch(root_dir: Path, story_id: str) -> None:
+    subprocess.run(
+        ["git", "checkout", "-b", f"feat/{story_id.lower()}"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
 def commit_all(root_dir: Path, message: str) -> None:
     subprocess.run(
         ["git", "add", "."],
@@ -228,6 +237,7 @@ def test_commit_story_artifacts_commits_only_story_artifacts(tmp_path: Path) -> 
     write_pack(pack_path, story_id)
     write_bundle(bundle_dir, story_id)
     commit_all(root_dir, "init")
+    checkout_story_branch(root_dir, story_id)
 
     pack_path.write_text(pack_path.read_text(encoding="utf-8") + "\nupdated\n", encoding="utf-8")
     (bundle_dir / "03_master_prompt.md").write_text("# Prompt\n\nupdated\n", encoding="utf-8")
@@ -260,6 +270,28 @@ def test_commit_story_artifacts_commits_only_story_artifacts(tmp_path: Path) -> 
     assert status.stdout.strip() == ""
 
 
+def test_commit_story_artifacts_fails_on_main_branch(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    story_id = "US-AUTO-99"
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    bundle_dir = root_dir / "automation" / "bundles" / "active" / story_id
+
+    init_git_repo(root_dir)
+    write_pack(pack_path, story_id)
+    write_bundle(bundle_dir, story_id)
+    commit_all(root_dir, "init")
+
+    pack_path.write_text(pack_path.read_text(encoding="utf-8") + "\nupdated\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+
+    result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
+
+    assert result.returncode != 0
+    assert "must run on a story branch" in result.stderr
+
+
 def test_commit_story_artifacts_fails_when_no_eligible_changes_exist(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     story_id = "US-AUTO-99"
@@ -270,6 +302,7 @@ def test_commit_story_artifacts_fails_when_no_eligible_changes_exist(tmp_path: P
     write_pack(pack_path, story_id)
     write_bundle(bundle_dir, story_id)
     commit_all(root_dir, "init")
+    checkout_story_branch(root_dir, story_id)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -290,6 +323,7 @@ def test_commit_story_artifacts_fails_on_unrelated_dirty_paths(tmp_path: Path) -
     write_pack(pack_path, story_id)
     write_bundle(bundle_dir, story_id)
     commit_all(root_dir, "init")
+    checkout_story_branch(root_dir, story_id)
 
     pack_path.write_text(pack_path.read_text(encoding="utf-8") + "\nupdated\n", encoding="utf-8")
     (root_dir / "README.md").write_text("unrelated\n", encoding="utf-8")
@@ -317,6 +351,7 @@ def test_commit_story_artifacts_ignores_ephemeral_ledger_path(tmp_path: Path) ->
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     ledger_path.write_text("", encoding="utf-8")
     commit_all(root_dir, "init")
+    checkout_story_branch(root_dir, story_id)
 
     (bundle_dir / "03_master_prompt.md").write_text("# Prompt\n\nupdated\n", encoding="utf-8")
     ledger_path.write_text('{"event":"story_started"}\n', encoding="utf-8")
@@ -348,6 +383,7 @@ def test_commit_story_artifacts_commits_bundle_only_when_pack_is_absent(tmp_path
     write_pack(pack_path, story_id)
     write_bundle(bundle_dir, story_id)
     commit_all(root_dir, "init")
+    checkout_story_branch(root_dir, story_id)
 
     subprocess.run(
         ["git", "rm", "--", "automation/bundle_packs/US-AUTO-99.bundle.md"],
@@ -385,6 +421,7 @@ def test_commit_story_artifacts_commits_pack_only_when_bundle_is_absent(tmp_path
     write_pack(pack_path, story_id)
     write_bundle(bundle_dir, story_id)
     commit_all(root_dir, "init")
+    checkout_story_branch(root_dir, story_id)
 
     subprocess.run(
         ["git", "rm", "-r", "--", "automation/bundles/active/US-AUTO-99"],
