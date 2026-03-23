@@ -58,15 +58,15 @@ CURRENT_BRANCH="$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD)"
 STORY_BRANCH_ID="$(printf '%s' "$STORY_ID" | tr '[:upper:]' '[:lower:]')"
 
 if [[ "$CURRENT_BRANCH" == "HEAD" ]]; then
-  fail "commit handoff must run on the matching story branch for '$STORY_ID', not detached HEAD"
+  fail "commit handoff must run on a story branch for '$STORY_ID', not detached HEAD"
 fi
 
 if [[ "$CURRENT_BRANCH" == "main" ]]; then
-  fail "commit handoff must run on the matching story branch for '$STORY_ID', not 'main'"
+  fail "commit handoff must run on a story branch for '$STORY_ID', not 'main'"
 fi
 
-if [[ ! "$CURRENT_BRANCH" =~ ^(feat|fix|chore)/${STORY_BRANCH_ID}(-.*)?$ ]]; then
-  fail "commit handoff must run on the matching story branch for '$STORY_ID' (for example: feat/${STORY_BRANCH_ID}-..., fix/${STORY_BRANCH_ID}-..., or chore/${STORY_BRANCH_ID}-...)"
+if [[ ! "$CURRENT_BRANCH" =~ ^[^/]+/${STORY_BRANCH_ID}(-.*)?$ ]]; then
+  fail "commit handoff must run on a story branch matching '<type>/${STORY_BRANCH_ID}-<short-name>' for '$STORY_ID' (for example: feature/${STORY_BRANCH_ID}-..., feat/${STORY_BRANCH_ID}-..., fix/${STORY_BRANCH_ID}-..., or chore/${STORY_BRANCH_ID}-...)"
 fi
 
 eligible_paths=()
