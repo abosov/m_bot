@@ -1,3 +1,4 @@
+# file: automation/run_codex_task.sh
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -13,6 +14,67 @@ REVIEW_DIFF_RANGE="$REVIEW_BASE_REF...HEAD"
 EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
 EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC=":(exclude)$EPHEMERAL_LEDGER_PATH"
 LEDGER_HELPER="$ROOT_DIR/automation/scripts/story_change_ledger.sh"
+
+RUN_ID=""
+RUN_DIR=""
+WORKTREE_DIR=""
+WORKTREE_HEAD=""
+WORKTREE_CREATED="0"
+ROLLBACK_BASE_HEAD=""
+ROLLBACK_ARMED="1"
+
+MANIFEST_FILE=""
+STORY_CONTEXT_FILE=""
+CODEX_PROMPT_FILE=""
+REPOSITORY_MAP_RUNTIME_FILE=""
+LOG_FILE=""
+LAST_MESSAGE_FILE=""
+DIFF_FILE=""
+STAT_FILE=""
+NAMEONLY_FILE=""
+TEST_FILE=""
+BUNDLE_FILE=""
+REVIEW_PROMPT_FILE=""
+META_FILE=""
+CHECK_ALLOWED_FILES_SCRIPT=""
+FALLBACK_CHECK_ALLOWED_FILES_SCRIPT=""
+WORKTREE_TRACKED_LIST_FILE=""
+WORKTREE_UNTRACKED_LIST_FILE=""
+
+MATERIALIZATION_STATUS="not_needed"
+MATERIALIZED_TRACKED_COUNT="0"
+MATERIALIZED_UNTRACKED_COUNT="0"
+MATERIALIZED_CHANGE_COUNT="0"
+REVIEW_ARTIFACT_BASE=""
+REPOSITORY_MAP_RUNTIME_REL="repository_map_runtime.md"
+REPOSITORY_MAP_INJECTION_STATUS="pending"
+REPOSITORY_MAP_SOURCE_DOCS=""
+
+BRANCH_NAME=""
+CURRENT_HEAD=""
+GIT_STATUS=""
+PROMPT_CONTENT=""
+SKIP_PYTEST="${SKIP_PYTEST:-0}"
+PYTEST_TARGET="${PYTEST_TARGET:-}"
+CODEX_MODEL="${CODEX_MODEL:-}"
+CODEX_EXTRA_ARGS="${CODEX_EXTRA_ARGS:-}"
+STORY_ID="ADHOC"
+CONTEXT_FILES_CSV=""
+CODEX_EXIT=""
+PYTEST_EXIT=""
+CHANGED_FILES=""
+DIFF_STAT_CONTENT=""
+PYTEST_OUTPUT_CONTENT=""
+LAST_MESSAGE_CONTENT=""
+
+RUN_STATUS="not_started"
+SCOPE_PARSE_STATUS="not_applicable"
+FILES_NOT_ALLOWED_PARSE_STATUS="not_applicable"
+
+tracked_names_file=""
+untracked_names_file=""
+RUN_DIR_EXCLUDE_ENTRY=""
+
 if [[ -f "$LEDGER_HELPER" ]]; then
   # shellcheck source=automation/scripts/story_change_ledger.sh
   source "$LEDGER_HELPER"
@@ -22,7 +84,72 @@ else
   }
 fi
 
+write_run_meta() {
+  [[ -n "${META_FILE:-}" ]] || return 0
+  [[ -n "${RUN_DIR:-}" ]] || return 0
+  mkdir -p "$RUN_DIR"
+
+  cat > "$META_FILE" <<META
+story_id=${STORY_ID:-ADHOC}
+branch=${BRANCH_NAME:-}
+head=${CURRENT_HEAD:-}
+review_base_ref=${REVIEW_BASE_REF:-}
+review_diff_range=${REVIEW_DIFF_RANGE:-}
+prompt_file=${PROMPT_FILE:-}
+run_dir=${RUN_DIR:-}
+run_id=${RUN_ID:-}
+timestamp_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+status=${RUN_STATUS:-unknown}
+scope_parse_status=${SCOPE_PARSE_STATUS:-unknown}
+files_not_allowed_parse_status=${FILES_NOT_ALLOWED_PARSE_STATUS:-unknown}
+materialization_status=${MATERIALIZATION_STATUS:-unknown}
+materialized_tracked_changes=${MATERIALIZED_TRACKED_COUNT:-0}
+materialized_untracked_files=${MATERIALIZED_UNTRACKED_COUNT:-0}
+materialized_total_changes=${MATERIALIZED_CHANGE_COUNT:-0}
+codex_exit_code=${CODEX_EXIT:-}
+pytest_exit_code=${PYTEST_EXIT:-}
+context_mode=${CONTEXT_MODE:-}
+context_files=${CONTEXT_FILES_CSV:-}
+repository_map_runtime_file=${REPOSITORY_MAP_RUNTIME_FILE:-}
+repository_map_injection_status=${REPOSITORY_MAP_INJECTION_STATUS:-}
+repository_map_source_docs=${REPOSITORY_MAP_SOURCE_DOCS:-}
+skip_pytest=${SKIP_PYTEST:-0}
+pytest_target=${PYTEST_TARGET:-}
+codex_model=${CODEX_MODEL:-}
+isolated_run=true
+isolated_worktree_dir=${WORKTREE_DIR:-}
+isolated_worktree_head=${WORKTREE_HEAD:-}
+isolated_worktree_cleanup=exit_trap
+META
+}
+
+ensure_run_artifact_placeholders() {
+  [[ -n "${RUN_DIR:-}" ]] || return 0
+  mkdir -p "$RUN_DIR"
+  [[ -n "${NAMEONLY_FILE:-}" ]] && : > "$NAMEONLY_FILE"
+  [[ -n "${TEST_FILE:-}" ]] && : > "$TEST_FILE"
+  write_run_meta
+}
+
+ensure_run_dir_gitignored() {
+  local exclude_file rel_run_dir
+
+  [[ -n "${RUN_DIR:-}" ]] || return 0
+  exclude_file="$ROOT_DIR/.git/info/exclude"
+  mkdir -p "$(dirname "$exclude_file")"
+
+  rel_run_dir="${RUN_DIR#$ROOT_DIR/}"
+  RUN_DIR_EXCLUDE_ENTRY="/$rel_run_dir/"
+
+  touch "$exclude_file"
+  if ! grep -Fqx "$RUN_DIR_EXCLUDE_ENTRY" "$exclude_file"; then
+    printf '%s\n' "$RUN_DIR_EXCLUDE_ENTRY" >> "$exclude_file"
+  fi
+}
+
 fail() {
+  RUN_STATUS="failed"
+  write_run_meta
   echo "ERROR: $*" >&2
   exit 1
 }
@@ -158,21 +285,6 @@ emit_markdown_list_or_none() {
   fi
 }
 
-emit_scope_list_with_status() {
-  local status="$1"
-  shift || true
-
-  if [[ "$status" == "parsed" ]]; then
-    if [[ $# -gt 0 ]]; then
-      emit_markdown_list_or_none "$@"
-    else
-      emit_markdown_list_or_none
-    fi
-  else
-    echo "  unavailable"
-  fi
-}
-
 generate_repository_map_runtime() {
   local out_file="$1"
   local curated_repo_map="$ROOT_DIR/docs/40_ai/zumbot_codex/REPOSITORY_MAP.md"
@@ -219,6 +331,9 @@ generate_repository_map_runtime() {
       blocked_scope_status="missing"
     fi
   fi
+
+  SCOPE_PARSE_STATUS="$scope_parse_status"
+  FILES_NOT_ALLOWED_PARSE_STATUS="$blocked_scope_status"
 
   for doc in "$curated_repo_map" "$curated_project_context"; do
     if [[ -f "$doc" ]]; then
@@ -480,11 +595,6 @@ PROMPT_CONTENT="$(cat "$PROMPT_FILE")"
 [[ -z "$GIT_STATUS" ]] || fail "working tree is not clean; commit/stash changes first"
 [[ -n "$PROMPT_CONTENT" ]] || fail "prompt file is empty: $PROMPT_FILE"
 
-SKIP_PYTEST="${SKIP_PYTEST:-0}"
-PYTEST_TARGET="${PYTEST_TARGET:-}"
-CODEX_MODEL="${CODEX_MODEL:-}"
-CODEX_EXTRA_ARGS="${CODEX_EXTRA_ARGS:-}"
-
 STORY_ID="$(derive_story_id "$PROMPT_FILE")"
 
 if [[ "${AUTOMATION_STORY_START_LEDGER_RECORDED:-0}" != "1" ]]; then
@@ -502,9 +612,6 @@ fi
 
 RUN_ID="$(date -u +"%Y-%m-%d_%H-%M-%S")"
 RUN_DIR="$RUNS_ROOT/$STORY_ID/$RUN_ID"
-WORKTREE_DIR=""
-WORKTREE_HEAD=""
-WORKTREE_CREATED="0"
 
 ROLLBACK_BASE_HEAD="$(git rev-parse HEAD)"
 ROLLBACK_ARMED="1"
@@ -527,14 +634,10 @@ CHECK_ALLOWED_FILES_SCRIPT="$ROOT_DIR/automation/scripts/check_allowed_files.sh"
 FALLBACK_CHECK_ALLOWED_FILES_SCRIPT="$RUNNER_DIR/scripts/check_allowed_files.sh"
 WORKTREE_TRACKED_LIST_FILE="$RUN_DIR/.worktree_tracked.txt"
 WORKTREE_UNTRACKED_LIST_FILE="$RUN_DIR/.worktree_untracked.txt"
-MATERIALIZATION_STATUS="not_needed"
-MATERIALIZED_TRACKED_COUNT="0"
-MATERIALIZED_UNTRACKED_COUNT="0"
-MATERIALIZED_CHANGE_COUNT="0"
-REVIEW_ARTIFACT_BASE=""
-REPOSITORY_MAP_RUNTIME_REL="repository_map_runtime.md"
-REPOSITORY_MAP_INJECTION_STATUS="pending"
-REPOSITORY_MAP_SOURCE_DOCS=""
+
+RUN_STATUS="started"
+ensure_run_artifact_placeholders
+ensure_run_dir_gitignored
 
 cleanup_worktree() {
   if [[ "$WORKTREE_CREATED" == "1" && -n "$WORKTREE_DIR" ]]; then
@@ -565,6 +668,12 @@ rollback_repository_state() {
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
     [[ "$path" == "$EPHEMERAL_LEDGER_PATH" ]] && continue
+    if [[ -n "${RUN_DIR_EXCLUDE_ENTRY:-}" ]]; then
+      local run_rel="${RUN_DIR_EXCLUDE_ENTRY#/}"
+      run_rel="${run_rel%/}"
+      [[ "$path" == "$run_rel" ]] && continue
+      [[ "$path" == "$run_rel/"* ]] && continue
+    fi
     untracked_paths+=("$path")
   done < <(git -C "$ROOT_DIR" ls-files --others --exclude-standard)
 
@@ -574,7 +683,7 @@ rollback_repository_state() {
   fi
 
   if [[ -n "$RUN_DIR" ]]; then
-    rm -rf "$RUN_DIR"
+    echo "[INFO] preserving run artifacts at: $RUN_DIR (failure debugging enabled)"
     story_runs_dir="$(dirname "$RUN_DIR")"
     rmdir "$story_runs_dir" >/dev/null 2>&1 || true
   fi
@@ -604,13 +713,23 @@ handle_exit() {
   local final_exit_code="$exit_code"
 
   set +e
+  if [[ "$final_exit_code" -eq 0 ]]; then
+    RUN_STATUS="success"
+  elif [[ "$RUN_STATUS" != "failed" ]]; then
+    RUN_STATUS="failed"
+  fi
+  write_run_meta
+
   if [[ "$ROLLBACK_ARMED" == "1" ]]; then
     rollback_repository_state
     if [[ $? -ne 0 ]]; then
       final_exit_code=1
+      RUN_STATUS="failed"
     elif [[ "$exit_code" -eq 0 ]]; then
       final_exit_code=1
+      RUN_STATUS="failed"
     fi
+    write_run_meta
   fi
 
   restore_ephemeral_story_change_ledger
@@ -628,14 +747,19 @@ setup_isolated_worktree() {
   WORKTREE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/zumbot-codex-worktree-XXXXXX")"
   git worktree add --detach "$WORKTREE_DIR" "$WORKTREE_HEAD" >/dev/null
   WORKTREE_CREATED="1"
+  write_run_meta
 }
 
 generate_repository_map_runtime "$REPOSITORY_MAP_RUNTIME_FILE" "$STORY_ID"
 REPOSITORY_MAP_INJECTION_STATUS="injected"
+write_run_meta
+
 generate_story_context "$STORY_ID" "$STORY_CONTEXT_FILE" "$CONTEXT_MODE" "$REPOSITORY_MAP_RUNTIME_REL"
 build_codex_prompt "$CODEX_PROMPT_FILE" "$REPOSITORY_MAP_RUNTIME_REL"
 CONTEXT_FILES_CSV="$(printf '%s,' "${GENERATED_CONTEXT_FILES[@]}")"
 CONTEXT_FILES_CSV="${CONTEXT_FILES_CSV%,}"
+write_run_meta
+
 setup_isolated_worktree
 
 info "Zumbot Codex pipeline starting"
@@ -653,29 +777,6 @@ else
   info "Context files: none"
 fi
 info "Run dir: $RUN_DIR"
-
-cat > "$META_FILE" <<META
-story_id=$STORY_ID
-branch=$BRANCH_NAME
-head=$CURRENT_HEAD
-review_base_ref=$REVIEW_BASE_REF
-review_diff_range=$REVIEW_DIFF_RANGE
-prompt_file=$PROMPT_FILE
-run_dir=$RUN_DIR
-timestamp_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-context_mode=$CONTEXT_MODE
-context_files=$CONTEXT_FILES_CSV
-repository_map_runtime_file=$REPOSITORY_MAP_RUNTIME_FILE
-repository_map_injection_status=$REPOSITORY_MAP_INJECTION_STATUS
-repository_map_source_docs=$REPOSITORY_MAP_SOURCE_DOCS
-skip_pytest=$SKIP_PYTEST
-pytest_target=$PYTEST_TARGET
-codex_model=$CODEX_MODEL
-isolated_run=true
-isolated_worktree_dir=$WORKTREE_DIR
-isolated_worktree_head=$WORKTREE_HEAD
-isolated_worktree_cleanup=exit_trap
-META
 
 run_codex() {
   local -a cmd
@@ -715,10 +816,10 @@ run_pytest() {
   set +e
   if [[ -n "$PYTEST_TARGET" ]]; then
     info "Running pytest target: $PYTEST_TARGET"
-    python3 -m pytest $PYTEST_TARGET >"$TEST_FILE" 2>&1
+    pytest $PYTEST_TARGET >"$TEST_FILE" 2>&1
   else
     info "Running pytest"
-    python3 -m pytest >"$TEST_FILE" 2>&1
+    pytest >"$TEST_FILE" 2>&1
   fi
   local exit_code=$?
   set -e
@@ -746,6 +847,8 @@ load_worktree_changes() {
 
   MATERIALIZED_TRACKED_COUNT="$(wc -l < "$WORKTREE_TRACKED_LIST_FILE" | tr -d ' ')"
   MATERIALIZED_UNTRACKED_COUNT="$(wc -l < "$WORKTREE_UNTRACKED_LIST_FILE" | tr -d ' ')"
+  MATERIALIZED_CHANGE_COUNT="$(( MATERIALIZED_TRACKED_COUNT + MATERIALIZED_UNTRACKED_COUNT ))"
+  write_run_meta
 }
 
 materialize_tracked_changes() {
@@ -800,19 +903,22 @@ verify_materialized_changes() {
 materialize_worktree_changes() {
   load_worktree_changes
 
-  MATERIALIZED_CHANGE_COUNT="$(( MATERIALIZED_TRACKED_COUNT + MATERIALIZED_UNTRACKED_COUNT ))"
-
   if [[ "$MATERIALIZED_CHANGE_COUNT" -eq 0 ]]; then
     MATERIALIZATION_STATUS="not_needed"
+    write_run_meta
     return 0
   fi
 
   MATERIALIZATION_STATUS="in_progress"
+  write_run_meta
+
   info "Materializing isolated worktree changes into primary checkout"
   materialize_tracked_changes
   materialize_untracked_files
   verify_materialized_changes
+
   MATERIALIZATION_STATUS="applied"
+  write_run_meta
 }
 
 append_untracked_artifacts() {
@@ -840,9 +946,10 @@ append_untracked_artifacts() {
 }
 
 collect_git_artifacts() {
-  local merge_base tracked_names_file untracked_names_file
+  local merge_base
   merge_base="$(git merge-base "$REVIEW_BASE_REF" HEAD)"
   REVIEW_ARTIFACT_BASE="$merge_base"
+
   tracked_names_file="$RUN_DIR/.tracked_names.txt"
   untracked_names_file="$RUN_DIR/.untracked_names.txt"
 
@@ -851,9 +958,17 @@ collect_git_artifacts() {
   git diff "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$DIFF_FILE" || true
   git diff --name-only "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$tracked_names_file" || true
   cp "$WORKTREE_UNTRACKED_LIST_FILE" "$untracked_names_file"
-  cat "$tracked_names_file" "$untracked_names_file" | sed '/^$/d' | sort -u > "$NAMEONLY_FILE"
+
+  {
+    if [[ -f "$tracked_names_file" ]]; then
+      cat "$tracked_names_file"
+    fi
+    if [[ -f "$untracked_names_file" ]]; then
+      cat "$untracked_names_file"
+    fi
+  } | sed '/^$/d' | LC_ALL=C sort -u > "$NAMEONLY_FILE"
+
   append_untracked_artifacts
-  rm -f "$tracked_names_file" "$untracked_names_file"
 }
 
 check_allowed_files() {
@@ -867,18 +982,65 @@ check_allowed_files() {
   fi
 
   if [[ ! -f "$scope_file" ]]; then
+    SCOPE_PARSE_STATUS="missing"
+    FILES_NOT_ALLOWED_PARSE_STATUS="missing"
+    write_run_meta
     echo "ERROR: scope file is missing: $scope_file" >&2
     exit 1
   fi
 
+  if ! grep -q '^## Files Allowed To Change$' "$scope_file"; then
+    SCOPE_PARSE_STATUS="unparseable"
+    write_run_meta
+    echo "ERROR: scope file is unparseable: $scope_file" >&2
+    exit 1
+  fi
+
+  if grep -q '^## Files Not Allowed To Change$' "$scope_file"; then
+    FILES_NOT_ALLOWED_PARSE_STATUS="parsed"
+  else
+    FILES_NOT_ALLOWED_PARSE_STATUS="unavailable"
+  fi
+
+  if [[ -n "${tracked_names_file:-}" || -n "${untracked_names_file:-}" ]]; then
+    : > "$NAMEONLY_FILE"
+
+    if [[ -n "${tracked_names_file:-}" && -f "$tracked_names_file" ]]; then
+      cat "$tracked_names_file" >> "$NAMEONLY_FILE"
+    fi
+
+    if [[ -n "${untracked_names_file:-}" && -f "$untracked_names_file" ]]; then
+      cat "$untracked_names_file" >> "$NAMEONLY_FILE"
+    fi
+
+    if [[ -s "$NAMEONLY_FILE" ]]; then
+      LC_ALL=C sort -u -o "$NAMEONLY_FILE" "$NAMEONLY_FILE"
+    fi
+  fi
+
   info "Validating changed files against bundle scope"
-  bash "$script_path" "$STORY_ID" "$NAMEONLY_FILE" "$bundle_dir"
+  if bash "$script_path" "$STORY_ID" "$NAMEONLY_FILE" "$bundle_dir"; then
+    SCOPE_PARSE_STATUS="parsed"
+    write_run_meta
+  else
+    local exit_code=$?
+    if [[ "$SCOPE_PARSE_STATUS" != "missing" && "$SCOPE_PARSE_STATUS" != "unparseable" ]]; then
+      SCOPE_PARSE_STATUS="parsed"
+    fi
+    write_run_meta
+    return "$exit_code"
+  fi
+
+  rm -f "$tracked_names_file" "$untracked_names_file"
 }
 
 CODEX_EXIT="$(run_codex)"
-materialize_worktree_changes
+write_run_meta
 
+materialize_worktree_changes
 collect_git_artifacts
+write_run_meta
+
 check_allowed_files
 
 if [[ "$SKIP_PYTEST" == "1" ]]; then
@@ -887,6 +1049,7 @@ if [[ "$SKIP_PYTEST" == "1" ]]; then
 else
   PYTEST_EXIT="$(run_pytest)"
 fi
+write_run_meta
 
 CHANGED_FILES="$(cat "$NAMEONLY_FILE" 2>/dev/null || true)"
 DIFF_STAT_CONTENT="$(cat "$STAT_FILE" 2>/dev/null || true)"
@@ -918,7 +1081,7 @@ cat > "$MANIFEST_FILE" <<MANIFEST
 - materialized_untracked_files: $MATERIALIZED_UNTRACKED_COUNT
 - codex_exit_code: $CODEX_EXIT
 - pytest_exit_code: $PYTEST_EXIT
-- pytest_command: ${PYTEST_TARGET:+python3 -m pytest $PYTEST_TARGET}${PYTEST_TARGET:+" "}${PYTEST_TARGET:-python3 -m pytest}
+- pytest_command: ${PYTEST_TARGET:+pytest $PYTEST_TARGET}${PYTEST_TARGET:+" "}${PYTEST_TARGET:-pytest}
 - changed_files_detected: $( [[ -n "$CHANGED_FILES" ]] && echo "yes" || echo "no" )
 
 ## Included Story Context Files
@@ -1021,7 +1184,10 @@ Pytest:
 $PYTEST_OUTPUT_CONTENT
 PROMPT
 
+RUN_STATUS="failed"
+write_run_meta
 info "Artifacts generated in: $RUN_DIR"
+
 if [[ "$CODEX_EXIT" != "0" ]]; then
   echo "ERROR: Codex finished with non-zero exit code: $CODEX_EXIT" >&2
   exit "$CODEX_EXIT"
@@ -1032,5 +1198,7 @@ if [[ "$PYTEST_EXIT" != "0" && "$PYTEST_EXIT" != "SKIPPED" ]]; then
   exit "$PYTEST_EXIT"
 fi
 
+RUN_STATUS="success"
+write_run_meta
 ROLLBACK_ARMED="0"
 info "Done"

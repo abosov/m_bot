@@ -43,10 +43,12 @@ def latest_run_dir(root_dir: Path, story_id: str = "US-AUTO-7") -> Path:
     return run_dirs[0]
 
 
-def assert_no_story_run_artifacts(root_dir: Path, story_id: str = "US-AUTO-7") -> None:
+def assert_story_run_artifacts_exist(root_dir: Path, story_id: str = "US-AUTO-7") -> Path:
     runs_root = root_dir / "automation" / "runs" / story_id
-    if runs_root.exists():
-        assert list(runs_root.iterdir()) == []
+    assert runs_root.exists()
+    run_dirs = sorted(path for path in runs_root.iterdir() if path.is_dir())
+    assert len(run_dirs) == 1
+    return run_dirs[0]
 
 
 def setup_story_repo(tmp_path: Path) -> tuple[Path, Path]:
@@ -352,7 +354,8 @@ printf '%s\\n' 'codex summary' > "$output"
 
     assert result.returncode != 0
 
-    assert_no_story_run_artifacts(root_dir)
+    run_dir = assert_story_run_artifacts_exist(root_dir)
+    assert (run_dir / "run_meta.txt").exists()
     status = run(["git", "status", "--porcelain"], cwd=root_dir)
     assert status.stdout.strip() == ""
 
@@ -420,7 +423,8 @@ printf '%s\\n' 'codex summary' > "$output"
 
     assert result.returncode != 0
 
-    assert_no_story_run_artifacts(root_dir)
+    run_dir = assert_story_run_artifacts_exist(root_dir)
+    assert (run_dir / "run_meta.txt").exists()
     status = run(["git", "status", "--porcelain"], cwd=root_dir)
     assert status.stdout.strip() == ""
 
@@ -553,7 +557,8 @@ exit 42
     codex_cwd = Path((tmp_path / "codex_cwd_failure.txt").read_text(encoding="utf-8").strip())
     assert codex_cwd.name.startswith("zumbot-codex-worktree-")
     assert not codex_cwd.exists()
-    assert_no_story_run_artifacts(root_dir)
+    run_dir = assert_story_run_artifacts_exist(root_dir)
+    assert (run_dir / "codex_last_message.txt").exists() or (run_dir / "run_meta.txt").exists()
     status = run(["git", "status", "--porcelain"], cwd=root_dir)
     assert status.stdout.strip() == ""
 
@@ -604,7 +609,8 @@ exit 23
 
     assert result.returncode == 23, result.stderr
     assert (root_dir / "tracked.txt").read_text(encoding="utf-8") == "base\nstory change\n"
-    assert_no_story_run_artifacts(root_dir)
+    run_dir = assert_story_run_artifacts_exist(root_dir)
+    assert (run_dir / "run_meta.txt").exists()
     status = run(["git", "status", "--porcelain"], cwd=root_dir)
     assert status.stdout.strip() == ""
 
@@ -662,7 +668,8 @@ printf '%s\\n' 'codex summary' > "$output"
     assert result.returncode != 0
     assert "materialization missing untracked path in primary checkout: generated/missing.txt" in result.stderr
     assert not (root_dir / "generated" / "missing.txt").exists()
-    assert_no_story_run_artifacts(root_dir)
+    run_dir = assert_story_run_artifacts_exist(root_dir)
+    assert (run_dir / "run_meta.txt").exists()
     status = run(["git", "status", "--porcelain"], cwd=root_dir)
     assert status.stdout.strip() == ""
 
@@ -782,10 +789,11 @@ wait
     os.killpg(process.pid, signal.SIGTERM)
     stdout, stderr = process.communicate(timeout=5)
 
-    assert stdout == ""
+    assert "preserving run artifacts at:" in stdout
     assert process.returncode == 143, stderr
     assert (root_dir / "tracked.txt").read_text(encoding="utf-8") == "base\nstory change\n"
-    assert_no_story_run_artifacts(root_dir)
+    run_dir = assert_story_run_artifacts_exist(root_dir)
+    assert (run_dir / "run_meta.txt").exists()
     status = run(["git", "status", "--porcelain"], cwd=root_dir)
     assert status.stdout.strip() == ""
 
