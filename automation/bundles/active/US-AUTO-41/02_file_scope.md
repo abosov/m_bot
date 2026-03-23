@@ -18,7 +18,6 @@
 - `tests/test_run_story.py`
 - `tests/test_story_bundle_scripts.py`
 - `tests/test_story_change_ledger.py`
-- `automation/scripts/build_bundle_pack.sh`
 
 ## Files Not Allowed To Change
 - rollback lifecycle implementation introduced by US-AUTO-38, except where strictly necessary for compatibility within `automation/scripts/run_story.sh`
