@@ -166,117 +166,66 @@ This is the shipped contract and the canonical pack must match it exactly.
 - If additional files become necessary, update both active bundle scope and canonical bundle pack scope together.
 
 === FILE: 03_master_prompt.md ===
-# Master Prompt
+# Master Prompt — US-AUTO-41
 
 ## Role
+You are a senior workflow engineer, shell-script implementer, test author, and technical writer working inside the Zumbot US-AUTO automation contract.
 
-You are the System Architect, Workflow Engineer, and Tech Writer for Zumbot’s US-AUTO pipeline.
+## Goal
+Implement **US-AUTO-41 — Story artifacts commit handoff before run** as a narrow workflow-contract story. Add a canonical explicit commit handoff step between materialization and execution without weakening the clean-tree boundary.
 
-## Task
+## Source of Truth
+- `automation/scripts/new_story_bundle.sh`
+- `automation/scripts/materialize_story_bundle.sh`
+- `automation/scripts/run_story.sh`
+- `docs/90_codex/STORY_BUNDLE_SPEC.md`
+- `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
+- `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 
-Implement the missing story-artifact commit handoff before run so that every story run begins from a committed and reproducible story-artifact state.
+## Files Allowed To Change
+- `automation/scripts/commit_story_artifacts.sh`
+- `automation/scripts/run_story.sh`
+- `docs/90_codex/STORY_BUNDLE_SPEC.md`
+- `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
+- `docs/90_codex/epics/US-AUTO_REGISTRY.md`
+- `automation/run_codex_task.sh`
+- only the minimum test files required for this story
+
+## Files Not Allowed To Change
+- unrelated workflow scripts
+- application runtime code unrelated to story execution workflow
+- rollback contract logic except where explicitly necessary for compatibility
 
 ## Requirements
+1. Add `automation/scripts/commit_story_artifacts.sh <STORY_ID>`.
+2. The script must only stage and commit:
+   - `automation/bundle_packs/<STORY_ID>.bundle.md`
+   - `automation/bundles/active/<STORY_ID>/**`
+3. The script must fail on unrelated dirty paths anywhere else in the repo.
+4. The script must fail when no eligible changes exist.
+5. The script must use a deterministic commit message.
+6. `run_story.sh` must block on dirty story artifacts and print a deterministic remediation hint.
+7. Update docs and registry.
+8. Add or update tests.
 
-### 1. Introduce the canonical handoff helper
+## Constraints
+- do not weaken clean-tree enforcement
+- do not implement implicit auto-commit inside `run_story.sh`
+- do not opportunistically refactor unrelated code
+- use allowlist path matching, not broad exclusions
 
-Create or update:
+## Output
+Deliver:
+- implementation of the new handoff script
+- minimal update to `run_story.sh`
+- tests
+- doc updates
+- epic registry update
 
-automation/scripts/commit_story_artifacts.sh
-
-Responsibilities:
-- accept `STORY_ID` (or equivalent run context),
-- determine the story artifact files that must be committed before run,
-- detect whether those files are dirty relative to HEAD,
-- if dirty:
-  - stage only the relevant story-artifact files,
-  - create a deterministic commit,
-- if clean:
-  - do nothing and return success.
-
-The script must never:
-- stage unrelated files,
-- stage the whole repository,
-- touch `automation/story_change_ledger.jsonl`,
-- commit run artifacts.
-
-### 2. Integrate enforcement into run flow
-
-Modify:
-
-automation/scripts/run_story.sh
-
-High-level flow:
-
-validate committed story-artifact state
-→ if violated: fail fast with remediation message
-→ if satisfied: delegate to run_codex_task.sh
-
-The remediation path must point to:
-
-automation/scripts/commit_story_artifacts.sh <STORY_ID>
-
-### 3. Keep the runner execution-only
-
-`automation/run_codex_task.sh` must remain execution-only.
-
-Important:
-- do not create commits inside `run_codex_task.sh`,
-- do not move the handoff contract into the runner,
-- the runner may continue to assume it starts from a valid committed pre-run state.
-
-### 4. Define what counts as story artifacts
-
-At minimum, cover the story bundle pack and any story-local prompt/bundle inputs that define the run contract.
-
-Implementation must be grounded in the existing repository layout and current US-AUTO workflow.
-Do not invent new artifact classes unless needed and justified by existing files.
-
-### 5. Commit behavior
-
-Use a deterministic commit message, for example:
-
-chore(story): commit story artifacts for <STORY_ID> before run
-
-You may refine wording slightly if repository conventions suggest a better existing pattern, but keep it explicit and deterministic.
-
-### 6. Tests
-
-Add focused tests that verify at least:
-
-- dirty story artifacts are blocked by `run_story.sh`,
-- `commit_story_artifacts.sh` commits only the relevant story-artifact files,
-- unrelated dirty paths block the handoff helper,
-- happy path still runs when story artifacts are already committed.
-
-Tests must be deterministic and must not depend on remote state.
-
-### 7. Documentation
-
-Update:
-- docs/90_codex/STORY_BUNDLE_SPEC.md
-- docs/90_codex/STORY_EXECUTION_CHECKLIST.md
-- docs/90_codex/epics/US-AUTO_REGISTRY.md
-
-Document:
-- the canonical pre-run helper contract,
-- that story runs are anchored to committed story-artifact state,
-- that the runner itself does not commit.
-
-## Safety Rules
-
-- No `git add .`
-- No git commit of unrelated working tree files
-- No weakening of clean-tree enforcement
-- No post-run commit model
-- No changes to backend/product logic outside scope
-- Do not introduce `prepare_story.sh`
-
-## Architecture Intent
-
-The final design must make this statement true:
-
-“A story run is reproducible from committed repository history because all story-defining artifacts are committed before the run begins, and the runner itself does not own commit handoff behavior.”
+Before finishing:
+- run relevant tests
+- verify docs match behavior
+- confirm no unrelated files changed
 
 === FILE: 04_review_checklist.md ===
 # Review Checklist
