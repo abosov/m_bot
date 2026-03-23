@@ -20,4 +20,3 @@
 - [ ] docs updated
 - [ ] epic registry updated
 - [ ] operator flow is documented as `materialize -> commit -> run`
-
