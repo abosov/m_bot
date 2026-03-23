@@ -179,3 +179,33 @@ def test_run_story_blocks_dirty_story_artifacts_with_commit_hint(tmp_path: Path)
     assert f"ERROR: story artifacts for '{story_id}' must be committed before run:" in result.stderr
     assert f"Remediation: automation/scripts/commit_story_artifacts.sh {story_id}" in result.stderr
     assert not runner_marker.exists()
+
+
+def test_run_story_blocks_dirty_pack_artifact_with_commit_hint(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    pack_path.write_text(pack_path.read_text(encoding="utf-8") + "\nchanged\n", encoding="utf-8")
+
+    fake_runner = root_dir / "fake_runner.sh"
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert f"ERROR: story artifacts for '{story_id}' must be committed before run:" in result.stderr
+    assert f"Remediation: automation/scripts/commit_story_artifacts.sh {story_id}" in result.stderr
+    assert not runner_marker.exists()

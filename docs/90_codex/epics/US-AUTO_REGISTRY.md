@@ -61,6 +61,7 @@ The registry does **not** replace story bundles.
 - P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28
 - P3 cycle cost reduction: US-AUTO-29 → US-AUTO-31
 - P4 operator UX: US-AUTO-18
+- Future workflow simplification: make bundle pack the single source of truth and treat bundles/active as materialized-only output
 
 ### Next Recommended Story
 1. US-AUTO-25 — loop detection preflight

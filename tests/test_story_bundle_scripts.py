@@ -304,6 +304,80 @@ def test_commit_story_artifacts_fails_on_unrelated_dirty_paths(tmp_path: Path) -
     assert "README.md" in result.stderr
 
 
+def test_commit_story_artifacts_commits_bundle_only_when_pack_is_absent(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    story_id = "US-AUTO-99"
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    bundle_dir = root_dir / "automation" / "bundles" / "active" / story_id
+
+    init_git_repo(root_dir)
+    write_pack(pack_path, story_id)
+    write_bundle(bundle_dir, story_id)
+    commit_all(root_dir, "init")
+
+    subprocess.run(
+        ["git", "rm", "--", "automation/bundle_packs/US-AUTO-99.bundle.md"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    commit_all(root_dir, "remove pack")
+
+    (bundle_dir / "03_master_prompt.md").write_text("# Prompt\n\nbundle-only\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
+
+    assert result.returncode == 0, result.stderr
+    status = subprocess.run(
+        ["git", "status", "--short"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert status.stdout.strip() == ""
+
+
+def test_commit_story_artifacts_commits_pack_only_when_bundle_is_absent(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    story_id = "US-AUTO-99"
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    bundle_dir = root_dir / "automation" / "bundles" / "active" / story_id
+
+    init_git_repo(root_dir)
+    write_pack(pack_path, story_id)
+    write_bundle(bundle_dir, story_id)
+    commit_all(root_dir, "init")
+
+    subprocess.run(
+        ["git", "rm", "-r", "--", "automation/bundles/active/US-AUTO-99"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    commit_all(root_dir, "remove bundle")
+
+    pack_path.write_text(pack_path.read_text(encoding="utf-8") + "\npack-only\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    result = run_script(["bash", str(COMMIT_SCRIPT), story_id], env=env)
+
+    assert result.returncode == 0, result.stderr
+    status = subprocess.run(
+        ["git", "status", "--short"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert status.stdout.strip() == ""
+
+
 def test_validate_story_bundle_fails_on_unresolved_placeholder(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     story_id = "US-AUTO-98"

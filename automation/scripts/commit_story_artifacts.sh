@@ -49,8 +49,6 @@ is_story_artifact_path() {
 STORY_ID="$1"
 validate_story_id "$STORY_ID"
 
-BUNDLE_PACK_PATH="automation/bundle_packs/$STORY_ID.bundle.md"
-BUNDLE_DIR_PATH="automation/bundles/active/$STORY_ID"
 COMMIT_MESSAGE="chore(story): commit story artifacts for $STORY_ID before run"
 
 eligible_paths=()
@@ -79,5 +77,5 @@ if (( ${#eligible_paths[@]} == 0 )); then
   fail "no eligible story artifact changes found for '$STORY_ID'"
 fi
 
-git -C "$ROOT_DIR" add -- "$BUNDLE_PACK_PATH" "$BUNDLE_DIR_PATH"
+git -C "$ROOT_DIR" add -- "${eligible_paths[@]}"
 git -C "$ROOT_DIR" commit -m "$COMMIT_MESSAGE"
