@@ -100,4 +100,4 @@ if printf '%s\n' "${eligible_paths[@]}" | grep -Eq "^automation/bundles/active/$
 fi
 
 git -C "$ROOT_DIR" add -- "${STAGE_PATHS[@]}"
-git -C "$ROOT_DIR" commit -m "$(commit_message "$STORY_ID")"
+git -C "$ROOT_DIR" commit -m "$(commit_message "$STORY_ID")" -- "${STAGE_PATHS[@]}"
