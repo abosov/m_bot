@@ -59,6 +59,14 @@ json_bool_value() {
   sed -n -E "s/.*\"${key}\"[[:space:]]*:[[:space:]]*(true|false).*/\\1/p" "$json_file" | head -n 1
 }
 
+json_has_string_key() {
+  local json_file="$1"
+  local key="$2"
+  [[ -f "$json_file" ]] || return 1
+
+  grep -q -E "\"${key}\"[[:space:]]*:[[:space:]]*\"" "$json_file"
+}
+
 collect_dirty_paths() {
   {
     git -C "$ROOT_DIR" diff --name-only HEAD --
@@ -123,6 +131,7 @@ enforce_escalation_resolution() {
   local story_id="$1"
   local story_runs_root="$ROOT_DIR/automation/runs/$story_id"
   local latest_run_dir escalation_file escalation_required escalation_status resolution_action
+  local resolution_action_present=0
 
   [[ -d "$story_runs_root" ]] || return 0
   latest_run_dir="$(resolve_latest_run_dir "$story_runs_root" || true)"
@@ -134,6 +143,9 @@ enforce_escalation_resolution() {
   escalation_required="$(json_bool_value "$escalation_file" "escalation_required")"
   escalation_status="$(json_value "$escalation_file" "status")"
   resolution_action="$(json_value "$escalation_file" "resolution_action")"
+  if json_has_string_key "$escalation_file" "resolution_action"; then
+    resolution_action_present=1
+  fi
 
   [[ "$escalation_required" == "true" ]] || return 0
 
@@ -142,6 +154,14 @@ enforce_escalation_resolution() {
       echo "ERROR: run blocked for '$story_id' because escalation is required for the latest rejected run"
       printf 'Required action: AUTOMATION_RUN_DIR=%q automation/scripts/escalate_story.sh %q %s\n' "$latest_run_dir" "$story_id" "<accept-as-is|force-followup|abort>"
       printf 'Inspect first: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    } >&2
+    exit 1
+  fi
+
+  if [[ "$resolution_action_present" -ne 1 || -z "$resolution_action" ]]; then
+    {
+      echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has invalid resolution_action '$resolution_action'"
+      printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
     } >&2
     exit 1
   fi

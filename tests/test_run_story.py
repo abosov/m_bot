@@ -321,10 +321,7 @@ def test_run_story_blocks_resolved_escalation_with_missing_resolution_action(tmp
     latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
     latest_run_dir.mkdir(parents=True)
     (latest_run_dir / "escalation_result.json").write_text(
-        '{\n'
-        '  "escalation_required": true,\n'
-        '  "status": "resolved"\n'
-        '}\n',
+        '{"escalation_required":true,"status":"resolved"}\n',
         encoding="utf-8",
     )
 
