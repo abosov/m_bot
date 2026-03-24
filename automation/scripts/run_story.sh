@@ -67,6 +67,31 @@ json_has_string_key() {
   grep -q -E "\"${key}\"[[:space:]]*:[[:space:]]*\"" "$json_file"
 }
 
+read_escalation_field() {
+  local json_file="$1"
+  local key="$2"
+  [[ -f "$json_file" ]] || return 0
+
+  python3 - "$json_file" "$key" <<'PY'
+import json
+import sys
+
+json_file, key = sys.argv[1], sys.argv[2]
+
+with open(json_file, encoding="utf-8") as fh:
+    data = json.load(fh)
+
+if not isinstance(data, dict) or key not in data:
+    print("missing")
+elif isinstance(data[key], bool):
+    print(f"bool:{str(data[key]).lower()}")
+elif isinstance(data[key], str):
+    print(f"string:{data[key]}")
+else:
+    print(f"other:{type(data[key]).__name__}")
+PY
+}
+
 is_supported_resolution_action() {
   local resolution_action="${1:-}"
 
@@ -144,7 +169,7 @@ enforce_escalation_resolution() {
   local story_id="$1"
   local story_runs_root="$ROOT_DIR/automation/runs/$story_id"
   local latest_run_dir escalation_file escalation_required escalation_status resolution_action
-  local resolution_action_present=0
+  local escalation_required_field escalation_status_field resolution_action_field
 
   [[ -d "$story_runs_root" ]] || return 0
   latest_run_dir="$(resolve_latest_run_dir "$story_runs_root" || true)"
@@ -153,12 +178,16 @@ enforce_escalation_resolution() {
   escalation_file="$latest_run_dir/escalation_result.json"
   [[ -f "$escalation_file" ]] || return 0
 
-  escalation_required="$(json_bool_value "$escalation_file" "escalation_required")"
-  escalation_status="$(json_value "$escalation_file" "status")"
-  resolution_action="$(json_value "$escalation_file" "resolution_action")"
-  if json_has_string_key "$escalation_file" "resolution_action"; then
-    resolution_action_present=1
-  fi
+  escalation_required_field="$(read_escalation_field "$escalation_file" "escalation_required")"
+  escalation_status_field="$(read_escalation_field "$escalation_file" "status")"
+  resolution_action_field="$(read_escalation_field "$escalation_file" "resolution_action")"
+
+  escalation_required=""
+  escalation_status=""
+  resolution_action=""
+  [[ "$escalation_required_field" == bool:* ]] && escalation_required="${escalation_required_field#bool:}"
+  [[ "$escalation_status_field" == string:* ]] && escalation_status="${escalation_status_field#string:}"
+  [[ "$resolution_action_field" == string:* ]] && resolution_action="${resolution_action_field#string:}"
 
   [[ "$escalation_required" == "true" ]] || return 0
 
@@ -171,7 +200,7 @@ enforce_escalation_resolution() {
     exit 1
   fi
 
-  if [[ "$resolution_action_present" -ne 1 || -z "$resolution_action" ]] || \
+  if [[ "$resolution_action_field" != string:* || -z "$resolution_action" ]] || \
     ! is_supported_resolution_action "$resolution_action"; then
     {
       echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has invalid resolution_action '$resolution_action'"
