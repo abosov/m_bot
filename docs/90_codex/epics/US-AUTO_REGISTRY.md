@@ -65,8 +65,8 @@ The registry does **not** replace story bundles.
 
 ### Next Recommended Story
 1. US-AUTO-42 — enforce fail-closed escalation resolution
-2. US-AUTO-28 — escalation gate for repeated reject stagnation (in progress)
-3. US-AUTO-25 — loop detection preflight
+2. US-AUTO-43 — AI review failure handling and recovery contract
+3. US-AUTO-28 — escalation gate for repeated reject stagnation (in progress)
 4. US-AUTO-26 — expensive run budget guard
 5. US-AUTO-27 — pipeline zone cap
 6. US-AUTO-29 — targeted test strategy
@@ -109,6 +109,7 @@ The registry does **not** replace story bundles.
 | US-AUTO-29 | Targeted test strategy | Narrow validation scope | follow-up | Planned | P2 | Draft bundle | US-AUTO-28 | N/A | Faster iteration |
 | US-AUTO-30 | Review reuse | Cache review safely | follow-up | Planned | P2 | Draft bundle | US-AUTO-29 | N/A | Reduce repetition |
 | US-AUTO-31 | Post-run checkpoint | Add checkpoint before rerun | follow-up | Planned | P2 | Draft bundle | US-AUTO-30 | N/A | Stop blind reruns |
+| US-AUTO-43 | AI review failure handling | Make pipeline resilient to AI review failures (403/API/network), introduce deterministic failure state, retry contract, and operator guidance | follow-up | Planned | P2 | Draft bundle | US-AUTO-28 | N/A | Handles ai_review step failure (403, timeout, malformed response); ensures ai_review_result.md always exists and analyze provides deterministic recovery path |
 
 ---
 
