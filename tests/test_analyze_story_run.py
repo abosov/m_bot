@@ -1443,3 +1443,115 @@ def test_analyze_story_run_blocks_resume_when_evidence_is_stale(tmp_path: Path) 
     assert "Next recommended command: none" in result.stdout
     assert "Blocked reason: manifest HEAD" in result.stdout
     assert current_head in result.stdout
+
+
+def test_analyze_story_run_reports_accept_as_is_as_terminal_blocked(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    starting_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_00-00-00")
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {starting_head}\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: reject\n",
+        encoding="utf-8",
+    )
+
+    (run_dir / "review_gate_result.json").write_text(
+        '{ "decision": "reject", "status": "failed", "decision_source": "review_classification" }',
+        encoding="utf-8",
+    )
+
+    (run_dir / "escalation_result.json").write_text(
+        '{ "escalation_required": true, "status": "resolved", "resolution_action": "accept-as-is" }',
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-28", run_dir=run_dir)
+
+    assert result.returncode == 0
+    assert "Current stage: escalation_accepted_as_is" in result.stdout
+    assert "Resume safety: blocked" in result.stdout
+    assert "Next recommended command: none" in result.stdout
+    assert "RUN STATUS: BLOCKED (escalation resolved: accept-as-is)" in result.stdout
+
+
+def test_analyze_story_run_reports_abort_as_terminal_blocked(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    starting_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_00-00-01")
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {starting_head}\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: reject\n",
+        encoding="utf-8",
+    )
+
+    (run_dir / "review_gate_result.json").write_text(
+        '{ "decision": "reject", "status": "failed", "decision_source": "review_classification" }',
+        encoding="utf-8",
+    )
+
+    (run_dir / "escalation_result.json").write_text(
+        '{ "escalation_required": true, "status": "resolved", "resolution_action": "abort" }',
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-28", run_dir=run_dir)
+
+    assert result.returncode == 0
+    assert "Current stage: escalation_aborted" in result.stdout
+    assert "Resume safety: blocked" in result.stdout
+    assert "Next recommended command: none" in result.stdout
+    assert "RUN STATUS: BLOCKED (escalation resolved: abort)" in result.stdout
