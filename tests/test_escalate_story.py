@@ -106,3 +106,90 @@ def test_escalate_story_rejects_when_no_pending_escalation_exists(tmp_path: Path
 
     assert result.returncode != 0
     assert "escalation artifact not found" in result.stderr
+
+def test_escalate_story_rejects_when_status_is_not_pending(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_11-00-01")
+    (run_dir / "manifest.md").write_text(
+        "# Manifest\n"
+        "- story_id: US-AUTO-28\n"
+        "## Artifacts\n"
+        "- manifest.md\n",
+        encoding="utf-8",
+    )
+    (run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "story_id": "US-AUTO-28",\n'
+        '  "run_id": "2026-03-24_11-00-01",\n'
+        '  "run_dir": "/tmp/run",\n'
+        '  "gate_result": "automation/runs/US-AUTO-28/2026-03-24_11-00-01/review_gate_result.json",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
+        '  "escalation_required": true,\n'
+        '  "status": "rejected",\n'
+        '  "reason": "Repeated review_classification reject",\n'
+        '  "previous_reject_run_id": "2026-03-24_10-00-00",\n'
+        '  "resolution_action": "",\n'
+        '  "resolved_at": ""\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-28", "force-followup"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "status must be pending" in result.stderr
+
+
+def test_escalate_story_rejects_when_decision_source_is_not_repeated_reject_stagnation(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_11-00-02")
+    (run_dir / "manifest.md").write_text(
+        "# Manifest\n"
+        "- story_id: US-AUTO-28\n"
+        "## Artifacts\n"
+        "- manifest.md\n",
+        encoding="utf-8",
+    )
+    (run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "story_id": "US-AUTO-28",\n'
+        '  "run_id": "2026-03-24_11-00-02",\n'
+        '  "run_dir": "/tmp/run",\n'
+        '  "gate_result": "automation/runs/US-AUTO-28/2026-03-24_11-00-02/review_gate_result.json",\n'
+        '  "decision_source": "manual_override",\n'
+        '  "escalation_required": true,\n'
+        '  "status": "pending",\n'
+        '  "reason": "Repeated review_classification reject",\n'
+        '  "previous_reject_run_id": "2026-03-24_10-00-00",\n'
+        '  "resolution_action": "",\n'
+        '  "resolved_at": ""\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-28", "abort"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "decision_source must be repeated_reject_stagnation" in result.stderr

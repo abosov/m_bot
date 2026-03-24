@@ -203,7 +203,8 @@ GATE_RESULT="$(json_value "$ESCALATION_RESULT_FILE" "gate_result")"
 PREVIOUS_REJECT_RUN_ID="$(json_value "$ESCALATION_RESULT_FILE" "previous_reject_run_id")"
 
 [[ "$ESCALATION_REQUIRED" == "true" ]] || fail "escalation artifact is invalid: escalation_required is not true"
-[[ "$ESCALATION_STATUS" != "resolved" ]] || fail "escalation already resolved for '$STORY_ID' run '$RUN_ID'"
+[[ "$ESCALATION_STATUS" == "pending" ]] || fail "escalation artifact is invalid: status must be pending"
+[[ "$DECISION_SOURCE" == "repeated_reject_stagnation" ]] || fail "escalation artifact is invalid: decision_source must be repeated_reject_stagnation"
 
 write_escalation_result \
   "$ESCALATION_RESULT_FILE" \
