@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 BUNDLES_ROOT="${AUTOMATION_BUNDLES_ROOT:-$ROOT_DIR/automation/bundles/active}"
+RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
 RUNNER="${AUTOMATION_RUNNER:-$ROOT_DIR/automation/run_codex_task.sh}"
 VALIDATOR_SCRIPT="$ROOT_DIR/automation/scripts/validate_story_bundle.sh"
 COMMIT_ARTIFACTS_HINT="automation/scripts/commit_story_artifacts.sh"
@@ -167,7 +168,7 @@ resolve_latest_run_dir() {
 
 enforce_escalation_resolution() {
   local story_id="$1"
-  local story_runs_root="$ROOT_DIR/automation/runs/$story_id"
+  local story_runs_root="$RUNS_ROOT/$story_id"
   local latest_run_dir escalation_file escalation_required escalation_status resolution_action
   local escalation_required_field escalation_status_field resolution_action_field
 
