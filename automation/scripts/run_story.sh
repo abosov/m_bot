@@ -200,8 +200,23 @@ enforce_escalation_resolution() {
     exit 1
   fi
 
-  if [[ "$resolution_action_field" != string:* || -z "$resolution_action" ]] || \
-    ! is_supported_resolution_action "$resolution_action"; then
+  if [[ "$resolution_action_field" == "missing" ]]; then
+    {
+      echo "ERROR: run blocked for '$story_id' because resolved escalation artifact is missing resolution_action"
+      printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    } >&2
+    exit 1
+  fi
+
+  if [[ "$resolution_action_field" != string:* ]]; then
+    {
+      echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has non-string resolution_action"
+      printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    } >&2
+    exit 1
+  fi
+
+  if [[ -z "$resolution_action" ]] || ! is_supported_resolution_action "$resolution_action"; then
     {
       echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has invalid resolution_action '$resolution_action'"
       printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
