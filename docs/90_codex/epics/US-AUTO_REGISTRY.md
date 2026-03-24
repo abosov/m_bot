@@ -58,16 +58,16 @@ The registry does **not** replace story bundles.
 - P1 runtime alignment (completed): US-AUTO-32 → US-AUTO-34
 - P1 failure safety (completed): US-AUTO-38
 - P1 workflow integrity: US-AUTO-41
-- P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28
+- P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28 (US-AUTO-28 currently in progress)
 - P3 cycle cost reduction: US-AUTO-29 → US-AUTO-31
 - P4 operator UX: US-AUTO-18
 - Future workflow simplification: make bundle pack the single source of truth and treat bundles/active as materialized-only output
 
 ### Next Recommended Story
-1. US-AUTO-25 — loop detection preflight
-2. US-AUTO-26 — expensive run budget guard
-3. US-AUTO-27 — pipeline zone cap
-4. US-AUTO-28 — escalation gate for loop-risk stories
+1. US-AUTO-28 — escalation gate for repeated reject stagnation
+2. US-AUTO-25 — loop detection preflight
+3. US-AUTO-26 — expensive run budget guard
+4. US-AUTO-27 — pipeline zone cap
 5. US-AUTO-29 — targeted test strategy
 6. US-AUTO-30 — review reuse / cache guard
 7. US-AUTO-31 — post-run checkpoint workflow
@@ -103,7 +103,7 @@ The registry does **not** replace story bundles.
 | US-AUTO-25 | Loop detection preflight | Detect repeat execution before run | enforcement | Planned | P1 | Draft bundle | US-AUTO-24 | N/A | Anti-cycle layer |
 | US-AUTO-26 | Expensive run budget guard | Cap high-cost reruns | enforcement | Planned | P1 | Draft bundle | US-AUTO-25 | N/A | Cost control |
 | US-AUTO-27 | Pipeline zone cap | Limit repeat passes | enforcement | Planned | P1 | Draft bundle | US-AUTO-26 | N/A | Cross-zone control |
-| US-AUTO-28 | Escalation gate | Require operator intervention on loops | enforcement | Planned | P1 | Draft bundle | US-AUTO-27 | N/A | Human override |
+| US-AUTO-28 | Escalation gate for repeated reject stagnation | Stop repeated reject governance loops and require explicit human decision | implementation | In Progress | P1 | Implement escalation-required state and operator resolution flow | US-AUTO-27 | automation/bundle_packs/US-AUTO-28.bundle.md | Active anti-loop governance layer; manual resolution path: accept-as-is / force-followup / abort |
 | US-AUTO-29 | Targeted test strategy | Narrow validation scope | follow-up | Planned | P2 | Draft bundle | US-AUTO-28 | N/A | Faster iteration |
 | US-AUTO-30 | Review reuse | Cache review safely | follow-up | Planned | P2 | Draft bundle | US-AUTO-29 | N/A | Reduce repetition |
 | US-AUTO-31 | Post-run checkpoint | Add checkpoint before rerun | follow-up | Planned | P2 | Draft bundle | US-AUTO-30 | N/A | Stop blind reruns |
