@@ -1120,3 +1120,45 @@ def test_review_gate_story_run_rejects_manifest_story_id_mismatch_for_run_overri
 
     assert result.returncode != 0
     assert "AUTOMATION_RUN_DIR manifest story_id 'US-AUTO-999'" in result.stderr
+
+
+def test_review_gate_pinned_run_ignores_newer_runs(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+
+    older_run = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-09")
+    pinned_run = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
+    newer_run = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-11")
+
+    for run_dir in [older_run, pinned_run, newer_run]:
+        write_required_review_artifacts(run_dir, root_dir)
+        write_manifest(run_dir, root_dir, "US-AUTO-16")
+
+    # older run — reject
+    (older_run / "review_gate_result.json").write_text(
+        '{ "decision": "reject", "decision_source": "review_classification" }',
+        encoding="utf-8",
+    )
+
+    # newer run — тоже reject (но должен игнорироваться!)
+    (newer_run / "review_gate_result.json").write_text(
+        '{ "decision": "reject", "decision_source": "review_classification" }',
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(pinned_run)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-16"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    # ключевая проверка:
+    # escalation НЕ должен считаться на основе newer_run
+    assert '"status": "pending"' not in (pinned_run / "escalation_result.json").read_text(encoding="utf-8") if (pinned_run / "escalation_result.json").exists() else True

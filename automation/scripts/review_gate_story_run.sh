@@ -309,8 +309,11 @@ find_previous_reject_stagnation_run() {
   local current_run_dir="$2"
   local current_diff="$3"
   local current_changed_files="$4"
-  local candidate_run_dir candidate_gate_result candidate_decision candidate_source
-  local previous_diff previous_changed_files_sorted current_changed_files_sorted
+  local current_run_id
+  local candidate_run_dir candidate_gate_result candidate_decision candidate_source candidate_id
+  local previous_changed_files_sorted current_changed_files_sorted
+
+  current_run_id="$(basename "$current_run_dir")"
 
   current_changed_files_sorted="$(mktemp)"
   sorted_changed_files_to "$current_changed_files" "$current_changed_files_sorted"
@@ -341,7 +344,16 @@ find_previous_reject_stagnation_run() {
       return 0
     fi
     rm -f "$previous_changed_files_sorted"
-  done < <(find "$story_runs_root" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort -r)
+  done < <(
+    find "$story_runs_root" -mindepth 1 -maxdepth 1 -type d -print \
+      | while IFS= read -r dir; do
+          candidate_id="$(basename "$dir")"
+          if [[ "$candidate_id" < "$current_run_id" ]]; then
+            printf '%s\n' "$dir"
+          fi
+        done \
+      | LC_ALL=C sort -r
+  )
 
   rm -f "$current_changed_files_sorted"
   return 1
