@@ -114,6 +114,91 @@ json_bool_value() {
   sed -n -E "s/.*\"${key}\"[[:space:]]*:[[:space:]]*(true|false).*/\\1/p" "$json_file" | head -n 1
 }
 
+
+read_escalation_field() {
+  local json_file="$1"
+  local key="$2"
+  [[ -f "$json_file" ]] || return 0
+
+  python3 - "$json_file" "$key" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+key = sys.argv[2]
+
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+
+if not isinstance(data, dict):
+    sys.exit(0)
+
+value = data.get(key, "")
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif isinstance(value, str):
+    print(value)
+else:
+    print("")
+PY
+}
+
+is_supported_resolution_action() {
+  local resolution_action="${1:-}"
+
+  case "$resolution_action" in
+    accept-as-is|force-followup|abort)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+escalation_artifact_is_valid() {
+  local escalation_required="$1"
+  local escalation_status="$2"
+  local decision_source="$3"
+  local resolution_action="$4"
+
+  [[ "$escalation_required" == "true" ]] || return 1
+  if [[ "$escalation_required" != "true" ]]; then
+    return 1
+  fi
+
+  case "$escalation_status" in
+    pending)
+      [[ "$decision_source" == "repeated_reject_stagnation" ]] || return 1
+      return 0
+      ;;
+    resolved)
+      is_supported_resolution_action "$resolution_action"
+      return $?
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  case "$escalation_status" in
+    pending)
+      return 0
+      ;;
+    resolved)
+      is_supported_resolution_action "$resolution_action"
+      return $?
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+
 display_value() {
   local value="$1"
   if [[ -n "$value" ]]; then
@@ -436,11 +521,13 @@ summarize_review_pipeline() {
 
   escalation_file="$run_dir/escalation_result.json"
   if [[ -f "$escalation_file" ]]; then
-    escalation_status="$(json_value "$escalation_file" "status")"
-    escalation_required="$(json_bool_value "$escalation_file" "escalation_required")"
-    escalation_reason="$(json_value "$escalation_file" "reason")"
-    resolution_action="$(json_value "$escalation_file" "resolution_action")"
-    if [[ "$escalation_required" == "true" ]]; then
+    escalation_status="$(read_escalation_field "$escalation_file" "status")"
+    escalation_required="$(read_escalation_field "$escalation_file" "escalation_required")"
+    escalation_reason="$(read_escalation_field "$escalation_file" "reason")"
+    resolution_action="$(read_escalation_field "$escalation_file" "resolution_action")"
+    decision_source="$(read_escalation_field "$escalation_file" "decision_source")"
+
+    if escalation_artifact_is_valid "$escalation_required" "$escalation_status" "$decision_source" "$resolution_action"; then
       if [[ "$escalation_status" == "resolved" ]]; then
         printf 'Escalation: present (resolved via %s)\n' "${resolution_action:-unknown}"
       else
@@ -485,7 +572,7 @@ summarize_workflow_resume() {
   local raw_output_file="$9"
   local escalation_file
   local gate_decision gate_status recommendation pytest_exit_code codex_exit_code materialization_status changed_files_count changed_files_detected prereq_status
-  local escalation_status escalation_required escalation_reason resolution_action
+  local escalation_status escalation_required escalation_reason resolution_action escalation_decision_source
   local head_status expected_head current_head stage latest_valid_stage resume_safety blocked_reason next_command decision_source
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
@@ -499,10 +586,11 @@ summarize_workflow_resume() {
   prereq_status="$(review_prereq_status "$run_dir")"
   head_status="$(head_consistency_status "$manifest_file")"
   escalation_file="$run_dir/escalation_result.json"
-  escalation_status="$(json_value "$escalation_file" "status")"
-  escalation_required="$(json_bool_value "$escalation_file" "escalation_required")"
-  escalation_reason="$(json_value "$escalation_file" "reason")"
-  resolution_action="$(json_value "$escalation_file" "resolution_action")"
+  escalation_status="$(read_escalation_field "$escalation_file" "status")"
+  escalation_required="$(read_escalation_field "$escalation_file" "escalation_required")"
+  escalation_reason="$(read_escalation_field "$escalation_file" "reason")"
+  resolution_action="$(read_escalation_field "$escalation_file" "resolution_action")"
+  escalation_decision_source="$(read_escalation_field "$escalation_file" "decision_source")"
 
   if [[ -f "$changed_files_file" ]]; then
     changed_files_count="$(sed '/^[[:space:]]*$/d' "$changed_files_file" | wc -l | tr -d ' ')"
@@ -609,7 +697,13 @@ summarize_workflow_resume() {
         blocked_reason="$(dirty_tree_reason)"
       fi
     else
-      if [[ "$escalation_required" == "true" && "$escalation_status" != "resolved" ]]; then
+      if [[ -f "$escalation_file" ]] && ! escalation_artifact_is_valid "$escalation_required" "$escalation_status" "$escalation_decision_source" "$resolution_action"; then
+        stage="blocked_invalid_escalation_artifact"
+        latest_valid_stage="ai_review_completed"
+        resume_safety="blocked"
+        blocked_reason="escalation artifact is invalid"
+        next_command="none"
+      elif [[ "$escalation_required" == "true" && "$escalation_status" != "resolved" ]]; then
         stage="blocked_escalation_required"
         latest_valid_stage="ai_review_completed"
         resume_safety="blocked"
@@ -706,7 +800,7 @@ final_status_line() {
   local gate_result_file="$7"
   local raw_output_file="$8"
   local gate_decision gate_status recommendation pytest_exit_code codex_exit_code materialization_status changed_files_count changed_files_detected prereq_status
-  local escalation_file escalation_status escalation_required resolution_action
+  local escalation_file escalation_status escalation_required resolution_action escalation_decision_source
   local head_status expected_head current_head
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
@@ -719,9 +813,10 @@ final_status_line() {
   prereq_status="$(review_prereq_status "$run_dir")"
   head_status="$(head_consistency_status "$manifest_file")"
   escalation_file="$run_dir/escalation_result.json"
-  escalation_status="$(json_value "$escalation_file" "status")"
-  escalation_required="$(json_bool_value "$escalation_file" "escalation_required")"
-  resolution_action="$(json_value "$escalation_file" "resolution_action")"
+  escalation_status="$(read_escalation_field "$escalation_file" "status")"
+  escalation_required="$(read_escalation_field "$escalation_file" "escalation_required")"
+  resolution_action="$(read_escalation_field "$escalation_file" "resolution_action")"
+  escalation_decision_source="$(read_escalation_field "$escalation_file" "decision_source")"
 
   if [[ "$head_status" == mismatch:* ]]; then
     expected_head="${head_status#mismatch:}"
@@ -751,6 +846,10 @@ final_status_line() {
   fi
 
   if [[ -f "$gate_result_file" ]]; then
+    if [[ -f "$escalation_file" ]] && ! escalation_artifact_is_valid "$escalation_required" "$escalation_status" "$escalation_decision_source" "$resolution_action"; then
+      printf 'RUN STATUS: BLOCKED (invalid escalation artifact)\n'
+      return 0
+    fi
     if [[ "$escalation_required" == "true" && "$escalation_status" != "resolved" ]]; then
       printf 'RUN STATUS: BLOCKED (escalation required; repeated reject stagnation)\n'
       return 0
