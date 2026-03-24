@@ -67,6 +67,19 @@ json_has_string_key() {
   grep -q -E "\"${key}\"[[:space:]]*:[[:space:]]*\"" "$json_file"
 }
 
+is_supported_resolution_action() {
+  local resolution_action="${1:-}"
+
+  case "$resolution_action" in
+    accept-as-is|force-followup|abort)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 collect_dirty_paths() {
   {
     git -C "$ROOT_DIR" diff --name-only HEAD --
@@ -158,7 +171,8 @@ enforce_escalation_resolution() {
     exit 1
   fi
 
-  if [[ "$resolution_action_present" -ne 1 || -z "$resolution_action" ]]; then
+  if [[ "$resolution_action_present" -ne 1 || -z "$resolution_action" ]] || \
+    ! is_supported_resolution_action "$resolution_action"; then
     {
       echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has invalid resolution_action '$resolution_action'"
       printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
