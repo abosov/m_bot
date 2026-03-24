@@ -19,6 +19,7 @@ CLASSIFY_REVIEW_SCRIPT="$SCRIPT_DIR/classify_review_story_run.sh"
 AI_REVIEW_FILE_NAME="ai_review_result.md"
 CLASSIFICATION_FILE_NAME="review_classification.md"
 GATE_RESULT_FILE_NAME="review_gate_result.json"
+ESCALATION_RESULT_FILE_NAME="escalation_result.json"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -147,6 +148,14 @@ extract_merge_recommendation() {
 
 json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+json_bool() {
+  if [[ "$1" == "true" ]]; then
+    printf 'true'
+  else
+    printf 'false'
+  fi
 }
 
 current_checkout_head() {
@@ -288,6 +297,56 @@ review_artifact_fidelity_status() {
   printf 'ok\treview_artifact_fidelity_valid\tartifact fidelity verified against review_artifact_base %s\n' "$review_artifact_base"
 }
 
+sorted_changed_files_to() {
+  local changed_files_file="$1"
+  local output_file="$2"
+
+  sed '/^$/d' "$changed_files_file" | LC_ALL=C sort -u > "$output_file"
+}
+
+find_previous_reject_stagnation_run() {
+  local story_runs_root="$1"
+  local current_run_dir="$2"
+  local current_diff="$3"
+  local current_changed_files="$4"
+  local candidate_run_dir candidate_gate_result candidate_decision candidate_source
+  local previous_diff previous_changed_files_sorted current_changed_files_sorted
+
+  current_changed_files_sorted="$(mktemp)"
+  sorted_changed_files_to "$current_changed_files" "$current_changed_files_sorted"
+
+  while IFS= read -r candidate_run_dir; do
+    [[ -n "$candidate_run_dir" ]] || continue
+    [[ "$candidate_run_dir" == "$current_run_dir" ]] && continue
+
+    candidate_gate_result="$candidate_run_dir/$GATE_RESULT_FILE_NAME"
+    [[ -f "$candidate_gate_result" ]] || continue
+
+    candidate_decision="$(sed -n -E 's/.*"decision"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' "$candidate_gate_result" | head -n 1)"
+    candidate_source="$(sed -n -E 's/.*"decision_source"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' "$candidate_gate_result" | head -n 1)"
+    [[ "$candidate_decision" == "reject" ]] || continue
+    [[ "$candidate_source" == "review_classification" ]] || continue
+    [[ -f "$candidate_run_dir/diff.patch" ]] || continue
+    [[ -f "$candidate_run_dir/changed_files.txt" ]] || continue
+
+    if ! cmp -s "$current_diff" "$candidate_run_dir/diff.patch"; then
+      continue
+    fi
+
+    previous_changed_files_sorted="$(mktemp)"
+    sorted_changed_files_to "$candidate_run_dir/changed_files.txt" "$previous_changed_files_sorted"
+    if cmp -s "$current_changed_files_sorted" "$previous_changed_files_sorted"; then
+      rm -f "$previous_changed_files_sorted" "$current_changed_files_sorted"
+      printf '%s\n' "$candidate_run_dir"
+      return 0
+    fi
+    rm -f "$previous_changed_files_sorted"
+  done < <(find "$story_runs_root" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort -r)
+
+  rm -f "$current_changed_files_sorted"
+  return 1
+}
+
 write_gate_result() {
   local gate_result_file="$1"
   local story_id="$2"
@@ -323,6 +382,39 @@ EOF
   mv "$tmp_file" "$gate_result_file"
 }
 
+write_escalation_result() {
+  local escalation_result_file="$1"
+  local story_id="$2"
+  local run_id="$3"
+  local run_dir="$4"
+  local gate_result_file="$5"
+  local previous_run_id="$6"
+  local status="$7"
+  local reason="$8"
+  local resolution_action="${9:-}"
+  local resolved_at="${10:-}"
+  local tmp_file
+
+  tmp_file="$(mktemp "${escalation_result_file}.tmp.XXXXXX")"
+
+  cat >"$tmp_file" <<EOF
+{
+  "story_id": "$(json_escape "$story_id")",
+  "run_id": "$(json_escape "$run_id")",
+  "run_dir": "$(json_escape "$run_dir")",
+  "gate_result": "$(json_escape "$gate_result_file")",
+  "decision_source": "repeated_reject_stagnation",
+  "escalation_required": $(json_bool true),
+  "status": "$(json_escape "$status")",
+  "reason": "$(json_escape "$reason")",
+  "previous_reject_run_id": "$(json_escape "$previous_run_id")",
+  "resolution_action": "$(json_escape "$resolution_action")",
+  "resolved_at": "$(json_escape "$resolved_at")"
+}
+EOF
+  mv "$tmp_file" "$escalation_result_file"
+}
+
 
 append_manifest_artifact() {
   local manifest_file="$1"
@@ -343,7 +435,8 @@ update_manifest_gate_artifacts() {
   for artifact_name in \
     "ai_review_result.md" \
     "review_classification.md" \
-    "review_gate_result.json"
+    "review_gate_result.json" \
+    "escalation_result.json"
   do
     [[ -f "$run_dir/$artifact_name" ]] || continue
     append_manifest_artifact "$manifest_file" "$artifact_name"
@@ -386,6 +479,36 @@ append_review_ledger_events() {
       "$decision_source" \
       "$artifact_path" \
       "$reason" || true
+  fi
+}
+
+maybe_write_escalation_result() {
+  local run_dir="$1"
+  local decision="$2"
+  local decision_source="$3"
+  local escalation_result_file="$run_dir/$ESCALATION_RESULT_FILE_NAME"
+  local previous_run_dir previous_run_id escalation_reason
+
+  [[ "$decision" == "reject" ]] || return 0
+  [[ "$decision_source" == "review_classification" ]] || return 0
+  [[ -f "$run_dir/diff.patch" ]] || return 0
+  [[ -f "$run_dir/changed_files.txt" ]] || return 0
+
+  if previous_run_dir="$(find_previous_reject_stagnation_run "$STORY_RUNS_ROOT" "$run_dir" "$run_dir/diff.patch" "$run_dir/changed_files.txt")"; then
+    previous_run_id="$(basename "$previous_run_dir")"
+    escalation_reason="Repeated review_classification reject with identical diff.patch and changed_files.txt as run $previous_run_id"
+    write_escalation_result \
+      "$escalation_result_file" \
+      "$STORY_ID" \
+      "$RUN_ID" \
+      "$run_dir" \
+      "$GATE_RESULT_FILE" \
+      "$previous_run_id" \
+      "pending" \
+      "$escalation_reason"
+    update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
+    printf 'Escalation required: %s\n' "$escalation_reason"
+    printf 'Escalation command: AUTOMATION_RUN_DIR=%q automation/scripts/escalate_story.sh %q %s\n' "$LATEST_RUN_DIR" "$STORY_ID" "<accept-as-is|force-followup|abort>"
   fi
 }
 
@@ -447,6 +570,7 @@ if [[ -n "$decision_source" ]]; then
     "$reason"
   update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
   append_review_ledger_events "reject" "$decision_source" "failed" "$reason"
+  maybe_write_escalation_result "$LATEST_RUN_DIR" "reject" "$decision_source"
   printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
   printf 'Final decision: reject\n'
   printf 'Run analysis command: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$LATEST_RUN_DIR" "$STORY_ID"
@@ -472,6 +596,7 @@ if [[ "$fidelity_decision" == "reject" ]]; then
     "$fidelity_reason"
   update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
   append_review_ledger_events "reject" "$fidelity_source" "failed" "$fidelity_reason"
+  maybe_write_escalation_result "$LATEST_RUN_DIR" "reject" "$fidelity_source"
   printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
   printf 'Final decision: reject\n'
   printf 'Run analysis command: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$LATEST_RUN_DIR" "$STORY_ID"
@@ -558,6 +683,7 @@ write_gate_result \
 
 update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
 append_review_ledger_events "$decision" "$decision_source" "$status" "$reason"
+maybe_write_escalation_result "$LATEST_RUN_DIR" "$decision" "$decision_source"
 printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
 printf 'Final decision: %s\n' "$decision"
 printf 'Run analysis command: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$LATEST_RUN_DIR" "$STORY_ID"

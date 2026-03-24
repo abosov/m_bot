@@ -230,6 +230,88 @@ fi
     assert '"event":"review_outcome"' in ledger_text
     assert '"event":"story_rejected"' in ledger_text
     assert '"outcome":"reject"' in ledger_text
+    assert not (run_dir / "escalation_result.json").exists()
+
+
+def test_review_gate_story_run_marks_escalation_required_for_repeated_identical_rejects(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    older_run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-09")
+    latest_run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-10")
+
+    write_required_review_artifacts(older_run_dir, root_dir)
+    write_required_review_artifacts(latest_run_dir, root_dir)
+    write_manifest(older_run_dir, root_dir, "US-AUTO-16")
+    write_manifest(latest_run_dir, root_dir, "US-AUTO-16")
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+
+    write_executable(
+        fake_bin_dir / "codex",
+        """#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+cat >/dev/null
+if [[ "$output" == *"ai_review_result.md" ]]; then
+  printf '%s\n' '# AI Review Result' > "$output"
+elif [[ "$output" == *"review_classification.md" ]]; then
+  printf '%s\n' '# Review Classification' > "$output"
+  printf '%s\n' 'MERGE RECOMMENDATION: reject' >> "$output"
+else
+  : > "$output"
+fi
+""",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["CODEX_BIN"] = str(fake_bin_dir / "codex")
+    env["CLASSIFICATION_RULES_FILE"] = str(root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md")
+
+    rules_file = Path(env["CLASSIFICATION_RULES_FILE"])
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("# Rules\n", encoding="utf-8")
+
+    first_result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-16"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**env, "AUTOMATION_RUN_DIR": str(older_run_dir)},
+    )
+    assert first_result.returncode != 0
+    assert not (older_run_dir / "escalation_result.json").exists()
+
+    second_result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-16"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**env, "AUTOMATION_RUN_DIR": str(latest_run_dir)},
+    )
+
+    assert second_result.returncode != 0
+    assert "Escalation required:" in second_result.stdout
+    escalation_result = (latest_run_dir / "escalation_result.json").read_text(encoding="utf-8")
+    assert '"status": "pending"' in escalation_result
+    assert '"decision_source": "repeated_reject_stagnation"' in escalation_result
+    assert '"previous_reject_run_id": "2026-03-14_18-56-09"' in escalation_result
 
 
 def test_review_gate_story_run_passes_on_approve(tmp_path: Path) -> None:

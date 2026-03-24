@@ -188,6 +188,17 @@ A Codex task is done only when all conditions are met:
 - Security review passed (no secrets/credentials leakage).
 - Result is minimal, clean, and ready for safe deployment.
 
+## Automation Escalation Contract
+For workflow automation stories that can re-run after review rejection, repeated reject stagnation must remain deterministic and fail-closed.
+
+Required contract:
+- Trigger escalation only from concrete workflow evidence, not heuristics.
+- The minimum stagnation rule is: repeated `review_classification` gate reject plus identical reviewed diff evidence (`diff.patch` and `changed_files.txt`) across rejected runs for the same story.
+- When that rule triggers, automation must materialize an explicit escalation artifact and ordinary continuation must stop until a human resolves it.
+- Human resolution must be explicit and auditable with one of exactly three actions: `accept-as-is`, `force-followup`, or `abort`.
+- `force-followup` may reopen ordinary automated continuation; `accept-as-is` and `abort` must not silently reopen it.
+- The append-only workflow ledger may record rejection evidence, but it must not be the source of truth for whether continuation is allowed.
+
 # LLM Output Safety Rules
 
 To prevent corruption of bundle packs and automation artifacts, the following rules are mandatory for all LLM-generated outputs used in the Zumbot pipeline.

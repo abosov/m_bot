@@ -43,6 +43,22 @@ require_file() {
   [[ -f "$path" ]] || fail "required file not found: $path"
 }
 
+json_value() {
+  local json_file="$1"
+  local key="$2"
+  [[ -f "$json_file" ]] || return 0
+
+  sed -n -E "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"([^\"]*)\".*/\\1/p" "$json_file" | head -n 1
+}
+
+json_bool_value() {
+  local json_file="$1"
+  local key="$2"
+  [[ -f "$json_file" ]] || return 0
+
+  sed -n -E "s/.*\"${key}\"[[:space:]]*:[[:space:]]*(true|false).*/\\1/p" "$json_file" | head -n 1
+}
+
 collect_dirty_paths() {
   {
     git -C "$ROOT_DIR" diff --name-only HEAD --
@@ -91,6 +107,59 @@ cleanup_ephemeral_story_change_ledger() {
   restore_ephemeral_story_change_ledger
 }
 
+resolve_latest_run_dir() {
+  local story_runs_root="$1"
+  local latest_run_dir
+
+  latest_run_dir="$(
+    find "$story_runs_root" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | LC_ALL=C sort | tail -n 1
+  )"
+
+  [[ -n "$latest_run_dir" ]] || return 1
+  printf '%s\n' "$latest_run_dir"
+}
+
+enforce_escalation_resolution() {
+  local story_id="$1"
+  local story_runs_root="$ROOT_DIR/automation/runs/$story_id"
+  local latest_run_dir escalation_file escalation_required escalation_status resolution_action
+
+  [[ -d "$story_runs_root" ]] || return 0
+  latest_run_dir="$(resolve_latest_run_dir "$story_runs_root" || true)"
+  [[ -n "$latest_run_dir" ]] || return 0
+
+  escalation_file="$latest_run_dir/escalation_result.json"
+  [[ -f "$escalation_file" ]] || return 0
+
+  escalation_required="$(json_bool_value "$escalation_file" "escalation_required")"
+  escalation_status="$(json_value "$escalation_file" "status")"
+  resolution_action="$(json_value "$escalation_file" "resolution_action")"
+
+  [[ "$escalation_required" == "true" ]] || return 0
+
+  if [[ "$escalation_status" != "resolved" ]]; then
+    {
+      echo "ERROR: run blocked for '$story_id' because escalation is required for the latest rejected run"
+      printf 'Required action: AUTOMATION_RUN_DIR=%q automation/scripts/escalate_story.sh %q %s\n' "$latest_run_dir" "$story_id" "<accept-as-is|force-followup|abort>"
+      printf 'Inspect first: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    } >&2
+    exit 1
+  fi
+
+  case "$resolution_action" in
+    force-followup)
+      return 0
+      ;;
+    accept-as-is|abort)
+      {
+        echo "ERROR: run blocked for '$story_id' because escalation was resolved as '$resolution_action'"
+        printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+      } >&2
+      exit 1
+      ;;
+  esac
+}
+
 [[ $# -eq 1 ]] || usage
 trap cleanup_ephemeral_story_change_ledger EXIT
 
@@ -132,6 +201,7 @@ require_file "$VALIDATOR_SCRIPT"
 require_file "$MASTER_PROMPT"
 
 ensure_story_artifacts_committed "$STORY_ID"
+enforce_escalation_resolution "$STORY_ID"
 
 echo "[INFO] Validating story bundle: $BUNDLE_DIR" >&2
 "$VALIDATOR_SCRIPT" "$STORY_ID"

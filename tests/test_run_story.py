@@ -237,3 +237,77 @@ def test_run_story_allows_dirty_ephemeral_ledger_path(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert runner_marker.read_text(encoding="utf-8").strip() == "called"
+
+
+def test_run_story_blocks_when_latest_run_has_pending_escalation(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "pending",\n'
+        '  "resolution_action": ""\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    fake_runner = root_dir / "fake_runner.sh"
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "because escalation is required for the latest rejected run" in result.stderr
+    assert "automation/scripts/escalate_story.sh" in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_allows_force_followup_after_escalation_resolution(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "resolved",\n'
+        '  "resolution_action": "force-followup"\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    fake_runner = root_dir / "fake_runner.sh"
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert runner_marker.read_text(encoding="utf-8").strip() == "called"

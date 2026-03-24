@@ -68,6 +68,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    Operator recovery path: inspect and commit materialized changes, rerun `automation/scripts/run_story.sh <STORY-ID>` if needed, then rerun gate.
    The gate resolves the latest run once, reuses that exact run directory for AI review and classification, writes `review_gate_result.json`, and must exit non-zero when the final decision is `reject` or cannot be derived from the classification artifact.
    `review_gate_result.json` must record both the reviewed HEAD from the run manifest and the current checkout HEAD used by the gate decision.
+   When the gate produces a repeated `review_classification` reject with identical `diff.patch` and `changed_files.txt` as an earlier rejected run for the same story, it must also write `escalation_result.json` with `status: pending` and block ordinary continuation until a human resolves that escalation explicitly.
    Missing, invalid, or ambiguous `MERGE RECOMMENDATION:` output must be treated as a fail-closed reject.
    The gate artifact must distinguish malformed classification output from a classification step that failed before producing an artifact.
    The gate should append evidence-only ledger entries for `review_outcome` and, when rejected, `story_rejected`.
@@ -81,22 +82,26 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    - exact next recommended command.
    The canonical resumable stage sequence is `run_artifacts_ready` -> `ai_review_completed` -> `classification_approved` -> `review_gate_passed`.
    Reject, invalid, stale, failed, or dirty conditions must remain explicit `blocked_*` states rather than being treated as resumable stages.
+   Escalation states must remain explicit as well: unresolved repeated-reject stagnation is `blocked_escalation_required`, `force-followup` resolution is resumable through a new `run_story.sh` execution, and `accept-as-is` / `abort` remain non-resumable operator decisions.
    Resume commands should pin `AUTOMATION_RUN_DIR` to the selected run directory for deterministic continuation, and downstream scripts must accept both absolute and repository-relative pinned run paths.
    The command is intentionally read-only and should be the first inspection step for missing artifacts, incomplete review stages, or gate failures.
-23. Run follow-up prompts for merge blockers and accepted improvements.
+23. When analysis or the gate reports pending escalation, resolve it explicitly with `AUTOMATION_RUN_DIR=<run-dir> automation/scripts/escalate_story.sh <STORY-ID> <accept-as-is|force-followup|abort>`.
+   `force-followup` is the only escalation action that reopens ordinary automated continuation through `automation/scripts/run_story.sh <STORY-ID>`.
+   `accept-as-is` and `abort` are explicit human end-state decisions and must keep ordinary continuation blocked.
+24. Run follow-up prompts for merge blockers and accepted improvements.
    Decompose review output before execution so each follow-up prompt remains atomic, addresses exactly one review finding or one narrowly defined blocker, reuses the original scope boundaries unless explicitly changed, and captures any new out-of-scope findings as separate follow-up work.
    Each follow-up prompt must declare exactly one target finding/blocker identifier from the review artifacts; if more than one target is needed, split before execution.
    Before execution, confirm the follow-up prompt contains an explicit statement that Atomic Task Isolation is mandatory for the follow-up run, explicitly says follow-up mode is not an exception path around that contract, includes an execution gate that refuses implementation if more than one finding/blocker is present or if required isolation fields are missing, and requires Codex to restate the exact one-sentence follow-up intent before edits.
-24. Re-run tests after follow-up changes.
-25. Prepare PR with scope, risks, verification, docs impact, and any deferred follow-up tasks.
-26. Update the epic registry when the story status changes, when a split/follow-up story is created, and when the latest outcome changes the epic-level picture.
-27. Finalize the story with `automation/scripts/finalize_story.sh [PR_NUMBER]` after checks and review approvals pass.
+25. Re-run tests after follow-up changes.
+26. Prepare PR with scope, risks, verification, docs impact, and any deferred follow-up tasks.
+27. Update the epic registry when the story status changes, when a split/follow-up story is created, and when the latest outcome changes the epic-level picture.
+28. Finalize the story with `automation/scripts/finalize_story.sh [PR_NUMBER]` after checks and review approvals pass.
    Finalization should append one evidence-only `story_finalized` entry when the story ID can be resolved from the finalized branch/ref.
    `finalize_story.sh` should restore the ephemeral ledger path on exit so happy-path finalization is clean.
-28. Before merge/finalization, synchronize the epic registry row with the actual story outcome, including any new follow-up, split, cancelled, or superseded state.
-29. The finalization script must merge with `gh pr merge --squash`, switch to local `main`, run `git pull --ff-only origin main`, and delete the merged story branch locally/remotely.
-30. If scripted finalization cannot complete, stop and fix the blocking condition instead of finishing cleanup manually without documenting it.
-31. Append process improvement notes for the completed story.
+29. Before merge/finalization, synchronize the epic registry row with the actual story outcome, including any new follow-up, split, cancelled, or superseded state.
+30. The finalization script must merge with `gh pr merge --squash`, switch to local `main`, run `git pull --ff-only origin main`, and delete the merged story branch locally/remotely.
+31. If scripted finalization cannot complete, stop and fix the blocking condition instead of finishing cleanup manually without documenting it.
+32. Append process improvement notes for the completed story.
 
 ## Required Completion Artifacts
 - Story bundle directory with context, scope, master prompt, review checklist, follow-ups, and manual actions.
@@ -111,8 +116,11 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
   The classification artifact must include an exact standalone `MERGE RECOMMENDATION:` line with `approve` or `reject`.
 - Durable review gate result artifact for the reviewed run (`review_gate_result.json`).
   The artifact must include machine-readable `decision`, `status`, and `decision_source` fields.
+- When repeated reject stagnation is detected, durable escalation artifact for that reviewed run (`escalation_result.json`).
+  The artifact must include machine-readable `escalation_required`, `status`, `reason`, and `resolution_action` fields.
 - Ephemeral workflow ledger artifact path (`automation/story_change_ledger.jsonl`).
   The ledger must remain append-only and may record `story_started`, `review_outcome`, `story_rejected`, and `story_finalized`, but it must not decide whether a story may continue in this workflow story.
+  Escalation continuation decisions must come from `escalation_result.json`, not from ledger inference.
 - Follow-up capture for any out-of-scope finding discovered during implementation or review.
 - Epic registry row updated to reflect the committed story outcome and any created follow-up/split story IDs.
 - PR description linked to the story bundle.
