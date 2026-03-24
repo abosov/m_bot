@@ -157,6 +157,13 @@ enforce_escalation_resolution() {
       } >&2
       exit 1
       ;;
+    *)
+      {
+        echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has invalid resolution_action '$resolution_action'"
+        printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+      } >&2
+      exit 1
+      ;;
   esac
 }
 
