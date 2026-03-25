@@ -213,6 +213,7 @@ Successful implementation should result in the following observable behavior:
 - `docs/90_codex/STORY_BUNDLE_SPEC.md`
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `tests/test_run_story.py`
+- `tests/test_story_change_ledger.py`
 
 ## Files Not Allowed To Change
 - `automation/scripts/commit_story_artifacts.sh`

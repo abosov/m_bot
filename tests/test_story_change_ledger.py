@@ -188,14 +188,14 @@ def test_run_story_appends_story_started_entry_before_runner_exec(tmp_path: Path
         text=True,
     )
     subprocess.run(
-        ["git", "add", "automation/bundles/active/US-AUTO-23", "automation/bundle_packs/US-AUTO-23.bundle.md"],
+        ["git", "add", "."],
         check=True,
         cwd=root_dir,
         capture_output=True,
         text=True,
     )
     subprocess.run(
-        ["git", "commit", "-m", "test: seed committed story artifacts"],
+        ["git", "commit", "-m", "test: seed clean repository state for run_story preflight"],
         check=True,
         cwd=root_dir,
         capture_output=True,
