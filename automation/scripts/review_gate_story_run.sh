@@ -26,6 +26,41 @@ fail() {
   exit 1
 }
 
+read_gate_json_field() {
+  local json_file="$1"
+  local key="$2"
+
+  [[ -f "$json_file" ]] || return 1
+
+  python3 - "$json_file" "$key" <<'PY'
+import json, sys
+
+path, key = sys.argv[1], sys.argv[2]
+
+def no_dupes(pairs):
+    d = {}
+    for k, v in pairs:
+        if k in d:
+            raise ValueError("duplicate key")
+        d[k] = v
+    return d
+
+with open(path, "r", encoding="utf-8") as f:
+    data = json.load(f, object_pairs_hook=no_dupes)
+
+if not isinstance(data, dict):
+    raise ValueError("not object")
+
+val = data.get(key, None)
+
+if isinstance(val, str):
+    print(val)
+    sys.exit(0)
+
+sys.exit(1)
+PY
+}
+
 working_tree_dirty() {
   local status_output
   status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" 2>/dev/null || true)"
@@ -325,8 +360,9 @@ find_previous_reject_stagnation_run() {
     candidate_gate_result="$candidate_run_dir/$GATE_RESULT_FILE_NAME"
     [[ -f "$candidate_gate_result" ]] || continue
 
-    candidate_decision="$(sed -n -E 's/.*"decision"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' "$candidate_gate_result" | head -n 1)"
-    candidate_source="$(sed -n -E 's/.*"decision_source"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' "$candidate_gate_result" | head -n 1)"
+    candidate_decision="$(read_gate_json_field "$candidate_gate_result" "decision" 2>/dev/null || true)"
+    candidate_source="$(read_gate_json_field "$candidate_gate_result" "decision_source" 2>/dev/null || true)"
+
     [[ "$candidate_decision" == "reject" ]] || continue
     [[ "$candidate_source" == "review_classification" ]] || continue
     [[ -f "$candidate_run_dir/diff.patch" ]] || continue

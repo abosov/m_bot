@@ -14,13 +14,12 @@ You are the Bash Automation Developer, QA Engineer, and Workflow Contract Enforc
 - current scripts and tests for run/review/gate/analyze flow
 
 ## Files Allowed To Change
-- `automation/scripts/run_story.sh`
-- `tests/test_run_story.py`
+- `automation/scripts/review_gate_story_run.sh`
+- `tests/test_review_gate_story_run.py`
 
 ## Files Not Allowed To Change
 - `automation/scripts/escalate_story.sh`
 - `automation/scripts/analyze_story_run.sh`
-- `automation/scripts/review_gate_story_run.sh`
 - `tests/test_escalate_story.py`
 - docs files
 - bundle files other than this prompt as required for execution
