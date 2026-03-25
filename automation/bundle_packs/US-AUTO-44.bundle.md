@@ -317,6 +317,42 @@ The workflow must clearly tell the operator:
 - whether the block is due to requested-story artifacts or unrelated changes
 - exactly what to do next
 
+## Execution Contract (Atomic Task Isolation)
+
+TASK_INTENT:
+Implement explicit preflight classification and operator handoff in `automation/scripts/run_story.sh` without expanding scope beyond orchestration logic.
+
+OUT_OF_SCOPE:
+- Changes to `commit_story_artifacts.sh`
+- Changes to `run_codex_task.sh`
+- Any review/gate pipeline logic
+- Any unrelated automation or application code
+
+FILES_ALLOWED_TO_CHANGE:
+- `automation/scripts/run_story.sh`
+- `tests/test_run_story.py`
+- `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
+- `docs/90_codex/STORY_BUNDLE_SPEC.md`
+- `docs/90_codex/epics/US-AUTO_REGISTRY.md`
+
+FILES_NOT_ALLOWED_TO_CHANGE:
+- `automation/scripts/commit_story_artifacts.sh`
+- `automation/run_codex_task.sh`
+- review/classification/gate scripts
+- unrelated workflow scripts
+
+HARD_STOP_CONDITION:
+If changes are required outside allowed files or beyond preflight classification and messaging, stop and report instead of continuing.
+
+FOLLOW_UP_CAPTURE:
+Any additional issues discovered must be recorded as follow-up stories and not implemented in this task.
+
+INTENT_RESTATEMENT_REQUIRED:
+Before making changes, restate the one-sentence intent of this task.
+
+NON_ATOMIC_TASK_REFUSAL:
+If the task becomes non-atomic or requires multiple independent changes, refuse execution and report.
+
 === FILE: 04_review_checklist.md ===
 # Review Checklist — US-AUTO-44
 
@@ -349,25 +385,39 @@ The workflow must clearly tell the operator:
 - [ ] remediation does not suggest broad commits outside the story scope
 
 === FILE: 05_followups.md ===
-# US-AUTO-44: Follow-Ups
+# Follow-ups — US-AUTO-44
 
-## Follow-Up Prompt Queue
-- Add a lightweight helper that previews classified dirty paths before the operator chooses a remediation action.
-- Add a status command that prints workflow stage plus preflight classification without attempting execution.
-- Consider a later story for richer operator UX around materialization readiness.
-- Consider a later story for tighter integration between analyze output and preflight diagnostics.
-- Revisit whether `commit_story_artifacts.sh` and `run_story.sh` should share a common read-only path-classification helper in a separate contract-focused story.
+## FOLLOW-UP 1
 
-## Iteration Notes
-- Keep US-AUTO-44 narrow and message-contract focused.
-- Do not convert preflight into mutation.
-- Do not redesign materialization.
-- Prefer stable output over clever behavior.
+FINDING:
+Review/gate stage currently recomputes review/classification, allowing decision drift.
 
-## Deferred Questions
-- Should preflight output become machine-readable in a later story?
-- Should analyze consume the same preflight classification helper in a later story?
-- Should there be a dedicated `check_story_ready.sh` helper, or is that unnecessary duplication?
+INTENT:
+Ensure review_gate consumes existing artifacts instead of recomputing them.
+
+SCOPE:
+- `automation/scripts/review_gate_story_run.sh`
+
+OUT_OF_SCOPE:
+- run_story logic
+- bundle spec changes
+
+---
+
+## FOLLOW-UP 2
+
+FINDING:
+No reverse synchronization from active bundle to bundle pack leads to artifact drift.
+
+INTENT:
+Introduce deterministic rebuild of bundle pack from active bundle.
+
+SCOPE:
+- new script or extension to bundle tooling
+
+OUT_OF_SCOPE:
+- run_story logic
+- validator logic
 
 === FILE: 06_manual_actions.md ===
 # US-AUTO-44: Manual Actions
