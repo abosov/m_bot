@@ -98,10 +98,18 @@ Bundles are invalid for execution when master or follow-up prompts omit this exe
 - required core sections are missing
 
 `automation/scripts/run_story.sh` must invoke validation before execution and refuse invalid bundles.
-`automation/scripts/run_story.sh` must also refuse execution when the requested story's bundle pack or
-materialized active-bundle files are still dirty, and it must print the deterministic remediation command
-`automation/scripts/commit_story_artifacts.sh <STORY-ID>`.
-`automation/scripts/run_story.sh` enforces requested story-artifact cleanliness before execution.
+`automation/scripts/run_story.sh` must expose preflight as an explicit first-class stage before execution.
+That preflight stage must print `[INFO] Preflight: classifying dirty paths for <STORY-ID>` and classify
+dirty paths narrowly for the requested story while excluding only the exact ephemeral ledger path
+`automation/story_change_ledger.jsonl`.
+If only the requested story's bundle pack or materialized active-bundle files are dirty, `run_story.sh`
+must fail closed with a deterministic operator handoff that tells the operator to review those changes,
+run `automation/scripts/commit_story_artifacts.sh <STORY-ID>`, and rerun
+`automation/scripts/run_story.sh <STORY-ID>`.
+If unrelated dirty paths also exist, `run_story.sh` must fail closed with a deterministic blocked message
+that tells the operator to resolve those unrelated changes outside the story-artifact handoff flow before
+rerunning `automation/scripts/run_story.sh <STORY-ID>`.
+`automation/scripts/run_story.sh` must not auto-commit, auto-stash, or auto-clean during preflight.
 The downstream execution layer must continue to enforce the broader clean-tree boundary for unrelated dirty
 paths, excluding only the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
 

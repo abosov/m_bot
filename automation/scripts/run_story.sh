@@ -22,6 +22,11 @@ commit_artifacts_command() {
   echo "$COMMIT_ARTIFACTS_HINT $story_id"
 }
 
+run_story_command() {
+  local story_id="$1"
+  echo "automation/scripts/run_story.sh $story_id"
+}
+
 usage() {
   cat >&2 <<'EOF'
 Usage:
@@ -160,6 +165,7 @@ is_story_artifact_path() {
 ensure_story_artifacts_committed() {
   local story_id="$1"
   local dirty_story_paths=()
+  local unrelated_dirty_paths=()
   local path
 
   while IFS= read -r path; do
@@ -167,14 +173,33 @@ ensure_story_artifacts_committed() {
     [[ "$path" == "$EPHEMERAL_LEDGER_PATH" ]] && continue
     if is_story_artifact_path "$story_id" "$path"; then
       dirty_story_paths+=("$path")
+    else
+      unrelated_dirty_paths+=("$path")
     fi
   done < <(collect_dirty_paths)
 
+  if (( ${#unrelated_dirty_paths[@]} > 0 )); then
+    {
+      echo "ERROR: preflight blocked for '$story_id' because unrelated dirty paths exist:"
+      printf ' - %s\n' "${unrelated_dirty_paths[@]}"
+      if (( ${#dirty_story_paths[@]} > 0 )); then
+        echo "Requested story artifact paths also remain dirty:"
+        printf ' - %s\n' "${dirty_story_paths[@]}"
+      fi
+      echo "Resolve unrelated changes outside the story-artifact handoff flow."
+      echo "Then rerun: $(run_story_command "$story_id")"
+    } >&2
+    exit 1
+  fi
+
   if (( ${#dirty_story_paths[@]} > 0 )); then
     {
-      echo "ERROR: story artifacts for '$story_id' must be committed before run:"
+      echo "ERROR: preflight blocked for '$story_id' because requested story artifacts are dirty:"
       printf ' - %s\n' "${dirty_story_paths[@]}"
-      echo "Remediation: $(commit_artifacts_command "$story_id")"
+      echo "Operator handoff:"
+      echo " - Review the requested story artifact changes."
+      echo " - Run: $(commit_artifacts_command "$story_id")"
+      echo " - Rerun: $(run_story_command "$story_id")"
     } >&2
     exit 1
   fi
@@ -337,6 +362,7 @@ require_file "$RUNNER"
 require_file "$VALIDATOR_SCRIPT"
 require_file "$MASTER_PROMPT"
 
+echo "[INFO] Preflight: classifying dirty paths for $STORY_ID" >&2
 ensure_story_artifacts_committed "$STORY_ID"
 enforce_escalation_resolution "$STORY_ID"
 

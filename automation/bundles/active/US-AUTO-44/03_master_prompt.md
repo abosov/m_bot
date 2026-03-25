@@ -8,7 +8,8 @@ Implement **US-AUTO-44 — materialization preflight & operator handoff** as a n
 
 ## Source of Truth
 - `automation/scripts/run_story.sh`
-- `automation/scripts/commit_story_artifacts.s `automation/run_codex_task.sh`
+- `automation/scripts/commit_story_artifacts.sh`
+- `automation/run_codex_task.sh`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 - `docs/90_codex/STORY_BUNDLE_SPEC.md`
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`

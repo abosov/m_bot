@@ -28,7 +28,13 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    The handoff must fail when no eligible story-artifact changes exist.
    The handoff must fail closed when any unrelated dirty path exists elsewhere in the repo, excluding only the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
    The commit message must stay deterministic: `chore(story): commit story artifacts for <STORY-ID> before run`.
-14. Execute Codex run against the master prompt (`automation/scripts/run_story.sh <STORY-ID>` or runner direct).
+14. Run explicit preflight for the story (`automation/scripts/run_story.sh <STORY-ID>`).
+   `run_story.sh` must print the first-class stage marker `[INFO] Preflight: classifying dirty paths for <STORY-ID>`.
+   Preflight must classify dirty paths narrowly for the requested story, excluding only the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
+   If only requested-story artifact paths are dirty, `run_story.sh` must fail closed with a deterministic operator handoff that tells the operator to review those changes, run `automation/scripts/commit_story_artifacts.sh <STORY-ID>`, and rerun `automation/scripts/run_story.sh <STORY-ID>`.
+   If unrelated dirty paths exist, `run_story.sh` must fail closed with a deterministic blocked message that tells the operator to resolve those unrelated changes outside the story-artifact handoff flow before rerunning `automation/scripts/run_story.sh <STORY-ID>`.
+   `run_story.sh` must not auto-commit, auto-stash, or auto-clean dirty paths during preflight.
+15. Execute Codex run against the master prompt only through `automation/scripts/run_story.sh <STORY-ID>`.
    Default runner behavior uses lean story context.
    Runner execution is isolated in a temporary detached git worktree created from current branch `HEAD` and cleaned up on exit.
    Every run must generate `repository_map_runtime.md` before Codex execution and inject that repository map into the runtime Codex prompt.
@@ -36,31 +42,30 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    Story-local scope constraints in that runtime map must be marked as loaded when the allowed-file scope parses from `02_file_scope.md`; missing or unparseable allowed-file scope data must be surfaced as unavailable rather than implied to be empty, and a missing forbidden-file list must remain explicitly unavailable instead of being implied to be empty.
    Any tracked or regular untracked file changes produced inside that isolated worktree must be materialized back into the primary checkout before pytest and artifact collection; if materialization does not reach the primary checkout, the run must fail explicitly.
    After changed-files collection, the runner must enforce `02_file_scope.md` with the allowed-files guard before pytest and downstream review continue.
-   Use `automation/run_codex_task.sh --full-context <master-prompt-path>` only when the story needs the full bundle context.
-   `automation/scripts/run_story.sh <STORY-ID>` continues to use the runner defaults.
+   Use `automation/run_codex_task.sh --full-context <master-prompt-path>` only through the story wrapper flow when the story needs the full bundle context.
+   `automation/scripts/run_story.sh <STORY-ID>` remains the mandatory execution entrypoint and must not be bypassed by direct runner invocation in the standard workflow.
    Before execution, confirm the prompt explicitly contains intent, out-of-scope, allowed-files, forbidden-files, a statement that Atomic Task Isolation is mandatory for this run, hard-stop, follow-up capture language, a requirement to restate the one-sentence task intent before edits, and an execution gate that tells Codex to refuse non-atomic or underspecified prompts or prompts that batch another independently reviewable change.
    `run_story.sh` should record one evidence-only `story_started` event for `automation/story_change_ledger.jsonl`, and treat that exact path as ephemeral workflow state rather than implementation diff.
    `run_story.sh` and `automation/run_codex_task.sh` should restore the same exact path on exit so ledger writes do not persist as happy-path implementation drift.
    When the primary checkout is clean before execution begins, `automation/run_codex_task.sh` owns the rollback lifecycle for the whole run: capture the baseline before repository-visible writes, arm rollback immediately after that capture, and disarm it only after the final success gate.
    Any failed or interrupted run from that clean baseline must restore tracked files to the captured `HEAD` state and remove run-owned untracked artifacts, including automation run directories created for the failed attempt.
    If automatic rollback itself fails, the runner must exit non-zero and print an explicit rollback failure instead of allowing the run to appear successful.
-   `run_story.sh` must refuse to continue when the requested story artifacts are still dirty and must print the deterministic remediation command `automation/scripts/commit_story_artifacts.sh <STORY-ID>`.
    `run_story.sh` must not auto-commit story artifacts.
-15. Verify the Codex output stayed within the declared atomic task, implemented only one independently reviewable purpose, and captured any out-of-scope findings as follow-up work instead of inline changes.
-16. Run required tests (minimum: targeted `pytest` scope for changed behavior).
-17. Collect implementation and review artifacts into the story bundle.
+16. Verify the Codex output stayed within the declared atomic task, implemented only one independently reviewable purpose, and captured any out-of-scope findings as follow-up work instead of inline changes.
+17. Run required tests (minimum: targeted `pytest` scope for changed behavior).
+18. Collect implementation and review artifacts into the story bundle.
    Review evidence is derived from the materialized primary checkout state rooted at the `origin/main` merge-base so committed and newly materialized working-tree changes are both captured before cleanup.
-18. Resolve the latest review artifacts for the story (`automation/scripts/review_story_run.sh <STORY-ID>`).
+19. Resolve the latest review artifacts for the story (`automation/scripts/review_story_run.sh <STORY-ID>`).
    Review can proceed only when the current branch working tree is clean (commit-consistent with review evidence), excluding only the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
    If the working tree is dirty with materialized changes, inspect and commit first; then rerun story execution if needed.
    The review summary prints the canonical pinned inspection helper (`AUTOMATION_RUN_DIR=<run-dir> automation/scripts/analyze_story_run.sh <STORY-ID>`) plus the deterministic pinned gate command for that same run.
    The review summary must use the exact selected run directory for both printed commands so operators can continue deterministically from that run.
    Use the printed deterministic resume command (`AUTOMATION_RUN_DIR=<run-dir> automation/scripts/review_gate_story_run.sh <STORY-ID>`) when chaining directly into gate execution for that same run.
-19. Execute and persist the AI review result for the latest run (`automation/scripts/ai_review_story_run.sh <STORY-ID>`).
-20. Execute and persist the review classification result for the latest run (`automation/scripts/classify_review_story_run.sh <STORY-ID>`).
+20. Execute and persist the AI review result for the latest run (`automation/scripts/ai_review_story_run.sh <STORY-ID>`).
+21. Execute and persist the review classification result for the latest run (`automation/scripts/classify_review_story_run.sh <STORY-ID>`).
    The classification artifact must contain an exact standalone `MERGE RECOMMENDATION: approve` or `MERGE RECOMMENDATION: reject` line for the gate.
    If classification text is malformed or ambiguous, preserve `review_classification.md` for debugging and fail closed instead of deleting the artifact.
-21. Execute the review gate for the latest run (`automation/scripts/review_gate_story_run.sh <STORY-ID>`).
+22. Execute the review gate for the latest run (`automation/scripts/review_gate_story_run.sh <STORY-ID>`).
    The gate must fail closed before AI review/classification when the current branch working tree has uncommitted changes outside the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
    The gate must also fail closed when the selected run's manifest HEAD does not match the current checkout HEAD; stale pre-finalize approval is never merge-valid.
    The gate must fail closed when review artifacts are not faithful to the authoritative branch diff reconstructed from the run manifest `review_artifact_base` and current checkout `HEAD`.
@@ -72,7 +77,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    Missing, invalid, or ambiguous `MERGE RECOMMENDATION:` output must be treated as a fail-closed reject.
    The gate artifact must distinguish malformed classification output from a classification step that failed before producing an artifact.
    The gate should append evidence-only ledger entries for `review_outcome` and, when rejected, `story_rejected`.
-22. Use `automation/scripts/analyze_story_run.sh <STORY-ID>` when you need a read-only summary of the latest run artifacts, pytest state, review pipeline state, and recommended next operator action.
+23. Use `automation/scripts/analyze_story_run.sh <STORY-ID>` when you need a read-only summary of the latest run artifacts, pytest state, review pipeline state, and recommended next operator action.
    By default the command inspects the latest run directory under `automation/runs/<STORY-ID>/`.
    Operators may also point it at a specific run with `AUTOMATION_RUN_DIR=automation/runs/<STORY-ID>/<RUN-ID> automation/scripts/analyze_story_run.sh <STORY-ID>`.
    The command must report a deterministic workflow chaining/resume section with:
@@ -85,23 +90,23 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    Escalation states must remain explicit as well: unresolved repeated-reject stagnation is `blocked_escalation_required`, `force-followup` resolution is resumable through a new `run_story.sh` execution, and `accept-as-is` / `abort` remain non-resumable operator decisions.
    Resume commands should pin `AUTOMATION_RUN_DIR` to the selected run directory for deterministic continuation, and downstream scripts must accept both absolute and repository-relative pinned run paths.
    The command is intentionally read-only and should be the first inspection step for missing artifacts, incomplete review stages, or gate failures.
-23. When analysis or the gate reports pending escalation, resolve it explicitly with `AUTOMATION_RUN_DIR=<run-dir> automation/scripts/escalate_story.sh <STORY-ID> <accept-as-is|force-followup|abort>`.
+24. When analysis or the gate reports pending escalation, resolve it explicitly with `AUTOMATION_RUN_DIR=<run-dir> automation/scripts/escalate_story.sh <STORY-ID> <accept-as-is|force-followup|abort>`.
    `force-followup` is the only escalation action that reopens ordinary automated continuation through `automation/scripts/run_story.sh <STORY-ID>`.
    `accept-as-is` and `abort` are explicit human end-state decisions and must keep ordinary continuation blocked.
-24. Run follow-up prompts for merge blockers and accepted improvements.
+25. Run follow-up prompts for merge blockers and accepted improvements.
    Decompose review output before execution so each follow-up prompt remains atomic, addresses exactly one review finding or one narrowly defined blocker, reuses the original scope boundaries unless explicitly changed, and captures any new out-of-scope findings as separate follow-up work.
    Each follow-up prompt must declare exactly one target finding/blocker identifier from the review artifacts; if more than one target is needed, split before execution.
    Before execution, confirm the follow-up prompt contains an explicit statement that Atomic Task Isolation is mandatory for the follow-up run, explicitly says follow-up mode is not an exception path around that contract, includes an execution gate that refuses implementation if more than one finding/blocker is present or if required isolation fields are missing, and requires Codex to restate the exact one-sentence follow-up intent before edits.
-25. Re-run tests after follow-up changes.
-26. Prepare PR with scope, risks, verification, docs impact, and any deferred follow-up tasks.
-27. Update the epic registry when the story status changes, when a split/follow-up story is created, and when the latest outcome changes the epic-level picture.
-28. Finalize the story with `automation/scripts/finalize_story.sh [PR_NUMBER]` after checks and review approvals pass.
+26. Re-run tests after follow-up changes.
+27. Prepare PR with scope, risks, verification, docs impact, and any deferred follow-up tasks.
+28. Update the epic registry when the story status changes, when a split/follow-up story is created, and when the latest outcome changes the epic-level picture.
+29. Finalize the story with `automation/scripts/finalize_story.sh [PR_NUMBER]` after checks and review approvals pass.
    Finalization should append one evidence-only `story_finalized` entry when the story ID can be resolved from the finalized branch/ref.
    `finalize_story.sh` should restore the ephemeral ledger path on exit so happy-path finalization is clean.
-29. Before merge/finalization, synchronize the epic registry row with the actual story outcome, including any new follow-up, split, cancelled, or superseded state.
-30. The finalization script must merge with `gh pr merge --squash`, switch to local `main`, run `git pull --ff-only origin main`, and delete the merged story branch locally/remotely.
-31. If scripted finalization cannot complete, stop and fix the blocking condition instead of finishing cleanup manually without documenting it.
-32. Append process improvement notes for the completed story.
+30. Before merge/finalization, synchronize the epic registry row with the actual story outcome, including any new follow-up, split, cancelled, or superseded state.
+31. The finalization script must merge with `gh pr merge --squash`, switch to local `main`, run `git pull --ff-only origin main`, and delete the merged story branch locally/remotely.
+32. If scripted finalization cannot complete, stop and fix the blocking condition instead of finishing cleanup manually without documenting it.
+33. Append process improvement notes for the completed story.
 
 ## Required Completion Artifacts
 - Story bundle directory with context, scope, master prompt, review checklist, follow-ups, and manual actions.
