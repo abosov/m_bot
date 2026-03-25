@@ -266,6 +266,40 @@ def test_run_story_blocks_unrelated_dirty_paths_before_handoff(tmp_path: Path) -
     assert not runner_marker.exists()
 
 
+def test_run_story_blocks_unrelated_dirty_paths_without_story_artifact_handoff(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    unrelated_path = root_dir / "notes.txt"
+    unrelated_path.write_text("dirty\n", encoding="utf-8")
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert f"[INFO] Preflight: classifying dirty paths for {story_id}" in result.stderr
+    assert f"ERROR: preflight blocked for '{story_id}' because unrelated dirty paths exist:" in result.stderr
+    assert " - notes.txt" in result.stderr
+    assert "Requested story artifact paths also remain dirty:" not in result.stderr
+    assert "Operator handoff:" not in result.stderr
+    assert "Resolve unrelated changes outside the story-artifact handoff flow." in result.stderr
+    assert f"Then rerun: automation/scripts/run_story.sh {story_id}" in result.stderr
+    assert not runner_marker.exists()
+
+
 def test_run_story_allows_dirty_ephemeral_ledger_path(tmp_path: Path) -> None:
     story_id = "US-AUTO-37"
     root_dir = tmp_path / "repo"
