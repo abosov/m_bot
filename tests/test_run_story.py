@@ -250,6 +250,7 @@ def test_run_story_blocks_when_latest_run_has_pending_escalation(tmp_path: Path)
         '{\n'
         '  "escalation_required": true,\n'
         '  "status": "pending",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
         '  "resolution_action": ""\n'
         '}\n',
         encoding="utf-8",
@@ -300,6 +301,7 @@ def test_run_story_honors_automation_runs_root_for_escalation(tmp_path: Path) ->
         '{\n'
         '  "escalation_required": true,\n'
         '  "status": "pending",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
         '  "resolution_action": ""\n'
         '}\n',
         encoding="utf-8",
@@ -339,6 +341,7 @@ def test_run_story_allows_force_followup_after_escalation_resolution(tmp_path: P
         '{\n'
         '  "escalation_required": true,\n'
         '  "status": "resolved",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
         '  "resolution_action": "force-followup"\n'
         '}\n',
         encoding="utf-8",
@@ -372,7 +375,7 @@ def test_run_story_blocks_resolved_escalation_with_missing_resolution_action(tmp
     latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
     latest_run_dir.mkdir(parents=True)
     (latest_run_dir / "escalation_result.json").write_text(
-        '{"escalation_required":true,"status":"resolved"}\n',
+        '{"escalation_required":true,"status":"resolved","decision_source":"repeated_reject_stagnation"}\n',
         encoding="utf-8",
     )
 
@@ -408,6 +411,7 @@ def test_run_story_blocks_resolved_escalation_with_non_string_resolution_action(
         '{\n'
         '  "escalation_required": true,\n'
         '  "status": "resolved",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
         '  "resolution_action": {"kind": "force-followup"}\n'
         '}\n',
         encoding="utf-8",
@@ -445,6 +449,7 @@ def test_run_story_blocks_resolved_escalation_with_empty_resolution_action(tmp_p
         '{\n'
         '  "escalation_required": true,\n'
         '  "status": "resolved",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
         '  "resolution_action": ""\n'
         '}\n',
         encoding="utf-8",
@@ -482,6 +487,7 @@ def test_run_story_blocks_resolved_escalation_with_unexpected_resolution_action(
         '{\n'
         '  "escalation_required": true,\n'
         '  "status": "resolved",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
         '  "resolution_action": "retry"\n'
         '}\n',
         encoding="utf-8",
@@ -519,6 +525,7 @@ def test_run_story_blocks_resolved_escalation_with_only_nested_resolution_action
         '{\n'
         '  "escalation_required": true,\n'
         '  "status": "resolved",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
         '  "metadata": {\n'
         '    "resolution_action": "force-followup"\n'
         '  }\n'
@@ -558,6 +565,7 @@ def test_run_story_blocks_resolved_escalation_with_abort_resolution_action(tmp_p
         '{\n'
         '  "escalation_required": true,\n'
         '  "status": "resolved",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
         '  "resolution_action": "abort"\n'
         '}\n',
         encoding="utf-8",
@@ -582,3 +590,115 @@ def test_run_story_blocks_resolved_escalation_with_abort_resolution_action(tmp_p
     assert result.returncode != 0
     assert "because escalation was resolved as 'abort'" in result.stderr
     assert not runner_marker.exists()
+
+
+def test_run_story_blocks_resolved_escalation_with_missing_decision_source(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-10-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "resolved",\n'
+        '  "resolution_action": "force-followup"\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(root_dir / "fake_runner.sh")
+    (root_dir / "fake_runner.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8")
+    (root_dir / "fake_runner.sh").chmod(0o755)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "missing decision source" in result.stderr
+
+
+def test_run_story_blocks_resolved_escalation_with_wrong_decision_source(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-11-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "resolved",\n'
+        '  "decision_source": "manual_override",\n'
+        '  "resolution_action": "force-followup"\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(root_dir / "fake_runner.sh")
+    (root_dir / "fake_runner.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8")
+    (root_dir / "fake_runner.sh").chmod(0o755)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "invalid decision_source 'manual_override'" in result.stderr
+
+
+def test_run_story_blocks_resolved_escalation_with_nested_decision_source_spoof(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-12-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "resolved",\n'
+        '  "metadata": {\n'
+        '    "decision_source": "repeated_reject_stagnation"\n'
+        '  },\n'
+        '  "resolution_action": "force-followup"\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(root_dir / "fake_runner.sh")
+    (root_dir / "fake_runner.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8")
+    (root_dir / "fake_runner.sh").chmod(0o755)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "missing decision source" in result.stderr
+
+
+def test_run_story_blocks_resolved_escalation_with_duplicate_decision_source_keys(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-13-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{ "escalation_required": true, "status": "resolved", "decision_source": "repeated_reject_stagnation", "decision_source": "manual_override", "resolution_action": "force-followup" }\n',
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(root_dir / "fake_runner.sh")
+    (root_dir / "fake_runner.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8")
+    (root_dir / "fake_runner.sh").chmod(0o755)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "invalid (duplicate key)" in result.stderr

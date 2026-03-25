@@ -193,3 +193,135 @@ def test_escalate_story_rejects_when_decision_source_is_not_repeated_reject_stag
 
     assert result.returncode != 0
     assert "decision_source must be repeated_reject_stagnation" in result.stderr
+
+
+def test_escalate_story_rejects_nested_decision_source_spoof(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_11-00-03")
+    (run_dir / "escalation_result.json").write_text(
+        '{ "escalation_required": true, "status": "pending", "gate_result": "g", "reason": "r", "previous_reject_run_id": "p", "meta": {"decision_source":"repeated_reject_stagnation"} }',
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-28", "abort"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "missing required field 'decision_source'" in result.stderr
+
+
+def test_escalate_story_rejects_duplicate_key_ambiguity(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_11-00-04")
+    (run_dir / "escalation_result.json").write_text(
+        '{ "decision_source": "repeated_reject_stagnation", "decision_source": "manual_override", "escalation_required": true, "status": "pending", "gate_result": "g", "reason": "r", "previous_reject_run_id": "p" }',
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-28", "abort"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "duplicate key 'decision_source'" in result.stderr
+
+
+def test_escalate_story_rejects_malformed_json(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_11-00-05")
+    (run_dir / "escalation_result.json").write_text("{", encoding="utf-8")
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-28", "abort"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "malformed JSON" in result.stderr
+
+
+def test_escalate_story_rejects_non_object_json(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_11-00-06")
+    (run_dir / "escalation_result.json").write_text('["not-an-object"]\n', encoding="utf-8")
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-28", "abort"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "expected a JSON object" in result.stderr
+
+
+def test_escalate_story_rejects_wrong_field_types(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_11-00-07")
+    (run_dir / "escalation_result.json").write_text(
+        '{ "decision_source": "repeated_reject_stagnation", "escalation_required": "true", "status": "pending", "gate_result": "g", "reason": "r", "previous_reject_run_id": "p" }',
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-28", "abort"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "'escalation_required' must be a boolean" in result.stderr
+
+
+def test_escalate_story_rejects_missing_required_top_level_field(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_11-00-08")
+    (run_dir / "escalation_result.json").write_text(
+        '{ "decision_source": "repeated_reject_stagnation", "escalation_required": true, "status": "pending", "reason": "r", "previous_reject_run_id": "p" }',
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-28", "abort"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "missing required field 'gate_result'" in result.stderr

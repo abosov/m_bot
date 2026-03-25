@@ -1466,7 +1466,95 @@ def test_analyze_story_run_reports_nested_resolution_action_spoof_as_invalid(tmp
     assert "Next recommended command: none" in result.stdout
     assert "Blocked reason: escalation artifact is invalid" in result.stdout
     assert "RUN STATUS: BLOCKED (invalid escalation artifact)" in result.stdout
-    
+
+
+def test_analyze_story_run_blocks_missing_resolved_decision_source(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_12-00-01")
+    (run_dir / "manifest.md").write_text("- changed_files_detected: yes\n- pytest_exit_code: 0\n", encoding="utf-8")
+    (run_dir / "review_classification.md").write_text("MERGE RECOMMENDATION: reject\n", encoding="utf-8")
+    (run_dir / "review_gate_result.json").write_text(
+        '{ "decision": "reject", "status": "failed", "decision_source": "review_classification" }',
+        encoding="utf-8",
+    )
+    (run_dir / "escalation_result.json").write_text(
+        '{ "escalation_required": true, "status": "resolved", "resolution_action": "force-followup" }',
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-28", run_dir=run_dir)
+
+    assert result.returncode == 0
+    assert "Escalation: present (invalid)" in result.stdout
+    assert "Current stage: blocked_invalid_escalation_artifact" in result.stdout
+    assert "RUN STATUS: BLOCKED (invalid escalation artifact)" in result.stdout
+
+
+def test_analyze_story_run_blocks_wrong_resolved_decision_source(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_12-00-02")
+    (run_dir / "manifest.md").write_text("- changed_files_detected: yes\n- pytest_exit_code: 0\n", encoding="utf-8")
+    (run_dir / "review_classification.md").write_text("MERGE RECOMMENDATION: reject\n", encoding="utf-8")
+    (run_dir / "review_gate_result.json").write_text(
+        '{ "decision": "reject", "status": "failed", "decision_source": "review_classification" }',
+        encoding="utf-8",
+    )
+    (run_dir / "escalation_result.json").write_text(
+        '{ "escalation_required": true, "status": "resolved", "decision_source": "manual_override", "resolution_action": "accept-as-is" }',
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-28", run_dir=run_dir)
+
+    assert result.returncode == 0
+    assert "Escalation: present (invalid)" in result.stdout
+    assert "Current stage: blocked_invalid_escalation_artifact" in result.stdout
+    assert "RUN STATUS: BLOCKED (invalid escalation artifact)" in result.stdout
+
+
+def test_analyze_story_run_blocks_nested_decision_source_spoof(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_12-00-03")
+    (run_dir / "manifest.md").write_text("- changed_files_detected: yes\n- pytest_exit_code: 0\n", encoding="utf-8")
+    (run_dir / "review_classification.md").write_text("MERGE RECOMMENDATION: reject\n", encoding="utf-8")
+    (run_dir / "review_gate_result.json").write_text(
+        '{ "decision": "reject", "status": "failed", "decision_source": "review_classification" }',
+        encoding="utf-8",
+    )
+    (run_dir / "escalation_result.json").write_text(
+        '{ "escalation_required": true, "status": "resolved", "metadata": {"decision_source": "repeated_reject_stagnation"}, "resolution_action": "abort" }',
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-28", run_dir=run_dir)
+
+    assert result.returncode == 0
+    assert "Escalation: present (invalid)" in result.stdout
+    assert "Current stage: blocked_invalid_escalation_artifact" in result.stdout
+    assert "RUN STATUS: BLOCKED (invalid escalation artifact)" in result.stdout
+
+
+def test_analyze_story_run_blocks_duplicate_decision_source_keys(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-28", "2026-03-24_12-00-04")
+    (run_dir / "manifest.md").write_text("- changed_files_detected: yes\n- pytest_exit_code: 0\n", encoding="utf-8")
+    (run_dir / "review_classification.md").write_text("MERGE RECOMMENDATION: reject\n", encoding="utf-8")
+    (run_dir / "review_gate_result.json").write_text(
+        '{ "decision": "reject", "status": "failed", "decision_source": "review_classification" }',
+        encoding="utf-8",
+    )
+    (run_dir / "escalation_result.json").write_text(
+        '{ "escalation_required": true, "status": "resolved", "decision_source": "repeated_reject_stagnation", "decision_source": "manual_override", "resolution_action": "force-followup" }',
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-28", run_dir=run_dir)
+
+    assert result.returncode == 0
+    assert "Escalation: present (invalid)" in result.stdout
+    assert "Current stage: blocked_invalid_escalation_artifact" in result.stdout
+    assert "RUN STATUS: BLOCKED (invalid escalation artifact)" in result.stdout
+
 
 def test_analyze_story_run_blocks_resume_when_evidence_is_stale(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
@@ -1562,7 +1650,7 @@ def test_analyze_story_run_reports_accept_as_is_as_terminal_blocked(tmp_path: Pa
     )
 
     (run_dir / "escalation_result.json").write_text(
-        '{ "escalation_required": true, "status": "resolved", "resolution_action": "accept-as-is" }',
+        '{ "escalation_required": true, "status": "resolved", "decision_source": "repeated_reject_stagnation", "resolution_action": "accept-as-is" }',
         encoding="utf-8",
     )
 
@@ -1618,7 +1706,7 @@ def test_analyze_story_run_reports_abort_as_terminal_blocked(tmp_path: Path) -> 
     )
 
     (run_dir / "escalation_result.json").write_text(
-        '{ "escalation_required": true, "status": "resolved", "resolution_action": "abort" }',
+        '{ "escalation_required": true, "status": "resolved", "decision_source": "repeated_reject_stagnation", "resolution_action": "abort" }',
         encoding="utf-8",
     )
 

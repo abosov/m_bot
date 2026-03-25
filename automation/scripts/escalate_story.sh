@@ -62,22 +62,6 @@ manifest_value() {
   sed -n -E "s/^-[[:space:]]+${key}:[[:space:]]*(.*)$/\\1/p" "$manifest_file" | head -n 1
 }
 
-json_value() {
-  local json_file="$1"
-  local key="$2"
-  [[ -f "$json_file" ]] || return 0
-
-  sed -n -E "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"([^\"]*)\".*/\\1/p" "$json_file" | head -n 1
-}
-
-json_bool_value() {
-  local json_file="$1"
-  local key="$2"
-  [[ -f "$json_file" ]] || return 0
-
-  sed -n -E "s/.*\"${key}\"[[:space:]]*:[[:space:]]*(true|false).*/\\1/p" "$json_file" | head -n 1
-}
-
 json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
@@ -177,6 +161,69 @@ resolved_timestamp() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+parse_pending_escalation_artifact() {
+  local escalation_file="$1"
+
+  python3 - "$escalation_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+
+required_string_fields = [
+    "status",
+    "decision_source",
+    "gate_result",
+    "reason",
+    "previous_reject_run_id",
+]
+
+def fail(message: str) -> None:
+    print(message, file=sys.stderr)
+    raise SystemExit(1)
+
+def reject_dupes(pairs):
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            fail(f"ERROR: escalation artifact is invalid: duplicate key '{key}'")
+        obj[key] = value
+    return obj
+
+try:
+    data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_dupes)
+except json.JSONDecodeError as exc:
+    fail(f"ERROR: escalation artifact is invalid: malformed JSON ({exc.msg})")
+
+if not isinstance(data, dict):
+    fail("ERROR: escalation artifact is invalid: expected a JSON object")
+
+for field in required_string_fields:
+    if field not in data:
+        fail(f"ERROR: escalation artifact is invalid: missing required field '{field}'")
+    if not isinstance(data[field], str):
+        fail(f"ERROR: escalation artifact is invalid: '{field}' must be a string")
+
+if "escalation_required" not in data:
+    fail("ERROR: escalation artifact is invalid: missing required field 'escalation_required'")
+if not isinstance(data["escalation_required"], bool):
+    fail("ERROR: escalation artifact is invalid: 'escalation_required' must be a boolean")
+if data["escalation_required"] is not True:
+    fail("ERROR: escalation artifact is invalid: escalation_required is not true")
+
+if data["status"] != "pending":
+    fail("ERROR: escalation artifact is invalid: status must be pending")
+if data["decision_source"] != "repeated_reject_stagnation":
+    fail("ERROR: escalation artifact is invalid: decision_source must be repeated_reject_stagnation")
+
+print(data["gate_result"])
+print(data["reason"])
+print(data["decision_source"])
+print(data["previous_reject_run_id"])
+PY
+}
+
 [[ $# -eq 2 ]] || usage
 
 STORY_ID="$1"
@@ -195,16 +242,16 @@ ESCALATION_RESULT_FILE="$RUN_DIR/$ESCALATION_RESULT_FILE_NAME"
 
 [[ -f "$ESCALATION_RESULT_FILE" ]] || fail "escalation artifact not found for '$STORY_ID': $ESCALATION_RESULT_FILE"
 
-ESCALATION_REQUIRED="$(json_bool_value "$ESCALATION_RESULT_FILE" "escalation_required")"
-ESCALATION_STATUS="$(json_value "$ESCALATION_RESULT_FILE" "status")"
-ESCALATION_REASON="$(json_value "$ESCALATION_RESULT_FILE" "reason")"
-DECISION_SOURCE="$(json_value "$ESCALATION_RESULT_FILE" "decision_source")"
-GATE_RESULT="$(json_value "$ESCALATION_RESULT_FILE" "gate_result")"
-PREVIOUS_REJECT_RUN_ID="$(json_value "$ESCALATION_RESULT_FILE" "previous_reject_run_id")"
+ESCALATION_FIELDS_RAW="$(parse_pending_escalation_artifact "$ESCALATION_RESULT_FILE")"
+ESCALATION_FIELDS=()
+while IFS= read -r line; do
+  ESCALATION_FIELDS+=("$line")
+done <<< "$ESCALATION_FIELDS_RAW"
 
-[[ "$ESCALATION_REQUIRED" == "true" ]] || fail "escalation artifact is invalid: escalation_required is not true"
-[[ "$ESCALATION_STATUS" == "pending" ]] || fail "escalation artifact is invalid: status must be pending"
-[[ "$DECISION_SOURCE" == "repeated_reject_stagnation" ]] || fail "escalation artifact is invalid: decision_source must be repeated_reject_stagnation"
+GATE_RESULT="${ESCALATION_FIELDS[0]}"
+ESCALATION_REASON="${ESCALATION_FIELDS[1]}"
+DECISION_SOURCE="${ESCALATION_FIELDS[2]}"
+PREVIOUS_REJECT_RUN_ID="${ESCALATION_FIELDS[3]}"
 
 write_escalation_result \
   "$ESCALATION_RESULT_FILE" \
