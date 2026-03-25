@@ -1,20 +1,33 @@
-# US-AUTO-44: Follow-Ups
+# Follow-ups — US-AUTO-44
 
-## Follow-Up Prompt Queue
-- Add a lightweight helper that previews classified dirty paths before the operator chooses a remediation action.
-- Add a status command that prints workflow stage plus preflight classification without attempting execution.
-- Consider a later story for richer operator UX around materialization readiness.
-- Consider a later story for tighter integration between analyze output and preflight diagnostics.
-- Revisit whether `commit_story_artifacts.sh` and `run_story.sh` should share a common read-only path-classification helper in a separate contract-focused story.
+## FOLLOW-UP 1
 
-## Iteration Notes
-- Keep US-AUTO-44 narrow and message-contract focused.
-- Do not convert preflight into mutation.
-- Do not redesign materialization.
-- Prefer stable output over clever behavior.
+FINDING:
+Review/gate stage currently recomputes review/classification, allowing decision drift.
 
-## Deferred Questions
-- Should preflight output become machine-readable in a later story?
-- Should analyze consume the same preflight classification helper in a later story?
-- Should there be a dedicated `check_story_ready.sh` helper, or is that unnecessary duplication?
+INTENT:
+Ensure review_gate consumes existing artifacts instead of recomputing them.
 
+SCOPE:
+- `automation/scripts/review_gate_story_run.sh`
+
+OUT_OF_SCOPE:
+- run_story logic
+- bundle spec changes
+
+---
+
+## FOLLOW-UP 2
+
+FINDING:
+No reverse synchronization from active bundle to bundle pack leads to artifact drift.
+
+INTENT:
+Introduce deterministic rebuild of bundle pack from active bundle.
+
+SCOPE:
+- new script or extension to bundle tooling
+
+OUT_OF_SCOPE:
+- run_story logic
+- validator logic

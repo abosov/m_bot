@@ -75,3 +75,38 @@ The workflow must clearly tell the operator:
 - whether the block is due to requested-story artifacts or unrelated changes
 - exactly what to do next
 
+## Execution Contract (Atomic Task Isolation)
+
+TASK_INTENT:
+Implement explicit preflight classification and operator handoff in `automation/scripts/run_story.sh` without expanding scope beyond orchestration logic.
+
+OUT_OF_SCOPE:
+- Changes to `commit_story_artifacts.sh`
+- Changes to `run_codex_task.sh`
+- Any review/gate pipeline logic
+- Any unrelated automation or application code
+
+FILES_ALLOWED_TO_CHANGE:
+- `automation/scripts/run_story.sh`
+- `tests/test_run_story.py`
+- `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
+- `docs/90_codex/STORY_BUNDLE_SPEC.md`
+- `docs/90_codex/epics/US-AUTO_REGISTRY.md`
+
+FILES_NOT_ALLOWED_TO_CHANGE:
+- `automation/scripts/commit_story_artifacts.sh`
+- `automation/run_codex_task.sh`
+- review/classification/gate scripts
+- unrelated workflow scripts
+
+HARD_STOP_CONDITION:
+If changes are required outside allowed files or beyond preflight classification and messaging, stop and report instead of continuing.
+
+FOLLOW_UP_CAPTURE:
+Any additional issues discovered must be recorded as follow-up stories and not implemented in this task.
+
+INTENT_RESTATEMENT_REQUIRED:
+Before making changes, restate the one-sentence intent of this task.
+
+NON_ATOMIC_TASK_REFUSAL:
+If the task becomes non-atomic or requires multiple independent changes, refuse execution and report.
