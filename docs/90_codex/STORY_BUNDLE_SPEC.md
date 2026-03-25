@@ -102,6 +102,7 @@ Bundles are invalid for execution when master or follow-up prompts omit this exe
 That preflight stage must print `[INFO] Preflight: classifying dirty paths for <STORY-ID>` and classify
 dirty paths narrowly for the requested story while excluding only the exact ephemeral ledger path
 `automation/story_change_ledger.jsonl`.
+When preflight succeeds, it must print `[INFO] Preflight: passed for <STORY-ID>` before validation and runner delegation continue.
 If only the requested story's bundle pack or materialized active-bundle files are dirty, `run_story.sh`
 must fail closed with a deterministic operator handoff that tells the operator to review those changes,
 run `automation/scripts/commit_story_artifacts.sh <STORY-ID>`, and rerun

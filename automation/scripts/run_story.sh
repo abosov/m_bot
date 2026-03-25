@@ -205,6 +205,15 @@ ensure_story_artifacts_committed() {
   fi
 }
 
+run_preflight_stage() {
+  local story_id="$1"
+
+  echo "[INFO] Preflight: classifying dirty paths for $story_id" >&2
+  ensure_story_artifacts_committed "$story_id"
+  enforce_escalation_resolution "$story_id"
+  echo "[INFO] Preflight: passed for $story_id" >&2
+}
+
 restore_ephemeral_story_change_ledger() {
   git -C "$ROOT_DIR" restore --worktree --source=HEAD -- "$EPHEMERAL_LEDGER_PATH" >/dev/null 2>&1 || true
 }
@@ -362,9 +371,7 @@ require_file "$RUNNER"
 require_file "$VALIDATOR_SCRIPT"
 require_file "$MASTER_PROMPT"
 
-echo "[INFO] Preflight: classifying dirty paths for $STORY_ID" >&2
-ensure_story_artifacts_committed "$STORY_ID"
-enforce_escalation_resolution "$STORY_ID"
+run_preflight_stage "$STORY_ID"
 
 echo "[INFO] Validating story bundle: $BUNDLE_DIR" >&2
 "$VALIDATOR_SCRIPT" "$STORY_ID"

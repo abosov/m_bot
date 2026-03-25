@@ -93,6 +93,7 @@ def test_run_story_cleans_ephemeral_ledger_on_success(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert f"[INFO] Preflight: classifying dirty paths for {story_id}" in result.stderr
+    assert f"[INFO] Preflight: passed for {story_id}" in result.stderr
     assert runner_marker.read_text(encoding="utf-8").strip() == "called"
 
     status = run(["git", "status", "--porcelain", "--", "automation/story_change_ledger.jsonl"], cwd=root_dir)
@@ -187,6 +188,7 @@ def test_run_story_blocks_dirty_story_artifacts_with_commit_hint(tmp_path: Path)
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
+    assert f"[INFO] Preflight: classifying dirty paths for {story_id}" in result.stderr
     assert f"ERROR: preflight blocked for '{story_id}' because requested story artifacts are dirty:" in result.stderr
     assert "Operator handoff:" in result.stderr
     assert "Review the requested story artifact changes." in result.stderr
@@ -219,6 +221,7 @@ def test_run_story_blocks_dirty_pack_artifact_with_commit_hint(tmp_path: Path) -
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
+    assert f"[INFO] Preflight: classifying dirty paths for {story_id}" in result.stderr
     assert f"ERROR: preflight blocked for '{story_id}' because requested story artifacts are dirty:" in result.stderr
     assert "Operator handoff:" in result.stderr
     assert f"Run: automation/scripts/commit_story_artifacts.sh {story_id}" in result.stderr
@@ -253,6 +256,7 @@ def test_run_story_blocks_unrelated_dirty_paths_before_handoff(tmp_path: Path) -
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
+    assert f"[INFO] Preflight: classifying dirty paths for {story_id}" in result.stderr
     assert f"ERROR: preflight blocked for '{story_id}' because unrelated dirty paths exist:" in result.stderr
     assert " - notes.txt" in result.stderr
     assert "Requested story artifact paths also remain dirty:" in result.stderr

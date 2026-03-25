@@ -30,6 +30,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    The commit message must stay deterministic: `chore(story): commit story artifacts for <STORY-ID> before run`.
 14. Run explicit preflight for the story (`automation/scripts/run_story.sh <STORY-ID>`).
    `run_story.sh` must print the first-class stage marker `[INFO] Preflight: classifying dirty paths for <STORY-ID>`.
+   When preflight succeeds, `run_story.sh` must print `[INFO] Preflight: passed for <STORY-ID>` before bundle validation and runner delegation.
    Preflight must classify dirty paths narrowly for the requested story, excluding only the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
    If only requested-story artifact paths are dirty, `run_story.sh` must fail closed with a deterministic operator handoff that tells the operator to review those changes, run `automation/scripts/commit_story_artifacts.sh <STORY-ID>`, and rerun `automation/scripts/run_story.sh <STORY-ID>`.
    If unrelated dirty paths exist, `run_story.sh` must fail closed with a deterministic blocked message that tells the operator to resolve those unrelated changes outside the story-artifact handoff flow before rerunning `automation/scripts/run_story.sh <STORY-ID>`.
