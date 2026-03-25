@@ -99,6 +99,8 @@ The registry does **not** replace story bundles.
 
 | US-AUTO-41 | Story artifacts commit handoff before run | Add explicit commit step between bundle creation and run | follow-up | Implemented | P1 | None | US-AUTO-38 | automation/bundle_packs/US-AUTO-41.bundle.md | Added `commit_story_artifacts.sh`, restricted staging to canonical story-artifact roots, kept unrelated dirty paths fail-closed except the exact ephemeral ledger path, and made `run_story.sh` print deterministic remediation |
 
+| US-AUTO-44 | Materialization preflight & operator handoff | Make run preflight explicitly classify dirty state and print deterministic operator remediation before execution | follow-up | Bundle Ready | P1 | Implement explicit preflight classification in `automation/scripts/run_story.sh` | US-AUTO-41 | automation/bundle_packs/US-AUTO-44.bundle.md | Formalizes fail-closed operator handoff before run; distinguishes requested-story artifact dirtiness from unrelated dirty repository state |
+
 | US-AUTO-18 | Operator UX | Improve console UX | follow-up | Planned | P3 | Keep downstream | US-AUTO-17 | N/A | UX only |
 
 | US-AUTO-25 | Loop detection preflight | Detect repeat execution before run | enforcement | Planned | P1 | Draft bundle | US-AUTO-24 | N/A | Anti-cycle layer |
