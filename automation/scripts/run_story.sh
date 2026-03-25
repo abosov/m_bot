@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 BUNDLES_ROOT="${AUTOMATION_BUNDLES_ROOT:-$ROOT_DIR/automation/bundles/active}"
+RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
 RUNNER="${AUTOMATION_RUNNER:-$ROOT_DIR/automation/run_codex_task.sh}"
 VALIDATOR_SCRIPT="$ROOT_DIR/automation/scripts/validate_story_bundle.sh"
 COMMIT_ARTIFACTS_HINT="automation/scripts/commit_story_artifacts.sh"
@@ -41,6 +42,102 @@ validate_story_id() {
 require_file() {
   local path="$1"
   [[ -f "$path" ]] || fail "required file not found: $path"
+}
+
+json_value() {
+  local json_file="$1"
+  local key="$2"
+  [[ -f "$json_file" ]] || return 0
+
+  sed -n -E "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"([^\"]*)\".*/\\1/p" "$json_file" | head -n 1
+}
+
+json_bool_value() {
+  local json_file="$1"
+  local key="$2"
+  [[ -f "$json_file" ]] || return 0
+
+  sed -n -E "s/.*\"${key}\"[[:space:]]*:[[:space:]]*(true|false).*/\\1/p" "$json_file" | head -n 1
+}
+
+json_has_string_key() {
+  local json_file="$1"
+  local key="$2"
+  [[ -f "$json_file" ]] || return 1
+
+  grep -q -E "\"${key}\"[[:space:]]*:[[:space:]]*\"" "$json_file"
+}
+
+inspect_escalation_artifact_strict() {
+  local json_file="$1"
+  [[ -f "$json_file" ]] || return 0
+
+  python3 - "$json_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+
+def fail(message: str) -> None:
+    print(message)
+    raise SystemExit(1)
+
+def reject_dupes(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            fail("duplicate_key")
+        out[key] = value
+    return out
+
+try:
+    data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_dupes)
+except json.JSONDecodeError:
+    fail("malformed_json")
+
+if not isinstance(data, dict):
+    fail("non_object_json")
+
+if "escalation_required" not in data:
+    fail("missing_escalation_required")
+if not isinstance(data["escalation_required"], bool):
+    fail("non_boolean_escalation_required")
+
+if "status" not in data:
+    fail("missing_status")
+if not isinstance(data["status"], str):
+    fail("non_string_status")
+
+if "decision_source" not in data:
+    fail("missing_decision_source")
+if not isinstance(data["decision_source"], str):
+    fail("non_string_decision_source")
+
+print("ok")
+print("true" if data["escalation_required"] else "false")
+print(data["status"])
+print(data["decision_source"])
+if "resolution_action" not in data:
+    print("missing")
+elif not isinstance(data["resolution_action"], str):
+    print("non-string")
+else:
+    print(data["resolution_action"])
+PY
+}
+
+is_supported_resolution_action() {
+  local resolution_action="${1:-}"
+
+  case "$resolution_action" in
+    accept-as-is|force-followup|abort)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 collect_dirty_paths() {
@@ -91,6 +188,115 @@ cleanup_ephemeral_story_change_ledger() {
   restore_ephemeral_story_change_ledger
 }
 
+resolve_latest_run_dir() {
+  local story_runs_root="$1"
+  local latest_run_dir
+
+  latest_run_dir="$(
+    find "$story_runs_root" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | LC_ALL=C sort | tail -n 1
+  )"
+
+  [[ -n "$latest_run_dir" ]] || return 1
+  printf '%s\n' "$latest_run_dir"
+}
+
+enforce_escalation_resolution() {
+  local story_id="$1"
+  local story_runs_root="$RUNS_ROOT/$story_id"
+  local latest_run_dir escalation_file escalation_required escalation_status resolution_action decision_source
+  local parsed_fields parse_error
+
+  [[ -d "$story_runs_root" ]] || return 0
+  latest_run_dir="$(resolve_latest_run_dir "$story_runs_root" || true)"
+  [[ -n "$latest_run_dir" ]] || return 0
+
+  escalation_file="$latest_run_dir/escalation_result.json"
+  [[ -f "$escalation_file" ]] || return 0
+
+  if ! parsed_fields="$(inspect_escalation_artifact_strict "$escalation_file")"; then
+    parse_error="$(printf '%s\n' "$parsed_fields" | tail -n 1)"
+    parse_error="${parse_error//_/ }"
+    {
+      echo "ERROR: run blocked for '$story_id' because resolved escalation artifact is invalid ($parse_error)"
+      printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    } >&2
+    exit 1
+  fi
+
+  parsed_lines=()
+  while IFS= read -r line; do
+    parsed_lines+=("$line")
+  done <<< "$parsed_fields"
+
+  escalation_required="${parsed_lines[1]:-}"
+  escalation_status="${parsed_lines[2]:-}"
+  decision_source="${parsed_lines[3]:-}"
+  resolution_action="${parsed_lines[4]:-}"
+
+  [[ "$escalation_required" == "true" ]] || return 0
+
+  if [[ "$escalation_status" != "resolved" ]]; then
+    {
+      echo "ERROR: run blocked for '$story_id' because escalation is required for the latest rejected run"
+      printf 'Required action: AUTOMATION_RUN_DIR=%q automation/scripts/escalate_story.sh %q %s\n' "$latest_run_dir" "$story_id" "<accept-as-is|force-followup|abort>"
+      printf 'Inspect first: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    } >&2
+    exit 1
+  fi
+
+  if [[ "$decision_source" != "repeated_reject_stagnation" ]]; then
+    {
+      echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has invalid decision_source '$decision_source'"
+      printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    } >&2
+    exit 1
+  fi
+
+  if [[ "$resolution_action" == "missing" ]]; then
+    {
+      echo "ERROR: run blocked for '$story_id' because resolved escalation artifact is missing resolution_action"
+      printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    } >&2
+    exit 1
+  fi
+
+  if [[ "$resolution_action" == "non-string" ]]; then
+    {
+      echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has non-string resolution_action"
+      printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    } >&2
+    exit 1
+  fi
+
+  if [[ -z "$resolution_action" ]] || ! is_supported_resolution_action "$resolution_action"; then
+    {
+      echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has invalid resolution_action '$resolution_action'"
+      printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    } >&2
+    exit 1
+  fi
+
+  case "$resolution_action" in
+    force-followup)
+      return 0
+      ;;
+    accept-as-is|abort)
+      {
+        echo "ERROR: run blocked for '$story_id' because escalation was resolved as '$resolution_action'"
+        printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+      } >&2
+      exit 1
+      ;;
+    *)
+      {
+        echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has invalid resolution_action '$resolution_action'"
+        printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+      } >&2
+      exit 1
+      ;;
+  esac
+}
+
 [[ $# -eq 1 ]] || usage
 trap cleanup_ephemeral_story_change_ledger EXIT
 
@@ -132,6 +338,7 @@ require_file "$VALIDATOR_SCRIPT"
 require_file "$MASTER_PROMPT"
 
 ensure_story_artifacts_committed "$STORY_ID"
+enforce_escalation_resolution "$STORY_ID"
 
 echo "[INFO] Validating story bundle: $BUNDLE_DIR" >&2
 "$VALIDATOR_SCRIPT" "$STORY_ID"

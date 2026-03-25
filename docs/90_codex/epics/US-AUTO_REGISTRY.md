@@ -58,20 +58,21 @@ The registry does **not** replace story bundles.
 - P1 runtime alignment (completed): US-AUTO-32 → US-AUTO-34
 - P1 failure safety (completed): US-AUTO-38
 - P1 workflow integrity: US-AUTO-41
-- P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28
+- P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28 (US-AUTO-28 in progress)
 - P3 cycle cost reduction: US-AUTO-29 → US-AUTO-31
 - P4 operator UX: US-AUTO-18
 - Future workflow simplification: make bundle pack the single source of truth and treat bundles/active as materialized-only output
 
 ### Next Recommended Story
-1. US-AUTO-25 — loop detection preflight
-2. US-AUTO-26 — expensive run budget guard
-3. US-AUTO-27 — pipeline zone cap
-4. US-AUTO-28 — escalation gate for loop-risk stories
-5. US-AUTO-29 — targeted test strategy
-6. US-AUTO-30 — review reuse / cache guard
-7. US-AUTO-31 — post-run checkpoint workflow
-8. US-AUTO-18 — operator UX
+1. US-AUTO-42 — enforce fail-closed escalation resolution
+2. US-AUTO-43 — AI review failure handling and recovery contract
+3. US-AUTO-28 — escalation gate for repeated reject stagnation (in progress)
+4. US-AUTO-26 — expensive run budget guard
+5. US-AUTO-27 — pipeline zone cap
+6. US-AUTO-29 — targeted test strategy
+7. US-AUTO-30 — review reuse / cache guard
+8. US-AUTO-31 — post-run checkpoint workflow
+9. US-AUTO-18 — operator UX
 
 ---
 
@@ -103,10 +104,12 @@ The registry does **not** replace story bundles.
 | US-AUTO-25 | Loop detection preflight | Detect repeat execution before run | enforcement | Planned | P1 | Draft bundle | US-AUTO-24 | N/A | Anti-cycle layer |
 | US-AUTO-26 | Expensive run budget guard | Cap high-cost reruns | enforcement | Planned | P1 | Draft bundle | US-AUTO-25 | N/A | Cost control |
 | US-AUTO-27 | Pipeline zone cap | Limit repeat passes | enforcement | Planned | P1 | Draft bundle | US-AUTO-26 | N/A | Cross-zone control |
-| US-AUTO-28 | Escalation gate | Require operator intervention on loops | enforcement | Planned | P1 | Draft bundle | US-AUTO-27 | N/A | Human override |
+| US-AUTO-28 | Escalation gate for repeated reject stagnation | Stop repeated reject governance loops and require explicit human decision | implementation | In Progress | P1 | Fix merge blockers from review (fail-open → RUNS_ROOT → validation → tests) | US-AUTO-27 | automation/bundle_packs/US-AUTO-28.bundle.md | Active implementation; initial version produced valid governance reject revealing fail-open defect and additional hardening needs |
+| US-AUTO-42 | Enforce fail-closed escalation resolution | Close fail-open path in run_story.sh for invalid escalation resolution_action | follow-up | Planned | P1 | Draft bundle | US-AUTO-28 | N/A | Atomic governance fix: eliminate fail-open continuation for malformed escalation resolution |
 | US-AUTO-29 | Targeted test strategy | Narrow validation scope | follow-up | Planned | P2 | Draft bundle | US-AUTO-28 | N/A | Faster iteration |
 | US-AUTO-30 | Review reuse | Cache review safely | follow-up | Planned | P2 | Draft bundle | US-AUTO-29 | N/A | Reduce repetition |
 | US-AUTO-31 | Post-run checkpoint | Add checkpoint before rerun | follow-up | Planned | P2 | Draft bundle | US-AUTO-30 | N/A | Stop blind reruns |
+| US-AUTO-43 | AI review failure handling | Make pipeline resilient to AI review failures (403/API/network), introduce deterministic failure state, retry contract, and operator guidance | follow-up | Planned | P2 | Draft bundle | US-AUTO-28 | N/A | Handles ai_review step failure (403, timeout, malformed response); ensures ai_review_result.md always exists and analyze provides deterministic recovery path |
 
 ---
 

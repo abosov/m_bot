@@ -237,3 +237,468 @@ def test_run_story_allows_dirty_ephemeral_ledger_path(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert runner_marker.read_text(encoding="utf-8").strip() == "called"
+
+
+def test_run_story_blocks_when_latest_run_has_pending_escalation(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "pending",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
+        '  "resolution_action": ""\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    fake_runner = root_dir / "fake_runner.sh"
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "because escalation is required for the latest rejected run" in result.stderr
+    assert "automation/scripts/escalate_story.sh" in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_honors_automation_runs_root_for_escalation(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    default_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_11-00-00"
+    default_run_dir.mkdir(parents=True)
+    (default_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": false,\n'
+        '  "status": "resolved",\n'
+        '  "resolution_action": "force-followup"\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    custom_runs_root = root_dir / "tmp_runs"
+    custom_run_dir = custom_runs_root / story_id / "2026-03-24_12-00-00"
+    custom_run_dir.mkdir(parents=True)
+    (custom_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "pending",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
+        '  "resolution_action": ""\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    fake_runner = root_dir / "fake_runner.sh"
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+    env["AUTOMATION_RUNS_ROOT"] = str(custom_runs_root)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "because escalation is required for the latest rejected run" in result.stderr
+    assert "automation/scripts/escalate_story.sh" in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_allows_force_followup_after_escalation_resolution(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "resolved",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
+        '  "resolution_action": "force-followup"\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    fake_runner = root_dir / "fake_runner.sh"
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert runner_marker.read_text(encoding="utf-8").strip() == "called"
+
+
+def test_run_story_blocks_resolved_escalation_with_missing_resolution_action(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{"escalation_required":true,"status":"resolved","decision_source":"repeated_reject_stagnation"}\n',
+        encoding="utf-8",
+    )
+
+    fake_runner = root_dir / "fake_runner.sh"
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "missing resolution_action" in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_blocks_resolved_escalation_with_non_string_resolution_action(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "resolved",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
+        '  "resolution_action": {"kind": "force-followup"}\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    fake_runner = root_dir / "fake_runner.sh"
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "non-string resolution_action" in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_blocks_resolved_escalation_with_empty_resolution_action(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "resolved",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
+        '  "resolution_action": ""\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    fake_runner = root_dir / "fake_runner.sh"
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "invalid resolution_action" in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_blocks_resolved_escalation_with_unexpected_resolution_action(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "resolved",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
+        '  "resolution_action": "retry"\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    fake_runner = root_dir / "fake_runner.sh"
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "invalid resolution_action" in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_blocks_resolved_escalation_with_only_nested_resolution_action(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "resolved",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
+        '  "metadata": {\n'
+        '    "resolution_action": "force-followup"\n'
+        '  }\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    fake_runner = root_dir / "fake_runner.sh"
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "missing resolution_action" in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_blocks_resolved_escalation_with_abort_resolution_action(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "resolved",\n'
+        '  "decision_source": "repeated_reject_stagnation",\n'
+        '  "resolution_action": "abort"\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    fake_runner = root_dir / "fake_runner.sh"
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "because escalation was resolved as 'abort'" in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_blocks_resolved_escalation_with_missing_decision_source(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-10-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "resolved",\n'
+        '  "resolution_action": "force-followup"\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(root_dir / "fake_runner.sh")
+    (root_dir / "fake_runner.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8")
+    (root_dir / "fake_runner.sh").chmod(0o755)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "missing decision source" in result.stderr
+
+
+def test_run_story_blocks_resolved_escalation_with_wrong_decision_source(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-11-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "resolved",\n'
+        '  "decision_source": "manual_override",\n'
+        '  "resolution_action": "force-followup"\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(root_dir / "fake_runner.sh")
+    (root_dir / "fake_runner.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8")
+    (root_dir / "fake_runner.sh").chmod(0o755)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "invalid decision_source 'manual_override'" in result.stderr
+
+
+def test_run_story_blocks_resolved_escalation_with_nested_decision_source_spoof(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-12-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{\n'
+        '  "escalation_required": true,\n'
+        '  "status": "resolved",\n'
+        '  "metadata": {\n'
+        '    "decision_source": "repeated_reject_stagnation"\n'
+        '  },\n'
+        '  "resolution_action": "force-followup"\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(root_dir / "fake_runner.sh")
+    (root_dir / "fake_runner.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8")
+    (root_dir / "fake_runner.sh").chmod(0o755)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "missing decision source" in result.stderr
+
+
+def test_run_story_blocks_resolved_escalation_with_duplicate_decision_source_keys(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-13-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "escalation_result.json").write_text(
+        '{ "escalation_required": true, "status": "resolved", "decision_source": "repeated_reject_stagnation", "decision_source": "manual_override", "resolution_action": "force-followup" }\n',
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(root_dir / "fake_runner.sh")
+    (root_dir / "fake_runner.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8")
+    (root_dir / "fake_runner.sh").chmod(0o755)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "invalid (duplicate key)" in result.stderr
