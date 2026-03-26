@@ -28,14 +28,16 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    The handoff must fail when no eligible story-artifact changes exist.
    The handoff must fail closed when any unrelated dirty path exists elsewhere in the repo, excluding only the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
    The commit message must stay deterministic: `chore(story): commit story artifacts for <STORY-ID> before run`.
-14. Run explicit preflight for the story (`automation/scripts/run_story.sh <STORY-ID>`).
+14. Execute the standard story workflow with `automation/scripts/run_story.sh <STORY-ID>`.
+   This single invocation performs preflight, bundle validation, and runner delegation.
    `run_story.sh` must print the first-class stage marker `[INFO] Preflight: classifying dirty paths for <STORY-ID>`.
    When preflight succeeds, `run_story.sh` must print `[INFO] Preflight: passed for <STORY-ID>` before bundle validation and runner delegation.
    Preflight must classify dirty paths narrowly for the requested story, excluding only the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
    If only requested-story artifact paths are dirty, `run_story.sh` must fail closed with a deterministic operator handoff that tells the operator to review those changes, run `automation/scripts/commit_story_artifacts.sh <STORY-ID>`, and rerun `automation/scripts/run_story.sh <STORY-ID>`.
    If unrelated dirty paths exist, `run_story.sh` must fail closed with a deterministic blocked message that tells the operator to resolve those unrelated changes outside the story-artifact handoff flow before rerunning `automation/scripts/run_story.sh <STORY-ID>`.
    `run_story.sh` must not auto-commit, auto-stash, or auto-clean dirty paths during preflight.
-15. Execute Codex run against the master prompt only through `automation/scripts/run_story.sh <STORY-ID>`.
+
+15. For the standard story workflow, the `run_story.sh` invocation above uses `automation/run_codex_task.sh` as the runner.
    Default runner behavior uses lean story context.
    Runner execution is isolated in a temporary detached git worktree created from current branch `HEAD` and cleaned up on exit.
    Every run must generate `repository_map_runtime.md` before Codex execution and inject that repository map into the runtime Codex prompt.
@@ -43,8 +45,8 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    Story-local scope constraints in that runtime map must be marked as loaded when the allowed-file scope parses from `02_file_scope.md`; missing or unparseable allowed-file scope data must be surfaced as unavailable rather than implied to be empty, and a missing forbidden-file list must remain explicitly unavailable instead of being implied to be empty.
    Any tracked or regular untracked file changes produced inside that isolated worktree must be materialized back into the primary checkout before pytest and artifact collection; if materialization does not reach the primary checkout, the run must fail explicitly.
    After changed-files collection, the runner must enforce `02_file_scope.md` with the allowed-files guard before pytest and downstream review continue.
-   Use `automation/run_codex_task.sh --full-context <master-prompt-path>` only through the story wrapper flow when the story needs the full bundle context.
-   `automation/scripts/run_story.sh <STORY-ID>` remains the mandatory execution entrypoint and must not be bypassed by direct runner invocation in the standard workflow.
+   Use `automation/run_codex_task.sh --full-context <master-prompt-path>` when the story needs the full bundle context.
+   Direct runner use remains an advanced/debug path outside the standard operator flow documented here.
    Before execution, confirm the prompt explicitly contains intent, out-of-scope, allowed-files, forbidden-files, a statement that Atomic Task Isolation is mandatory for this run, hard-stop, follow-up capture language, a requirement to restate the one-sentence task intent before edits, and an execution gate that tells Codex to refuse non-atomic or underspecified prompts or prompts that batch another independently reviewable change.
    `run_story.sh` should record one evidence-only `story_started` event for `automation/story_change_ledger.jsonl`, and treat that exact path as ephemeral workflow state rather than implementation diff.
    `run_story.sh` and `automation/run_codex_task.sh` should restore the same exact path on exit so ledger writes do not persist as happy-path implementation drift.

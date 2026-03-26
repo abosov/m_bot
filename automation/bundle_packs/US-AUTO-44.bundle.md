@@ -261,7 +261,8 @@ Implement **US-AUTO-44 — materialization preflight & operator handoff** as a n
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 - `docs/90_codex/STORY_BUNDLE_SPEC.md`
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
-- only the minimum test files required for this story
+- `tests/test_run_story.py`
+- `tests/test_story_change_ledger.py`
 
 ## Files Not Allowed To Change
 - `automation/scripts/commit_story_artifacts.sh`
@@ -331,6 +332,7 @@ OUT_OF_SCOPE:
 FILES_ALLOWED_TO_CHANGE:
 - `automation/scripts/run_story.sh`
 - `tests/test_run_story.py`
+- `tests/test_story_change_ledger.py`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 - `docs/90_codex/STORY_BUNDLE_SPEC.md`
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
