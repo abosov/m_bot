@@ -198,6 +198,7 @@ Required contract:
 - Human resolution must be explicit and auditable with one of exactly three actions: `accept-as-is`, `force-followup`, or `abort`.
 - `force-followup` may reopen ordinary automated continuation; `accept-as-is` and `abort` must not silently reopen it.
 - The append-only workflow ledger may record rejection evidence, but it must not be the source of truth for whether continuation is allowed.
+- Review gate decisions must be derived from the pinned run's existing review artifacts; missing or invalid pinned artifacts are a fail-closed condition, not a signal to recompute upstream review stages.
 
 # LLM Output Safety Rules
 

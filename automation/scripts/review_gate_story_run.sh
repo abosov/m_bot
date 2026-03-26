@@ -13,9 +13,6 @@ source "$SCRIPT_DIR/merge_recommendation_contract.sh"
 # shellcheck source=automation/scripts/story_change_ledger.sh
 source "$SCRIPT_DIR/story_change_ledger.sh"
 
-AI_REVIEW_SCRIPT="$SCRIPT_DIR/ai_review_story_run.sh"
-CLASSIFY_REVIEW_SCRIPT="$SCRIPT_DIR/classify_review_story_run.sh"
-
 AI_REVIEW_FILE_NAME="ai_review_result.md"
 CLASSIFICATION_FILE_NAME="review_classification.md"
 GATE_RESULT_FILE_NAME="review_gate_result.json"
@@ -102,6 +99,22 @@ EOF
 require_file() {
   local path="$1"
   [[ -f "$path" ]] || fail "required file not found: $path"
+}
+
+artifact_file_state() {
+  local path="$1"
+
+  if [[ ! -f "$path" ]]; then
+    printf 'missing\n'
+    return 0
+  fi
+
+  if [[ ! -s "$path" ]]; then
+    printf 'empty\n'
+    return 0
+  fi
+
+  printf 'present\n'
 }
 
 validate_story_id() {
@@ -330,6 +343,47 @@ review_artifact_fidelity_status() {
 
   rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
   printf 'ok\treview_artifact_fidelity_valid\tartifact fidelity verified against review_artifact_base %s\n' "$review_artifact_base"
+}
+
+review_input_artifact_status() {
+  local ai_review_file="$1"
+  local classification_file="$2"
+  local ai_review_state classification_state merge_recommendation
+
+  ai_review_state="$(artifact_file_state "$ai_review_file")"
+  case "$ai_review_state" in
+    missing)
+      printf 'reject\tai_review_missing_artifact\tPinned AI review artifact is missing; run automation/scripts/ai_review_story_run.sh %s for this pinned run first\n' "$STORY_ID"
+      return 0
+      ;;
+    empty)
+      printf 'reject\tai_review_invalid_artifact\tPinned AI review artifact is empty; rerun automation/scripts/ai_review_story_run.sh %s for this pinned run\n' "$STORY_ID"
+      return 0
+      ;;
+  esac
+
+  classification_state="$(artifact_file_state "$classification_file")"
+  case "$classification_state" in
+    missing)
+      printf 'reject\treview_classification_missing_artifact\tPinned review classification artifact is missing; run automation/scripts/classify_review_story_run.sh %s for this pinned run first\n' "$STORY_ID"
+      return 0
+      ;;
+    empty)
+      printf 'reject\treview_classification_invalid_artifact\tPinned review classification artifact is empty; rerun automation/scripts/classify_review_story_run.sh %s for this pinned run\n' "$STORY_ID"
+      return 0
+      ;;
+  esac
+
+  if merge_recommendation="$(extract_merge_recommendation "$classification_file" 2>/dev/null)"; then
+    if [[ "$merge_recommendation" == "approve" ]]; then
+      printf 'approve\treview_classification\tReview classification approved merge\n'
+    else
+      printf 'reject\treview_classification\tReview classification rejected merge\n'
+    fi
+    return 0
+  fi
+
+  printf 'reject\tinvalid_or_missing_merge_recommendation\tReview classification artifact did not contain a valid merge recommendation\n'
 }
 
 sorted_changed_files_to() {
@@ -651,68 +705,11 @@ if [[ "$fidelity_decision" == "reject" ]]; then
   fail "review gate rejected merge for '$STORY_ID' ($fidelity_reason)"
 fi
 
-set +e
-AUTOMATION_RUN_DIR="$LATEST_RUN_DIR" "$AI_REVIEW_SCRIPT" "$STORY_ID"
-ai_review_exit_code=$?
-set -e
-if [[ $ai_review_exit_code -ne 0 ]]; then
-  write_gate_result \
-    "$GATE_RESULT_FILE" \
-    "$STORY_ID" \
-    "$RUN_ID" \
-    "$LATEST_RUN_DIR" \
-    "$AI_REVIEW_FILE" \
-    "$CLASSIFICATION_FILE" \
-    "$reviewed_head" \
-    "$checkout_head" \
-    "reject" \
-    "ai_review_failed" \
-    "failed" \
-    "AI review step failed"
-  update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
-  append_review_ledger_events "reject" "ai_review_failed" "failed" "AI review step failed"
-  fail "AI review step failed for '$STORY_ID' (exit $ai_review_exit_code)"
-fi
-
-require_file "$AI_REVIEW_FILE"
-
-decision="reject"
+input_status="$(review_input_artifact_status "$AI_REVIEW_FILE" "$CLASSIFICATION_FILE")"
+IFS=$'\t' read -r decision decision_source reason <<< "$input_status"
 status="failed"
-decision_source="invalid_or_missing_merge_recommendation"
-reason="Classification output did not contain a valid merge recommendation"
-
-set +e
-AUTOMATION_RUN_DIR="$LATEST_RUN_DIR" "$CLASSIFY_REVIEW_SCRIPT" "$STORY_ID"
-classification_exit_code=$?
-set -e
-
-if [[ $classification_exit_code -eq 0 ]]; then
-  if [[ -f "$CLASSIFICATION_FILE" ]]; then
-    if merge_recommendation="$(extract_merge_recommendation "$CLASSIFICATION_FILE")"; then
-      decision="$merge_recommendation"
-      if [[ "$decision" == "approve" ]]; then
-        status="passed"
-        reason="Review classification approved merge"
-      else
-        reason="Review classification rejected merge"
-      fi
-      decision_source="review_classification"
-    else
-      decision_source="invalid_or_missing_merge_recommendation"
-      reason="Review classification artifact did not contain a valid merge recommendation"
-    fi
-  else
-    decision_source="review_classification_missing_artifact"
-    reason="Review classification step exited successfully but did not write review_classification.md"
-  fi
-else
-  if [[ -f "$CLASSIFICATION_FILE" ]]; then
-    decision_source="invalid_or_missing_merge_recommendation"
-    reason="Review classification artifact did not contain a valid merge recommendation"
-  else
-    decision_source="review_classification_failed"
-    reason="Review classification step failed"
-  fi
+if [[ "$decision" == "approve" ]]; then
+  status="passed"
 fi
 
 write_gate_result \
@@ -735,10 +732,6 @@ maybe_write_escalation_result "$LATEST_RUN_DIR" "$decision" "$decision_source"
 printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
 printf 'Final decision: %s\n' "$decision"
 printf 'Run analysis command: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$LATEST_RUN_DIR" "$STORY_ID"
-
-if [[ $classification_exit_code -ne 0 ]]; then
-  fail "review classification step failed for '$STORY_ID' (exit $classification_exit_code); gate rejected"
-fi
 
 if [[ "$decision" != "approve" ]]; then
   fail "review gate rejected merge for '$STORY_ID' (decision: $decision, source: $decision_source)"

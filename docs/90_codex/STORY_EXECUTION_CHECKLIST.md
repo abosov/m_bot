@@ -73,8 +73,10 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    The gate must also fail closed when the selected run's manifest HEAD does not match the current checkout HEAD; stale pre-finalize approval is never merge-valid.
    The gate must fail closed when review artifacts are not faithful to the authoritative branch diff reconstructed from the run manifest `review_artifact_base` and current checkout `HEAD`.
    Fidelity enforcement compares the selected run's `changed_files.txt` and `diff.patch` against regenerated git outputs for `review_artifact_base..HEAD`; any mismatch is a deterministic reject.
+   The gate is a strict consumer of the pinned run's existing `ai_review_result.md` and `review_classification.md` artifacts and must not rerun upstream review or classification steps.
+   Missing, empty, or invalid pinned review artifacts must be rejected deterministically for that same pinned run instead of being silently regenerated.
    Operator recovery path: inspect and commit materialized changes, rerun `automation/scripts/run_story.sh <STORY-ID>` if needed, then rerun gate.
-   The gate resolves the latest run once, reuses that exact run directory for AI review and classification, writes `review_gate_result.json`, and must exit non-zero when the final decision is `reject` or cannot be derived from the classification artifact.
+   The gate resolves the latest run once, reuses that exact run directory as read-only review evidence, writes `review_gate_result.json`, and must exit non-zero when the final decision is `reject` or cannot be derived from the classification artifact.
    `review_gate_result.json` must record both the reviewed HEAD from the run manifest and the current checkout HEAD used by the gate decision.
    When the gate produces a repeated `review_classification` reject with identical `diff.patch` and `changed_files.txt` as an earlier rejected run for the same story, it must also write `escalation_result.json` with `status: pending` and block ordinary continuation until a human resolves that escalation explicitly.
    Missing, invalid, or ambiguous `MERGE RECOMMENDATION:` output must be treated as a fail-closed reject.
