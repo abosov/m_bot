@@ -52,6 +52,7 @@ The registry does **not** replace story bundles.
 
 ### Current Gaps
 - P1 workflow integrity gap closed by US-AUTO-41: the canonical handoff is now `materialize -> commit_story_artifacts -> run_story`.
+- P1 operator preflight gap closed by US-AUTO-44: `run_story.sh` now classifies dirty paths before execution and prints deterministic operator handoff or blocked-state guidance without weakening the clean-tree contract.
 - Remaining workflow improvements are downstream optimization stories, not missing clean-tree contract work.
 
 ### Optimization Roadmap
@@ -98,6 +99,8 @@ The registry does **not** replace story bundles.
 | US-AUTO-38 | Automatic rollback after failed automation run | Restore clean pre-run state after failed execution | implementation | Implemented | P1 | Start US-AUTO-41 bundle | US-AUTO-37 | automation/bundles/active/US-AUTO-38/ | Merged in PR #217; added automatic rollback for failed or interrupted runs and updated rollback contract docs/tests |
 
 | US-AUTO-41 | Story artifacts commit handoff before run | Add explicit commit step between bundle creation and run | follow-up | Implemented | P1 | None | US-AUTO-38 | automation/bundle_packs/US-AUTO-41.bundle.md | Added `commit_story_artifacts.sh`, restricted staging to canonical story-artifact roots, kept unrelated dirty paths fail-closed except the exact ephemeral ledger path, and made `run_story.sh` print deterministic remediation |
+
+| US-AUTO-44 | Materialization preflight & operator handoff | Make run preflight explicitly classify dirty state and print deterministic operator remediation before execution | follow-up | Implemented | P1 | None | US-AUTO-41 | automation/bundle_packs/US-AUTO-44.bundle.md | Added first-class preflight in `run_story.sh` with explicit classify/pass markers; story-artifact-only dirtiness now hands off to review changes -> `commit_story_artifacts.sh` -> rerun, while unrelated dirty paths block outside the handoff flow |
 
 | US-AUTO-18 | Operator UX | Improve console UX | follow-up | Planned | P3 | Keep downstream | US-AUTO-17 | N/A | UX only |
 

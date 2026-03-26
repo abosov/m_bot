@@ -47,6 +47,13 @@ def setup_repo(root_dir: Path, story_id: str) -> None:
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     ledger_path.write_text("", encoding="utf-8")
 
+    gitignore_path = root_dir / ".gitignore"
+    gitignore_path.write_text("/automation/runs/*\n!/automation/runs/.gitkeep\n", encoding="utf-8")
+
+    runs_keep = root_dir / "automation" / "runs" / ".gitkeep"
+    runs_keep.parent.mkdir(parents=True, exist_ok=True)
+    runs_keep.write_text("", encoding="utf-8")
+
     validator = root_dir / "automation" / "scripts" / "validate_story_bundle.sh"
     validator.parent.mkdir(parents=True, exist_ok=True)
     validator.write_text("#!/usr/bin/env bash\nset -euo pipefail\nexit 0\n", encoding="utf-8")
@@ -57,20 +64,26 @@ def setup_repo(root_dir: Path, story_id: str) -> None:
     assert commit.returncode == 0, commit.stderr
 
 
+def make_runner(tmp_path: Path, name: str, script_body: str) -> Path:
+    runner_path = tmp_path / name
+    runner_path.write_text(script_body, encoding="utf-8")
+    runner_path.chmod(0o755)
+    return runner_path
+
+
 def test_run_story_cleans_ephemeral_ledger_on_success(tmp_path: Path) -> None:
     story_id = "US-AUTO-37"
     root_dir = tmp_path / "repo"
     setup_repo(root_dir, story_id)
 
-    fake_runner = root_dir / "fake_runner.sh"
     runner_marker = root_dir / "runner_called.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' called > {str(runner_marker)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -79,6 +92,8 @@ def test_run_story_cleans_ephemeral_ledger_on_success(tmp_path: Path) -> None:
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode == 0, result.stderr
+    assert f"[INFO] Preflight: classifying dirty paths for {story_id}" in result.stderr
+    assert f"[INFO] Preflight: passed for {story_id}" in result.stderr
     assert runner_marker.read_text(encoding="utf-8").strip() == "called"
 
     status = run(["git", "status", "--porcelain", "--", "automation/story_change_ledger.jsonl"], cwd=root_dir)
@@ -91,14 +106,13 @@ def test_run_story_cleans_ephemeral_ledger_when_runner_fails(tmp_path: Path) -> 
     root_dir = tmp_path / "repo"
     setup_repo(root_dir, story_id)
 
-    fake_runner = root_dir / "fake_runner_fail.sh"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner_fail.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         "exit 17\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -117,15 +131,14 @@ def test_run_story_keeps_non_ledger_runner_changes_visible(tmp_path: Path) -> No
     root_dir = tmp_path / "repo"
     setup_repo(root_dir, story_id)
 
-    fake_runner = root_dir / "fake_runner.sh"
     non_ledger_output = root_dir / "implementation_output.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' changed > {str(non_ledger_output)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -159,15 +172,14 @@ def test_run_story_blocks_dirty_story_artifacts_with_commit_hint(tmp_path: Path)
     bundle_story = root_dir / "automation" / "bundles" / "active" / story_id / "03_master_prompt.md"
     bundle_story.write_text("# dirty\n", encoding="utf-8")
 
-    fake_runner = root_dir / "fake_runner.sh"
     runner_marker = root_dir / "runner_called.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' called > {str(runner_marker)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -176,8 +188,12 @@ def test_run_story_blocks_dirty_story_artifacts_with_commit_hint(tmp_path: Path)
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert f"ERROR: story artifacts for '{story_id}' must be committed before run:" in result.stderr
-    assert f"Remediation: automation/scripts/commit_story_artifacts.sh {story_id}" in result.stderr
+    assert f"[INFO] Preflight: classifying dirty paths for {story_id}" in result.stderr
+    assert f"ERROR: preflight blocked for '{story_id}' because requested story artifacts are dirty:" in result.stderr
+    assert "Operator handoff:" in result.stderr
+    assert "Review the requested story artifact changes." in result.stderr
+    assert f"Run: automation/scripts/commit_story_artifacts.sh {story_id}" in result.stderr
+    assert f"Rerun: automation/scripts/run_story.sh {story_id}" in result.stderr
     assert not runner_marker.exists()
 
 
@@ -189,15 +205,14 @@ def test_run_story_blocks_dirty_pack_artifact_with_commit_hint(tmp_path: Path) -
     pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
     pack_path.write_text(pack_path.read_text(encoding="utf-8") + "\nchanged\n", encoding="utf-8")
 
-    fake_runner = root_dir / "fake_runner.sh"
     runner_marker = root_dir / "runner_called.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' called > {str(runner_marker)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -206,8 +221,82 @@ def test_run_story_blocks_dirty_pack_artifact_with_commit_hint(tmp_path: Path) -
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert f"ERROR: story artifacts for '{story_id}' must be committed before run:" in result.stderr
-    assert f"Remediation: automation/scripts/commit_story_artifacts.sh {story_id}" in result.stderr
+    assert f"[INFO] Preflight: classifying dirty paths for {story_id}" in result.stderr
+    assert f"ERROR: preflight blocked for '{story_id}' because requested story artifacts are dirty:" in result.stderr
+    assert "Operator handoff:" in result.stderr
+    assert f"Run: automation/scripts/commit_story_artifacts.sh {story_id}" in result.stderr
+    assert f"Rerun: automation/scripts/run_story.sh {story_id}" in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_blocks_unrelated_dirty_paths_before_handoff(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    unrelated_path = root_dir / "notes.txt"
+    unrelated_path.write_text("dirty\n", encoding="utf-8")
+
+    bundle_story = root_dir / "automation" / "bundles" / "active" / story_id / "03_master_prompt.md"
+    bundle_story.write_text("# dirty\n", encoding="utf-8")
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert f"[INFO] Preflight: classifying dirty paths for {story_id}" in result.stderr
+    assert f"ERROR: preflight blocked for '{story_id}' because unrelated dirty paths exist:" in result.stderr
+    assert " - notes.txt" in result.stderr
+    assert "Requested story artifact paths also remain dirty:" in result.stderr
+    assert f" - automation/bundles/active/{story_id}/03_master_prompt.md" in result.stderr
+    assert "Resolve unrelated changes outside the story-artifact handoff flow." in result.stderr
+    assert f"Then rerun: automation/scripts/run_story.sh {story_id}" in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_blocks_unrelated_dirty_paths_without_story_artifact_handoff(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    unrelated_path = root_dir / "notes.txt"
+    unrelated_path.write_text("dirty\n", encoding="utf-8")
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert f"[INFO] Preflight: classifying dirty paths for {story_id}" in result.stderr
+    assert f"ERROR: preflight blocked for '{story_id}' because unrelated dirty paths exist:" in result.stderr
+    assert " - notes.txt" in result.stderr
+    assert "Requested story artifact paths also remain dirty:" not in result.stderr
+    assert "Operator handoff:" not in result.stderr
+    assert "Resolve unrelated changes outside the story-artifact handoff flow." in result.stderr
+    assert f"Then rerun: automation/scripts/run_story.sh {story_id}" in result.stderr
     assert not runner_marker.exists()
 
 
@@ -219,15 +308,14 @@ def test_run_story_allows_dirty_ephemeral_ledger_path(tmp_path: Path) -> None:
     ledger_path = root_dir / "automation" / "story_change_ledger.jsonl"
     ledger_path.write_text('{"event":"story_started"}\n', encoding="utf-8")
 
-    fake_runner = root_dir / "fake_runner.sh"
     runner_marker = root_dir / "runner_called.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' called > {str(runner_marker)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -256,15 +344,14 @@ def test_run_story_blocks_when_latest_run_has_pending_escalation(tmp_path: Path)
         encoding="utf-8",
     )
 
-    fake_runner = root_dir / "fake_runner.sh"
     runner_marker = root_dir / "runner_called.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' called > {str(runner_marker)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -294,7 +381,7 @@ def test_run_story_honors_automation_runs_root_for_escalation(tmp_path: Path) ->
         encoding="utf-8",
     )
 
-    custom_runs_root = root_dir / "tmp_runs"
+    custom_runs_root = tmp_path / "tmp_runs"
     custom_run_dir = custom_runs_root / story_id / "2026-03-24_12-00-00"
     custom_run_dir.mkdir(parents=True)
     (custom_run_dir / "escalation_result.json").write_text(
@@ -307,15 +394,14 @@ def test_run_story_honors_automation_runs_root_for_escalation(tmp_path: Path) ->
         encoding="utf-8",
     )
 
-    fake_runner = root_dir / "fake_runner.sh"
     runner_marker = root_dir / "runner_called.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' called > {str(runner_marker)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -347,15 +433,14 @@ def test_run_story_allows_force_followup_after_escalation_resolution(tmp_path: P
         encoding="utf-8",
     )
 
-    fake_runner = root_dir / "fake_runner.sh"
     runner_marker = root_dir / "runner_called.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' called > {str(runner_marker)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -379,15 +464,14 @@ def test_run_story_blocks_resolved_escalation_with_missing_resolution_action(tmp
         encoding="utf-8",
     )
 
-    fake_runner = root_dir / "fake_runner.sh"
     runner_marker = root_dir / "runner_called.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' called > {str(runner_marker)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -417,15 +501,14 @@ def test_run_story_blocks_resolved_escalation_with_non_string_resolution_action(
         encoding="utf-8",
     )
 
-    fake_runner = root_dir / "fake_runner.sh"
     runner_marker = root_dir / "runner_called.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' called > {str(runner_marker)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -455,15 +538,14 @@ def test_run_story_blocks_resolved_escalation_with_empty_resolution_action(tmp_p
         encoding="utf-8",
     )
 
-    fake_runner = root_dir / "fake_runner.sh"
     runner_marker = root_dir / "runner_called.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' called > {str(runner_marker)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -493,15 +575,14 @@ def test_run_story_blocks_resolved_escalation_with_unexpected_resolution_action(
         encoding="utf-8",
     )
 
-    fake_runner = root_dir / "fake_runner.sh"
     runner_marker = root_dir / "runner_called.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' called > {str(runner_marker)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -533,15 +614,14 @@ def test_run_story_blocks_resolved_escalation_with_only_nested_resolution_action
         encoding="utf-8",
     )
 
-    fake_runner = root_dir / "fake_runner.sh"
     runner_marker = root_dir / "runner_called.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' called > {str(runner_marker)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -571,15 +651,14 @@ def test_run_story_blocks_resolved_escalation_with_abort_resolution_action(tmp_p
         encoding="utf-8",
     )
 
-    fake_runner = root_dir / "fake_runner.sh"
     runner_marker = root_dir / "runner_called.txt"
-    fake_runner.write_text(
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"printf '%s\\n' called > {str(runner_marker)!r}\n",
-        encoding="utf-8",
     )
-    fake_runner.chmod(0o755)
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
@@ -610,9 +689,9 @@ def test_run_story_blocks_resolved_escalation_with_missing_decision_source(tmp_p
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
-    env["AUTOMATION_RUNNER"] = str(root_dir / "fake_runner.sh")
-    (root_dir / "fake_runner.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8")
-    (root_dir / "fake_runner.sh").chmod(0o755)
+    env["AUTOMATION_RUNNER"] = str(
+        make_runner(tmp_path, "fake_runner.sh", "#!/usr/bin/env bash\nset -euo pipefail\n")
+    )
 
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
@@ -639,9 +718,9 @@ def test_run_story_blocks_resolved_escalation_with_wrong_decision_source(tmp_pat
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
-    env["AUTOMATION_RUNNER"] = str(root_dir / "fake_runner.sh")
-    (root_dir / "fake_runner.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8")
-    (root_dir / "fake_runner.sh").chmod(0o755)
+    env["AUTOMATION_RUNNER"] = str(
+        make_runner(tmp_path, "fake_runner.sh", "#!/usr/bin/env bash\nset -euo pipefail\n")
+    )
 
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
@@ -670,9 +749,9 @@ def test_run_story_blocks_resolved_escalation_with_nested_decision_source_spoof(
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
-    env["AUTOMATION_RUNNER"] = str(root_dir / "fake_runner.sh")
-    (root_dir / "fake_runner.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8")
-    (root_dir / "fake_runner.sh").chmod(0o755)
+    env["AUTOMATION_RUNNER"] = str(
+        make_runner(tmp_path, "fake_runner.sh", "#!/usr/bin/env bash\nset -euo pipefail\n")
+    )
 
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
@@ -694,9 +773,9 @@ def test_run_story_blocks_resolved_escalation_with_duplicate_decision_source_key
 
     env = os.environ.copy()
     env["AUTOMATION_ROOT_DIR"] = str(root_dir)
-    env["AUTOMATION_RUNNER"] = str(root_dir / "fake_runner.sh")
-    (root_dir / "fake_runner.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8")
-    (root_dir / "fake_runner.sh").chmod(0o755)
+    env["AUTOMATION_RUNNER"] = str(
+        make_runner(tmp_path, "fake_runner.sh", "#!/usr/bin/env bash\nset -euo pipefail\n")
+    )
 
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
