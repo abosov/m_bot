@@ -102,6 +102,9 @@ The registry does **not** replace story bundles.
 
 | US-AUTO-44 | Materialization preflight & operator handoff | Make run preflight explicitly classify dirty state and print deterministic operator remediation before execution | follow-up | Implemented | P1 | None | US-AUTO-41 | automation/bundle_packs/US-AUTO-44.bundle.md | Added first-class preflight in `run_story.sh` with explicit classify/pass markers; story-artifact-only dirtiness now hands off to review changes -> `commit_story_artifacts.sh` -> rerun, while unrelated dirty paths block outside the handoff flow |
 
+| US-AUTO-45 | Deterministic review gate artifact reuse | Make review_gate consume pinned review/classification artifacts without recomputation drift | follow-up | Planned | P1 | Draft bundle and contract for pinned-run artifact reuse | US-AUTO-44 | None | Needed because manual classify approved but review_gate recomputed and overwrote the decision for the same run |
+| US-AUTO-46 | Reverse bundle sync from active bundle to bundle pack | Add deterministic rebuild flow so packed bundle stays faithful to active bundle files | follow-up | Planned | P1 | Draft bundle and rebuild contract for active-to-pack sync | US-AUTO-44 | None | Needed to eliminate manual pack drift and keep packed bundle source-of-truth aligned with active bundle |
+
 | US-AUTO-18 | Operator UX | Improve console UX | follow-up | Planned | P3 | Keep downstream | US-AUTO-17 | N/A | UX only |
 
 | US-AUTO-25 | Loop detection preflight | Detect repeat execution before run | enforcement | Planned | P1 | Draft bundle | US-AUTO-24 | N/A | Anti-cycle layer |
