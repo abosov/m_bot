@@ -32,6 +32,51 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
 }
 
+read_ai_review_artifact_state() {
+  local review_file="$1"
+
+  python3 - "$review_file" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+
+if not path.exists():
+    print("missing\tai_review_missing_artifact\trequired file not found")
+    sys.exit(0)
+
+text = path.read_text(encoding="utf-8")
+if not text.strip():
+    print("invalid\tai_review_empty_artifact\tAI review artifact is empty")
+    sys.exit(0)
+
+lines = text.splitlines()
+normalized = [line.lstrip("\ufeff").strip() for line in lines]
+first_nonempty_index = next((i for i, line in enumerate(normalized) if line), None)
+
+if first_nonempty_index is None:
+    print("invalid\tai_review_empty_artifact\tAI review artifact is empty")
+    sys.exit(0)
+
+heading = normalized[first_nonempty_index]
+if heading not in {"# AI Review", "# AI Review Result"}:
+    print(
+        "invalid\tai_review_malformed_artifact\tAI review artifact must start with '# AI Review' or '# AI Review Result'"
+    )
+    sys.exit(0)
+
+body_lines = normalized[first_nonempty_index + 1 :]
+substantive = [line for line in body_lines if line and not line.startswith("#")]
+if not substantive:
+    print(
+        "invalid\tai_review_incomplete_artifact\tAI review artifact must include substantive review content after the heading"
+    )
+    sys.exit(0)
+
+print("valid\tai_review_valid\tvalidated")
+PY
+}
+
 working_tree_dirty() {
   local status_output
   status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" 2>/dev/null || true)"
@@ -203,6 +248,14 @@ fi
 if [[ ! -s "$RESULT_FILE" ]]; then
   rm -f "$RESULT_FILE"
   fail "AI review completed but did not write a result artifact: $RESULT_FILE"
+fi
+
+validation_state="$(read_ai_review_artifact_state "$RESULT_FILE")"
+IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
+
+if [[ "$validation_status" != "valid" ]]; then
+  rm -f "$RESULT_FILE"
+  fail "AI review completed but produced an invalid artifact ($validation_code): $validation_reason. Raw output: $RAW_OUTPUT_FILE"
 fi
 
 printf 'AI review result written: %s\n' "$RESULT_FILE"

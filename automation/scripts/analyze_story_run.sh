@@ -116,6 +116,51 @@ json_bool_value() {
   sed -n -E "s/.*\"${key}\"[[:space:]]*:[[:space:]]*(true|false).*/\\1/p" "$json_file" | head -n 1
 }
 
+read_ai_review_artifact_state() {
+  local review_file="$1"
+
+  python3 - "$review_file" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+
+if not path.exists():
+    print("missing\tai_review_missing_artifact\trequired file not found")
+    sys.exit(0)
+
+text = path.read_text(encoding="utf-8")
+if not text.strip():
+    print("invalid\tai_review_empty_artifact\tAI review artifact is empty")
+    sys.exit(0)
+
+lines = text.splitlines()
+normalized = [line.lstrip("\ufeff").strip() for line in lines]
+first_nonempty_index = next((i for i, line in enumerate(normalized) if line), None)
+
+if first_nonempty_index is None:
+    print("invalid\tai_review_empty_artifact\tAI review artifact is empty")
+    sys.exit(0)
+
+heading = normalized[first_nonempty_index]
+if heading not in {"# AI Review", "# AI Review Result"}:
+    print(
+        "invalid\tai_review_malformed_artifact\tAI review artifact must start with '# AI Review' or '# AI Review Result'"
+    )
+    sys.exit(0)
+
+body_lines = normalized[first_nonempty_index + 1 :]
+substantive = [line for line in body_lines if line and not line.startswith("#")]
+if not substantive:
+    print(
+        "invalid\tai_review_incomplete_artifact\tAI review artifact must include substantive review content after the heading"
+    )
+    sys.exit(0)
+
+print("valid\tai_review_valid\tvalidated")
+PY
+}
+
 
 read_escalation_artifact_state() {
   local json_file="$1"
@@ -393,12 +438,18 @@ summarize_ai_review_status() {
   local run_dir="$1"
   local ai_review_file="$2"
   local raw_output_file="$3"
-  local prereq_status
+  local prereq_status validation_state validation_status validation_code validation_reason
 
   prereq_status="$(review_prereq_status "$run_dir")"
 
   if [[ -f "$ai_review_file" ]]; then
-    printf 'present\n'
+    validation_state="$(read_ai_review_artifact_state "$ai_review_file")"
+    IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
+    if [[ "$validation_status" == "valid" ]]; then
+      printf 'present\n'
+    else
+      printf 'present (invalid: %s)\n' "$validation_code"
+    fi
     return 0
   fi
 
@@ -589,6 +640,7 @@ summarize_workflow_resume() {
   local gate_decision gate_status recommendation pytest_exit_code codex_exit_code materialization_status changed_files_count changed_files_detected prereq_status
   local escalation_status escalation_required escalation_reason resolution_action escalation_decision_source escalation_valid escalation_state
   local head_status expected_head current_head stage latest_valid_stage resume_safety blocked_reason next_command decision_source
+  local ai_review_validation_state ai_review_validation_status ai_review_validation_code ai_review_validation_reason
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -600,6 +652,8 @@ summarize_workflow_resume() {
   materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
   prereq_status="$(review_prereq_status "$run_dir")"
   head_status="$(head_consistency_status "$manifest_file")"
+  ai_review_validation_state="$(read_ai_review_artifact_state "$ai_review_file" 2>/dev/null || true)"
+  IFS=$'\t' read -r ai_review_validation_status ai_review_validation_code ai_review_validation_reason <<<"$ai_review_validation_state"
   escalation_file="$run_dir/escalation_result.json"
   escalation_state="$(read_escalation_artifact_state "$escalation_file")"
   IFS=$'\x1f' read -r escalation_valid escalation_required escalation_status escalation_decision_source escalation_reason resolution_action <<<"$escalation_state"
@@ -665,24 +719,31 @@ summarize_workflow_resume() {
       latest_valid_stage="run_artifacts_ready"
       next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
     elif [[ -f "$ai_review_file" ]]; then
-      stage="ai_review_completed"
-      latest_valid_stage="ai_review_completed"
-      next_command="$(resume_next_command "classify_review_story_run.sh" "$story_id" "$run_dir")"
-
-      if [[ "$recommendation" == "approve" ]]; then
-        stage="classification_approved"
-        latest_valid_stage="classification_approved"
-        next_command="$(resume_next_command "review_gate_story_run.sh" "$story_id" "$run_dir")"
-      elif [[ "$recommendation" == "reject" ]]; then
-        stage="blocked_classification_rejected"
-        latest_valid_stage="ai_review_completed"
-        resume_safety="blocked"
-        blocked_reason="classification merge recommendation is reject"
-        next_command="none"
-      elif [[ -f "$classification_file" ]]; then
-        stage="blocked_classification_invalid"
+      if [[ "$ai_review_validation_status" != "valid" ]]; then
+        stage="blocked_ai_review_invalid"
+        latest_valid_stage="run_artifacts_ready"
+        blocked_reason="invalid AI review artifact (${ai_review_validation_code:-unknown})"
+        next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
+      else
+        stage="ai_review_completed"
         latest_valid_stage="ai_review_completed"
         next_command="$(resume_next_command "classify_review_story_run.sh" "$story_id" "$run_dir")"
+
+        if [[ "$recommendation" == "approve" ]]; then
+          stage="classification_approved"
+          latest_valid_stage="classification_approved"
+          next_command="$(resume_next_command "review_gate_story_run.sh" "$story_id" "$run_dir")"
+        elif [[ "$recommendation" == "reject" ]]; then
+          stage="blocked_classification_rejected"
+          latest_valid_stage="ai_review_completed"
+          resume_safety="blocked"
+          blocked_reason="classification merge recommendation is reject"
+          next_command="none"
+        elif [[ -f "$classification_file" ]]; then
+          stage="blocked_classification_invalid"
+          latest_valid_stage="ai_review_completed"
+          next_command="$(resume_next_command "classify_review_story_run.sh" "$story_id" "$run_dir")"
+        fi
       fi
     fi
   fi
@@ -814,6 +875,7 @@ final_status_line() {
   local gate_decision gate_status recommendation pytest_exit_code codex_exit_code materialization_status changed_files_count changed_files_detected prereq_status
   local escalation_file escalation_status escalation_required resolution_action escalation_decision_source escalation_valid escalation_state
   local head_status expected_head current_head
+  local ai_review_validation_state ai_review_validation_status ai_review_validation_code ai_review_validation_reason
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -824,6 +886,8 @@ final_status_line() {
   materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
   prereq_status="$(review_prereq_status "$run_dir")"
   head_status="$(head_consistency_status "$manifest_file")"
+  ai_review_validation_state="$(read_ai_review_artifact_state "$ai_review_file" 2>/dev/null || true)"
+  IFS=$'\t' read -r ai_review_validation_status ai_review_validation_code ai_review_validation_reason <<<"$ai_review_validation_state"
   escalation_file="$run_dir/escalation_result.json"
   escalation_state="$(read_escalation_artifact_state "$escalation_file")"
   IFS=$'\x1f' read -r escalation_valid escalation_required escalation_status escalation_decision_source _ resolution_action <<<"$escalation_state"
@@ -917,6 +981,11 @@ final_status_line() {
 
   if [[ -f "$classification_file" ]]; then
     printf 'RUN STATUS: CHECK REVIEW CLASSIFICATION (invalid recommendation)\n'
+    return 0
+  fi
+
+  if [[ -f "$ai_review_file" && "$ai_review_validation_status" != "valid" ]]; then
+    printf 'RUN STATUS: CHECK AI REVIEW OUTPUT (invalid artifact: %s)\n' "${ai_review_validation_code:-unknown}"
     return 0
   fi
 

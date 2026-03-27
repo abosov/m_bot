@@ -60,6 +60,7 @@ while [[ $# -gt 0 ]]; do
 done
 cat >/dev/null
 printf '%s\\n' '# AI Review Result' > "$output"
+printf '%s\\n' '- Finding A' >> "$output"
 printf '%s\\n' 'raw-ai-output'
 """,
         encoding="utf-8",
@@ -117,3 +118,120 @@ def test_ai_review_story_run_rejects_manifest_story_id_mismatch_for_run_override
 
     assert result.returncode != 0
     assert "AUTOMATION_RUN_DIR manifest story_id 'US-AUTO-99'" in result.stderr
+
+
+def test_ai_review_story_run_rejects_incomplete_artifact(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = root_dir / "automation" / "runs" / "US-AUTO-5" / "2026-03-20_12-10-00"
+    run_dir.mkdir(parents=True)
+
+    for artifact_name in [
+        "review_bundle.md",
+        "chatgpt_review_prompt.md",
+        "diff.patch",
+        "changed_files.txt",
+        "pytest.txt",
+    ]:
+        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+
+    fake_bin_dir = tmp_path / "bin_incomplete"
+    fake_bin_dir.mkdir()
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+cat >/dev/null
+printf '%s\\n' '# AI Review Result' > "$output"
+printf '%s\\n' 'raw-ai-output'
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-5"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "ai_review_incomplete_artifact" in result.stderr
+    assert not (run_dir / "ai_review_result.md").exists()
+    assert (run_dir / "ai_review_raw_output.txt").read_text(encoding="utf-8").strip() == "raw-ai-output"
+
+
+def test_ai_review_story_run_rejects_malformed_artifact(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = root_dir / "automation" / "runs" / "US-AUTO-5" / "2026-03-20_12-15-00"
+    run_dir.mkdir(parents=True)
+
+    for artifact_name in [
+        "review_bundle.md",
+        "chatgpt_review_prompt.md",
+        "diff.patch",
+        "changed_files.txt",
+        "pytest.txt",
+    ]:
+        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+
+    fake_bin_dir = tmp_path / "bin_malformed"
+    fake_bin_dir.mkdir()
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+cat >/dev/null
+printf '%s\\n' 'raw text without expected heading' > "$output"
+printf '%s\\n' 'raw-ai-output'
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-5"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "ai_review_malformed_artifact" in result.stderr
+    assert not (run_dir / "ai_review_result.md").exists()

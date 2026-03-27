@@ -118,6 +118,51 @@ artifact_file_state() {
   printf 'present\n'
 }
 
+read_ai_review_artifact_state() {
+  local review_file="$1"
+
+  python3 - "$review_file" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+
+if not path.exists():
+    print("missing\tai_review_missing_artifact\trequired file not found")
+    sys.exit(0)
+
+text = path.read_text(encoding="utf-8")
+if not text.strip():
+    print("invalid\tai_review_empty_artifact\tPinned AI review artifact is empty; rerun automation/scripts/ai_review_story_run.sh for this pinned run")
+    sys.exit(0)
+
+lines = text.splitlines()
+normalized = [line.lstrip("\ufeff").strip() for line in lines]
+first_nonempty_index = next((i for i, line in enumerate(normalized) if line), None)
+
+if first_nonempty_index is None:
+    print("invalid\tai_review_empty_artifact\tPinned AI review artifact is empty; rerun automation/scripts/ai_review_story_run.sh for this pinned run")
+    sys.exit(0)
+
+heading = normalized[first_nonempty_index]
+if heading not in {"# AI Review", "# AI Review Result"}:
+    print(
+        "invalid\tai_review_malformed_artifact\tPinned AI review artifact is malformed; it must start with '# AI Review' or '# AI Review Result'. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+    )
+    sys.exit(0)
+
+body_lines = normalized[first_nonempty_index + 1 :]
+substantive = [line for line in body_lines if line and not line.startswith("#")]
+if not substantive:
+    print(
+        "invalid\tai_review_incomplete_artifact\tPinned AI review artifact is incomplete; it must include substantive review content after the heading. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+    )
+    sys.exit(0)
+
+print("valid\tai_review_valid\tvalidated")
+PY
+}
+
 validate_story_id() {
   local story_id="$1"
   [[ "$story_id" =~ ^US-[A-Z0-9]+(-[A-Z0-9]+)*$ ]] || \
@@ -349,7 +394,7 @@ review_artifact_fidelity_status() {
 review_input_artifact_status() {
   local ai_review_file="$1"
   local classification_file="$2"
-  local ai_review_state classification_state merge_recommendation
+  local ai_review_state classification_state merge_recommendation validation_state validation_status validation_code validation_reason
 
   ai_review_state="$(artifact_file_state "$ai_review_file")"
   case "$ai_review_state" in
@@ -362,6 +407,13 @@ review_input_artifact_status() {
       return 0
       ;;
   esac
+
+  validation_state="$(read_ai_review_artifact_state "$ai_review_file")"
+  IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
+  if [[ "$validation_status" != "valid" ]]; then
+    printf 'reject\t%s\t%s\n' "$validation_code" "$validation_reason"
+    return 0
+  fi
 
   classification_state="$(artifact_file_state "$classification_file")"
   case "$classification_state" in

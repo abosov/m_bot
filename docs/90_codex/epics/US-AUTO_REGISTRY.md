@@ -118,7 +118,7 @@ The registry does **not** replace story bundles.
 | US-AUTO-29 | Targeted test strategy | Narrow validation scope | follow-up | Planned | P2 | Draft bundle | US-AUTO-28 | N/A | Faster iteration |
 | US-AUTO-30 | Review reuse | Cache review safely | follow-up | Planned | P2 | Draft bundle | US-AUTO-29 | N/A | Reduce repetition |
 | US-AUTO-31 | Post-run checkpoint | Add checkpoint before rerun | follow-up | Planned | P2 | Draft bundle | US-AUTO-30 | N/A | Stop blind reruns |
-| US-AUTO-43 | AI review failure handling and recovery contract | Enforce fail-closed AI review validation boundary so missing, malformed, incomplete, or logically invalid AI review artifacts cannot propagate to classification or gate | follow-up | Bundle Ready | P1 | Create branch, commit bundle artifacts, run US-AUTO-43 | US-AUTO-28 | automation/bundle_packs/US-AUTO-43.bundle.md | Bundle pack prepared and validated; materialize + validate passed; current scope is strict fail-closed AI review boundary and observability, without retry/backoff or run_story orchestration changes |
+| US-AUTO-43 | AI review failure handling and recovery contract | Enforce fail-closed AI review validation boundary so missing, malformed, incomplete, or logically invalid AI review artifacts cannot propagate to classification or gate | follow-up | In Review | P1 | Commit implementation diff, rerun US-AUTO-43 from committed HEAD, then run pinned ai_review/classify/gate | US-AUTO-28 | automation/bundle_packs/US-AUTO-43.bundle.md | Implementation diff generated and tests passed in run; review pipeline is currently blocked until the implementation changes are committed and a new pinned run is produced from committed HEAD |
 
 ---
 
