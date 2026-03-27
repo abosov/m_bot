@@ -246,7 +246,7 @@ working_tree_is_clean() {
 }
 
 dirty_tree_reason() {
-  printf '%s\n' "working tree dirty; commit changes before review/classify/gate"
+  printf '%s\n' "workspace-only changes detected; commit or discard them before review/classify/gate because those steps operate on committed HEAD only"
 }
 
 current_checkout_head() {

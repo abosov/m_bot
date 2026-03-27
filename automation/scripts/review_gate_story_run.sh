@@ -69,10 +69,11 @@ fail_review_gate_dirty_working_tree() {
   local run_dir="${2:-}"
   {
     printf "ERROR: review gate blocked for '%s'\n" "$story_id"
-    printf 'Reason: current branch has uncommitted changes; review artifacts would not match committed state\n'
+    printf 'Reason: workspace-only changes would make gate evaluation diverge from committed HEAD and origin/main...HEAD\n'
     printf 'Required action:\n'
-    printf ' - inspect and commit the materialized changes\n'
-    printf ' - if needed, rerun automation/scripts/run_story.sh %s\n' "$story_id"
+    printf ' - inspect the workspace-only changes\n'
+    printf ' - commit the changes if they belong in the reviewed diff, or discard them if they do not\n'
+    printf ' - if you committed review-relevant changes, rerun automation/scripts/run_story.sh %s\n' "$story_id"
     if [[ -n "$run_dir" ]]; then
       printf ' - inspect the pinned run with AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$run_dir" "$story_id"
       printf ' - rerun AUTOMATION_RUN_DIR=%q automation/scripts/review_gate_story_run.sh %q\n' "$run_dir" "$story_id"

@@ -186,7 +186,10 @@ def test_analyze_story_run_blocks_merge_ready_status_when_gate_approved_but_work
     assert result.returncode == 0, result.stderr
     assert "Gate: present (approve/passed via review_classification)" in result.stdout
     assert "RUN STATUS: READY FOR MERGE REVIEW" not in result.stdout
-    assert "RUN STATUS: BLOCKED (working tree dirty; commit changes before review/classify/gate)" in result.stdout
+    assert (
+        "RUN STATUS: BLOCKED (workspace-only changes detected; commit or discard them before "
+        "review/classify/gate because those steps operate on committed HEAD only)"
+    ) in result.stdout
 
 
 def test_analyze_story_run_tolerates_missing_artifacts_and_incomplete_runs(tmp_path: Path) -> None:
@@ -532,7 +535,10 @@ def test_analyze_story_run_blocks_ready_actions_when_working_tree_dirty(tmp_path
     assert "Current stage: blocked_dirty_working_tree" in result.stdout
     assert "Latest valid stage: classification_approved" in result.stdout
     assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
-    assert "RUN STATUS: BLOCKED (working tree dirty; commit changes before review/classify/gate)" in result.stdout
+    assert (
+        "RUN STATUS: BLOCKED (workspace-only changes detected; commit or discard them before "
+        "review/classify/gate because those steps operate on committed HEAD only)"
+    ) in result.stdout
 
 
 def test_analyze_story_run_blocks_ready_actions_when_untracked_file_exists(tmp_path: Path) -> None:
@@ -592,7 +598,10 @@ def test_analyze_story_run_blocks_ready_actions_when_untracked_file_exists(tmp_p
 
     assert result.returncode == 0, result.stderr
     assert "RUN STATUS: READY TO RUN GATE" not in result.stdout
-    assert "RUN STATUS: BLOCKED (working tree dirty; commit changes before review/classify/gate)" in result.stdout
+    assert (
+        "RUN STATUS: BLOCKED (workspace-only changes detected; commit or discard them before "
+        "review/classify/gate because those steps operate on committed HEAD only)"
+    ) in result.stdout
 
 
 def test_analyze_story_run_surfaces_missing_review_prerequisites(tmp_path: Path) -> None:

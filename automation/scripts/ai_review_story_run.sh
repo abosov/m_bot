@@ -6,6 +6,8 @@ ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
 RUN_DIR_OVERRIDE="${AUTOMATION_RUN_DIR:-}"
 CODEX_BIN="${CODEX_BIN:-codex}"
+EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
+EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC=":(exclude)$EPHEMERAL_LEDGER_PATH"
 
 RESULT_FILE_NAME="ai_review_result.md"
 RAW_OUTPUT_FILE_NAME="ai_review_raw_output.txt"
@@ -28,6 +30,28 @@ EOF
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
+}
+
+working_tree_dirty() {
+  local status_output
+  status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" 2>/dev/null || true)"
+  [[ -n "$status_output" ]]
+}
+
+fail_review_boundary_dirty_working_tree() {
+  local story_id="$1"
+  local run_dir="$2"
+  {
+    printf "ERROR: AI review blocked for '%s'\n" "$story_id"
+    printf 'Reason: workspace-only changes would make review diverge from committed HEAD and origin/main...HEAD\n'
+    printf 'Required action:\n'
+    printf ' - inspect the workspace-only changes\n'
+    printf ' - commit the changes if they belong in the reviewed diff, or discard them if they do not\n'
+    printf ' - if you committed review-relevant changes, rerun automation/scripts/run_story.sh %s\n' "$story_id"
+    printf ' - inspect the pinned run with AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$run_dir" "$story_id"
+    printf ' - rerun AUTOMATION_RUN_DIR=%q automation/scripts/ai_review_story_run.sh %q\n' "$run_dir" "$story_id"
+  } >&2
+  exit 1
 }
 
 validate_story_id() {
@@ -112,6 +136,10 @@ STORY_RUNS_ROOT="$RUNS_ROOT/$STORY_ID"
 [[ -d "$STORY_RUNS_ROOT" ]] || fail "story run root not found for '$STORY_ID': $STORY_RUNS_ROOT"
 
 LATEST_RUN_DIR="$(resolve_target_run_dir "$STORY_RUNS_ROOT" "$RUN_DIR_OVERRIDE")"
+
+if working_tree_dirty; then
+  fail_review_boundary_dirty_working_tree "$STORY_ID" "$LATEST_RUN_DIR"
+fi
 
 required_artifacts=(
   "review_bundle.md"

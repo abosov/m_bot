@@ -59,23 +59,27 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 18. Collect implementation and review artifacts into the story bundle.
    Review evidence is derived from the materialized primary checkout state rooted at the `origin/main` merge-base so committed and newly materialized working-tree changes are both captured before cleanup.
 19. Resolve the latest review artifacts for the story (`automation/scripts/review_story_run.sh <STORY-ID>`).
-   Review can proceed only when the current branch working tree is clean (commit-consistent with review evidence), excluding only the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
-   If the working tree is dirty with materialized changes, inspect and commit first; then rerun story execution if needed.
+   Review can proceed only when the current branch working tree is clean, excluding only the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
+   Review is defined against committed `HEAD` only, so any workspace-only divergence must fail closed before review/classify/gate continue.
+   If workspace-only changes exist, inspect them and either commit them into `HEAD` or discard them; rerun story execution if you committed review-relevant changes.
    The review summary prints the canonical pinned inspection helper (`AUTOMATION_RUN_DIR=<run-dir> automation/scripts/analyze_story_run.sh <STORY-ID>`) plus the deterministic pinned gate command for that same run.
    The review summary must use the exact selected run directory for both printed commands so operators can continue deterministically from that run.
    Use the printed deterministic resume command (`AUTOMATION_RUN_DIR=<run-dir> automation/scripts/review_gate_story_run.sh <STORY-ID>`) when chaining directly into gate execution for that same run.
 20. Execute and persist the AI review result for the latest run (`automation/scripts/ai_review_story_run.sh <STORY-ID>`).
+   AI review must fail closed on any workspace-only divergence from committed `HEAD`; it consumes the pinned run as committed review evidence and must not review uncommitted repository state.
 21. Execute and persist the review classification result for the latest run (`automation/scripts/classify_review_story_run.sh <STORY-ID>`).
+   Classification must fail closed on any workspace-only divergence from committed `HEAD`; it classifies the pinned committed review result only.
    The classification artifact must contain an exact standalone `MERGE RECOMMENDATION: approve` or `MERGE RECOMMENDATION: reject` line for the gate.
    If classification text is malformed or ambiguous, preserve `review_classification.md` for debugging and fail closed instead of deleting the artifact.
 22. Execute the review gate for the latest run (`automation/scripts/review_gate_story_run.sh <STORY-ID>`).
-   The gate must fail closed before AI review/classification when the current branch working tree has uncommitted changes outside the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
+   The gate must fail closed before consuming pinned review artifacts when the current branch working tree has workspace-only changes outside the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
+   Gate decisions operate on committed `HEAD` only; workspace-only divergence from the committed `origin/main...HEAD` review boundary is never merge-valid.
    The gate must also fail closed when the selected run's manifest HEAD does not match the current checkout HEAD; stale pre-finalize approval is never merge-valid.
    The gate must fail closed when review artifacts are not faithful to the authoritative branch diff reconstructed from the run manifest `review_artifact_base` and current checkout `HEAD`.
    Fidelity enforcement compares the selected run's `changed_files.txt` and `diff.patch` against regenerated git outputs for `review_artifact_base..HEAD`; any mismatch is a deterministic reject.
    The gate is a strict consumer of the pinned run's existing `ai_review_result.md` and `review_classification.md` artifacts and must not rerun upstream review or classification steps.
    Missing, empty, or invalid pinned review artifacts must be rejected deterministically for that same pinned run instead of being silently regenerated.
-   Operator recovery path: inspect and commit materialized changes, rerun `automation/scripts/run_story.sh <STORY-ID>` if needed, then rerun gate.
+   Operator recovery path: inspect the workspace-only changes, commit them if they belong in the reviewed diff or discard them if they do not, rerun `automation/scripts/run_story.sh <STORY-ID>` if needed, then rerun gate.
    The gate resolves the latest run once, reuses that exact run directory as read-only review evidence, writes `review_gate_result.json`, and must exit non-zero when the final decision is `reject` or cannot be derived from the classification artifact.
    `review_gate_result.json` must record both the reviewed HEAD from the run manifest and the current checkout HEAD used by the gate decision.
    When the gate produces a repeated `review_classification` reject with identical `diff.patch` and `changed_files.txt` as an earlier rejected run for the same story, it must also write `escalation_result.json` with `status: pending` and block ordinary continuation until a human resolves that escalation explicitly.

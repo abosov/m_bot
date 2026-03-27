@@ -7,6 +7,8 @@ RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
 RUN_DIR_OVERRIDE="${AUTOMATION_RUN_DIR:-}"
 RULES_FILE="${CLASSIFICATION_RULES_FILE:-$ROOT_DIR/docs/90_codex/REVIEW_CLASSIFICATION_RULES.md}"
 CODEX_BIN="${CODEX_BIN:-codex}"
+EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
+EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC=":(exclude)$EPHEMERAL_LEDGER_PATH"
 
 AI_REVIEW_FILE_NAME="ai_review_result.md"
 RESULT_FILE_NAME="review_classification.md"
@@ -35,6 +37,28 @@ require_cmd() {
 require_file() {
   local path="$1"
   [[ -f "$path" ]] || fail "required file not found: $path"
+}
+
+working_tree_dirty() {
+  local status_output
+  status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" 2>/dev/null || true)"
+  [[ -n "$status_output" ]]
+}
+
+fail_review_boundary_dirty_working_tree() {
+  local story_id="$1"
+  local run_dir="$2"
+  {
+    printf "ERROR: review classification blocked for '%s'\n" "$story_id"
+    printf 'Reason: workspace-only changes would make review diverge from committed HEAD and origin/main...HEAD\n'
+    printf 'Required action:\n'
+    printf ' - inspect the workspace-only changes\n'
+    printf ' - commit the changes if they belong in the reviewed diff, or discard them if they do not\n'
+    printf ' - if you committed review-relevant changes, rerun automation/scripts/run_story.sh %s\n' "$story_id"
+    printf ' - inspect the pinned run with AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$run_dir" "$story_id"
+    printf ' - rerun AUTOMATION_RUN_DIR=%q automation/scripts/classify_review_story_run.sh %q\n' "$run_dir" "$story_id"
+  } >&2
+  exit 1
 }
 
 validate_story_id() {
@@ -179,6 +203,11 @@ STORY_RUNS_ROOT="$RUNS_ROOT/$STORY_ID"
 [[ -d "$STORY_RUNS_ROOT" ]] || fail "story run root not found for '$STORY_ID': $STORY_RUNS_ROOT"
 
 LATEST_RUN_DIR="$(resolve_target_run_dir "$STORY_RUNS_ROOT" "$RUN_DIR_OVERRIDE")"
+
+if working_tree_dirty; then
+  fail_review_boundary_dirty_working_tree "$STORY_ID" "$LATEST_RUN_DIR"
+fi
+
 AI_REVIEW_FILE="$LATEST_RUN_DIR/$AI_REVIEW_FILE_NAME"
 require_file "$AI_REVIEW_FILE"
 

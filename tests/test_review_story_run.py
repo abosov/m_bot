@@ -167,11 +167,12 @@ def test_review_story_run_blocks_when_working_tree_is_dirty(tmp_path: Path) -> N
 
     assert result.returncode != 0
     assert "Review safety: BLOCKED" in result.stdout
-    assert "working tree contains uncommitted materialized changes" in result.stdout
+    assert "workspace-only changes would make review diverge from committed HEAD and origin/main...HEAD" in result.stdout
+    assert "commit the changes if they belong in the reviewed diff, or discard them if they do not" in result.stdout
     assert f"AUTOMATION_RUN_DIR={latest_run_dir}" in result.stdout
     assert "analyze_story_run.sh US-AUTO-21" in result.stdout
     assert "follow the next recommended command from analyze output" in result.stdout
-    assert "not commit-consistent" in result.stderr
+    assert "workspace-only changes would make review diverge from committed HEAD and origin/main...HEAD" in result.stderr
 
 
 def test_review_story_run_ignores_ephemeral_ledger_dirty_state(tmp_path: Path) -> None:
