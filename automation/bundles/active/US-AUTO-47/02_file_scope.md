@@ -7,6 +7,7 @@
 - tests/test_analyze_story_run.py
 - docs/90_codex/STORY_EXECUTION_CHECKLIST.md
 - docs/90_codex/CODEX_OPERATING_SYSTEM.md
+- automation/bundles/active/US-AUTO-47/**
 
 ## Files Not Allowed To Change
 - automation/run_codex_task.sh

@@ -15,6 +15,7 @@ Implement convergence boundary
 - automation/scripts/analyze_story_run.sh
 - tests/test_run_story.py
 - tests/test_analyze_story_run.py
+- automation/bundles/active/US-AUTO-47/**
 
 ## Files Not Allowed To Change
 - automation/run_codex_task.sh
