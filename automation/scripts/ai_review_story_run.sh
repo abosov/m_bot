@@ -409,14 +409,14 @@ if [[ "$validation_status" != "valid" ]]; then
     IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
     if [[ "$validation_status" != "valid" ]]; then
       rm -f "$RESULT_FILE"
-      fail "AI review completed but normalization failed (ai_review_normalization_failed): invalid normalized artifact ($validation_code): $validation_reason. Raw output: $RAW_OUTPUT_FILE"
+      fail "AI review completed but produced an invalid normalized artifact ($validation_code): $validation_reason. Raw output: $RAW_OUTPUT_FILE"
     fi
   elif [[ "$validation_status" == "missing" ]]; then
     rm -f "$RESULT_FILE"
-    fail "AI review completed but normalization failed ($normalization_code): $normalization_reason. Raw output: $RAW_OUTPUT_FILE"
+    fail "AI review completed but produced an invalid artifact ($normalization_code): $normalization_reason. Raw output: $RAW_OUTPUT_FILE"
   else
     rm -f "$RESULT_FILE"
-    fail "AI review completed but normalization failed (ai_review_normalization_failed): invalid artifact ($validation_code): $validation_reason. Normalization from raw also failed ($normalization_code): $normalization_reason. Raw output: $RAW_OUTPUT_FILE"
+    fail "AI review completed but produced an invalid artifact ($validation_code): $validation_reason. Raw output: $RAW_OUTPUT_FILE"
   fi
 fi
 
