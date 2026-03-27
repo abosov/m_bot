@@ -34,12 +34,15 @@ require_cmd() {
 
 read_ai_review_artifact_state() {
   local review_file="$1"
+  local prompt_file="${2:-}"
 
-  python3 - "$review_file" <<'PY'
+  python3 - "$review_file" "$prompt_file" <<'PY'
 import sys
+from difflib import SequenceMatcher
 from pathlib import Path
 
 path = Path(sys.argv[1])
+prompt_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
 
 if not path.exists():
     print("missing\tai_review_missing_artifact\trequired file not found")
@@ -76,6 +79,34 @@ if not substantive:
         "invalid\tai_review_incomplete_artifact\tAI review artifact must include substantive review content after the heading"
     )
     sys.exit(0)
+
+headings_present = {line for line in normalized if line in {"# AI Review", "# AI Review Result"}}
+if "# AI Review" not in headings_present or "# AI Review Result" not in headings_present:
+    print(
+        "invalid\tai_review_malformed_artifact\tAI review artifact must include both '# AI Review' and '# AI Review Result' sections"
+    )
+    sys.exit(0)
+
+if prompt_path and prompt_path.exists():
+    try:
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+    except Exception:
+        prompt_text = ""
+
+    if prompt_text.strip():
+        review_norm = " ".join(text.split())
+        prompt_norm = " ".join(prompt_text.split())
+        if review_norm == prompt_norm:
+            print(
+                "invalid\tai_review_echo_output\tAI review artifact matches the prompt content and appears to be prompt echo"
+            )
+            sys.exit(0)
+        similarity = SequenceMatcher(a=review_norm.lower(), b=prompt_norm.lower()).ratio()
+        if len(review_norm) >= 200 and len(prompt_norm) >= 200 and similarity >= 0.92:
+            print(
+                "invalid\tai_review_echo_output\tAI review artifact is too similar to the prompt content and appears to be prompt echo"
+            )
+            sys.exit(0)
 
 print("valid\tai_review_valid\tvalidated")
 PY
@@ -122,6 +153,16 @@ if start_index is None:
     sys.exit(0)
 
 normalized_text = "\n".join(lines[start_index:]).rstrip()
+normalized_lines = normalized_text.splitlines()
+normalized_headings = {
+    line.lstrip("\ufeff").strip()
+    for line in normalized_lines
+    if line.lstrip("\ufeff").strip() in {"# AI Review", "# AI Review Result"}
+}
+
+if "# AI Review" not in normalized_headings:
+    normalized_text = "# AI Review\n\n" + normalized_text
+
 review_path.parent.mkdir(parents=True, exist_ok=True)
 
 with tempfile.NamedTemporaryFile(
@@ -137,6 +178,52 @@ with tempfile.NamedTemporaryFile(
 
 tmp_path.replace(review_path)
 print("valid\tai_review_normalized\tvalidated")
+PY
+}
+
+canonicalize_ai_review_artifact_sections() {
+  local review_file="$1"
+
+  python3 - "$review_file" <<'PY'
+import sys
+import tempfile
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if not path.exists():
+    sys.exit(0)
+
+try:
+    text = path.read_text(encoding="utf-8")
+except Exception:
+    sys.exit(0)
+
+if not text.strip():
+    sys.exit(0)
+
+lines = text.splitlines()
+normalized_headings = {
+    line.lstrip("\ufeff").strip()
+    for line in lines
+    if line.lstrip("\ufeff").strip() in {"# AI Review", "# AI Review Result"}
+}
+
+if "# AI Review" in normalized_headings or "# AI Review Result" not in normalized_headings:
+    sys.exit(0)
+
+normalized_text = "# AI Review\n\n" + text.rstrip() + "\n"
+with tempfile.NamedTemporaryFile(
+    mode="w",
+    encoding="utf-8",
+    dir=str(path.parent),
+    prefix=f".{path.name}.",
+    suffix=".tmp",
+    delete=False,
+) as tmp:
+    tmp.write(normalized_text)
+    tmp_path = Path(tmp.name)
+
+tmp_path.replace(path)
 PY
 }
 
@@ -308,7 +395,9 @@ if [[ $review_exit_code -ne 0 ]]; then
   fail "AI review command failed for '$STORY_ID' (exit $review_exit_code). Raw output: $RAW_OUTPUT_FILE"
 fi
 
-validation_state="$(read_ai_review_artifact_state "$RESULT_FILE")"
+canonicalize_ai_review_artifact_sections "$RESULT_FILE"
+
+validation_state="$(read_ai_review_artifact_state "$RESULT_FILE" "$PROMPT_FILE")"
 IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
 
 if [[ "$validation_status" != "valid" ]]; then
@@ -316,18 +405,18 @@ if [[ "$validation_status" != "valid" ]]; then
   IFS=$'\t' read -r normalization_status normalization_code normalization_reason <<< "$normalization_state"
 
   if [[ "$normalization_status" == "valid" ]]; then
-    validation_state="$(read_ai_review_artifact_state "$RESULT_FILE")"
+    validation_state="$(read_ai_review_artifact_state "$RESULT_FILE" "$PROMPT_FILE")"
     IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
     if [[ "$validation_status" != "valid" ]]; then
       rm -f "$RESULT_FILE"
-      fail "AI review completed but produced an invalid normalized artifact ($validation_code): $validation_reason. Raw output: $RAW_OUTPUT_FILE"
+      fail "AI review completed but normalization failed (ai_review_normalization_failed): invalid normalized artifact ($validation_code): $validation_reason. Raw output: $RAW_OUTPUT_FILE"
     fi
   elif [[ "$validation_status" == "missing" ]]; then
     rm -f "$RESULT_FILE"
     fail "AI review completed but normalization failed ($normalization_code): $normalization_reason. Raw output: $RAW_OUTPUT_FILE"
   else
     rm -f "$RESULT_FILE"
-    fail "AI review completed but produced an invalid artifact ($validation_code): $validation_reason. Normalization from raw also failed ($normalization_code): $normalization_reason. Raw output: $RAW_OUTPUT_FILE"
+    fail "AI review completed but normalization failed (ai_review_normalization_failed): invalid artifact ($validation_code): $validation_reason. Normalization from raw also failed ($normalization_code): $normalization_reason. Raw output: $RAW_OUTPUT_FILE"
   fi
 fi
 
