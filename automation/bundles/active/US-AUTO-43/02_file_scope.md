@@ -7,6 +7,8 @@
 - `automation/scripts/analyze_story_run.sh`
 - `tests/test_ai_review_story_run.py`
 - `tests/test_review_pipeline_validation_contract.py`
+- `tests/test_analyze_story_run.py`
+- `tests/test_review_gate_story_run.py`
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/bundle_packs/US-AUTO-43.bundle.md`
 - `automation/bundles/active/US-AUTO-43/**`
