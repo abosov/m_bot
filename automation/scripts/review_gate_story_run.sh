@@ -14,6 +14,7 @@ source "$SCRIPT_DIR/merge_recommendation_contract.sh"
 source "$SCRIPT_DIR/story_change_ledger.sh"
 
 AI_REVIEW_FILE_NAME="ai_review_result.md"
+AI_REVIEW_RAW_OUTPUT_FILE_NAME="ai_review_raw_output.txt"
 CLASSIFICATION_FILE_NAME="review_classification.md"
 GATE_RESULT_FILE_NAME="review_gate_result.json"
 ESCALATION_RESULT_FILE_NAME="escalation_result.json"
@@ -120,15 +121,22 @@ artifact_file_state() {
 
 read_ai_review_artifact_state() {
   local review_file="$1"
+  local raw_output_file="${2:-}"
 
-  python3 - "$review_file" <<'PY'
+  python3 - "$review_file" "$raw_output_file" <<'PY'
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+raw_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
 
 if not path.exists():
-    print("missing\tai_review_missing_artifact\trequired file not found")
+    if raw_path and raw_path.exists():
+        print(
+            f"invalid\tai_review_normalization_failed\tPinned normalized AI review artifact is missing while raw output exists at {raw_path}; rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+        )
+    else:
+        print("missing\tai_review_missing_artifact\trequired file not found")
     sys.exit(0)
 
 try:
@@ -399,13 +407,18 @@ review_artifact_fidelity_status() {
 
 review_input_artifact_status() {
   local ai_review_file="$1"
-  local classification_file="$2"
+  local ai_review_raw_output_file="$2"
+  local classification_file="$3"
   local ai_review_state classification_state merge_recommendation validation_state validation_status validation_code validation_reason
 
   ai_review_state="$(artifact_file_state "$ai_review_file")"
   case "$ai_review_state" in
     missing)
-      printf 'reject\tai_review_missing_artifact\tPinned AI review artifact is missing; run automation/scripts/ai_review_story_run.sh %s for this pinned run first\n' "$STORY_ID"
+      if [[ -f "$ai_review_raw_output_file" ]]; then
+        printf 'reject\tai_review_normalization_failed\tPinned normalized AI review artifact is missing while raw output exists at %s; rerun automation/scripts/ai_review_story_run.sh %s for this pinned run\n' "$ai_review_raw_output_file" "$STORY_ID"
+      else
+        printf 'reject\tai_review_missing_artifact\tPinned AI review artifact is missing; run automation/scripts/ai_review_story_run.sh %s for this pinned run first\n' "$STORY_ID"
+      fi
       return 0
       ;;
     empty)
@@ -414,7 +427,7 @@ review_input_artifact_status() {
       ;;
   esac
 
-  validation_state="$(read_ai_review_artifact_state "$ai_review_file")"
+  validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$ai_review_raw_output_file")"
   IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
   if [[ "$validation_status" != "valid" ]]; then
     printf 'reject\t%s\t%s\n' "$validation_code" "$validation_reason"
@@ -684,6 +697,7 @@ STORY_RUNS_ROOT="$RUNS_ROOT/$STORY_ID"
 LATEST_RUN_DIR="$(resolve_target_run_dir "$STORY_RUNS_ROOT" "$RUN_DIR_OVERRIDE")"
 RUN_ID="$(basename "$LATEST_RUN_DIR")"
 AI_REVIEW_FILE="$LATEST_RUN_DIR/$AI_REVIEW_FILE_NAME"
+AI_REVIEW_RAW_OUTPUT_FILE="$LATEST_RUN_DIR/$AI_REVIEW_RAW_OUTPUT_FILE_NAME"
 CLASSIFICATION_FILE="$LATEST_RUN_DIR/$CLASSIFICATION_FILE_NAME"
 GATE_RESULT_FILE="$LATEST_RUN_DIR/$GATE_RESULT_FILE_NAME"
 MANIFEST_FILE="$LATEST_RUN_DIR/manifest.md"
@@ -764,7 +778,7 @@ if [[ "$fidelity_decision" == "reject" ]]; then
   fail "review gate rejected merge for '$STORY_ID' ($fidelity_reason)"
 fi
 
-input_status="$(review_input_artifact_status "$AI_REVIEW_FILE" "$CLASSIFICATION_FILE")"
+input_status="$(review_input_artifact_status "$AI_REVIEW_FILE" "$AI_REVIEW_RAW_OUTPUT_FILE" "$CLASSIFICATION_FILE")"
 IFS=$'\t' read -r decision decision_source reason <<< "$input_status"
 status="failed"
 if [[ "$decision" == "approve" ]]; then
