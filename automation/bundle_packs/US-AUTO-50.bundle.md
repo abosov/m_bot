@@ -97,7 +97,11 @@ US-AUTO-50 — AI review must produce structured output
 - automation/scripts/review_gate_story_run.sh
 - automation/scripts/analyze_story_run.sh
 - tests/test_ai_review_story_run.py
+- tests/test_analyze_story_run.py
+- tests/test_classify_review_story_run.py
+- tests/test_review_gate_story_run.py
 - tests/test_review_pipeline.py
+- tests/test_review_pipeline_validation_contract.py
 
 ## Files Not Allowed To Change
 - automation/run_codex_task.sh
@@ -133,7 +137,11 @@ Ensure AI review always produces a valid structured output and never allows inva
 - automation/scripts/review_gate_story_run.sh
 - automation/scripts/analyze_story_run.sh
 - tests/test_ai_review_story_run.py
+- tests/test_analyze_story_run.py
+- tests/test_classify_review_story_run.py
+- tests/test_review_gate_story_run.py
 - tests/test_review_pipeline.py
+- tests/test_review_pipeline_validation_contract.py
 
 ## Files Not Allowed To Change
 - automation/run_codex_task.sh
