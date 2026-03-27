@@ -299,3 +299,102 @@ printf '%s\\n' 'raw-ai-output'
     assert "ai_review_unreadable_artifact" in result.stderr
     assert not (run_dir / "ai_review_result.md").exists()
     assert (run_dir / "ai_review_raw_output.txt").read_text(encoding="utf-8").strip() == "raw-ai-output"
+
+
+def test_ai_review_story_run_normalizes_raw_output_when_result_file_missing(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = root_dir / "automation" / "runs" / "US-AUTO-5" / "2026-03-20_12-25-00"
+    run_dir.mkdir(parents=True)
+
+    for artifact_name in [
+        "review_bundle.md",
+        "chatgpt_review_prompt.md",
+        "diff.patch",
+        "changed_files.txt",
+        "pytest.txt",
+    ]:
+        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+
+    fake_bin_dir = tmp_path / "bin_raw_only"
+    fake_bin_dir.mkdir()
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+cat >/dev/null
+printf '%s\\n' '# AI Review Result'
+printf '%s\\n' ''
+printf '%s\\n' '- Finding recovered from raw output'
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-5"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8") == (
+        "# AI Review Result\n\n- Finding recovered from raw output\n"
+    )
+    assert (run_dir / "ai_review_raw_output.txt").read_text(encoding="utf-8") == (
+        "# AI Review Result\n\n- Finding recovered from raw output\n"
+    )
+
+
+def test_ai_review_story_run_fails_closed_when_raw_output_cannot_be_normalized(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = root_dir / "automation" / "runs" / "US-AUTO-5" / "2026-03-20_12-30-00"
+    run_dir.mkdir(parents=True)
+
+    for artifact_name in [
+        "review_bundle.md",
+        "chatgpt_review_prompt.md",
+        "diff.patch",
+        "changed_files.txt",
+        "pytest.txt",
+    ]:
+        (run_dir / artifact_name).write_text(f"{artifact_name}\n", encoding="utf-8")
+
+    fake_bin_dir = tmp_path / "bin_raw_invalid"
+    fake_bin_dir.mkdir()
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+cat >/dev/null
+printf '%s\\n' 'plain text without normalized heading'
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-5"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "ai_review_normalization_failed" in result.stderr
+    assert not (run_dir / "ai_review_result.md").exists()
+    assert (run_dir / "ai_review_raw_output.txt").read_text(encoding="utf-8") == (
+        "plain text without normalized heading\n"
+    )

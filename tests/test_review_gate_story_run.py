@@ -229,6 +229,31 @@ def test_review_gate_story_run_rejects_missing_ai_review_artifact_without_recomp
     assert '"reason": "Pinned AI review artifact is missing;' in gate_result
 
 
+def test_review_gate_story_run_rejects_missing_normalized_ai_review_when_raw_output_exists(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-11-raw-only")
+
+    write_required_review_artifacts(run_dir, root_dir)
+    write_manifest(run_dir, root_dir, "US-AUTO-16")
+    (run_dir / "ai_review_raw_output.txt").write_text(
+        "# AI Review Result\n\n- Finding A\n",
+        encoding="utf-8",
+    )
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
+        encoding="utf-8",
+    )
+
+    result = run_review_gate(root_dir, "US-AUTO-16", env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    assert "decision: reject, source: ai_review_normalization_failed" in result.stderr
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "ai_review_normalization_failed"' in gate_result
+    assert '"reason": "Pinned normalized AI review artifact is missing while raw output exists at ' in gate_result
+
+
 def test_review_gate_story_run_rejects_missing_classification_artifact_without_recompute(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     setup_git_repo(root_dir)

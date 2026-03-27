@@ -81,6 +81,51 @@ print("valid\tai_review_valid\tvalidated")
 PY
 }
 
+normalize_ai_review_artifact_from_raw() {
+  local raw_output_file="$1"
+  local review_file="$2"
+
+  python3 - "$raw_output_file" "$review_file" <<'PY'
+import sys
+from pathlib import Path
+
+raw_path = Path(sys.argv[1])
+review_path = Path(sys.argv[2])
+
+if not raw_path.exists():
+    print("invalid\tai_review_normalization_failed\tAI review raw output is missing; cannot normalize ai_review_result.md")
+    sys.exit(0)
+
+try:
+    text = raw_path.read_text(encoding="utf-8")
+except Exception:
+    print("invalid\tai_review_normalization_failed\tAI review raw output could not be read as UTF-8 text")
+    sys.exit(0)
+
+if not text.strip():
+    print("invalid\tai_review_normalization_failed\tAI review raw output is empty; cannot normalize ai_review_result.md")
+    sys.exit(0)
+
+lines = text.splitlines()
+start_index = None
+for index, line in enumerate(lines):
+    normalized = line.lstrip("\ufeff").strip()
+    if normalized in {"# AI Review", "# AI Review Result"}:
+        start_index = index
+        break
+
+if start_index is None:
+    print(
+        "invalid\tai_review_normalization_failed\tAI review raw output did not contain a normalized '# AI Review' or '# AI Review Result' section"
+    )
+    sys.exit(0)
+
+normalized_text = "\n".join(lines[start_index:]).rstrip()
+review_path.write_text(normalized_text + "\n", encoding="utf-8")
+print("valid\tai_review_normalized\tvalidated")
+PY
+}
+
 working_tree_dirty() {
   local status_output
   status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" 2>/dev/null || true)"
@@ -249,17 +294,29 @@ if [[ $review_exit_code -ne 0 ]]; then
   fail "AI review command failed for '$STORY_ID' (exit $review_exit_code). Raw output: $RAW_OUTPUT_FILE"
 fi
 
-if [[ ! -s "$RESULT_FILE" ]]; then
-  rm -f "$RESULT_FILE"
-  fail "AI review completed but did not write a result artifact: $RESULT_FILE"
-fi
-
 validation_state="$(read_ai_review_artifact_state "$RESULT_FILE")"
 IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
 
 if [[ "$validation_status" != "valid" ]]; then
-  rm -f "$RESULT_FILE"
-  fail "AI review completed but produced an invalid artifact ($validation_code): $validation_reason. Raw output: $RAW_OUTPUT_FILE"
+  if [[ "$validation_status" == "missing" ]]; then
+    normalization_state="$(normalize_ai_review_artifact_from_raw "$RAW_OUTPUT_FILE" "$RESULT_FILE")"
+    IFS=$'\t' read -r normalization_status normalization_code normalization_reason <<< "$normalization_state"
+
+    if [[ "$normalization_status" != "valid" ]]; then
+      rm -f "$RESULT_FILE"
+      fail "AI review completed but normalization failed ($normalization_code): $normalization_reason. Raw output: $RAW_OUTPUT_FILE"
+    fi
+
+    validation_state="$(read_ai_review_artifact_state "$RESULT_FILE")"
+    IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
+    if [[ "$validation_status" != "valid" ]]; then
+      rm -f "$RESULT_FILE"
+      fail "AI review completed but produced an invalid normalized artifact ($validation_code): $validation_reason. Raw output: $RAW_OUTPUT_FILE"
+    fi
+  else
+    rm -f "$RESULT_FILE"
+    fail "AI review completed but produced an invalid artifact ($validation_code): $validation_reason. Raw output: $RAW_OUTPUT_FILE"
+  fi
 fi
 
 printf 'AI review result written: %s\n' "$RESULT_FILE"

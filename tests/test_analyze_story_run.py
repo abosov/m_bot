@@ -810,8 +810,10 @@ def test_analyze_story_run_surfaces_ai_review_raw_failure_without_result_artifac
 
     assert result.returncode == 0, result.stderr
     assert "Review prerequisites: ready" in result.stdout
-    assert "AI review: failed (raw output only)" in result.stdout
-    assert "RUN STATUS: BLOCKED (ai review failed; inspect ai_review_raw_output.txt)" in result.stdout
+    assert "AI review: failed normalization (raw output preserved)" in result.stdout
+    assert "Current stage: blocked_ai_review_normalization_failed" in result.stdout
+    assert "Blocked reason: AI review normalization failed; inspect ai_review_raw_output.txt" in result.stdout
+    assert "RUN STATUS: BLOCKED (ai review normalization failed; inspect ai_review_raw_output.txt)" in result.stdout
 
 
 def test_analyze_story_run_pytest_summary_has_clean_stderr(tmp_path: Path) -> None:

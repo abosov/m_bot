@@ -11,6 +11,7 @@ EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
 EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC=":(exclude)$EPHEMERAL_LEDGER_PATH"
 
 AI_REVIEW_FILE_NAME="ai_review_result.md"
+AI_REVIEW_RAW_OUTPUT_FILE_NAME="ai_review_raw_output.txt"
 RESULT_FILE_NAME="review_classification.md"
 RAW_OUTPUT_FILE_NAME="review_classification_raw_output.txt"
 
@@ -49,15 +50,22 @@ clear_classification_artifacts() {
 
 read_ai_review_artifact_state() {
   local review_file="$1"
+  local raw_output_file="${2:-}"
 
-  python3 - "$review_file" <<'PY'
+  python3 - "$review_file" "$raw_output_file" <<'PY'
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+raw_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
 
 if not path.exists():
-    print("missing\tai_review_missing_artifact\trequired file not found")
+    if raw_path and raw_path.exists():
+        print(
+            f"invalid\tai_review_normalization_failed\tNormalized AI review artifact is missing while raw output exists at {raw_path}"
+        )
+    else:
+        print("missing\tai_review_missing_artifact\trequired file not found")
     sys.exit(0)
 
 try:
@@ -266,7 +274,8 @@ if working_tree_dirty; then
 fi
 
 AI_REVIEW_FILE="$LATEST_RUN_DIR/$AI_REVIEW_FILE_NAME"
-validation_state="$(read_ai_review_artifact_state "$AI_REVIEW_FILE")"
+AI_REVIEW_RAW_OUTPUT_FILE="$LATEST_RUN_DIR/$AI_REVIEW_RAW_OUTPUT_FILE_NAME"
+validation_state="$(read_ai_review_artifact_state "$AI_REVIEW_FILE" "$AI_REVIEW_RAW_OUTPUT_FILE")"
 IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
 if [[ "$validation_status" != "valid" ]]; then
   clear_classification_artifacts "$LATEST_RUN_DIR"

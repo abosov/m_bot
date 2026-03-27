@@ -124,15 +124,22 @@ json_bool_value() {
 
 read_ai_review_artifact_state() {
   local review_file="$1"
+  local raw_output_file="${2:-}"
 
-  python3 - "$review_file" <<'PY'
+  python3 - "$review_file" "$raw_output_file" <<'PY'
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+raw_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
 
 if not path.exists():
-    print("missing\tai_review_missing_artifact\trequired file not found")
+    if raw_path and raw_path.exists():
+        print(
+            f"invalid\tai_review_normalization_failed\tNormalized AI review artifact is missing while raw output exists at {raw_path}"
+        )
+    else:
+        print("missing\tai_review_missing_artifact\trequired file not found")
     sys.exit(0)
 
 try:
@@ -538,10 +545,10 @@ summarize_ai_review_status() {
   local prereq_status validation_state validation_status validation_code validation_reason
 
   prereq_status="$(review_prereq_status "$run_dir")"
+  validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$raw_output_file")"
+  IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
 
   if [[ -f "$ai_review_file" ]]; then
-    validation_state="$(read_ai_review_artifact_state "$ai_review_file")"
-    IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
     if [[ "$validation_status" == "valid" ]]; then
       printf 'present\n'
     else
@@ -555,8 +562,8 @@ summarize_ai_review_status() {
     return 0
   fi
 
-  if [[ -f "$raw_output_file" ]]; then
-    printf 'failed (raw output only)\n'
+  if [[ "$validation_status" == "invalid" && "$validation_code" == "ai_review_normalization_failed" ]]; then
+    printf 'failed normalization (raw output preserved)\n'
     return 0
   fi
 
@@ -750,7 +757,7 @@ summarize_workflow_resume() {
   materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
   prereq_status="$(review_prereq_status "$run_dir")"
   head_status="$(head_consistency_status "$manifest_file")"
-  ai_review_validation_state="$(read_ai_review_artifact_state "$ai_review_file" 2>/dev/null || true)"
+  ai_review_validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$raw_output_file" 2>/dev/null || true)"
   IFS=$'\t' read -r ai_review_validation_status ai_review_validation_code ai_review_validation_reason <<<"$ai_review_validation_state"
   escalation_file="$run_dir/escalation_result.json"
   escalation_state="$(read_escalation_artifact_state "$escalation_file")"
@@ -819,9 +826,10 @@ summarize_workflow_resume() {
     latest_valid_stage="run_artifacts_ready"
     next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
 
-    if [[ -f "$raw_output_file" && ! -f "$ai_review_file" ]]; then
-      stage="blocked_ai_review_failed"
+    if [[ "$ai_review_validation_status" == "invalid" && "$ai_review_validation_code" == "ai_review_normalization_failed" ]]; then
+      stage="blocked_ai_review_normalization_failed"
       latest_valid_stage="run_artifacts_ready"
+      blocked_reason="AI review normalization failed; inspect ai_review_raw_output.txt"
       next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
     elif [[ -f "$ai_review_file" ]]; then
       if [[ "$ai_review_validation_status" != "valid" ]]; then
@@ -995,7 +1003,7 @@ final_status_line() {
   materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
   prereq_status="$(review_prereq_status "$run_dir")"
   head_status="$(head_consistency_status "$manifest_file")"
-  ai_review_validation_state="$(read_ai_review_artifact_state "$ai_review_file" 2>/dev/null || true)"
+  ai_review_validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$raw_output_file" 2>/dev/null || true)"
   IFS=$'\t' read -r ai_review_validation_status ai_review_validation_code ai_review_validation_reason <<<"$ai_review_validation_state"
   escalation_file="$run_dir/escalation_result.json"
   escalation_state="$(read_escalation_artifact_state "$escalation_file")"
@@ -1127,8 +1135,8 @@ final_status_line() {
     return 0
   fi
 
-  if [[ -f "$raw_output_file" ]]; then
-    printf 'RUN STATUS: BLOCKED (ai review failed; inspect ai_review_raw_output.txt)\n'
+  if [[ "$ai_review_validation_status" == "invalid" && "$ai_review_validation_code" == "ai_review_normalization_failed" ]]; then
+    printf 'RUN STATUS: BLOCKED (ai review normalization failed; inspect ai_review_raw_output.txt)\n'
     return 0
   fi
 
