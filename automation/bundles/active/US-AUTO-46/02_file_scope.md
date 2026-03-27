@@ -13,6 +13,7 @@
 - `tests/test_analyze_story_run.py`
 - `automation/bundle_packs/US-AUTO-46.bundle.md`
 - `automation/bundles/active/US-AUTO-46/**`
+- `tests/test_review_gate_story_run.py`
 
 ## Files Not Allowed To Change
 - `automation/run_codex_task.sh`

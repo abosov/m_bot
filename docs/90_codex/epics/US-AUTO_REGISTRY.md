@@ -51,7 +51,7 @@ The registry does **not** replace story bundles.
 - US-AUTO-38 — automatic rollback after failed runs
 
 ### Current Gaps
-- P0 review-boundary fidelity gap remains: review/classify/gate can still become semantically unreliable if implementation reality exists only in workspace changes and is not committed to HEAD; this is now tracked as US-AUTO-46.
+- P0 review-boundary fidelity gap closed by US-AUTO-46: review/classify/gate now fail closed when workspace-only changes would diverge from committed `HEAD`.
 - P1 workflow integrity gap closed by US-AUTO-41: the canonical handoff is now `materialize -> commit_story_artifacts -> run_story`.
 - P1 operator preflight gap closed by US-AUTO-44: `run_story.sh` now classifies dirty paths before execution and prints deterministic operator handoff or blocked-state guidance without weakening the clean-tree contract.
 - Remaining workflow improvements are downstream optimization stories, not missing clean-tree contract work.
@@ -106,7 +106,7 @@ The registry does **not** replace story bundles.
 | US-AUTO-44 | Materialization preflight & operator handoff | Make run preflight explicitly classify dirty state and print deterministic operator remediation before execution | follow-up | Implemented | P1 | None | US-AUTO-41 | automation/bundle_packs/US-AUTO-44.bundle.md | Added first-class preflight in `run_story.sh` with explicit classify/pass markers; story-artifact-only dirtiness now hands off to review changes -> `commit_story_artifacts.sh` -> rerun, while unrelated dirty paths block outside the handoff flow |
 
 | US-AUTO-45 | Deterministic review gate artifact reuse | Make review_gate consume pinned review/classification artifacts without recomputation drift | follow-up | Implemented | P1 | None | US-AUTO-44 | automation/bundles/active/US-AUTO-45/ | Merged in PR #224; gate now deterministically reuses pinned review/classification artifacts without upstream recomputation drift |
-| US-AUTO-46 | Review operates strictly on committed HEAD | Enforce branch fidelity so review/classify/gate analyze only committed repository state and never drift from workspace-only changes | enforcement | Planned | P1 | Draft bundle | US-AUTO-45 | N/A | P0 architectural invariant: review pipeline must operate on origin/main...HEAD only; fail closed when workspace reality diverges from committed HEAD |
+| US-AUTO-46 | Review operates strictly on committed HEAD | Enforce branch fidelity so review/classify/gate analyze only committed repository state and never drift from workspace-only changes | enforcement | Implemented | P1 | None | US-AUTO-45 | automation/bundle_packs/US-AUTO-46.bundle.md | Added fail-closed review boundary guard across review, AI review, classification, gate, and analyze messaging so workspace-only divergence cannot change committed `origin/main...HEAD` review semantics; analyze now honors the same ledger-only exemption as the runtime review boundary |
 
 | US-AUTO-18 | Operator UX | Improve console UX | follow-up | Planned | P3 | Keep downstream | US-AUTO-17 | N/A | UX only |
 

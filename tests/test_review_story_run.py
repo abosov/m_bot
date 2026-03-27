@@ -167,11 +167,38 @@ def test_review_story_run_blocks_when_working_tree_is_dirty(tmp_path: Path) -> N
 
     assert result.returncode != 0
     assert "Review safety: BLOCKED" in result.stdout
-    assert "working tree contains uncommitted materialized changes" in result.stdout
+    assert "workspace-only changes would make review diverge from committed HEAD and origin/main...HEAD" in result.stdout
+    assert "commit the changes if they belong in the reviewed diff, or discard them if they do not" in result.stdout
     assert f"AUTOMATION_RUN_DIR={latest_run_dir}" in result.stdout
     assert "analyze_story_run.sh US-AUTO-21" in result.stdout
     assert "follow the next recommended command from analyze output" in result.stdout
-    assert "not commit-consistent" in result.stderr
+    assert "workspace-only changes would make review diverge from committed HEAD and origin/main...HEAD" in result.stderr
+
+
+def test_review_story_run_blocks_dirty_workspace_before_artifact_validation(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    latest_run_dir = make_run_dir(root_dir, "US-AUTO-21", "2026-03-13_11-00-00")
+    write_artifacts(latest_run_dir, include_manifest=False)
+    (root_dir / "README.md").write_text("dirty change\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-21"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "Review safety: BLOCKED" in result.stdout
+    assert "workspace-only changes would make review diverge from committed HEAD and origin/main...HEAD" in result.stdout
+    assert "manifest.md" not in result.stderr
+    assert "workspace-only changes would make review diverge from committed HEAD and origin/main...HEAD" in result.stderr
 
 
 def test_review_story_run_ignores_ephemeral_ledger_dirty_state(tmp_path: Path) -> None:

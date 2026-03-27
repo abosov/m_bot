@@ -6,6 +6,8 @@ ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
 RUN_DIR_OVERRIDE="${AUTOMATION_RUN_DIR:-}"
 STORY_ID=""
+EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
+EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC=":(exclude)$EPHEMERAL_LEDGER_PATH"
 
 # shellcheck source=automation/scripts/merge_recommendation_contract.sh
 source "$SCRIPT_DIR/merge_recommendation_contract.sh"
@@ -241,12 +243,12 @@ working_tree_is_clean() {
     return 0
   fi
 
-  status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal 2>/dev/null || true)"
+  status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" 2>/dev/null || true)"
   [[ -z "$status_output" ]]
 }
 
 dirty_tree_reason() {
-  printf '%s\n' "working tree dirty; commit changes before review/classify/gate"
+  printf '%s\n' "workspace-only changes detected; commit or discard them before review/classify/gate because those steps operate on committed HEAD only"
 }
 
 current_checkout_head() {

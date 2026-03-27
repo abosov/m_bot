@@ -307,7 +307,8 @@ def test_review_gate_story_run_blocks_before_consuming_artifacts_when_working_tr
 
     assert result.returncode != 0
     assert "review gate blocked for 'US-AUTO-21'" in result.stderr
-    assert "would not match committed state" in result.stderr
+    assert "would make gate evaluation diverge from committed HEAD and origin/main...HEAD" in result.stderr
+    assert "commit the changes if they belong in the reviewed diff, or discard them if they do not" in result.stderr
     assert not (run_dir / "review_gate_result.json").exists()
 
 

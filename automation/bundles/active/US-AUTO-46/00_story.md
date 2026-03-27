@@ -75,6 +75,7 @@ Enforce branch fidelity at the review boundary so `review_story_run.sh` and down
 - `tests/test_analyze_story_run.py`
 - `automation/bundle_packs/US-AUTO-46.bundle.md`
 - `automation/bundles/active/US-AUTO-46/**`
+- `tests/test_review_gate_story_run.py`
 
 ## Forbidden Files
 - `automation/run_codex_task.sh`

@@ -28,11 +28,11 @@ print_review_safety_blocked() {
   local story_id="$1"
   local run_dir="$2"
   printf 'Review safety: BLOCKED\n'
-  printf 'Reason: working tree contains uncommitted materialized changes\n'
+  printf 'Reason: workspace-only changes would make review diverge from committed HEAD and origin/main...HEAD\n'
   printf 'Next step:\n'
-  printf '1. inspect changes\n'
-  printf '2. commit changes\n'
-  printf '3. if needed, rerun automation/scripts/run_story.sh %s\n' "$story_id"
+  printf '1. inspect the workspace-only changes\n'
+  printf '2. commit the changes if they belong in the reviewed diff, or discard them if they do not\n'
+  printf '3. if you committed review-relevant changes, rerun automation/scripts/run_story.sh %s\n' "$story_id"
   printf '4. run %s\n' "$(resume_next_command "analyze_story_run.sh" "$story_id" "$run_dir")"
   printf '5. follow the next recommended command from analyze output\n'
 }
@@ -137,6 +137,11 @@ STORY_RUNS_ROOT="$RUNS_ROOT/$STORY_ID"
 
 LATEST_RUN_DIR="$(resolve_target_run_dir "$STORY_RUNS_ROOT" "$RUN_DIR_OVERRIDE")"
 
+if working_tree_dirty; then
+  print_review_safety_blocked "$STORY_ID" "$LATEST_RUN_DIR"
+  fail "review blocked for '$STORY_ID': workspace-only changes would make review diverge from committed HEAD and origin/main...HEAD"
+fi
+
 required_artifacts=(
   "manifest.md"
   "review_bundle.md"
@@ -190,11 +195,6 @@ if (( ${#available_optional_artifacts[@]} > 0 )); then
 fi
 
 printf '\n'
-
-if working_tree_dirty; then
-  print_review_safety_blocked "$STORY_ID" "$LATEST_RUN_DIR"
-  fail "review blocked for '$STORY_ID': current branch has uncommitted materialized changes and is not commit-consistent"
-fi
 
 print_review_safety_safe
 printf '\n'
