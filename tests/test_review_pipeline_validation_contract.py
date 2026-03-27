@@ -141,3 +141,32 @@ def test_classification_fail_closed_on_incomplete_ai_review_and_clears_stale_out
     assert not marker_file.exists()
     assert not (run_dir / "review_classification.md").exists()
     assert not (run_dir / "review_classification_raw_output.txt").exists()
+
+
+def test_classification_fail_closed_on_unreadable_ai_review_and_clears_stale_outputs(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = root_dir / "automation" / "runs" / "US-AUTO-43" / "2026-03-27_10-15-00"
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.md").write_text("- story_id: US-AUTO-43\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_bytes(b"\xff\xfe\x00\x00")
+    (run_dir / "review_classification.md").write_text("stale\n", encoding="utf-8")
+    (run_dir / "review_classification_raw_output.txt").write_text("stale\n", encoding="utf-8")
+
+    rules_file = make_rules_file(root_dir)
+    marker_file = tmp_path / "codex_invoked_unreadable.txt"
+    fake_bin_dir = tmp_path / "bin_unreadable"
+    make_fake_codex(fake_bin_dir, marker_file)
+
+    result = run_classification(
+        root_dir,
+        "US-AUTO-43",
+        run_dir=run_dir,
+        fake_bin_dir=fake_bin_dir,
+        rules_file=rules_file,
+    )
+
+    assert result.returncode != 0
+    assert "ai_review_unreadable_artifact" in result.stderr
+    assert not marker_file.exists()
+    assert not (run_dir / "review_classification.md").exists()
+    assert not (run_dir / "review_classification_raw_output.txt").exists()

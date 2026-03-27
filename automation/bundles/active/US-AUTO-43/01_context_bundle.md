@@ -7,9 +7,9 @@
 - automation/scripts/analyze_story_run.sh
 
 ## Current Code Reality
-- validation before classification is inconsistent
-- invalid outputs may propagate
-- failure states are not formally classified
+- AI review validation is fail-closed across review/classify/gate/analyze
+- invalid outputs cannot propagate to classification
+- failure states are formally classified, including unreadable artifact handling
 
 ## Architectural Intent
 - treat AI review as strict validation boundary
@@ -25,4 +25,3 @@
 - validation enforced before classification
 - failures block downstream execution
 - behavior is deterministic
-

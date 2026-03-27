@@ -45,7 +45,11 @@ if not path.exists():
     print("missing\tai_review_missing_artifact\trequired file not found")
     sys.exit(0)
 
-text = path.read_text(encoding="utf-8")
+try:
+    text = path.read_text(encoding="utf-8")
+except Exception:
+    print("invalid\tai_review_unreadable_artifact\tAI review artifact could not be read as UTF-8 text")
+    sys.exit(0)
 if not text.strip():
     print("invalid\tai_review_empty_artifact\tAI review artifact is empty")
     sys.exit(0)

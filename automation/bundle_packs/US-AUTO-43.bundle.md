@@ -47,10 +47,10 @@ Out of scope:
 - docs/90_codex/CODEX_OPERATING_SYSTEM.md
 
 ## Current Code Reality
-- AI review outputs are not consistently validated
-- classification may run on invalid inputs
-- failure states are implicit and not classified
-- debugging requires manual inspection
+- AI review outputs now enforce a strict fail-closed contract
+- classification is blocked when AI review artifacts are missing, malformed, incomplete, or unreadable
+- failure states are explicit through deterministic validation codes
+- debugging no longer depends on parser stack traces for invalid artifacts
 
 ## Target Outcome
 - AI review becomes a strict validation boundary
@@ -97,6 +97,7 @@ All additional issues must be captured in followups.
 - classification MUST NOT run on invalid AI review
 - all failure modes must be fail-closed
 - behavior must be deterministic
+- unreadable/non-UTF8 AI review artifacts must surface as `ai_review_unreadable_artifact`
 
 === FILE: 01_context_bundle.md ===
 # US-AUTO-43: Context Bundle
@@ -108,9 +109,9 @@ All additional issues must be captured in followups.
 - automation/scripts/analyze_story_run.sh
 
 ## Current Code Reality
-- validation before classification is inconsistent
-- invalid outputs may propagate
-- failure states are not formally classified
+- AI review validation is fail-closed across review/classify/gate/analyze
+- invalid outputs cannot propagate to classification
+- failure states are formally classified, including unreadable artifact handling
 
 ## Architectural Intent
 - treat AI review as strict validation boundary
@@ -208,6 +209,7 @@ Implement strict validation so:
 - missing artifact triggers failure
 - malformed output triggers failure
 - incomplete output triggers failure
+- unreadable/non-UTF8 output triggers failure
 - logical invalidity triggers failure
 
 ## Verification

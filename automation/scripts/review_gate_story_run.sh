@@ -131,7 +131,13 @@ if not path.exists():
     print("missing\tai_review_missing_artifact\trequired file not found")
     sys.exit(0)
 
-text = path.read_text(encoding="utf-8")
+try:
+    text = path.read_text(encoding="utf-8")
+except Exception:
+    print(
+        "invalid\tai_review_unreadable_artifact\tPinned AI review artifact could not be read as UTF-8 text; rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+    )
+    sys.exit(0)
 if not text.strip():
     print("invalid\tai_review_empty_artifact\tPinned AI review artifact is empty; rerun automation/scripts/ai_review_story_run.sh for this pinned run")
     sys.exit(0)

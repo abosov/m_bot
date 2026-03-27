@@ -42,10 +42,10 @@ Out of scope:
 - docs/90_codex/CODEX_OPERATING_SYSTEM.md
 
 ## Current Code Reality
-- AI review outputs are not consistently validated
-- classification may run on invalid inputs
-- failure states are implicit and not classified
-- debugging requires manual inspection
+- AI review outputs now enforce a strict fail-closed contract
+- classification is blocked when AI review artifacts are missing, malformed, incomplete, or unreadable
+- failure states are explicit through deterministic validation codes
+- debugging no longer depends on parser stack traces for invalid artifacts
 
 ## Target Outcome
 - AI review becomes a strict validation boundary
@@ -92,4 +92,4 @@ All additional issues must be captured in followups.
 - classification MUST NOT run on invalid AI review
 - all failure modes must be fail-closed
 - behavior must be deterministic
-
+- unreadable/non-UTF8 AI review artifacts must surface as `ai_review_unreadable_artifact`

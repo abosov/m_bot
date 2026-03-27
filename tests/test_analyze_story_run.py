@@ -399,6 +399,37 @@ def test_analyze_story_run_surfaces_invalid_ai_review_artifact(tmp_path: Path) -
     assert "RUN STATUS: READY TO CLASSIFY" not in result.stdout
 
 
+def test_analyze_story_run_surfaces_unreadable_ai_review_artifact(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_13-06-00")
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "automation/scripts/analyze_story_run.sh\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_bytes(b"\xff\xfe\x00\x00")
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "AI review: present (invalid: ai_review_unreadable_artifact)" in result.stdout
+    assert "Current stage: blocked_ai_review_invalid" in result.stdout
+    assert "Latest valid stage: run_artifacts_ready" in result.stdout
+    assert "RUN STATUS: CHECK AI REVIEW OUTPUT (invalid artifact: ai_review_unreadable_artifact)" in result.stdout
+    assert "RUN STATUS: READY TO CLASSIFY" not in result.stdout
+
+
 def test_analyze_story_run_marks_missing_manifest_fields_as_unknown(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_14-00-00")
