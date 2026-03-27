@@ -906,7 +906,7 @@ final_status_line() {
     elif [[ "$head_status" == unknown:current_head_unavailable:* ]]; then
       printf 'RUN STATUS: BLOCKED (cannot verify run evidence: checkout HEAD unavailable)\n'
     elif working_tree_is_clean; then
-      printf 'RUN STATUS: READY TO RUN GATE (classification approve)\n'
+      printf 'RUN STATUS: READY TO RUN GATE (pinned artifacts ready; classification approve)\n'
     else
       printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
     fi

@@ -300,7 +300,7 @@ def test_analyze_story_run_accepts_same_line_recommendation_format(tmp_path: Pat
     assert result.returncode == 0, result.stderr
     assert "Classification: present (approve)" in result.stdout
     assert "Classification: present (invalid recommendation)" not in result.stdout
-    assert "RUN STATUS: READY TO RUN GATE (classification approve)" in result.stdout
+    assert "RUN STATUS: READY TO RUN GATE (pinned artifacts ready; classification approve)" in result.stdout
 
 
 def test_analyze_story_run_marks_malformed_recommendation_as_invalid(tmp_path: Path) -> None:
@@ -955,7 +955,7 @@ def test_analyze_story_run_accepts_short_starting_head_when_isolated_worktree_he
     assert f"Starting HEAD: {short_head}" in result.stdout
     assert "Evidence HEAD Consistency: match" in result.stdout
     assert "stale run evidence" not in result.stdout
-    assert "RUN STATUS: READY TO RUN GATE (classification approve)" in result.stdout
+    assert "RUN STATUS: READY TO RUN GATE (pinned artifacts ready; classification approve)" in result.stdout
 
 def test_analyze_story_run_rejects_dash_separator_recommendation_format(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
