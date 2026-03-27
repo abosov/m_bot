@@ -61,6 +61,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 19. Resolve the latest review artifacts for the story (`automation/scripts/review_story_run.sh <STORY-ID>`).
    Review can proceed only when the current branch working tree is clean, excluding only the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
    Review is defined against committed `HEAD` only, so any workspace-only divergence must fail closed before review/classify/gate continue.
+   The committed-`HEAD` boundary check happens at review entry before missing-artifact inspection so workspace divergence cannot be masked by partial run output.
    If workspace-only changes exist, inspect them and either commit them into `HEAD` or discard them; rerun story execution if you committed review-relevant changes.
    The review summary prints the canonical pinned inspection helper (`AUTOMATION_RUN_DIR=<run-dir> automation/scripts/analyze_story_run.sh <STORY-ID>`) plus the deterministic pinned gate command for that same run.
    The review summary must use the exact selected run directory for both printed commands so operators can continue deterministically from that run.

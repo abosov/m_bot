@@ -137,6 +137,11 @@ STORY_RUNS_ROOT="$RUNS_ROOT/$STORY_ID"
 
 LATEST_RUN_DIR="$(resolve_target_run_dir "$STORY_RUNS_ROOT" "$RUN_DIR_OVERRIDE")"
 
+if working_tree_dirty; then
+  print_review_safety_blocked "$STORY_ID" "$LATEST_RUN_DIR"
+  fail "review blocked for '$STORY_ID': workspace-only changes would make review diverge from committed HEAD and origin/main...HEAD"
+fi
+
 required_artifacts=(
   "manifest.md"
   "review_bundle.md"
@@ -190,11 +195,6 @@ if (( ${#available_optional_artifacts[@]} > 0 )); then
 fi
 
 printf '\n'
-
-if working_tree_dirty; then
-  print_review_safety_blocked "$STORY_ID" "$LATEST_RUN_DIR"
-  fail "review blocked for '$STORY_ID': workspace-only changes would make review diverge from committed HEAD and origin/main...HEAD"
-fi
 
 print_review_safety_safe
 printf '\n'
