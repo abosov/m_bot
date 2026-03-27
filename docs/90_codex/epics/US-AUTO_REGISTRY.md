@@ -62,7 +62,7 @@ The registry does **not** replace story bundles.
 - P1 workflow integrity: US-AUTO-41
 - P1 review-boundary fidelity: US-AUTO-46
 - P1 rerun convergence boundary / manual finish contract: US-AUTO-47
-- P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28 (US-AUTO-28 in progress)
+- P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28 (US-AUTO-28 in progress; US-AUTO-28-F1 blocked by US-AUTO-49 scope-baseline fix)
 - P3 cycle cost reduction: US-AUTO-29 → US-AUTO-31
 - P4 operator UX: US-AUTO-18
 - Future workflow simplification: make bundle pack the single source of truth and treat bundles/active as materialized-only output
@@ -73,8 +73,8 @@ The registry does **not** replace story bundles.
 - First run of `US-AUTO-28-F1` confirmed an orchestration blocker: scope validation evaluated a diff that included already-committed bundle artifacts for the active story (`automation/bundle_packs/US-AUTO-28-F1.bundle.md` and `automation/bundles/active/US-AUTO-28-F1/*`). As a result, the run was blocked before the review stage even though Codex produced valid in-scope implementation changes (`automation/scripts/run_story.sh`, `tests/test_run_story.py`). This indicates that the current scope validation uses a branch-level diff instead of isolating Codex-produced changes. Treat this as a separate workflow/scope-baseline follow-up, not as part of `US-AUTO-28-F1`.
 
 ### Next Recommended Story
-1. US-AUTO-47 — rerun convergence / manual finish contract
-2. US-AUTO-28 — escalation gate for repeated reject stagnation (in progress)
+1. US-AUTO-49 — scope-baseline fix so committed active-story bundle artifacts are excluded from runtime scope validation
+2. US-AUTO-28-F1 — escalation input validation hardening (rerun only after US-AUTO-49 merges)
 3. US-AUTO-26 — expensive run budget guard
 4. US-AUTO-27 — pipeline zone cap
 5. US-AUTO-29 — targeted test strategy
@@ -125,7 +125,9 @@ The registry does **not** replace story bundles.
 | US-AUTO-43 | AI review failure handling and recovery contract | Enforce fail-closed AI review validation boundary so missing, malformed, incomplete, or logically invalid AI review artifacts cannot propagate to classification or gate | follow-up | Implemented | P1 | None | US-AUTO-28 | automation/bundle_packs/US-AUTO-43.bundle.md | Merged in PR #232; implementation and tests are complete, but committed-head reruns do not converge to a fixed point and can re-materialize workspace-only changes, preventing pinned review chain completion without manual intervention; tracked as separate convergence/operator UX follow-up |
 | US-AUTO-47 | Rerun convergence boundary | Bound rerun behavior so reruns stop cleanly at a deterministic convergence boundary instead of widening in place. | implementation | Implemented | P1 | Merged in PR #236; no further action in this story. | US-AUTO-43 | automation/bundle_packs/US-AUTO-47.bundle.md | Merged to `main`. During review/run validation, a separate AI review artifact contract issue was observed and split out into follow-up US-AUTO-48. |
 | US-AUTO-48 | AI review artifact contract hardening | Harden the AI review artifact contract so malformed or incomplete AI review output cannot leave the pipeline without a valid normalized `ai_review_result.md` or explicit fail-closed evidence for downstream stages. | follow-up | Implemented | P1 | None | US-AUTO-47 | automation/bundle_packs/US-AUTO-48.bundle.md | Merged in PR #239. AI review now normalizes `ai_review_result.md` from preserved raw output when possible and otherwise emits deterministic `ai_review_normalization_failed` evidence so analyze, classify, and gate fail closed consistently. |
-| US-AUTO-28-F1 | Escalation input validation hardening | Enforce strict fail-closed validation of escalation artifact input (schema, origin, transitions) | follow-up | Bundle Ready | P1 | Wait for scope-baseline blocker fix, then rerun | US-AUTO-28 | automation/bundle_packs/US-AUTO-28-F1.bundle.md | Bundle validated; first run blocked because committed active-story bundle artifacts were included in scope validation before review |
+| US-AUTO-28-F1 | Escalation input validation hardening | Enforce strict fail-closed validation of escalation artifact input (schema, origin, transitions) | follow-up | Blocked | P1 | Wait for US-AUTO-49 merge, then rerun | US-AUTO-28 | automation/bundle_packs/US-AUTO-28-F1.bundle.md | Bundle validated; first run blocked because committed active-story bundle artifacts were included in scope validation before review; blocked by US-AUTO-49 |
+| US-AUTO-49 | Scope validation ignores committed active-story bundle artifacts | Exclude already-committed canonical bundle artifacts for the active story from runtime scope validation so only Codex-produced implementation delta is checked | follow-up | Bundle Ready | P1 | Commit registry + bundle artifacts, then run story | US-AUTO-28-F1 | automation/bundle_packs/US-AUTO-49.bundle.md | Follow-up for confirmed scope-baseline blocker observed on first US-AUTO-28-F1 run; needed before rerunning US-AUTO-28-F1 |
+
 
 ---
 
