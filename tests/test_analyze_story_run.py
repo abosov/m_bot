@@ -35,6 +35,25 @@ def run_script(root_dir: Path, story_id: str, *, run_dir: Path | None = None) ->
     )
 
 
+def current_head(root_dir: Path) -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def add_commit(root_dir: Path, relative_path: str, content: str, message: str) -> str:
+    target = root_dir / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    subprocess.run(["git", "add", relative_path], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", message], cwd=root_dir, check=True, capture_output=True, text=True)
+    return current_head(root_dir)
+
+
 def test_analyze_story_run_exists() -> None:
     assert SCRIPT_PATH.exists()
 
@@ -1749,6 +1768,130 @@ def test_analyze_story_run_blocks_resume_when_evidence_is_stale(tmp_path: Path) 
     assert "Next recommended command: none" in result.stdout
     assert "Blocked reason: manifest HEAD" in result.stdout
     assert current_head in result.stdout
+
+
+def test_analyze_story_run_reports_non_converging_rerun_manual_finish_boundary(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    first_head = current_head(root_dir)
+    second_head = add_commit(root_dir, "story_impl.txt", "second\n", "second head")
+
+    previous_run = make_run_dir(root_dir, "US-AUTO-47", "2026-03-27_10-00-00")
+    (previous_run / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (previous_run / "changed_files.txt").write_text(
+        "services/story_loop.py\n"
+        "tests/test_story_loop.py\n",
+        encoding="utf-8",
+    )
+    (previous_run / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (previous_run / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (previous_run / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (previous_run / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-47", "2026-03-27_11-00-00")
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {second_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "tests/test_story_loop.py\n"
+        "services/story_loop.py\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+
+    result = run_script(root_dir, "US-AUTO-47", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Current stage: blocked_non_converging_rerun" in result.stdout
+    assert "Latest valid stage: run_artifacts_ready" in result.stdout
+    assert "Resume safety: blocked" in result.stdout
+    assert "Next recommended command: none" in result.stdout
+    assert "manual finish required" in result.stdout
+    assert "Manual finish: inspect workspace-only changes" in result.stdout
+    assert "RUN STATUS: BLOCKED (non-converging rerun; manual finish required)" in result.stdout
+
+
+def test_analyze_story_run_allows_normal_run_artifacts_when_changed_files_do_not_repeat(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    first_head = current_head(root_dir)
+    second_head = add_commit(root_dir, "story_impl.txt", "second\n", "second head")
+
+    previous_run = make_run_dir(root_dir, "US-AUTO-47", "2026-03-27_10-00-00")
+    (previous_run / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (previous_run / "changed_files.txt").write_text("services/story_a.py\n", encoding="utf-8")
+    (previous_run / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (previous_run / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (previous_run / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (previous_run / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-47", "2026-03-27_11-00-00")
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {second_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text("services/story_b.py\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+
+    result = run_script(root_dir, "US-AUTO-47", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Current stage: run_artifacts_ready" in result.stdout
+    assert "blocked_non_converging_rerun" not in result.stdout
+    assert "RUN STATUS: INCOMPLETE (review artifacts not generated yet)" in result.stdout
 
 
 def test_analyze_story_run_reports_accept_as_is_as_terminal_blocked(tmp_path: Path) -> None:

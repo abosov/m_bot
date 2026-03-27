@@ -47,6 +47,12 @@ resolve_latest_run_dir() {
   printf '%s\n' "$latest_run_dir"
 }
 
+list_story_run_dirs() {
+  local story_runs_root="$1"
+
+  find "$story_runs_root" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort
+}
+
 normalize_path() {
   local path="$1"
 
@@ -327,6 +333,93 @@ manifest_source_of_truth_head() {
   if [[ -n "$isolated_worktree_head" ]]; then
     printf '%s\n' "$isolated_worktree_head"
   fi
+}
+
+run_has_nonempty_changed_files() {
+  local run_dir="$1"
+  local changed_files_file="$run_dir/changed_files.txt"
+
+  [[ -f "$changed_files_file" ]] || return 1
+  [[ -n "$(sed '/^[[:space:]]*$/d' "$changed_files_file")" ]]
+}
+
+run_is_convergence_candidate() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  local codex_exit_code materialization_status pytest_exit_code changed_files_detected
+
+  [[ -f "$manifest_file" ]] || return 1
+
+  codex_exit_code="$(manifest_value "$manifest_file" "codex_exit_code")"
+  pytest_exit_code="$(manifest_value "$manifest_file" "pytest_exit_code")"
+  materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
+  changed_files_detected="$(manifest_value "$manifest_file" "changed_files_detected")"
+
+  [[ "$codex_exit_code" == "0" ]] || return 1
+  [[ "$pytest_exit_code" == "0" ]] || return 1
+  [[ "$changed_files_detected" == "yes" ]] || return 1
+  [[ "$materialization_status" == "applied" || "$materialization_status" == "not_needed" ]] || return 1
+  run_has_nonempty_changed_files "$run_dir" || return 1
+
+  [[ ! -f "$run_dir/ai_review_result.md" ]] || return 1
+  [[ ! -f "$run_dir/review_classification.md" ]] || return 1
+  [[ ! -f "$run_dir/review_gate_result.json" ]] || return 1
+  [[ ! -f "$run_dir/escalation_result.json" ]] || return 1
+}
+
+changed_files_match() {
+  local left_file="$1"
+  local right_file="$2"
+
+  python3 - "$left_file" "$right_file" <<'PY'
+import sys
+from pathlib import Path
+
+def normalized(path: Path) -> list[str]:
+    return sorted(line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+
+raise SystemExit(0 if normalized(Path(sys.argv[1])) == normalized(Path(sys.argv[2])) else 1)
+PY
+}
+
+resolve_previous_run_dir() {
+  local story_runs_root="$1"
+  local target_run_dir="$2"
+  local previous_run_dir=""
+  local candidate_run_dir
+
+  while IFS= read -r candidate_run_dir; do
+    [[ "$candidate_run_dir" == "$target_run_dir" ]] && break
+    previous_run_dir="$candidate_run_dir"
+  done < <(list_story_run_dirs "$story_runs_root")
+
+  [[ -n "$previous_run_dir" ]] || return 1
+  printf '%s\n' "$previous_run_dir"
+}
+
+detect_non_converging_rerun_for_run() {
+  local story_runs_root="$1"
+  local run_dir="$2"
+  local previous_run_dir previous_head latest_head
+
+  previous_run_dir="$(resolve_previous_run_dir "$story_runs_root" "$run_dir" || true)"
+  [[ -n "$previous_run_dir" ]] || return 1
+
+  run_is_convergence_candidate "$previous_run_dir" || return 1
+  run_is_convergence_candidate "$run_dir" || return 1
+
+  previous_head="$(manifest_source_of_truth_head "$previous_run_dir/manifest.md")"
+  latest_head="$(manifest_source_of_truth_head "$run_dir/manifest.md")"
+
+  [[ "$previous_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$latest_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$previous_head" != "$latest_head" ]] || return 1
+
+  changed_files_match \
+    "$previous_run_dir/changed_files.txt" \
+    "$run_dir/changed_files.txt" || return 1
+
+  printf '%s\n' "$previous_run_dir"
 }
 
 head_matches_expected() {
@@ -645,6 +738,7 @@ summarize_workflow_resume() {
   local escalation_status escalation_required escalation_reason resolution_action escalation_decision_source escalation_valid escalation_state
   local head_status expected_head current_head stage latest_valid_stage resume_safety blocked_reason next_command decision_source
   local ai_review_validation_state ai_review_validation_status ai_review_validation_code ai_review_validation_reason
+  local previous_non_converging_run_dir
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -661,6 +755,7 @@ summarize_workflow_resume() {
   escalation_file="$run_dir/escalation_result.json"
   escalation_state="$(read_escalation_artifact_state "$escalation_file")"
   IFS=$'\x1f' read -r escalation_valid escalation_required escalation_status escalation_decision_source escalation_reason resolution_action <<<"$escalation_state"
+  previous_non_converging_run_dir="$(detect_non_converging_rerun_for_run "$STORY_RUNS_ROOT" "$run_dir" || true)"
 
   if [[ -f "$changed_files_file" ]]; then
     changed_files_count="$(sed '/^[[:space:]]*$/d' "$changed_files_file" | wc -l | tr -d ' ')"
@@ -713,6 +808,12 @@ summarize_workflow_resume() {
     resume_safety="blocked"
     blocked_reason="missing review prerequisites: ${prereq_status#missing:}"
     next_command="automation/scripts/run_story.sh $story_id"
+  elif [[ -n "$previous_non_converging_run_dir" ]]; then
+    stage="blocked_non_converging_rerun"
+    latest_valid_stage="run_artifacts_ready"
+    resume_safety="blocked"
+    blocked_reason="latest committed-head rerun matched changed_files.txt from previous run $(basename "$previous_non_converging_run_dir"); manual finish required"
+    next_command="none"
   else
     stage="run_artifacts_ready"
     latest_valid_stage="run_artifacts_ready"
@@ -865,6 +966,9 @@ summarize_workflow_resume() {
   if [[ -n "$blocked_reason" ]]; then
     printf 'Blocked reason: %s\n' "$blocked_reason"
   fi
+  if [[ "$stage" == "blocked_non_converging_rerun" ]]; then
+    printf 'Manual finish: inspect workspace-only changes, finish the story manually, commit the result to HEAD, then continue review on committed HEAD without rerunning automation/scripts/run_story.sh\n'
+  fi
 }
 
 final_status_line() {
@@ -880,6 +984,7 @@ final_status_line() {
   local escalation_file escalation_status escalation_required resolution_action escalation_decision_source escalation_valid escalation_state
   local head_status expected_head current_head
   local ai_review_validation_state ai_review_validation_status ai_review_validation_code ai_review_validation_reason
+  local previous_non_converging_run_dir
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -895,6 +1000,7 @@ final_status_line() {
   escalation_file="$run_dir/escalation_result.json"
   escalation_state="$(read_escalation_artifact_state "$escalation_file")"
   IFS=$'\x1f' read -r escalation_valid escalation_required escalation_status escalation_decision_source _ resolution_action <<<"$escalation_state"
+  previous_non_converging_run_dir="$(detect_non_converging_rerun_for_run "$STORY_RUNS_ROOT" "$run_dir" || true)"
 
   if [[ "$head_status" == mismatch:* ]]; then
     expected_head="${head_status#mismatch:}"
@@ -1008,6 +1114,11 @@ final_status_line() {
 
   if [[ "$changed_files_detected" == "no" || "$changed_files_count" == "0" ]]; then
     printf 'RUN STATUS: CHECK RUN OUTPUT (no changed files detected)\n'
+    return 0
+  fi
+
+  if [[ -n "$previous_non_converging_run_dir" ]]; then
+    printf 'RUN STATUS: BLOCKED (non-converging rerun; manual finish required)\n'
     return 0
   fi
 

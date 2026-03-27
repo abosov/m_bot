@@ -49,6 +49,14 @@ require_file() {
   [[ -f "$path" ]] || fail "required file not found: $path"
 }
 
+manifest_value() {
+  local manifest_file="$1"
+  local key="$2"
+  [[ -f "$manifest_file" ]] || return 0
+
+  sed -n -E "s/^-[[:space:]]+${key}:[[:space:]]*(.*)$/\\1/p" "$manifest_file" | head -n 1
+}
+
 json_value() {
   local json_file="$1"
   local key="$2"
@@ -254,10 +262,16 @@ ensure_story_artifacts_committed() {
 
 run_preflight_stage() {
   local story_id="$1"
+  local story_runs_root="$RUNS_ROOT/$story_id"
+  local convergence_boundary previous_run_dir latest_run_dir
 
   echo "[INFO] Preflight: classifying dirty paths for $story_id" >&2
   ensure_story_artifacts_committed "$story_id"
   enforce_escalation_resolution "$story_id"
+  if [[ -d "$story_runs_root" ]] && convergence_boundary="$(detect_non_converging_rerun "$story_runs_root" || true)" && [[ -n "$convergence_boundary" ]]; then
+    IFS=$'\n' read -r previous_run_dir latest_run_dir <<< "$convergence_boundary"
+    fail_non_converging_rerun "$story_id" "$previous_run_dir" "$latest_run_dir"
+  fi
   echo "[INFO] Preflight: passed for $story_id" >&2
 }
 
@@ -279,6 +293,129 @@ resolve_latest_run_dir() {
 
   [[ -n "$latest_run_dir" ]] || return 1
   printf '%s\n' "$latest_run_dir"
+}
+
+list_story_run_dirs() {
+  local story_runs_root="$1"
+
+  find "$story_runs_root" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | LC_ALL=C sort
+}
+
+run_source_of_truth_head() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  local isolated_worktree_head starting_head
+
+  isolated_worktree_head="$(manifest_value "$manifest_file" "isolated_worktree_head")"
+  if [[ "$isolated_worktree_head" =~ ^[0-9a-f]{40}$ ]]; then
+    printf '%s\n' "$isolated_worktree_head"
+    return 0
+  fi
+
+  starting_head="$(manifest_value "$manifest_file" "starting_head")"
+  if [[ "$starting_head" =~ ^[0-9a-f]{40}$ ]]; then
+    printf '%s\n' "$starting_head"
+    return 0
+  fi
+
+  printf '\n'
+}
+
+run_has_nonempty_changed_files() {
+  local run_dir="$1"
+  local changed_files_file="$run_dir/changed_files.txt"
+
+  [[ -f "$changed_files_file" ]] || return 1
+  [[ -n "$(sed '/^[[:space:]]*$/d' "$changed_files_file")" ]]
+}
+
+run_is_convergence_candidate() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  local codex_exit_code materialization_status pytest_exit_code changed_files_detected
+
+  [[ -f "$manifest_file" ]] || return 1
+
+  codex_exit_code="$(manifest_value "$manifest_file" "codex_exit_code")"
+  pytest_exit_code="$(manifest_value "$manifest_file" "pytest_exit_code")"
+  materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
+  changed_files_detected="$(manifest_value "$manifest_file" "changed_files_detected")"
+
+  [[ "$codex_exit_code" == "0" ]] || return 1
+  [[ "$pytest_exit_code" == "0" ]] || return 1
+  [[ "$changed_files_detected" == "yes" ]] || return 1
+  [[ "$materialization_status" == "applied" || "$materialization_status" == "not_needed" ]] || return 1
+  run_has_nonempty_changed_files "$run_dir" || return 1
+
+  [[ ! -f "$run_dir/ai_review_result.md" ]] || return 1
+  [[ ! -f "$run_dir/review_classification.md" ]] || return 1
+  [[ ! -f "$run_dir/review_gate_result.json" ]] || return 1
+  [[ ! -f "$run_dir/escalation_result.json" ]] || return 1
+}
+
+changed_files_match() {
+  local left_file="$1"
+  local right_file="$2"
+
+  python3 - "$left_file" "$right_file" <<'PY'
+import sys
+from pathlib import Path
+
+def normalized(path: Path) -> list[str]:
+    return sorted(line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+
+raise SystemExit(0 if normalized(Path(sys.argv[1])) == normalized(Path(sys.argv[2])) else 1)
+PY
+}
+
+detect_non_converging_rerun() {
+  local story_runs_root="$1"
+  local previous_run_dir latest_run_dir
+  local previous_head latest_head
+  local run_dir
+  local run_dirs=()
+
+  while IFS= read -r run_dir; do
+    run_dirs+=("$run_dir")
+  done < <(list_story_run_dirs "$story_runs_root")
+
+  (( ${#run_dirs[@]} >= 2 )) || return 1
+
+  latest_run_dir="${run_dirs[${#run_dirs[@]}-1]}"
+  previous_run_dir="${run_dirs[${#run_dirs[@]}-2]}"
+
+  run_is_convergence_candidate "$previous_run_dir" || return 1
+  run_is_convergence_candidate "$latest_run_dir" || return 1
+
+  previous_head="$(run_source_of_truth_head "$previous_run_dir")"
+  latest_head="$(run_source_of_truth_head "$latest_run_dir")"
+
+  [[ -n "$previous_head" && -n "$latest_head" ]] || return 1
+  [[ "$previous_head" != "$latest_head" ]] || return 1
+
+  changed_files_match \
+    "$previous_run_dir/changed_files.txt" \
+    "$latest_run_dir/changed_files.txt" || return 1
+
+  printf '%s\n%s\n' "$previous_run_dir" "$latest_run_dir"
+}
+
+fail_non_converging_rerun() {
+  local story_id="$1"
+  local previous_run_dir="$2"
+  local latest_run_dir="$3"
+
+  {
+    echo "ERROR: run blocked for '$story_id' because the latest committed-head rerun did not converge"
+    printf 'Previous rerun evidence: %s\n' "$previous_run_dir"
+    printf 'Latest rerun evidence: %s\n' "$latest_run_dir"
+    echo "Manual finish required:"
+    echo " - Inspect the latest workspace-only changes and finish the story manually on the branch."
+    echo " - Commit the manual-finish result to HEAD once the branch is in its intended final state."
+    printf ' - Inspect pinned evidence: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    echo " - Do not rerun automation/scripts/run_story.sh again until manual finish is complete."
+  } >&2
+  exit 1
 }
 
 enforce_escalation_resolution() {
