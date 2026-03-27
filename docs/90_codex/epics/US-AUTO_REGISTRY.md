@@ -68,7 +68,7 @@ The registry does **not** replace story bundles.
 
 ### Confirmed Workflow Observation
 - Repeated rerun after committed-HEAD handoff may fail to converge to a fixed point for some stories, materializing fresh workspace-only changes and making the review pipeline unreachable without manual finish. Track this as future operator UX / anti-cycle follow-up work, not as part of US-AUTO-42.
-- US-AUTO-43 reproduced this non-converging pattern: after committed-head rerun, fresh workspace-only changes were materialized again, keeping the pinned review pipeline unreachable without manual operator intervention.
+- US-AUTO-43 reproduced this non-converging pattern: after committed-head rerun, fresh workspace-only changes were materialized again, preventing pinned ai_review/classify/gate from completing; this establishes a confirmed need for a convergence or manual-finish contract in the workflow.
 
 ### Next Recommended Story
 1. US-AUTO-28 — escalation gate for repeated reject stagnation (in progress)
@@ -119,7 +119,9 @@ The registry does **not** replace story bundles.
 | US-AUTO-29 | Targeted test strategy | Narrow validation scope | follow-up | Planned | P2 | Draft bundle | US-AUTO-28 | N/A | Faster iteration |
 | US-AUTO-30 | Review reuse | Cache review safely | follow-up | Planned | P2 | Draft bundle | US-AUTO-29 | N/A | Reduce repetition |
 | US-AUTO-31 | Post-run checkpoint | Add checkpoint before rerun | follow-up | Planned | P2 | Draft bundle | US-AUTO-30 | N/A | Stop blind reruns |
-| US-AUTO-43 | AI review failure handling and recovery contract | Enforce fail-closed AI review validation boundary so missing, malformed, incomplete, or logically invalid AI review artifacts cannot propagate to classification or gate | follow-up | In Review | P1 | Commit final non-converging implementation tail, open PR with explicit review-boundary blocker note, and spin out follow-up for rerun convergence / operator UX | US-AUTO-28 | automation/bundle_packs/US-AUTO-43.bundle.md | Latest committed-head rerun still materializes fresh workspace-only changes across implementation, tests, and bundle artifacts, preventing pinned ai_review/classify/gate from reaching a fixed point; treat as known convergence blocker rather than continuing blind reruns |
+| US-AUTO-43 | AI review failure handling and recovery contract | Enforce fail-closed AI review validation boundary so missing, malformed, incomplete, or logically invalid AI review artifacts cannot propagate to classification or gate | follow-up | Implemented | P1 | None | US-AUTO-28 | automation/bundle_packs/US-AUTO-43.bundle.md | Merged in PR #232; implementation and tests are complete, but committed-head reruns do not converge to a fixed point and can re-materialize workspace-only changes, preventing pinned review chain completion without manual intervention; tracked as separate convergence/operator UX follow-up |
+| US-AUTO-47 | Rerun convergence / manual finish contract | Ensure rerun converges to a fixed point or provide deterministic manual-finish path when convergence is not reachable | enforcement | Planned | P1 | Draft bundle | US-AUTO-43 | N/A | Derived from confirmed non-converging rerun pattern observed in US-AUTO-43; must prevent infinite rerun loops and unreachable review pipeline |
+
 ---
 
 ## Maintenance Rules
