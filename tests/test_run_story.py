@@ -71,6 +71,23 @@ def make_runner(tmp_path: Path, name: str, script_body: str) -> Path:
     return runner_path
 
 
+def current_head(root_dir: Path) -> str:
+    result = run(["git", "rev-parse", "HEAD"], cwd=root_dir)
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def add_commit(root_dir: Path, relative_path: str, content: str, message: str) -> str:
+    target = root_dir / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    add = run(["git", "add", relative_path], cwd=root_dir)
+    assert add.returncode == 0, add.stderr
+    commit = run(["git", "commit", "-m", message], cwd=root_dir)
+    assert commit.returncode == 0, commit.stderr
+    return current_head(root_dir)
+
+
 def test_run_story_cleans_ephemeral_ledger_on_success(tmp_path: Path) -> None:
     story_id = "US-AUTO-37"
     root_dir = tmp_path / "repo"
@@ -325,6 +342,133 @@ def test_run_story_allows_dirty_ephemeral_ledger_path(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert runner_marker.read_text(encoding="utf-8").strip() == "called"
+
+
+def test_run_story_allows_rerun_when_latest_run_does_not_cross_convergence_boundary(tmp_path: Path) -> None:
+    story_id = "US-AUTO-47"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    first_head = current_head(root_dir)
+    second_head = add_commit(root_dir, "src/story_impl.txt", "second\n", "second head")
+
+    first_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-27_10-00-00"
+    first_run_dir.mkdir(parents=True)
+    (first_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (first_run_dir / "changed_files.txt").write_text(
+        "services/story_a.py\n"
+        "tests/test_story_a.py\n",
+        encoding="utf-8",
+    )
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-27_11-00-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {second_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (latest_run_dir / "changed_files.txt").write_text(
+        "services/story_b.py\n"
+        "tests/test_story_b.py\n",
+        encoding="utf-8",
+    )
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert f"[INFO] Preflight: passed for {story_id}" in result.stderr
+    assert runner_marker.read_text(encoding="utf-8").strip() == "called"
+
+
+def test_run_story_blocks_non_converging_rerun_and_routes_to_manual_finish(tmp_path: Path) -> None:
+    story_id = "US-AUTO-47"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    first_head = current_head(root_dir)
+    second_head = add_commit(root_dir, "src/story_impl.txt", "second\n", "second head")
+
+    first_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-27_10-00-00"
+    first_run_dir.mkdir(parents=True)
+    (first_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (first_run_dir / "changed_files.txt").write_text(
+        "services/story_loop.py\n"
+        "tests/test_story_loop.py\n",
+        encoding="utf-8",
+    )
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-27_11-00-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {second_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (latest_run_dir / "changed_files.txt").write_text(
+        "tests/test_story_loop.py\n"
+        "services/story_loop.py\n",
+        encoding="utf-8",
+    )
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "latest committed-head rerun did not converge" in result.stderr
+    assert "Manual finish required:" in result.stderr
+    assert "Inspect pinned evidence:" in result.stderr
+    assert "Do not rerun automation/scripts/run_story.sh again until manual finish is complete." in result.stderr
+    assert not runner_marker.exists()
 
 
 def test_run_story_blocks_when_latest_run_has_pending_escalation(tmp_path: Path) -> None:

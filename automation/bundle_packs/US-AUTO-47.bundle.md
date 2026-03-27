@@ -128,6 +128,8 @@ Convergence engine must be separate story
 - tests/test_analyze_story_run.py
 - docs/90_codex/STORY_EXECUTION_CHECKLIST.md
 - docs/90_codex/CODEX_OPERATING_SYSTEM.md
+- automation/bundles/active/US-AUTO-47/**
+- automation/bundle_packs/US-AUTO-47.bundle.md
 
 ## Files Not Allowed To Change
 - automation/run_codex_task.sh
@@ -165,6 +167,8 @@ Implement convergence boundary
 - automation/scripts/analyze_story_run.sh
 - tests/test_run_story.py
 - tests/test_analyze_story_run.py
+- automation/bundles/active/US-AUTO-47/**
+- automation/bundle_packs/US-AUTO-47.bundle.md
 
 ## Files Not Allowed To Change
 - automation/run_codex_task.sh
