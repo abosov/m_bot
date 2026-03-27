@@ -51,6 +51,7 @@ The registry does **not** replace story bundles.
 - US-AUTO-38 — automatic rollback after failed runs
 
 ### Current Gaps
+- P0 review-boundary fidelity gap remains: review/classify/gate can still become semantically unreliable if implementation reality exists only in workspace changes and is not committed to HEAD; this is now tracked as US-AUTO-46.
 - P1 workflow integrity gap closed by US-AUTO-41: the canonical handoff is now `materialize -> commit_story_artifacts -> run_story`.
 - P1 operator preflight gap closed by US-AUTO-44: `run_story.sh` now classifies dirty paths before execution and prints deterministic operator handoff or blocked-state guidance without weakening the clean-tree contract.
 - Remaining workflow improvements are downstream optimization stories, not missing clean-tree contract work.
@@ -59,21 +60,23 @@ The registry does **not** replace story bundles.
 - P1 runtime alignment (completed): US-AUTO-32 → US-AUTO-34
 - P1 failure safety (completed): US-AUTO-38
 - P1 workflow integrity: US-AUTO-41
+- P1 review-boundary fidelity: US-AUTO-46
 - P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28 (US-AUTO-28 in progress)
 - P3 cycle cost reduction: US-AUTO-29 → US-AUTO-31
 - P4 operator UX: US-AUTO-18
 - Future workflow simplification: make bundle pack the single source of truth and treat bundles/active as materialized-only output
 
 ### Next Recommended Story
-1. US-AUTO-42 — enforce fail-closed escalation resolution
-2. US-AUTO-43 — AI review failure handling and recovery contract
-3. US-AUTO-28 — escalation gate for repeated reject stagnation (in progress)
-4. US-AUTO-26 — expensive run budget guard
-5. US-AUTO-27 — pipeline zone cap
-6. US-AUTO-29 — targeted test strategy
-7. US-AUTO-30 — review reuse / cache guard
-8. US-AUTO-31 — post-run checkpoint workflow
-9. US-AUTO-18 — operator UX
+1. US-AUTO-46 — Review operates strictly on committed HEAD
+2. US-AUTO-42 — enforce fail-closed escalation resolution
+3. US-AUTO-43 — AI review failure handling and recovery contract
+4. US-AUTO-28 — escalation gate for repeated reject stagnation (in progress)
+5. US-AUTO-26 — expensive run budget guard
+6. US-AUTO-27 — pipeline zone cap
+7. US-AUTO-29 — targeted test strategy
+8. US-AUTO-30 — review reuse / cache guard
+9. US-AUTO-31 — post-run checkpoint workflow
+10. US-AUTO-18 — operator UX
 
 ---
 
@@ -102,8 +105,8 @@ The registry does **not** replace story bundles.
 
 | US-AUTO-44 | Materialization preflight & operator handoff | Make run preflight explicitly classify dirty state and print deterministic operator remediation before execution | follow-up | Implemented | P1 | None | US-AUTO-41 | automation/bundle_packs/US-AUTO-44.bundle.md | Added first-class preflight in `run_story.sh` with explicit classify/pass markers; story-artifact-only dirtiness now hands off to review changes -> `commit_story_artifacts.sh` -> rerun, while unrelated dirty paths block outside the handoff flow |
 
-| US-AUTO-45 | Deterministic review gate artifact reuse | Make review_gate consume pinned review/classification artifacts without recomputation drift | follow-up | In Progress | P1 | Harden gate consumer contract, tests, and operator docs | US-AUTO-44 | automation/bundles/active/US-AUTO-45/ | Fix keeps pinned run artifacts as source of truth and removes gate-time upstream recomputation |
-| US-AUTO-46 | Reverse bundle sync from active bundle to bundle pack | Add deterministic rebuild flow so packed bundle stays faithful to active bundle files | follow-up | Planned | P1 | Draft bundle and rebuild contract for active-to-pack sync | US-AUTO-44 | None | Needed to eliminate manual pack drift and keep packed bundle source-of-truth aligned with active bundle |
+| US-AUTO-45 | Deterministic review gate artifact reuse | Make review_gate consume pinned review/classification artifacts without recomputation drift | follow-up | Implemented | P1 | None | US-AUTO-44 | automation/bundles/active/US-AUTO-45/ | Merged in PR #224; gate now deterministically reuses pinned review/classification artifacts without upstream recomputation drift |
+| US-AUTO-46 | Review operates strictly on committed HEAD | Enforce branch fidelity so review/classify/gate analyze only committed repository state and never drift from workspace-only changes | enforcement | Planned | P1 | Draft bundle | US-AUTO-45 | N/A | P0 architectural invariant: review pipeline must operate on origin/main...HEAD only; fail closed when workspace reality diverges from committed HEAD |
 
 | US-AUTO-18 | Operator UX | Improve console UX | follow-up | Planned | P3 | Keep downstream | US-AUTO-17 | N/A | UX only |
 
