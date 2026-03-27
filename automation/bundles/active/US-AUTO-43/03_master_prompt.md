@@ -24,6 +24,7 @@ Ensure AI review stage enforces fail-closed validation so classification never r
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/bundle_packs/US-AUTO-43.bundle.md`
 - `automation/bundles/active/US-AUTO-43/**`
+- `tests/test_review_pipeline_validation_contract.py`
 
 ## Files Not Allowed To Change
 - automation/scripts/run_story.sh

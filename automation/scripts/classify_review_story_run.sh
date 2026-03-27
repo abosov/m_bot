@@ -39,6 +39,14 @@ require_file() {
   [[ -f "$path" ]] || fail "required file not found: $path"
 }
 
+clear_classification_artifacts() {
+  local run_dir="$1"
+
+  rm -f \
+    "$run_dir/$RESULT_FILE_NAME" \
+    "$run_dir/$RAW_OUTPUT_FILE_NAME"
+}
+
 read_ai_review_artifact_state() {
   local review_file="$1"
 
@@ -254,10 +262,10 @@ if working_tree_dirty; then
 fi
 
 AI_REVIEW_FILE="$LATEST_RUN_DIR/$AI_REVIEW_FILE_NAME"
-require_file "$AI_REVIEW_FILE"
 validation_state="$(read_ai_review_artifact_state "$AI_REVIEW_FILE")"
 IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
 if [[ "$validation_status" != "valid" ]]; then
+  clear_classification_artifacts "$LATEST_RUN_DIR"
   fail "review classification blocked for '$STORY_ID': invalid AI review artifact ($validation_code): $validation_reason ($AI_REVIEW_FILE)"
 fi
 
