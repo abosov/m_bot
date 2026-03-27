@@ -70,14 +70,13 @@ The registry does **not** replace story bundles.
 - Repeated rerun after committed-HEAD handoff may fail to converge to a fixed point for some stories, materializing fresh workspace-only changes and making the review pipeline unreachable without manual finish. Track this as future operator UX / anti-cycle follow-up work, not as part of US-AUTO-42.
 
 ### Next Recommended Story
-1. US-AUTO-43 — AI review failure handling and recovery contract
-2. US-AUTO-28 — escalation gate for repeated reject stagnation (in progress)
-3. US-AUTO-26 — expensive run budget guard
-4. US-AUTO-27 — pipeline zone cap
-5. US-AUTO-29 — targeted test strategy
-6. US-AUTO-30 — review reuse / cache guard
-7. US-AUTO-31 — post-run checkpoint workflow
-8. US-AUTO-18 — operator UX
+1. US-AUTO-28 — escalation gate for repeated reject stagnation (in progress)
+2. US-AUTO-26 — expensive run budget guard
+3. US-AUTO-27 — pipeline zone cap
+4. US-AUTO-29 — targeted test strategy
+5. US-AUTO-30 — review reuse / cache guard
+6. US-AUTO-31 — post-run checkpoint workflow
+7. US-AUTO-18 — operator UX
 
 ---
 
@@ -119,7 +118,7 @@ The registry does **not** replace story bundles.
 | US-AUTO-29 | Targeted test strategy | Narrow validation scope | follow-up | Planned | P2 | Draft bundle | US-AUTO-28 | N/A | Faster iteration |
 | US-AUTO-30 | Review reuse | Cache review safely | follow-up | Planned | P2 | Draft bundle | US-AUTO-29 | N/A | Reduce repetition |
 | US-AUTO-31 | Post-run checkpoint | Add checkpoint before rerun | follow-up | Planned | P2 | Draft bundle | US-AUTO-30 | N/A | Stop blind reruns |
-| US-AUTO-43 | AI review failure handling | Make pipeline resilient to AI review failures (403/API/network), introduce deterministic failure state, retry contract, and operator guidance | follow-up | Planned | P1 | Draft bundle next | US-AUTO-28 | N/A | Handles ai_review step failure (403, timeout, malformed response); ensures ai_review_result.md always exists and analyze provides deterministic recovery path |
+| US-AUTO-43 | AI review failure handling and recovery contract | Enforce fail-closed AI review validation boundary so missing, malformed, incomplete, or logically invalid AI review artifacts cannot propagate to classification or gate | follow-up | Bundle Ready | P1 | Create branch, commit bundle artifacts, run US-AUTO-43 | US-AUTO-28 | automation/bundle_packs/US-AUTO-43.bundle.md | Bundle pack prepared and validated; materialize + validate passed; current scope is strict fail-closed AI review boundary and observability, without retry/backoff or run_story orchestration changes |
 
 ---
 
