@@ -10,6 +10,8 @@ SCRIPT_PATH = (
     / "analyze_story_run.sh"
 )
 
+VALID_AI_REVIEW = "# AI Review\n\n- Finding A\n"
+
 
 def make_run_dir(base_dir: Path, story_id: str, run_id: str) -> Path:
     run_dir = base_dir / "automation" / "runs" / story_id / run_id
@@ -84,7 +86,7 @@ def test_analyze_story_run_summarizes_latest_run_and_gate_status(tmp_path: Path)
         "4 passed\n",
         encoding="utf-8",
     )
-    (latest_run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (latest_run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
     (latest_run_dir / "review_classification.md").write_text(
         "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
         encoding="utf-8",
@@ -167,7 +169,7 @@ def test_analyze_story_run_blocks_merge_ready_status_when_gate_approved_but_work
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
     (run_dir / "review_classification.md").write_text(
         "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
         encoding="utf-8",
@@ -355,7 +357,7 @@ def test_analyze_story_run_blocks_on_pytest_failure_before_review_follow_up(tmp_
         encoding="utf-8",
     )
     (run_dir / "pytest.txt").write_text("1 failed\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
 
     result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
 
@@ -363,6 +365,68 @@ def test_analyze_story_run_blocks_on_pytest_failure_before_review_follow_up(tmp_
     assert "Pytest\nfail (exit 1; 1 failed)" in result.stdout
     assert "AI review: present" in result.stdout
     assert "RUN STATUS: BLOCKED (pytest failing)" in result.stdout
+    assert "RUN STATUS: READY TO CLASSIFY" not in result.stdout
+
+
+def test_analyze_story_run_surfaces_invalid_ai_review_artifact(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_13-05-00")
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "automation/scripts/analyze_story_run.sh\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text("# AI Review Result\n", encoding="utf-8")
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "AI review: present (invalid: ai_review_incomplete_artifact)" in result.stdout
+    assert "Current stage: blocked_ai_review_invalid" in result.stdout
+    assert "Latest valid stage: run_artifacts_ready" in result.stdout
+    assert "RUN STATUS: CHECK AI REVIEW OUTPUT (invalid artifact: ai_review_incomplete_artifact)" in result.stdout
+    assert "RUN STATUS: READY TO CLASSIFY" not in result.stdout
+
+
+def test_analyze_story_run_surfaces_unreadable_ai_review_artifact(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    run_dir = make_run_dir(root_dir, "US-AUTO-19", "2026-03-16_13-06-00")
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-19\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "automation/scripts/analyze_story_run.sh\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_bytes(b"\xff\xfe\x00\x00")
+
+    result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "AI review: present (invalid: ai_review_unreadable_artifact)" in result.stdout
+    assert "Current stage: blocked_ai_review_invalid" in result.stdout
+    assert "Latest valid stage: run_artifacts_ready" in result.stdout
+    assert "RUN STATUS: CHECK AI REVIEW OUTPUT (invalid artifact: ai_review_unreadable_artifact)" in result.stdout
     assert "RUN STATUS: READY TO CLASSIFY" not in result.stdout
 
 
@@ -523,7 +587,7 @@ def test_analyze_story_run_blocks_ready_actions_when_working_tree_dirty(tmp_path
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
     (run_dir / "review_classification.md").write_text(
         "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
         encoding="utf-8",
@@ -588,7 +652,7 @@ def test_analyze_story_run_blocks_ready_actions_when_untracked_file_exists(tmp_p
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
     (run_dir / "review_classification.md").write_text(
         "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
         encoding="utf-8",
@@ -656,7 +720,7 @@ def test_analyze_story_run_ignores_ephemeral_ledger_dirty_state(tmp_path: Path) 
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
     (run_dir / "review_classification.md").write_text(
         "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
         encoding="utf-8",
@@ -856,7 +920,7 @@ def test_analyze_story_run_blocks_merge_ready_when_manifest_head_is_stale(tmp_pa
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
     (run_dir / "review_classification.md").write_text(
         "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
         encoding="utf-8",
@@ -903,7 +967,7 @@ def test_analyze_story_run_blocks_ready_states_when_manifest_source_of_truth_hea
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
     (run_dir / "review_classification.md").write_text(
         "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
         encoding="utf-8",
@@ -1137,7 +1201,7 @@ def test_analyze_story_run_reports_resume_stage_and_next_command_for_classificat
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
 
     result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
 
@@ -1190,7 +1254,7 @@ def test_analyze_story_run_reports_resume_next_gate_command_when_classification_
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
     (run_dir / "review_classification.md").write_text(
         "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
         encoding="utf-8",
@@ -1246,7 +1310,7 @@ def test_analyze_story_run_reports_blocked_classification_reject_with_latest_val
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
     (run_dir / "review_classification.md").write_text(
         "# Review Classification\n\nMERGE RECOMMENDATION: reject\n",
         encoding="utf-8",
@@ -1303,7 +1367,7 @@ def test_analyze_story_run_reports_gate_reject_as_blocked_with_latest_valid_stag
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
     (run_dir / "review_classification.md").write_text(
         "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
         encoding="utf-8",
@@ -1366,7 +1430,7 @@ def test_analyze_story_run_reports_pending_escalation_and_resolution_command(tmp
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
     (run_dir / "review_classification.md").write_text(
         "# Review Classification\n\nMERGE RECOMMENDATION: reject\n",
         encoding="utf-8",
@@ -1440,7 +1504,7 @@ def test_analyze_story_run_reports_force_followup_resolution_as_resumable(tmp_pa
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
     (run_dir / "review_classification.md").write_text(
         "# Review Classification\n\nMERGE RECOMMENDATION: reject\n",
         encoding="utf-8",
@@ -1513,7 +1577,7 @@ def test_analyze_story_run_reports_nested_resolution_action_spoof_as_invalid(tmp
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
-    (run_dir / "ai_review_result.md").write_text("# AI Review\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
     (run_dir / "review_classification.md").write_text(
         "# Review Classification\n\nMERGE RECOMMENDATION: reject\n",
         encoding="utf-8",
