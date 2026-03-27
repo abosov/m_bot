@@ -104,7 +104,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 24. When analysis or the gate reports pending escalation, resolve it explicitly with `AUTOMATION_RUN_DIR=<run-dir> automation/scripts/escalate_story.sh <STORY-ID> <accept-as-is|force-followup|abort>`.
    `force-followup` is the only escalation action that reopens ordinary automated continuation through `automation/scripts/run_story.sh <STORY-ID>`.
    `accept-as-is` and `abort` are explicit human end-state decisions and must keep ordinary continuation blocked.
-   When `run_story.sh` consumes a resolved escalation artifact, malformed JSON, a missing advertised escalation artifact, missing, empty, whitespace-only, or unknown `resolution_action`, or any other invalid resolution state must fail closed and tell the operator to fix that run's `escalation_result.json` before rerunning.
+   When `run_story.sh` consumes a resolved escalation artifact, malformed JSON, a missing advertised escalation artifact, or any `resolution_action` that is missing, empty, whitespace-only, unknown, or not an exact supported action string must fail closed and tell the operator to fix that run's `escalation_result.json` before rerunning.
 25. Run follow-up prompts for merge blockers and accepted improvements.
    Decompose review output before execution so each follow-up prompt remains atomic, addresses exactly one review finding or one narrowly defined blocker, reuses the original scope boundaries unless explicitly changed, and captures any new out-of-scope findings as separate follow-up work.
    Each follow-up prompt must declare exactly one target finding/blocker identifier from the review artifacts; if more than one target is needed, split before execution.

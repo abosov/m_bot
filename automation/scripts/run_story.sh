@@ -83,6 +83,7 @@ import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+SUPPORTED_ACTIONS = {"accept-as-is", "force-followup", "abort"}
 
 def fail(message: str) -> None:
     print(message)
@@ -127,27 +128,15 @@ if "resolution_action" not in data:
     print("missing")
 elif not isinstance(data["resolution_action"], str):
     print("non-string")
+elif data["resolution_action"] == "":
+    print("empty")
+elif data["resolution_action"].strip() == "":
+    print("blank")
+elif data["resolution_action"] in SUPPORTED_ACTIONS:
+    print(f"supported:{data['resolution_action']}")
 else:
-    print(data["resolution_action"])
+    print(f"unknown:{json.dumps(data['resolution_action'])}")
 PY
-}
-
-is_supported_resolution_action() {
-  local resolution_action="${1:-}"
-
-  case "$resolution_action" in
-    accept-as-is|force-followup|abort)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
-is_blank_resolution_action() {
-  local resolution_action="${1:-}"
-  [[ -z "${resolution_action//[[:space:]]/}" ]]
 }
 
 invalid_resolution_action_detail() {
@@ -162,22 +151,22 @@ invalid_resolution_action_detail() {
       printf '%s\n' "non-string resolution_action"
       return 0
       ;;
+    empty)
+      printf '%s\n' "empty resolution_action"
+      return 0
+      ;;
+    blank)
+      printf '%s\n' "whitespace-only resolution_action"
+      return 0
+      ;;
+    supported:*)
+      return 1
+      ;;
+    unknown:*)
+      printf "unknown resolution_action %s\n" "${resolution_action#unknown:}"
+      return 0
+      ;;
   esac
-
-  if [[ -z "$resolution_action" ]]; then
-    printf '%s\n' "empty resolution_action"
-    return 0
-  fi
-
-  if is_blank_resolution_action "$resolution_action"; then
-    printf '%s\n' "whitespace-only resolution_action"
-    return 0
-  fi
-
-  if ! is_supported_resolution_action "$resolution_action"; then
-    printf "unknown resolution_action '%s'\n" "$resolution_action"
-    return 0
-  fi
 
   return 1
 }
@@ -351,12 +340,12 @@ enforce_escalation_resolution() {
   fi
 
   case "$resolution_action" in
-    force-followup)
+    supported:force-followup)
       return 0
       ;;
-    accept-as-is|abort)
+    supported:accept-as-is|supported:abort)
       {
-        echo "ERROR: run blocked for '$story_id' because escalation was resolved as '$resolution_action'"
+        echo "ERROR: run blocked for '$story_id' because escalation was resolved as '${resolution_action#supported:}'"
         printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
       } >&2
       exit 1
