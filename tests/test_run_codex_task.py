@@ -36,6 +36,32 @@ def write_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
+def fake_codex_script(body: str) -> str:
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+output=""
+workdir=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    -C)
+      workdir="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+{body}
+cat >/dev/null
+printf '%s\\n' 'codex summary' > "$output"
+"""
+
+
 def latest_run_dir(root_dir: Path, story_id: str = "US-AUTO-7") -> Path:
     runs_root = root_dir / "automation" / "runs" / story_id
     run_dirs = sorted(path for path in runs_root.iterdir() if path.is_dir())
@@ -358,6 +384,44 @@ printf '%s\\n' 'codex summary' > "$output"
     assert (run_dir / "run_meta.txt").exists()
     status = run(["git", "status", "--porcelain"], cwd=root_dir)
     assert status.stdout.strip() == ""
+
+
+def test_run_codex_task_ignores_committed_same_story_bundle_artifacts_during_scope_validation(
+    tmp_path: Path,
+) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    bundle_pack = root_dir / "automation" / "bundle_packs" / "US-AUTO-7.bundle.md"
+    bundle_pack.parent.mkdir(parents=True)
+    bundle_pack.write_text("# Bundle Pack\n\nCommitted canonical artifact.\n", encoding="utf-8")
+    run(["git", "add", "automation/bundle_packs/US-AUTO-7.bundle.md"], cwd=root_dir)
+    run(["git", "commit", "-m", "Add canonical bundle artifact"], cwd=root_dir)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    write_executable(
+        fake_bin_dir / "codex",
+        fake_codex_script("printf '%s\\n' 'codex isolated edit' >> \"$workdir/tracked.txt\""),
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["SKIP_PYTEST"] = "1"
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    run_dir = latest_run_dir(root_dir)
+    changed_files = (run_dir / "changed_files.txt").read_text(encoding="utf-8")
+
+    assert changed_files.splitlines() == ["tracked.txt"]
+    assert "automation/bundle_packs/US-AUTO-7.bundle.md" not in changed_files
 
 
 def test_run_codex_task_marks_scope_parse_status_unparseable(tmp_path: Path) -> None:
@@ -730,6 +794,34 @@ printf '%s\\n' 'codex summary' > "$output"
     assert "artifact body" in diff_patch
     assert "Untracked files materialized into primary checkout:" in diff_stat
     assert "reports/materialized.txt" in diff_stat
+
+
+def test_run_codex_task_rejects_real_out_of_scope_implementation_change(tmp_path: Path) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    write_executable(
+        fake_bin_dir / "codex",
+        fake_codex_script(
+            "mkdir -p \"$workdir/backend\"\nprintf '%s\\n' 'rogue change' > \"$workdir/backend/out_of_scope.py\""
+        ),
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["SKIP_PYTEST"] = "1"
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "ERROR: changed files outside allowed scope for story US-AUTO-7:" in result.stderr
+    assert "backend/out_of_scope.py" in result.stderr
 
 
 def test_run_codex_task_treats_sigterm_as_failure_and_rolls_back(tmp_path: Path) -> None:

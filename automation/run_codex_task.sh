@@ -945,6 +945,30 @@ append_untracked_artifacts() {
   done < "$WORKTREE_UNTRACKED_LIST_FILE"
 }
 
+is_canonical_active_story_bundle_artifact() {
+  local rel_path="$1"
+
+  [[ -n "$STORY_ID" && "$STORY_ID" != "ADHOC" ]] || return 1
+
+  if [[ "$rel_path" == "automation/bundle_packs/$STORY_ID.bundle.md" ]]; then
+    return 0
+  fi
+
+  if [[ "$rel_path" == "automation/bundles/active/$STORY_ID/"* ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+is_committed_same_story_bundle_artifact() {
+  local rel_path="$1"
+
+  is_canonical_active_story_bundle_artifact "$rel_path" || return 1
+  git cat-file -e "HEAD:$rel_path" >/dev/null 2>&1 || return 1
+  git diff --quiet HEAD -- "$rel_path"
+}
+
 collect_git_artifacts() {
   local merge_base
   merge_base="$(git merge-base "$REVIEW_BASE_REF" HEAD)"
@@ -972,7 +996,7 @@ collect_git_artifacts() {
 }
 
 check_allowed_files() {
-  local bundle_dir scope_file script_path
+  local bundle_dir scope_file script_path changed_file filtered_nameonly_file
   bundle_dir="$ROOT_DIR/automation/bundles/active/$STORY_ID"
   scope_file="$bundle_dir/02_file_scope.md"
   script_path="$CHECK_ALLOWED_FILES_SCRIPT"
@@ -1004,17 +1028,25 @@ check_allowed_files() {
 
   if [[ -n "${tracked_names_file:-}" || -n "${untracked_names_file:-}" ]]; then
     : > "$NAMEONLY_FILE"
+    filtered_nameonly_file="$RUN_DIR/.changed_files.filtered.txt"
+    : > "$filtered_nameonly_file"
 
     if [[ -n "${tracked_names_file:-}" && -f "$tracked_names_file" ]]; then
-      cat "$tracked_names_file" >> "$NAMEONLY_FILE"
+      while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        if is_committed_same_story_bundle_artifact "$changed_file"; then
+          continue
+        fi
+        printf '%s\n' "$changed_file" >> "$filtered_nameonly_file"
+      done < "$tracked_names_file"
     fi
 
     if [[ -n "${untracked_names_file:-}" && -f "$untracked_names_file" ]]; then
-      cat "$untracked_names_file" >> "$NAMEONLY_FILE"
+      cat "$untracked_names_file" >> "$filtered_nameonly_file"
     fi
 
-    if [[ -s "$NAMEONLY_FILE" ]]; then
-      LC_ALL=C sort -u -o "$NAMEONLY_FILE" "$NAMEONLY_FILE"
+    if [[ -s "$filtered_nameonly_file" ]]; then
+      LC_ALL=C sort -u "$filtered_nameonly_file" > "$NAMEONLY_FILE"
     fi
   fi
 
