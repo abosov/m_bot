@@ -549,6 +549,7 @@ def test_run_story_blocks_resolved_escalation_with_non_string_resolution_action(
 
     assert result.returncode != 0
     assert "non-string resolution_action" in result.stderr
+    assert "Fix the escalation artifact for this run before rerunning:" in result.stderr
     assert not runner_marker.exists()
 
 
@@ -585,7 +586,8 @@ def test_run_story_blocks_resolved_escalation_with_empty_resolution_action(tmp_p
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert "blank resolution_action" in result.stderr
+    assert "empty resolution_action" in result.stderr
+    assert "Fix the escalation artifact for this run before rerunning:" in result.stderr
     assert not runner_marker.exists()
 
 
@@ -622,7 +624,8 @@ def test_run_story_blocks_resolved_escalation_with_whitespace_only_resolution_ac
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert "blank resolution_action" in result.stderr
+    assert "whitespace-only resolution_action" in result.stderr
+    assert "Fix the escalation artifact for this run before rerunning:" in result.stderr
     assert not runner_marker.exists()
 
 
@@ -660,6 +663,7 @@ def test_run_story_blocks_resolved_escalation_with_unexpected_resolution_action(
 
     assert result.returncode != 0
     assert "unknown resolution_action 'retry'" in result.stderr
+    assert "Fix the escalation artifact for this run before rerunning:" in result.stderr
     assert not runner_marker.exists()
 
 
@@ -735,6 +739,7 @@ def test_run_story_blocks_resolved_escalation_with_only_nested_resolution_action
 
     assert result.returncode != 0
     assert "missing resolution_action" in result.stderr
+    assert "Fix the escalation artifact for this run before rerunning:" in result.stderr
     assert not runner_marker.exists()
 
 

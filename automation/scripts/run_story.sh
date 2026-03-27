@@ -150,6 +150,38 @@ is_blank_resolution_action() {
   [[ -z "${resolution_action//[[:space:]]/}" ]]
 }
 
+invalid_resolution_action_detail() {
+  local resolution_action="${1:-}"
+
+  case "$resolution_action" in
+    missing)
+      printf '%s\n' "missing resolution_action"
+      return 0
+      ;;
+    non-string)
+      printf '%s\n' "non-string resolution_action"
+      return 0
+      ;;
+  esac
+
+  if [[ -z "$resolution_action" ]]; then
+    printf '%s\n' "empty resolution_action"
+    return 0
+  fi
+
+  if is_blank_resolution_action "$resolution_action"; then
+    printf '%s\n' "whitespace-only resolution_action"
+    return 0
+  fi
+
+  if ! is_supported_resolution_action "$resolution_action"; then
+    printf "unknown resolution_action '%s'\n" "$resolution_action"
+    return 0
+  fi
+
+  return 1
+}
+
 manifest_declares_escalation_artifact() {
   local run_dir="$1"
   local manifest_file="$run_dir/manifest.md"
@@ -264,7 +296,7 @@ enforce_escalation_resolution() {
   local story_id="$1"
   local story_runs_root="$RUNS_ROOT/$story_id"
   local latest_run_dir escalation_file escalation_required escalation_status resolution_action decision_source
-  local parsed_fields parse_error
+  local parsed_fields parse_error invalid_resolution_detail
 
   [[ -d "$story_runs_root" ]] || return 0
   latest_run_dir="$(resolve_latest_run_dir "$story_runs_root" || true)"
@@ -311,23 +343,11 @@ enforce_escalation_resolution() {
       "invalid decision_source '$decision_source'"
   fi
 
-  if [[ "$resolution_action" == "missing" ]]; then
-    fail_invalid_escalation_resolution "$story_id" "$latest_run_dir" "missing resolution_action"
-  fi
-
-  if [[ "$resolution_action" == "non-string" ]]; then
-    fail_invalid_escalation_resolution "$story_id" "$latest_run_dir" "non-string resolution_action"
-  fi
-
-  if is_blank_resolution_action "$resolution_action"; then
-    fail_invalid_escalation_resolution "$story_id" "$latest_run_dir" "blank resolution_action"
-  fi
-
-  if ! is_supported_resolution_action "$resolution_action"; then
+  if invalid_resolution_detail="$(invalid_resolution_action_detail "$resolution_action")"; then
     fail_invalid_escalation_resolution \
       "$story_id" \
       "$latest_run_dir" \
-      "unknown resolution_action '$resolution_action'"
+      "$invalid_resolution_detail"
   fi
 
   case "$resolution_action" in
@@ -340,12 +360,6 @@ enforce_escalation_resolution() {
         printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
       } >&2
       exit 1
-      ;;
-    *)
-      fail_invalid_escalation_resolution \
-        "$story_id" \
-        "$latest_run_dir" \
-        "unknown resolution_action '$resolution_action'"
       ;;
   esac
 }
