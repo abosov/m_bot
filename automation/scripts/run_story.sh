@@ -145,6 +145,32 @@ is_supported_resolution_action() {
   esac
 }
 
+is_blank_resolution_action() {
+  local resolution_action="${1:-}"
+  [[ -z "${resolution_action//[[:space:]]/}" ]]
+}
+
+manifest_declares_escalation_artifact() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+
+  [[ -f "$manifest_file" ]] || return 1
+  grep -Fqx -- "- escalation_result.json" "$manifest_file"
+}
+
+fail_invalid_escalation_resolution() {
+  local story_id="$1"
+  local latest_run_dir="$2"
+  local detail="$3"
+
+  {
+    echo "ERROR: run blocked for '$story_id' because escalation resolution is invalid: $detail"
+    printf 'Fix the escalation artifact for this run before rerunning: %s\n' "$latest_run_dir/escalation_result.json"
+    printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+  } >&2
+  exit 1
+}
+
 collect_dirty_paths() {
   {
     git -C "$ROOT_DIR" diff --name-only HEAD --
@@ -245,16 +271,16 @@ enforce_escalation_resolution() {
   [[ -n "$latest_run_dir" ]] || return 0
 
   escalation_file="$latest_run_dir/escalation_result.json"
-  [[ -f "$escalation_file" ]] || return 0
+  if [[ ! -f "$escalation_file" ]]; then
+    manifest_declares_escalation_artifact "$latest_run_dir" && \
+      fail_invalid_escalation_resolution "$story_id" "$latest_run_dir" "missing required escalation artifact"
+    return 0
+  fi
 
   if ! parsed_fields="$(inspect_escalation_artifact_strict "$escalation_file")"; then
     parse_error="$(printf '%s\n' "$parsed_fields" | tail -n 1)"
     parse_error="${parse_error//_/ }"
-    {
-      echo "ERROR: run blocked for '$story_id' because resolved escalation artifact is invalid ($parse_error)"
-      printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
-    } >&2
-    exit 1
+    fail_invalid_escalation_resolution "$story_id" "$latest_run_dir" "$parse_error"
   fi
 
   parsed_lines=()
@@ -279,35 +305,29 @@ enforce_escalation_resolution() {
   fi
 
   if [[ "$decision_source" != "repeated_reject_stagnation" ]]; then
-    {
-      echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has invalid decision_source '$decision_source'"
-      printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
-    } >&2
-    exit 1
+    fail_invalid_escalation_resolution \
+      "$story_id" \
+      "$latest_run_dir" \
+      "invalid decision_source '$decision_source'"
   fi
 
   if [[ "$resolution_action" == "missing" ]]; then
-    {
-      echo "ERROR: run blocked for '$story_id' because resolved escalation artifact is missing resolution_action"
-      printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
-    } >&2
-    exit 1
+    fail_invalid_escalation_resolution "$story_id" "$latest_run_dir" "missing resolution_action"
   fi
 
   if [[ "$resolution_action" == "non-string" ]]; then
-    {
-      echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has non-string resolution_action"
-      printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
-    } >&2
-    exit 1
+    fail_invalid_escalation_resolution "$story_id" "$latest_run_dir" "non-string resolution_action"
   fi
 
-  if [[ -z "$resolution_action" ]] || ! is_supported_resolution_action "$resolution_action"; then
-    {
-      echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has invalid resolution_action '$resolution_action'"
-      printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
-    } >&2
-    exit 1
+  if is_blank_resolution_action "$resolution_action"; then
+    fail_invalid_escalation_resolution "$story_id" "$latest_run_dir" "blank resolution_action"
+  fi
+
+  if ! is_supported_resolution_action "$resolution_action"; then
+    fail_invalid_escalation_resolution \
+      "$story_id" \
+      "$latest_run_dir" \
+      "unknown resolution_action '$resolution_action'"
   fi
 
   case "$resolution_action" in
@@ -322,11 +342,10 @@ enforce_escalation_resolution() {
       exit 1
       ;;
     *)
-      {
-        echo "ERROR: run blocked for '$story_id' because resolved escalation artifact has invalid resolution_action '$resolution_action'"
-        printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
-      } >&2
-      exit 1
+      fail_invalid_escalation_resolution \
+        "$story_id" \
+        "$latest_run_dir" \
+        "unknown resolution_action '$resolution_action'"
       ;;
   esac
 }
