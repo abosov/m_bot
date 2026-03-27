@@ -89,6 +89,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
 23. Use `automation/scripts/analyze_story_run.sh <STORY-ID>` when you need a read-only summary of the latest run artifacts, pytest state, review pipeline state, and recommended next operator action.
    By default the command inspects the latest run directory under `automation/runs/<STORY-ID>/`.
    Operators may also point it at a specific run with `AUTOMATION_RUN_DIR=automation/runs/<STORY-ID>/<RUN-ID> automation/scripts/analyze_story_run.sh <STORY-ID>`.
+   Dirty-worktree analysis for review/classify/gate resume safety must match the review boundary exactly, excluding only the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
    The command must report a deterministic workflow chaining/resume section with:
    - current stage,
    - latest valid stage,
