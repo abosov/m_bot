@@ -159,18 +159,26 @@ if first_nonempty_index is None:
     print("invalid\tai_review_empty_artifact\tAI review artifact is empty")
     sys.exit(0)
 
-heading = normalized[first_nonempty_index]
-if heading not in {"# AI Review", "# AI Review Result"}:
+first_review_index = next((i for i, line in enumerate(normalized) if line == "# AI Review"), None)
+first_result_index = next((i for i, line in enumerate(normalized) if line == "# AI Review Result"), None)
+
+if first_review_index is None or first_result_index is None:
     print(
-        "invalid\tai_review_malformed_artifact\tAI review artifact must start with '# AI Review' or '# AI Review Result'"
+        "invalid\tai_review_malformed_artifact\tAI review artifact must contain both '# AI Review' and '# AI Review Result' sections"
     )
     sys.exit(0)
 
-body_lines = normalized[first_nonempty_index + 1 :]
-substantive = [line for line in body_lines if line and not line.startswith("#")]
-if not substantive:
+if first_review_index != first_nonempty_index or first_result_index <= first_review_index:
     print(
-        "invalid\tai_review_incomplete_artifact\tAI review artifact must include substantive review content after the heading"
+        "invalid\tai_review_malformed_artifact\tAI review artifact must start with '# AI Review' and include '# AI Review Result' after it"
+    )
+    sys.exit(0)
+
+review_body = [line for line in normalized[first_review_index + 1:first_result_index] if line and not line.startswith("#")]
+result_body = [line for line in normalized[first_result_index + 1:] if line and not line.startswith("#")]
+if not review_body or not result_body:
+    print(
+        "invalid\tai_review_incomplete_artifact\tAI review artifact must include substantive content in both '# AI Review' and '# AI Review Result' sections"
     )
     sys.exit(0)
 

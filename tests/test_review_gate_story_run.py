@@ -154,7 +154,7 @@ def write_required_review_artifacts(
 
 def write_pinned_review_artifacts(run_dir: Path, *, recommendation: str | None = "approve") -> None:
     (run_dir / "ai_review_result.md").write_text(
-        "# AI Review Result\n\n- Finding A\n",
+        "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n",
         encoding="utf-8",
     )
     if recommendation is None:
@@ -237,7 +237,7 @@ def test_review_gate_story_run_rejects_missing_normalized_ai_review_when_raw_out
     write_required_review_artifacts(run_dir, root_dir)
     write_manifest(run_dir, root_dir, "US-AUTO-16")
     (run_dir / "ai_review_raw_output.txt").write_text(
-        "# AI Review Result\n\n- Finding A\n",
+        "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n",
         encoding="utf-8",
     )
     (run_dir / "review_classification.md").write_text(
@@ -262,7 +262,7 @@ def test_review_gate_story_run_rejects_missing_classification_artifact_without_r
     write_required_review_artifacts(run_dir, root_dir)
     write_manifest(run_dir, root_dir, "US-AUTO-16")
     (run_dir / "ai_review_result.md").write_text(
-        "# AI Review Result\n\n- Finding A\n",
+        "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n",
         encoding="utf-8",
     )
 
@@ -309,9 +309,9 @@ def test_review_gate_story_run_rejects_invalid_ai_review_artifact(tmp_path: Path
     result = run_review_gate(root_dir, "US-AUTO-16", env={"AUTOMATION_RUN_DIR": str(run_dir)})
 
     assert result.returncode != 0
-    assert "decision: reject, source: ai_review_incomplete_artifact" in result.stderr
+    assert "decision: reject, source: ai_review_malformed_artifact" in result.stderr
     gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
-    assert '"decision_source": "ai_review_incomplete_artifact"' in gate_result
+    assert '"decision_source": "ai_review_malformed_artifact"' in gate_result
 
 
 def test_review_gate_story_run_rejects_unreadable_ai_review_artifact(tmp_path: Path) -> None:

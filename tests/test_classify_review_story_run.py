@@ -19,7 +19,7 @@ def test_classify_review_story_run_fails_closed_on_missing_normalized_ai_review_
     run_dir.mkdir(parents=True)
     (run_dir / "manifest.md").write_text("- story_id: US-AUTO-48\n", encoding="utf-8")
     (run_dir / "ai_review_raw_output.txt").write_text(
-        "# AI Review Result\n\n- Finding present only in raw output\n",
+        "# AI Review\n\n- Finding present only in raw output\n\n# AI Review Result\n\nPASS\n",
         encoding="utf-8",
     )
     (run_dir / "review_classification.md").write_text("stale\n", encoding="utf-8")
@@ -74,7 +74,7 @@ def test_classify_review_story_run_fails_closed_on_invalid_normalized_ai_review_
     (run_dir / "manifest.md").write_text("- story_id: US-AUTO-48\n", encoding="utf-8")
     (run_dir / "ai_review_result.md").write_text("# AI Review Result\n", encoding="utf-8")
     (run_dir / "ai_review_raw_output.txt").write_text(
-        "# AI Review Result\n\n- Raw output exists for debugging\n",
+        "# AI Review\n\n- Raw output exists for debugging\n\n# AI Review Result\n\nPASS\n",
         encoding="utf-8",
     )
     (run_dir / "review_classification.md").write_text("stale\n", encoding="utf-8")
@@ -114,7 +114,7 @@ exit 0
     )
 
     assert result.returncode != 0
-    assert "ai_review_incomplete_artifact" in result.stderr
+    assert "ai_review_malformed_artifact" in result.stderr
     assert not marker_file.exists()
     assert not (run_dir / "review_classification.md").exists()
     assert not (run_dir / "review_classification_raw_output.txt").exists()

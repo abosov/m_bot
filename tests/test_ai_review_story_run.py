@@ -10,6 +10,8 @@ SCRIPT_PATH = (
     / "ai_review_story_run.sh"
 )
 
+VALID_AI_REVIEW = "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n"
+
 
 def test_ai_review_story_run_exists() -> None:
     assert SCRIPT_PATH.exists()
@@ -59,8 +61,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 cat >/dev/null
-printf '%s\\n' '# AI Review Result' > "$output"
+printf '%s\\n' '# AI Review' > "$output"
+printf '%s\\n' '' >> "$output"
 printf '%s\\n' '- Finding A' >> "$output"
+printf '%s\\n' '' >> "$output"
+printf '%s\\n' '# AI Review Result' >> "$output"
+printf '%s\\n' '' >> "$output"
+printf '%s\\n' 'PASS' >> "$output"
 printf '%s\\n' 'raw-ai-output'
 """,
         encoding="utf-8",
@@ -84,7 +91,7 @@ printf '%s\\n' 'raw-ai-output'
 
     assert result.returncode == 0, result.stderr
     assert "AI review result written:" in result.stdout
-    assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8").startswith("# AI Review Result")
+    assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8") == VALID_AI_REVIEW
     assert (run_dir / "ai_review_raw_output.txt").read_text(encoding="utf-8").strip() == "raw-ai-output"
 
 
@@ -174,7 +181,7 @@ printf '%s\\n' 'raw-ai-output'
     )
 
     assert result.returncode != 0
-    assert "ai_review_incomplete_artifact" in result.stderr
+    assert "ai_review_normalization_failed" in result.stderr
     assert not (run_dir / "ai_review_result.md").exists()
     assert (run_dir / "ai_review_raw_output.txt").read_text(encoding="utf-8").strip() == "raw-ai-output"
 
@@ -233,7 +240,7 @@ printf '%s\\n' 'raw-ai-output'
     )
 
     assert result.returncode != 0
-    assert "ai_review_malformed_artifact" in result.stderr
+    assert "ai_review_normalization_failed" in result.stderr
     assert not (run_dir / "ai_review_result.md").exists()
 
 
@@ -296,7 +303,7 @@ printf '%s\\n' 'raw-ai-output'
     )
 
     assert result.returncode != 0
-    assert "ai_review_unreadable_artifact" in result.stderr
+    assert "ai_review_normalization_failed" in result.stderr
     assert not (run_dir / "ai_review_result.md").exists()
     assert (run_dir / "ai_review_raw_output.txt").read_text(encoding="utf-8").strip() == "raw-ai-output"
 
@@ -322,9 +329,13 @@ def test_ai_review_story_run_normalizes_raw_output_when_result_file_missing(tmp_
         """#!/usr/bin/env bash
 set -euo pipefail
 cat >/dev/null
-printf '%s\\n' '# AI Review Result'
+printf '%s\\n' '# AI Review'
 printf '%s\\n' ''
 printf '%s\\n' '- Finding recovered from raw output'
+printf '%s\\n' ''
+printf '%s\\n' '# AI Review Result'
+printf '%s\\n' ''
+printf '%s\\n' 'PASS'
 """,
         encoding="utf-8",
     )
@@ -345,10 +356,10 @@ printf '%s\\n' '- Finding recovered from raw output'
 
     assert result.returncode == 0, result.stderr
     assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8") == (
-        "# AI Review Result\n\n- Finding recovered from raw output\n"
+        "# AI Review\n\n- Finding recovered from raw output\n\n# AI Review Result\n\nPASS\n"
     )
     assert (run_dir / "ai_review_raw_output.txt").read_text(encoding="utf-8") == (
-        "# AI Review Result\n\n- Finding recovered from raw output\n"
+        "# AI Review\n\n- Finding recovered from raw output\n\n# AI Review Result\n\nPASS\n"
     )
 
 
@@ -437,9 +448,13 @@ done
 cat >/dev/null
 printf '%s\\n' '# AI Review Result' > "$output"
 printf '%s\\n' 'preamble before normalized review'
-printf '%s\\n' '# AI Review Result'
+printf '%s\\n' '# AI Review'
 printf '%s\\n' ''
 printf '%s\\n' '- Finding recovered from raw output'
+printf '%s\\n' ''
+printf '%s\\n' '# AI Review Result'
+printf '%s\\n' ''
+printf '%s\\n' 'PASS'
 """,
         encoding="utf-8",
     )
@@ -460,10 +475,10 @@ printf '%s\\n' '- Finding recovered from raw output'
 
     assert result.returncode == 0, result.stderr
     assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8") == (
-        "# AI Review Result\n\n- Finding recovered from raw output\n"
+        "# AI Review\n\n- Finding recovered from raw output\n\n# AI Review Result\n\nPASS\n"
     )
     assert (run_dir / "ai_review_raw_output.txt").read_text(encoding="utf-8") == (
-        "preamble before normalized review\n# AI Review Result\n\n- Finding recovered from raw output\n"
+        "preamble before normalized review\n# AI Review\n\n- Finding recovered from raw output\n\n# AI Review Result\n\nPASS\n"
     )
 
 
@@ -483,7 +498,9 @@ def test_ai_review_story_run_rejects_prompt_echo_output(tmp_path: Path) -> None:
 
     prompt_text = (
         "# AI Review\n\n"
+        "- Finding echoed from prompt.\n\n"
         "# AI Review Result\n\n"
+        "PASS\n"
         "This is a long prompt line to force robust prompt-echo detection in the validator.\n"
         "This is a long prompt line to force robust prompt-echo detection in the validator.\n"
         "This is a long prompt line to force robust prompt-echo detection in the validator.\n"
@@ -530,7 +547,7 @@ cat "{run_dir / 'chatgpt_review_prompt.md'}" > "$output"
     )
 
     assert result.returncode != 0
-    assert "ai_review_echo_output" in result.stderr
+    assert "ai_review_normalization_failed" in result.stderr
     assert not (run_dir / "ai_review_result.md").exists()
 
 
@@ -577,5 +594,5 @@ printf '%s\\n' '- Finding without required result section'
     )
 
     assert result.returncode != 0
-    assert "ai_review_malformed_artifact" in result.stderr
+    assert "ai_review_normalization_failed" in result.stderr
     assert not (run_dir / "ai_review_result.md").exists()

@@ -10,7 +10,7 @@ SCRIPT_PATH = (
     / "analyze_story_run.sh"
 )
 
-VALID_AI_REVIEW = "# AI Review\n\n- Finding A\n"
+VALID_AI_REVIEW = "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n"
 
 
 def make_run_dir(base_dir: Path, story_id: str, run_id: str) -> Path:
@@ -411,10 +411,10 @@ def test_analyze_story_run_surfaces_invalid_ai_review_artifact(tmp_path: Path) -
     result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
 
     assert result.returncode == 0, result.stderr
-    assert "AI review: present (invalid: ai_review_incomplete_artifact)" in result.stdout
+    assert "AI review: present (invalid: ai_review_malformed_artifact)" in result.stdout
     assert "Current stage: blocked_ai_review_invalid" in result.stdout
     assert "Latest valid stage: run_artifacts_ready" in result.stdout
-    assert "RUN STATUS: CHECK AI REVIEW OUTPUT (invalid artifact: ai_review_incomplete_artifact)" in result.stdout
+    assert "RUN STATUS: CHECK AI REVIEW OUTPUT (invalid artifact: ai_review_malformed_artifact)" in result.stdout
     assert "RUN STATUS: READY TO CLASSIFY" not in result.stdout
 
 

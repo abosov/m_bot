@@ -32,7 +32,7 @@ def test_review_classification_script_writes_artifact(tmp_path: Path) -> None:
 
     ai_review_file = runs_dir / "ai_review_result.md"
     ai_review_file.write_text(
-        "# AI Review Result\n\n## Merge Recommendation\nmerge\n\n- Finding A\n",
+        "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n",
         encoding="utf-8",
     )
 
@@ -139,7 +139,7 @@ def test_review_classification_script_fails_without_valid_merge_recommendation(
 
     ai_review_file = runs_dir / "ai_review_result.md"
     ai_review_file.write_text(
-        "# AI Review Result\n\n## Merge Recommendation\nmerge\n\n- Finding A\n",
+        "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n",
         encoding="utf-8",
     )
 
@@ -207,7 +207,7 @@ def test_review_classification_script_accepts_relative_run_dir_override(tmp_path
 
     (runs_dir / "manifest.md").write_text("- story_id: US-AUTO-6\n", encoding="utf-8")
     (runs_dir / "ai_review_result.md").write_text(
-        "# AI Review Result\n\n## Merge Recommendation\nmerge\n\n- Finding A\n",
+        "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n",
         encoding="utf-8",
     )
 
