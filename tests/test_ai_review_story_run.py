@@ -84,9 +84,7 @@ printf '%s\\n' 'raw-ai-output'
 
     assert result.returncode == 0, result.stderr
     assert "AI review result written:" in result.stdout
-    assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8").startswith(
-        "# AI Review\n\n# AI Review Result"
-    )
+    assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8").startswith("# AI Review Result")
     assert (run_dir / "ai_review_raw_output.txt").read_text(encoding="utf-8").strip() == "raw-ai-output"
 
 
@@ -347,7 +345,7 @@ printf '%s\\n' '- Finding recovered from raw output'
 
     assert result.returncode == 0, result.stderr
     assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8") == (
-        "# AI Review\n\n# AI Review Result\n\n- Finding recovered from raw output\n"
+        "# AI Review Result\n\n- Finding recovered from raw output\n"
     )
     assert (run_dir / "ai_review_raw_output.txt").read_text(encoding="utf-8") == (
         "# AI Review Result\n\n- Finding recovered from raw output\n"
@@ -462,7 +460,7 @@ printf '%s\\n' '- Finding recovered from raw output'
 
     assert result.returncode == 0, result.stderr
     assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8") == (
-        "# AI Review\n\n# AI Review Result\n\n- Finding recovered from raw output\n"
+        "# AI Review Result\n\n- Finding recovered from raw output\n"
     )
     assert (run_dir / "ai_review_raw_output.txt").read_text(encoding="utf-8") == (
         "preamble before normalized review\n# AI Review Result\n\n- Finding recovered from raw output\n"
