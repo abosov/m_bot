@@ -530,10 +530,10 @@ require_file "$RUNNER"
 require_file "$VALIDATOR_SCRIPT"
 require_file "$MASTER_PROMPT"
 
-run_preflight_stage "$STORY_ID"
-
 echo "[INFO] Validating story bundle: $BUNDLE_DIR" >&2
 "$VALIDATOR_SCRIPT" "$STORY_ID"
+
+run_preflight_stage "$STORY_ID"
 
 echo "[INFO] STORY_ID: $STORY_ID" >&2
 echo "[INFO] Bundle dir: $BUNDLE_DIR" >&2
