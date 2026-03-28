@@ -1234,7 +1234,7 @@ After the findings section, include exactly:
 
 # AI Review Result
 
-Under `# AI Review Result`, output exactly one of:
+Under # AI Review Result, output exactly one of:
 - PASS
 - FAIL
 

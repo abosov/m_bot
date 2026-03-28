@@ -371,7 +371,7 @@ PY
 detect_non_converging_rerun() {
   local story_runs_root="$1"
   local previous_run_dir latest_run_dir
-  local previous_head latest_head
+  local previous_head latest_head current_head
   local run_dir
   local run_dirs=()
 
@@ -389,9 +389,16 @@ detect_non_converging_rerun() {
 
   previous_head="$(run_source_of_truth_head "$previous_run_dir")"
   latest_head="$(run_source_of_truth_head "$latest_run_dir")"
+  current_head="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
 
   [[ -n "$previous_head" && -n "$latest_head" ]] || return 1
   [[ "$previous_head" != "$latest_head" ]] || return 1
+
+  if [[ -n "$current_head" && "$current_head" != "$latest_head" ]]; then
+    if git -C "$ROOT_DIR" merge-base --is-ancestor "$latest_head" "$current_head" >/dev/null 2>&1; then
+      return 1
+    fi
+  fi
 
   changed_files_match \
     "$previous_run_dir/changed_files.txt" \

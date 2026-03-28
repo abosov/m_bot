@@ -329,8 +329,11 @@ def test_materialized_primary_checkout_state() -> None:
     assert "- Review diff source: origin/main...HEAD" in review_prompt
     assert "- Review artifact base:" in review_prompt
     assert "## Required output format" in review_prompt
+    assert "Return only a markdown document in exactly this structure." in review_prompt
     assert "# AI Review" in review_prompt
     assert "# AI Review Result" in review_prompt
+    assert "The first non-empty line must be exactly:" in review_prompt
+    assert "Under # AI Review Result, output exactly one of:" in review_prompt
     assert "Do not output anything before # AI Review." in review_prompt
 
 def test_run_codex_task_marks_scope_parse_status_missing(tmp_path: Path) -> None:

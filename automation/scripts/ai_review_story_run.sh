@@ -153,6 +153,13 @@ if start_index is None:
     )
     sys.exit(0)
 
+first_nonempty_index = next((i for i, line in enumerate(lines) if line.lstrip("\ufeff").strip()), None)
+if first_nonempty_index != start_index:
+    print(
+        "invalid\tai_review_normalization_failed\tAI review raw output contained unexpected content before the required '# AI Review' section"
+    )
+    sys.exit(0)
+
 normalized_text = "\n".join(lines[start_index:]).rstrip()
 
 review_path.parent.mkdir(parents=True, exist_ok=True)

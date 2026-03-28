@@ -473,10 +473,9 @@ printf '%s\\n' 'PASS'
         env=env,
     )
 
-    assert result.returncode == 0, result.stderr
-    assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8") == (
-        "# AI Review\n\n- Finding recovered from raw output\n\n# AI Review Result\n\nPASS\n"
-    )
+    assert result.returncode != 0
+    assert "ai_review_normalization_failed" in result.stderr
+    assert not (run_dir / "ai_review_result.md").exists()
     assert (run_dir / "ai_review_raw_output.txt").read_text(encoding="utf-8") == (
         "preamble before normalized review\n# AI Review\n\n- Finding recovered from raw output\n\n# AI Review Result\n\nPASS\n"
     )
