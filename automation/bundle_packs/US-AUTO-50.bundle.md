@@ -12,8 +12,8 @@ US-AUTO-50 — AI review must produce structured output
 ## Scope
 - Enforcement структуры AI review output на этапе генерации prompt
 - Требование обязательных секций "# AI Review" и "# AI Review Result"
-- Минимальные изменения в generator-side (run_codex_task.sh)
 - Разблокировка fresh rerun на текущем HEAD после manual finish commit
+- Минимальные downstream changes для принятия и валидации нового structured output contract
 
 ## Non-goals
 - Изменения в automation/scripts/ai_review_story_run.sh
@@ -58,7 +58,7 @@ US-AUTO-50 — AI review must produce structured output
 - Generated review prompt явно требует секции "# AI Review" и "# AI Review Result"
 - tests/test_run_codex_task.py проверяет новый output contract
 - tests/test_run_story.py подтверждает fresh rerun после manual finish commit на новом HEAD
-- Изменения не затрагивают downstream review validation/classification/gate logic
+- downstream review pipeline детерминированно обрабатывает новый structured output contract
 
 ---
 
@@ -91,8 +91,18 @@ US-AUTO-50 — AI review must produce structured output
 ## Files Allowed To Change
 - automation/run_codex_task.sh
 - automation/scripts/run_story.sh
+- automation/scripts/ai_review_story_run.sh
+- automation/scripts/analyze_story_run.sh
+- automation/scripts/classify_review_story_run.sh
+- automation/scripts/review_gate_story_run.sh
 - tests/test_run_codex_task.py
 - tests/test_run_story.py
+- tests/test_ai_review_story_run.py
+- tests/test_analyze_story_run.py
+- tests/test_classify_review_story_run.py
+- tests/test_review_classification_script.py
+- tests/test_review_gate_story_run.py
+- tests/test_review_pipeline_validation_contract.py
 
 ## Files Not Allowed To Change
 - automation/scripts/finalize_story.sh
@@ -122,8 +132,18 @@ Ensure AI review always produces a valid structured output and never allows inva
 ## Files Allowed To Change
 - automation/run_codex_task.sh
 - automation/scripts/run_story.sh
+- automation/scripts/ai_review_story_run.sh
+- automation/scripts/analyze_story_run.sh
+- automation/scripts/classify_review_story_run.sh
+- automation/scripts/review_gate_story_run.sh
 - tests/test_run_codex_task.py
 - tests/test_run_story.py
+- tests/test_ai_review_story_run.py
+- tests/test_analyze_story_run.py
+- tests/test_classify_review_story_run.py
+- tests/test_review_classification_script.py
+- tests/test_review_gate_story_run.py
+- tests/test_review_pipeline_validation_contract.py
 
 ## Files Not Allowed To Change
 - automation/scripts/run_story.sh
