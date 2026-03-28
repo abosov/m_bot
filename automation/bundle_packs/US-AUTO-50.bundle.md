@@ -142,6 +142,7 @@ Ensure AI review always produces a valid structured output and never allows inva
 - tests/test_review_gate_story_run.py
 - tests/test_review_pipeline.py
 - tests/test_review_pipeline_validation_contract.py
+- tests/test_review_classification_script.py
 
 ## Files Not Allowed To Change
 - automation/run_codex_task.sh
