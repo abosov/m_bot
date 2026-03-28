@@ -328,6 +328,10 @@ def test_materialized_primary_checkout_state() -> None:
     assert "1 passed" in pytest_output
     assert "- Review diff source: origin/main...HEAD" in review_prompt
     assert "- Review artifact base:" in review_prompt
+    assert "## Required output format" in review_prompt
+    assert "# AI Review" in review_prompt
+    assert "# AI Review Result" in review_prompt
+    assert "Do not output anything before # AI Review." in review_prompt
 
 def test_run_codex_task_marks_scope_parse_status_missing(tmp_path: Path) -> None:
     root_dir, prompt_file = setup_story_repo(tmp_path)

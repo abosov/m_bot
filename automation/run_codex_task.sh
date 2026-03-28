@@ -1214,6 +1214,56 @@ $DIFF_STAT_CONTENT
 
 Pytest:
 $PYTEST_OUTPUT_CONTENT
+
+## Required output format
+
+Return only a markdown document in exactly this structure.
+
+Do not include:
+- any preamble
+- any narration
+- any explanation before the first heading
+- any tool commentary
+- any surrounding code fences
+
+The first non-empty line must be exactly:
+
+# AI Review
+
+After the findings section, include exactly:
+
+# AI Review Result
+
+Under `# AI Review Result`, output exactly one of:
+- PASS
+- FAIL
+
+Required shape:
+
+# AI Review
+
+## Findings by severity
+- <finding 1>
+- <finding 2>
+
+## Requested areas summary
+- Architecture fit: <text>
+- Scope creep: <text>
+- Safety issues: <text>
+- Hallucination risk: <text>
+- Missing tests: <text>
+- Missing docs: <text>
+- Branch/workflow compliance: <text>
+
+# AI Review Result
+
+PASS
+
+If there are blocking issues, output FAIL instead of PASS.
+
+Do not repeat the prompt.
+Do not echo the supplied context.
+Do not output anything before # AI Review.
 PROMPT
 
 RUN_STATUS="failed"
