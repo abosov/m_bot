@@ -309,9 +309,41 @@ def test_review_gate_story_run_rejects_invalid_ai_review_artifact(tmp_path: Path
     result = run_review_gate(root_dir, "US-AUTO-16", env={"AUTOMATION_RUN_DIR": str(run_dir)})
 
     assert result.returncode != 0
-    assert "decision: reject, source: ai_review_malformed_artifact" in result.stderr
+    assert "decision: reject, source: ai_review_normalization_failed" in result.stderr
     gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
-    assert '"decision_source": "ai_review_malformed_artifact"' in gate_result
+    assert '"decision_source": "ai_review_normalization_failed"' in gate_result
+
+
+def test_review_gate_story_run_rejects_prompt_echo_ai_review_artifact(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-13-echo-ai")
+
+    write_required_review_artifacts(run_dir, root_dir)
+    write_manifest(run_dir, root_dir, "US-AUTO-16")
+    prompt_text = (
+        "# AI Review\n\n"
+        "- Finding echoed from prompt.\n\n"
+        "# AI Review Result\n\n"
+        "PASS\n"
+        "This is a long prompt line to trigger echo detection during gate validation.\n"
+        "This is a long prompt line to trigger echo detection during gate validation.\n"
+        "This is a long prompt line to trigger echo detection during gate validation.\n"
+        "This is a long prompt line to trigger echo detection during gate validation.\n"
+    )
+    (run_dir / "chatgpt_review_prompt.md").write_text(prompt_text, encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(prompt_text, encoding="utf-8")
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
+        encoding="utf-8",
+    )
+
+    result = run_review_gate(root_dir, "US-AUTO-16", env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    assert "decision: reject, source: ai_review_normalization_failed" in result.stderr
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "ai_review_normalization_failed"' in gate_result
 
 
 def test_review_gate_story_run_rejects_unreadable_ai_review_artifact(tmp_path: Path) -> None:

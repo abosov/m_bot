@@ -108,7 +108,7 @@ def test_classification_fail_closed_on_malformed_ai_review_and_clears_stale_outp
     )
 
     assert result.returncode != 0
-    assert "ai_review_malformed_artifact" in result.stderr
+    assert "ai_review_normalization_failed" in result.stderr
     assert not marker_file.exists()
     assert not (run_dir / "review_classification.md").exists()
     assert not (run_dir / "review_classification_raw_output.txt").exists()
@@ -137,7 +137,7 @@ def test_classification_fail_closed_on_incomplete_ai_review_and_clears_stale_out
     )
 
     assert result.returncode != 0
-    assert "ai_review_malformed_artifact" in result.stderr
+    assert "ai_review_normalization_failed" in result.stderr
     assert not marker_file.exists()
     assert not (run_dir / "review_classification.md").exists()
     assert not (run_dir / "review_classification_raw_output.txt").exists()

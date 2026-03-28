@@ -122,13 +122,16 @@ artifact_file_state() {
 read_ai_review_artifact_state() {
   local review_file="$1"
   local raw_output_file="${2:-}"
+  local prompt_file="${3:-}"
 
-  python3 - "$review_file" "$raw_output_file" <<'PY'
+  python3 - "$review_file" "$raw_output_file" "$prompt_file" <<'PY'
 import sys
+from difflib import SequenceMatcher
 from pathlib import Path
 
 path = Path(sys.argv[1])
 raw_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
+prompt_path = Path(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
 
 if not path.exists():
     if raw_path and raw_path.exists():
@@ -163,13 +166,13 @@ first_result_index = next((i for i, line in enumerate(normalized) if line == "# 
 
 if first_review_index is None or first_result_index is None:
     print(
-        "invalid\tai_review_malformed_artifact\tPinned AI review artifact is malformed; it must contain both '# AI Review' and '# AI Review Result'. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+        "invalid\tai_review_normalization_failed\tPinned AI review artifact failed required structure validation; it must contain both '# AI Review' and '# AI Review Result'. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
     )
     sys.exit(0)
 
 if first_review_index != first_nonempty_index or first_result_index <= first_review_index:
     print(
-        "invalid\tai_review_malformed_artifact\tPinned AI review artifact is malformed; it must start with '# AI Review' and include '# AI Review Result' after it. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+        "invalid\tai_review_normalization_failed\tPinned AI review artifact failed required structure validation; it must start with '# AI Review' and include '# AI Review Result' after it. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
     )
     sys.exit(0)
 
@@ -177,9 +180,30 @@ review_body = [line for line in normalized[first_review_index + 1:first_result_i
 result_body = [line for line in normalized[first_result_index + 1:] if line and not line.startswith("#")]
 if not review_body or not result_body:
     print(
-        "invalid\tai_review_incomplete_artifact\tPinned AI review artifact is incomplete; it must include substantive content in both '# AI Review' and '# AI Review Result'. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+        "invalid\tai_review_normalization_failed\tPinned AI review artifact failed required structure validation; it must include substantive content in both '# AI Review' and '# AI Review Result'. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
     )
     sys.exit(0)
+
+if prompt_path and prompt_path.exists():
+    try:
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+    except Exception:
+        prompt_text = ""
+
+    if prompt_text.strip():
+        review_norm = " ".join(text.split())
+        prompt_norm = " ".join(prompt_text.split())
+        if review_norm == prompt_norm:
+            print(
+                "invalid\tai_review_normalization_failed\tPinned AI review artifact matches the prompt content and appears to be prompt echo. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+            )
+            sys.exit(0)
+        similarity = SequenceMatcher(a=review_norm.lower(), b=prompt_norm.lower()).ratio()
+        if len(review_norm) >= 200 and len(prompt_norm) >= 200 and similarity >= 0.92:
+            print(
+                "invalid\tai_review_normalization_failed\tPinned AI review artifact is too similar to the prompt content and appears to be prompt echo. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+            )
+            sys.exit(0)
 
 print("valid\tai_review_valid\tvalidated")
 PY
@@ -416,7 +440,8 @@ review_artifact_fidelity_status() {
 review_input_artifact_status() {
   local ai_review_file="$1"
   local ai_review_raw_output_file="$2"
-  local classification_file="$3"
+  local ai_review_prompt_file="$3"
+  local classification_file="$4"
   local ai_review_state classification_state merge_recommendation validation_state validation_status validation_code validation_reason
 
   ai_review_state="$(artifact_file_state "$ai_review_file")"
@@ -435,7 +460,7 @@ review_input_artifact_status() {
       ;;
   esac
 
-  validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$ai_review_raw_output_file")"
+  validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$ai_review_raw_output_file" "$ai_review_prompt_file")"
   IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
   if [[ "$validation_status" != "valid" ]]; then
     printf 'reject\t%s\t%s\n' "$validation_code" "$validation_reason"
@@ -706,6 +731,7 @@ LATEST_RUN_DIR="$(resolve_target_run_dir "$STORY_RUNS_ROOT" "$RUN_DIR_OVERRIDE")
 RUN_ID="$(basename "$LATEST_RUN_DIR")"
 AI_REVIEW_FILE="$LATEST_RUN_DIR/$AI_REVIEW_FILE_NAME"
 AI_REVIEW_RAW_OUTPUT_FILE="$LATEST_RUN_DIR/$AI_REVIEW_RAW_OUTPUT_FILE_NAME"
+AI_REVIEW_PROMPT_FILE="$LATEST_RUN_DIR/chatgpt_review_prompt.md"
 CLASSIFICATION_FILE="$LATEST_RUN_DIR/$CLASSIFICATION_FILE_NAME"
 GATE_RESULT_FILE="$LATEST_RUN_DIR/$GATE_RESULT_FILE_NAME"
 MANIFEST_FILE="$LATEST_RUN_DIR/manifest.md"
@@ -786,7 +812,7 @@ if [[ "$fidelity_decision" == "reject" ]]; then
   fail "review gate rejected merge for '$STORY_ID' ($fidelity_reason)"
 fi
 
-input_status="$(review_input_artifact_status "$AI_REVIEW_FILE" "$AI_REVIEW_RAW_OUTPUT_FILE" "$CLASSIFICATION_FILE")"
+input_status="$(review_input_artifact_status "$AI_REVIEW_FILE" "$AI_REVIEW_RAW_OUTPUT_FILE" "$AI_REVIEW_PROMPT_FILE" "$CLASSIFICATION_FILE")"
 IFS=$'\t' read -r decision decision_source reason <<< "$input_status"
 status="failed"
 if [[ "$decision" == "approve" ]]; then
