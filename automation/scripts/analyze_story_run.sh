@@ -1008,6 +1008,8 @@ summarize_workflow_resume() {
   fi
   if [[ "$stage" == "blocked_non_converging_rerun" ]]; then
     printf 'Manual finish: inspect workspace-only changes, finish the story manually, commit the result to HEAD, then continue review on committed HEAD without rerunning automation/scripts/run_story.sh\n'
+  elif [[ "$stage" == "manual_finish_ready_for_review" ]]; then
+    printf 'Manual finish complete: committed HEAD moved past the run manifest after a non-converging rerun; continue review on the committed HEAD using the pinned run artifacts\n'
   fi
 }
 
@@ -1041,6 +1043,15 @@ final_status_line() {
   escalation_state="$(read_escalation_artifact_state "$escalation_file")"
   IFS=$'\x1f' read -r escalation_valid escalation_required escalation_status escalation_decision_source _ resolution_action <<<"$escalation_state"
   previous_non_converging_run_dir="$(detect_non_converging_rerun_for_run "$STORY_RUNS_ROOT" "$run_dir" || true)"
+
+  if [[ -n "$previous_non_converging_run_dir" && "$head_status" == mismatch:* ]]; then
+    if working_tree_is_clean; then
+      printf 'RUN STATUS: READY (manual finish committed; review can continue on current HEAD)\n'
+    else
+      printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
+    fi
+    return 0
+  fi
 
   if [[ "$head_status" == mismatch:* ]]; then
     expected_head="${head_status#mismatch:}"
