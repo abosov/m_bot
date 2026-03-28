@@ -12,14 +12,15 @@ US-AUTO-50 — AI review must produce structured output
 ## Scope
 - Enforcement структуры AI review output на этапе генерации prompt
 - Требование обязательных секций "# AI Review" и "# AI Review Result"
-- Минимальные изменения только в generator-side (run_codex_task.sh)
+- Минимальные изменения в generator-side (run_codex_task.sh)
+- Разблокировка fresh rerun на текущем HEAD после manual finish commit
 
 ## Non-goals
 - Изменения в automation/scripts/ai_review_story_run.sh
 - Изменения в automation/scripts/classify_review_story_run.sh
 - Изменения в automation/scripts/review_gate_story_run.sh
 - Изменения в automation/scripts/analyze_story_run.sh
-- Любые изменения downstream review pipeline
+- Любые изменения downstream review validation/classification/gate logic
 
 ## Dependencies
 - US-AUTO-49 (реализована)
@@ -56,7 +57,8 @@ US-AUTO-50 — AI review must produce structured output
 ## Acceptance Notes
 - Generated review prompt явно требует секции "# AI Review" и "# AI Review Result"
 - tests/test_run_codex_task.py проверяет новый output contract
-- Изменения ограничены generator-side и не затрагивают downstream review pipeline
+- tests/test_run_story.py подтверждает fresh rerun после manual finish commit на новом HEAD
+- Изменения не затрагивают downstream review validation/classification/gate logic
 
 ---
 
@@ -88,10 +90,11 @@ US-AUTO-50 — AI review must produce structured output
 === FILE: 02_file_scope.md ===
 ## Files Allowed To Change
 - automation/run_codex_task.sh
+- automation/scripts/run_story.sh
 - tests/test_run_codex_task.py
+- tests/test_run_story.py
 
 ## Files Not Allowed To Change
-- automation/scripts/run_story.sh
 - automation/scripts/finalize_story.sh
 - automation/scripts/materialize_story_bundle.sh
 - automation/scripts/validate_story_bundle.sh
@@ -118,7 +121,9 @@ Ensure AI review always produces a valid structured output and never allows inva
 
 ## Files Allowed To Change
 - automation/run_codex_task.sh
+- automation/scripts/run_story.sh
 - tests/test_run_codex_task.py
+- tests/test_run_story.py
 
 ## Files Not Allowed To Change
 - automation/scripts/run_story.sh

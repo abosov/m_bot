@@ -1,9 +1,10 @@
 ## Files Allowed To Change
 - automation/run_codex_task.sh
+- automation/scripts/run_story.sh
 - tests/test_run_codex_task.py
+- tests/test_run_story.py
 
 ## Files Not Allowed To Change
-- automation/scripts/run_story.sh
 - automation/scripts/finalize_story.sh
 - automation/scripts/materialize_story_bundle.sh
 - automation/scripts/validate_story_bundle.sh
