@@ -7,41 +7,38 @@ Version: 1
 US-AUTO-50 — AI review must produce structured output
 
 ## Objective
-Гарантировать, что AI review всегда возвращает строго структурированный artifact, пригодный для normalization, classification и gate, без возможности неструктурированного ответа.
+Гарантировать, что generator-side prompt для AI review жёстко требует строго структурированный markdown output с секциями "# AI Review" и "# AI Review Result".
 
 ## Scope
-- Валидация структуры AI review output
-- Детектирование echo / prompt leakage
-- Fail-closed останов pipeline при некорректном output
-- Минимальные изменения внутри review pipeline
+- Enforcement структуры AI review output на этапе генерации prompt
+- Требование обязательных секций "# AI Review" и "# AI Review Result"
+- Разблокировка fresh rerun на текущем HEAD после manual finish commit
+- Минимальные downstream changes для принятия и валидации нового structured output contract
 
 ## Non-goals
-- Изменение Codex runner
-- Изменение логики classification
-- Редизайн формата review
-- Retry / orchestration логика
+- Изменения в automation/scripts/ai_review_story_run.sh
+- Изменения в automation/scripts/classify_review_story_run.sh
+- Изменения в automation/scripts/review_gate_story_run.sh
+- Изменения в automation/scripts/analyze_story_run.sh
+- Любые изменения downstream review validation/classification/gate logic
 
 ## Dependencies
 - US-AUTO-49 (реализована)
 - review pipeline (ai_review → normalization → classification → gate)
 
 ## Source of Truth
-- automation/scripts/ai_review_story_run.sh
-- automation/scripts/review_story_run.sh
-- automation/scripts/classify_review_story_run.sh
-- automation/scripts/review_gate_story_run.sh
+- automation/run_codex_task.sh
+- generated chatgpt_review_prompt.md
 
 ## Current Code Reality
-- AI review может вернуть echo prompt
-- Нет строгой проверки структуры
-- normalization падает поздно
-- classify блокируется неявно
+- generator не гарантирует строгий output contract
+- AI может не следовать требуемой структуре
+- downstream pipeline вынужден валидировать и падать
 
 ## Target Outcome
-- AI review output строго валидируется
-- Любой невалидный output → fail-closed
-- classify не запускается при invalid input
-- причина ошибки явно фиксируется
+- generator требует строго структурированный output
+- AI review сразу возвращает валидный markdown contract
+- downstream pipeline получает уже корректный input
 
 ## Atomic Task Isolation Contract
 - Только enforcement структуры output
@@ -58,9 +55,10 @@ US-AUTO-50 — AI review must produce structured output
 - Прогнать полный pipeline
 
 ## Acceptance Notes
-- Нет прохода pipeline при неструктурированном output
-- Valid output проходит без изменений
-- Gate возвращает корректную причину отказа
+- Generated review prompt явно требует секции "# AI Review" и "# AI Review Result"
+- tests/test_run_codex_task.py проверяет новый output contract
+- tests/test_run_story.py подтверждает fresh rerun после manual finish commit на новом HEAD
+- downstream review pipeline детерминированно обрабатывает новый structured output contract
 
 ---
 
@@ -91,17 +89,22 @@ US-AUTO-50 — AI review must produce structured output
 
 === FILE: 02_file_scope.md ===
 ## Files Allowed To Change
-- automation/scripts/ai_review_story_run.sh
-- automation/scripts/review_story_run.sh
-- automation/scripts/classify_review_story_run.sh
-- automation/scripts/review_gate_story_run.sh
-- automation/scripts/analyze_story_run.sh
-- tests/test_ai_review_story_run.py
-- tests/test_review_pipeline.py
-
-## Files Not Allowed To Change
 - automation/run_codex_task.sh
 - automation/scripts/run_story.sh
+- automation/scripts/ai_review_story_run.sh
+- automation/scripts/analyze_story_run.sh
+- automation/scripts/classify_review_story_run.sh
+- automation/scripts/review_gate_story_run.sh
+- tests/test_run_codex_task.py
+- tests/test_run_story.py
+- tests/test_ai_review_story_run.py
+- tests/test_analyze_story_run.py
+- tests/test_classify_review_story_run.py
+- tests/test_review_classification_script.py
+- tests/test_review_gate_story_run.py
+- tests/test_review_pipeline_validation_contract.py
+
+## Files Not Allowed To Change
 - automation/scripts/finalize_story.sh
 - automation/scripts/materialize_story_bundle.sh
 - automation/scripts/validate_story_bundle.sh
@@ -127,16 +130,22 @@ Ensure AI review always produces a valid structured output and never allows inva
 - Required structure sections
 
 ## Files Allowed To Change
+- automation/run_codex_task.sh
+- automation/scripts/run_story.sh
 - automation/scripts/ai_review_story_run.sh
-- automation/scripts/review_story_run.sh
+- automation/scripts/analyze_story_run.sh
 - automation/scripts/classify_review_story_run.sh
 - automation/scripts/review_gate_story_run.sh
-- automation/scripts/analyze_story_run.sh
+- tests/test_run_codex_task.py
+- tests/test_run_story.py
 - tests/test_ai_review_story_run.py
-- tests/test_review_pipeline.py
+- tests/test_analyze_story_run.py
+- tests/test_classify_review_story_run.py
+- tests/test_review_classification_script.py
+- tests/test_review_gate_story_run.py
+- tests/test_review_pipeline_validation_contract.py
 
 ## Files Not Allowed To Change
-- automation/run_codex_task.sh
 - automation/scripts/run_story.sh
 - automation/scripts/finalize_story.sh
 - automation/scripts/materialize_story_bundle.sh

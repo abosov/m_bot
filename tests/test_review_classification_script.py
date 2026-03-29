@@ -31,7 +31,10 @@ def test_review_classification_script_writes_artifact(tmp_path: Path) -> None:
     runs_dir.mkdir(parents=True)
 
     ai_review_file = runs_dir / "ai_review_result.md"
-    ai_review_file.write_text("# AI Review Result\n\n- Finding A\n", encoding="utf-8")
+    ai_review_file.write_text(
+        "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n",
+        encoding="utf-8",
+    )
 
     rules_file = root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
     rules_file.parent.mkdir(parents=True)
@@ -58,7 +61,7 @@ done
 cat >/dev/null
 printf '%s\\n' '# Review Classification' > "$output"
 printf '%s\\n' '1. findings by classification' >> "$output"
-printf '%s\\n' '5. merge recommendation (reject)' >> "$output"
+printf '%s\\n' 'MERGE RECOMMENDATION: reject' >> "$output"
 printf '%s\\n' 'raw-classification-output'
 """,
         encoding="utf-8",
@@ -135,7 +138,10 @@ def test_review_classification_script_fails_without_valid_merge_recommendation(
     runs_dir.mkdir(parents=True)
 
     ai_review_file = runs_dir / "ai_review_result.md"
-    ai_review_file.write_text("# AI Review Result\n\n- Finding A\n", encoding="utf-8")
+    ai_review_file.write_text(
+        "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n",
+        encoding="utf-8",
+    )
 
     rules_file = root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
     rules_file.parent.mkdir(parents=True)
@@ -200,7 +206,10 @@ def test_review_classification_script_accepts_relative_run_dir_override(tmp_path
     runs_dir.mkdir(parents=True)
 
     (runs_dir / "manifest.md").write_text("- story_id: US-AUTO-6\n", encoding="utf-8")
-    (runs_dir / "ai_review_result.md").write_text("# AI Review Result\n\n- Finding A\n", encoding="utf-8")
+    (runs_dir / "ai_review_result.md").write_text(
+        "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n",
+        encoding="utf-8",
+    )
 
     rules_file = root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
     rules_file.parent.mkdir(parents=True)

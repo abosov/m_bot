@@ -154,7 +154,7 @@ def write_required_review_artifacts(
 
 def write_pinned_review_artifacts(run_dir: Path, *, recommendation: str | None = "approve") -> None:
     (run_dir / "ai_review_result.md").write_text(
-        "# AI Review Result\n\n- Finding A\n",
+        "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n",
         encoding="utf-8",
     )
     if recommendation is None:
@@ -237,7 +237,7 @@ def test_review_gate_story_run_rejects_missing_normalized_ai_review_when_raw_out
     write_required_review_artifacts(run_dir, root_dir)
     write_manifest(run_dir, root_dir, "US-AUTO-16")
     (run_dir / "ai_review_raw_output.txt").write_text(
-        "# AI Review Result\n\n- Finding A\n",
+        "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n",
         encoding="utf-8",
     )
     (run_dir / "review_classification.md").write_text(
@@ -262,7 +262,7 @@ def test_review_gate_story_run_rejects_missing_classification_artifact_without_r
     write_required_review_artifacts(run_dir, root_dir)
     write_manifest(run_dir, root_dir, "US-AUTO-16")
     (run_dir / "ai_review_result.md").write_text(
-        "# AI Review Result\n\n- Finding A\n",
+        "# AI Review\n\n- Finding A\n\n# AI Review Result\n\nPASS\n",
         encoding="utf-8",
     )
 
@@ -309,9 +309,41 @@ def test_review_gate_story_run_rejects_invalid_ai_review_artifact(tmp_path: Path
     result = run_review_gate(root_dir, "US-AUTO-16", env={"AUTOMATION_RUN_DIR": str(run_dir)})
 
     assert result.returncode != 0
-    assert "decision: reject, source: ai_review_incomplete_artifact" in result.stderr
+    assert "decision: reject, source: ai_review_normalization_failed" in result.stderr
     gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
-    assert '"decision_source": "ai_review_incomplete_artifact"' in gate_result
+    assert '"decision_source": "ai_review_normalization_failed"' in gate_result
+
+
+def test_review_gate_story_run_rejects_prompt_echo_ai_review_artifact(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    run_dir = make_run_dir(root_dir, "US-AUTO-16", "2026-03-14_18-56-13-echo-ai")
+
+    write_required_review_artifacts(run_dir, root_dir)
+    write_manifest(run_dir, root_dir, "US-AUTO-16")
+    prompt_text = (
+        "# AI Review\n\n"
+        "- Finding echoed from prompt.\n\n"
+        "# AI Review Result\n\n"
+        "PASS\n"
+        "This is a long prompt line to trigger echo detection during gate validation.\n"
+        "This is a long prompt line to trigger echo detection during gate validation.\n"
+        "This is a long prompt line to trigger echo detection during gate validation.\n"
+        "This is a long prompt line to trigger echo detection during gate validation.\n"
+    )
+    (run_dir / "chatgpt_review_prompt.md").write_text(prompt_text, encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(prompt_text, encoding="utf-8")
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
+        encoding="utf-8",
+    )
+
+    result = run_review_gate(root_dir, "US-AUTO-16", env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    assert "decision: reject, source: ai_review_normalization_failed" in result.stderr
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "ai_review_normalization_failed"' in gate_result
 
 
 def test_review_gate_story_run_rejects_unreadable_ai_review_artifact(tmp_path: Path) -> None:
@@ -457,3 +489,158 @@ def test_review_gate_story_run_rejects_stale_diff_patch_before_consuming_pinned_
     assert "diff.patch is stale or inconsistent" in result.stderr
     gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
     assert '"decision_source": "review_diff_patch_mismatch"' in gate_result
+
+def test_review_gate_story_run_ignores_committed_story_artifacts_in_fidelity_check(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+
+    subprocess.run(
+        ["git", "branch", "-M", "main"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "checkout", "-b", "feat/us-auto-50-run"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    story_id = "US-AUTO-50"
+    run_dir = make_run_dir(root_dir, story_id, "2026-03-28_20-27-28")
+
+    (root_dir / "automation" / "bundle_packs").mkdir(parents=True, exist_ok=True)
+    (root_dir / "automation" / "bundles" / "active" / story_id).mkdir(parents=True, exist_ok=True)
+
+    (root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md").write_text(
+        "# bundle\n", encoding="utf-8"
+    )
+    (root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md").write_text(
+        "# scope\n", encoding="utf-8"
+    )
+    (root_dir / "automation" / "bundles" / "active" / story_id / "03_master_prompt.md").write_text(
+        "# prompt\n", encoding="utf-8"
+    )
+    (root_dir / "automation" / "scripts").mkdir(parents=True, exist_ok=True)
+    (root_dir / "automation" / "scripts" / "run_story.sh").write_text(
+        "#!/usr/bin/env bash\n", encoding="utf-8"
+    )
+    (root_dir / "automation" / "run_codex_task.sh").write_text(
+        "#!/usr/bin/env bash\n", encoding="utf-8"
+    )
+    (root_dir / "tests").mkdir(parents=True, exist_ok=True)
+    (root_dir / "tests" / "test_run_story.py").write_text(
+        "def test_placeholder():\n    assert True\n", encoding="utf-8"
+    )
+
+    subprocess.run(
+        [
+            "git",
+            "add",
+            "automation/bundle_packs",
+            "automation/bundles/active",
+            "automation/scripts/run_story.sh",
+            "automation/run_codex_task.sh",
+            "tests/test_run_story.py",
+        ],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "story changes"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    review_artifact_base = subprocess.run(
+        ["git", "rev-parse", "HEAD^"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    write_required_review_artifacts(
+        run_dir,
+        root_dir,
+        review_artifact_base=review_artifact_base,
+    )
+
+    # 🔥 ДОБАВИТЬ СРАЗУ ПОСЛЕ ЭТОГО:
+
+    diff_patch = subprocess.run(
+        [
+            "git",
+            "diff",
+            review_artifact_base,
+            "--",
+            ".",
+            ":(exclude)automation/story_change_ledger.jsonl",
+        ],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    filtered_diff = subprocess.run(
+        ["bash", "-c", f'printf "%s" "{diff_patch}"'],
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    # ⚠️ вручную применяем тот же ignore, что в gate
+    filtered_lines = []
+    skip = False
+
+    for line in diff_patch.splitlines():
+        if line.startswith("diff --git"):
+            path = line.split(" a/")[1].split(" b/")[0]
+            if path.startswith(f"automation/bundle_packs/{story_id}.bundle.md") or \
+            path.startswith(f"automation/bundles/active/{story_id}"):
+                skip = True
+                continue
+            else:
+                skip = False
+
+        if skip:
+            continue
+
+        filtered_lines.append(line)
+
+    (run_dir / "diff.patch").write_text("\n".join(filtered_lines) + "\n", encoding="utf-8")
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        review_artifact_base=review_artifact_base,
+    )
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+
+    implementation_only = [
+        "automation/run_codex_task.sh",
+        "automation/scripts/run_story.sh",
+        "tests/test_run_story.py",
+    ]
+    (run_dir / "changed_files.txt").write_text(
+        "\n".join(implementation_only) + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode == 0, result.stderr
+    assert "Final decision: approve" in result.stdout
+
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision": "approve"' in gate_result
+    assert '"decision_source": "review_classification"' in gate_result

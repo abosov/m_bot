@@ -122,13 +122,16 @@ artifact_file_state() {
 read_ai_review_artifact_state() {
   local review_file="$1"
   local raw_output_file="${2:-}"
+  local prompt_file="${3:-}"
 
-  python3 - "$review_file" "$raw_output_file" <<'PY'
+  python3 - "$review_file" "$raw_output_file" "$prompt_file" <<'PY'
 import sys
+from difflib import SequenceMatcher
 from pathlib import Path
 
 path = Path(sys.argv[1])
 raw_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
+prompt_path = Path(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
 
 if not path.exists():
     if raw_path and raw_path.exists():
@@ -158,20 +161,49 @@ if first_nonempty_index is None:
     print("invalid\tai_review_empty_artifact\tPinned AI review artifact is empty; rerun automation/scripts/ai_review_story_run.sh for this pinned run")
     sys.exit(0)
 
-heading = normalized[first_nonempty_index]
-if heading not in {"# AI Review", "# AI Review Result"}:
+first_review_index = next((i for i, line in enumerate(normalized) if line == "# AI Review"), None)
+first_result_index = next((i for i, line in enumerate(normalized) if line == "# AI Review Result"), None)
+
+if first_review_index is None or first_result_index is None:
     print(
-        "invalid\tai_review_malformed_artifact\tPinned AI review artifact is malformed; it must start with '# AI Review' or '# AI Review Result'. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+        "invalid\tai_review_normalization_failed\tPinned AI review artifact failed required structure validation; it must contain both '# AI Review' and '# AI Review Result'. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
     )
     sys.exit(0)
 
-body_lines = normalized[first_nonempty_index + 1 :]
-substantive = [line for line in body_lines if line and not line.startswith("#")]
-if not substantive:
+if first_review_index != first_nonempty_index or first_result_index <= first_review_index:
     print(
-        "invalid\tai_review_incomplete_artifact\tPinned AI review artifact is incomplete; it must include substantive review content after the heading. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+        "invalid\tai_review_normalization_failed\tPinned AI review artifact failed required structure validation; it must start with '# AI Review' and include '# AI Review Result' after it. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
     )
     sys.exit(0)
+
+review_body = [line for line in normalized[first_review_index + 1:first_result_index] if line and not line.startswith("#")]
+result_body = [line for line in normalized[first_result_index + 1:] if line and not line.startswith("#")]
+if not review_body or not result_body:
+    print(
+        "invalid\tai_review_normalization_failed\tPinned AI review artifact failed required structure validation; it must include substantive content in both '# AI Review' and '# AI Review Result'. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+    )
+    sys.exit(0)
+
+if prompt_path and prompt_path.exists():
+    try:
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+    except Exception:
+        prompt_text = ""
+
+    if prompt_text.strip():
+        review_norm = " ".join(text.split())
+        prompt_norm = " ".join(prompt_text.split())
+        if review_norm == prompt_norm:
+            print(
+                "invalid\tai_review_normalization_failed\tPinned AI review artifact matches the prompt content and appears to be prompt echo. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+            )
+            sys.exit(0)
+        similarity = SequenceMatcher(a=review_norm.lower(), b=prompt_norm.lower()).ratio()
+        if len(review_norm) >= 200 and len(prompt_norm) >= 200 and similarity >= 0.92:
+            print(
+                "invalid\tai_review_normalization_failed\tPinned AI review artifact is too similar to the prompt content and appears to be prompt echo. Rerun automation/scripts/ai_review_story_run.sh for this pinned run"
+            )
+            sys.exit(0)
 
 print("valid\tai_review_valid\tvalidated")
 PY
@@ -375,19 +407,25 @@ review_artifact_fidelity_status() {
   expected_changed_files_file="$(mktemp)"
   artifact_changed_files_file="$(mktemp)"
 
-  if ! git -C "$ROOT_DIR" diff "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$expected_diff_file"; then
+  if ! git -C "$ROOT_DIR" diff "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+      | filter_review_fidelity_diff "$STORY_ID" > "$expected_diff_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
     printf 'reject\treview_diff_generation_failed\tunable to regenerate authoritative diff from review_artifact_base %s\n' "$review_artifact_base"
     return 0
   fi
 
-  if ! git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" | sed '/^$/d' | LC_ALL=C sort -u > "$expected_changed_files_file"; then
+  git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | sed '/^$/d' \
+    | filter_review_fidelity_paths "$STORY_ID" "$expected_changed_files_file"
+
+  if [[ $? -ne 0 ]]; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
     printf 'reject\treview_changed_files_generation_failed\tunable to regenerate authoritative changed_files from review_artifact_base %s\n' "$review_artifact_base"
     return 0
   fi
+  
 
-  sed '/^$/d' "$changed_files_artifact" | LC_ALL=C sort -u > "$artifact_changed_files_file"
+  sorted_changed_files_to "$STORY_ID" "$changed_files_artifact" "$artifact_changed_files_file"
 
   if ! cmp -s "$artifact_changed_files_file" "$expected_changed_files_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
@@ -408,7 +446,8 @@ review_artifact_fidelity_status() {
 review_input_artifact_status() {
   local ai_review_file="$1"
   local ai_review_raw_output_file="$2"
-  local classification_file="$3"
+  local ai_review_prompt_file="$3"
+  local classification_file="$4"
   local ai_review_state classification_state merge_recommendation validation_state validation_status validation_code validation_reason
 
   ai_review_state="$(artifact_file_state "$ai_review_file")"
@@ -427,7 +466,7 @@ review_input_artifact_status() {
       ;;
   esac
 
-  validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$ai_review_raw_output_file")"
+  validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$ai_review_raw_output_file" "$ai_review_prompt_file")"
   IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
   if [[ "$validation_status" != "valid" ]]; then
     printf 'reject\t%s\t%s\n' "$validation_code" "$validation_reason"
@@ -458,11 +497,84 @@ review_input_artifact_status() {
   printf 'reject\tinvalid_or_missing_merge_recommendation\tReview classification artifact did not contain a valid merge recommendation\n'
 }
 
-sorted_changed_files_to() {
-  local changed_files_file="$1"
+is_story_artifact_review_ignored_path() {
+  local story_id="$1"
+  local path="$2"
+
+  # bundle pack
+  [[ "$path" == "automation/bundle_packs/$story_id.bundle.md" ]] && return 0
+
+  # active bundle directory (both dir and nested files)
+  if [[ "$path" == "automation/bundles/active/$story_id" ]]; then
+    return 0
+  fi
+
+  if [[ "$path" == automation/bundles/active/$story_id/* ]]; then
+    return 0
+  fi
+
+  # 🔥 ДОБАВКА: защита от git edge cases (directory-like paths)
+  if [[ "$path" == "automation/bundles/active/$story_id"* ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+filter_review_fidelity_paths() {
+  local story_id="$1"
   local output_file="$2"
 
-  sed '/^$/d' "$changed_files_file" | LC_ALL=C sort -u > "$output_file"
+  local tmp
+  tmp="$(mktemp)"
+
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    if is_story_artifact_review_ignored_path "$story_id" "$path"; then
+      continue
+    fi
+    printf '%s\n' "$path"
+  done | LC_ALL=C sort -u > "$tmp"
+
+  mv "$tmp" "$output_file"
+}
+
+filter_review_fidelity_diff() {
+  local story_id="$1"
+  local line
+  local skip=0
+
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^diff\ --git\ a/(.+)\ b/(.+)$ ]]; then
+      file="${BASH_REMATCH[1]}"
+      if is_story_artifact_review_ignored_path "$story_id" "$file"; then
+        skip=1
+        continue
+      else
+        skip=0
+      fi
+    fi
+
+    if [[ "${skip:-0}" == "1" ]]; then
+      continue
+    fi
+
+    printf '%s\n' "$line"
+  done
+}
+
+sorted_changed_files_to() {
+  local story_id="$1"
+  local changed_files_file="$2"
+  local output_file="$3"
+
+  local tmp
+  tmp="$(mktemp)"
+
+  sed '/^$/d' "$changed_files_file" \
+    | filter_review_fidelity_paths "$story_id" "$tmp"
+
+  mv "$tmp" "$output_file"
 }
 
 find_previous_reject_stagnation_run() {
@@ -477,7 +589,7 @@ find_previous_reject_stagnation_run() {
   current_run_id="$(basename "$current_run_dir")"
 
   current_changed_files_sorted="$(mktemp)"
-  sorted_changed_files_to "$current_changed_files" "$current_changed_files_sorted"
+  sorted_changed_files_to "$STORY_ID" "$current_changed_files" "$current_changed_files_sorted"
 
   while IFS= read -r candidate_run_dir; do
     [[ -n "$candidate_run_dir" ]] || continue
@@ -499,7 +611,7 @@ find_previous_reject_stagnation_run() {
     fi
 
     previous_changed_files_sorted="$(mktemp)"
-    sorted_changed_files_to "$candidate_run_dir/changed_files.txt" "$previous_changed_files_sorted"
+    sorted_changed_files_to "$STORY_ID" "$candidate_run_dir/changed_files.txt" "$previous_changed_files_sorted"
     if cmp -s "$current_changed_files_sorted" "$previous_changed_files_sorted"; then
       rm -f "$previous_changed_files_sorted" "$current_changed_files_sorted"
       printf '%s\n' "$candidate_run_dir"
@@ -698,6 +810,7 @@ LATEST_RUN_DIR="$(resolve_target_run_dir "$STORY_RUNS_ROOT" "$RUN_DIR_OVERRIDE")
 RUN_ID="$(basename "$LATEST_RUN_DIR")"
 AI_REVIEW_FILE="$LATEST_RUN_DIR/$AI_REVIEW_FILE_NAME"
 AI_REVIEW_RAW_OUTPUT_FILE="$LATEST_RUN_DIR/$AI_REVIEW_RAW_OUTPUT_FILE_NAME"
+AI_REVIEW_PROMPT_FILE="$LATEST_RUN_DIR/chatgpt_review_prompt.md"
 CLASSIFICATION_FILE="$LATEST_RUN_DIR/$CLASSIFICATION_FILE_NAME"
 GATE_RESULT_FILE="$LATEST_RUN_DIR/$GATE_RESULT_FILE_NAME"
 MANIFEST_FILE="$LATEST_RUN_DIR/manifest.md"
@@ -778,7 +891,7 @@ if [[ "$fidelity_decision" == "reject" ]]; then
   fail "review gate rejected merge for '$STORY_ID' ($fidelity_reason)"
 fi
 
-input_status="$(review_input_artifact_status "$AI_REVIEW_FILE" "$AI_REVIEW_RAW_OUTPUT_FILE" "$CLASSIFICATION_FILE")"
+input_status="$(review_input_artifact_status "$AI_REVIEW_FILE" "$AI_REVIEW_RAW_OUTPUT_FILE" "$AI_REVIEW_PROMPT_FILE" "$CLASSIFICATION_FILE")"
 IFS=$'\t' read -r decision decision_source reason <<< "$input_status"
 status="failed"
 if [[ "$decision" == "approve" ]]; then

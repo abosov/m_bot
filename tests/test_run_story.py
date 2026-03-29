@@ -471,6 +471,72 @@ def test_run_story_blocks_non_converging_rerun_and_routes_to_manual_finish(tmp_p
     assert not runner_marker.exists()
 
 
+def test_run_story_allows_fresh_rerun_after_manual_finish_commit_on_newer_head(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    first_head = current_head(root_dir)
+    second_head = add_commit(root_dir, "services/story_loop.py", "second\n", "second head")
+
+    previous_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-27_10-00-00"
+    previous_run_dir.mkdir(parents=True)
+    (previous_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (previous_run_dir / "changed_files.txt").write_text(
+        "services/story_loop.py\n"
+        "tests/test_story_loop.py\n",
+        encoding="utf-8",
+    )
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-27_11-00-00"
+    latest_run_dir.mkdir(parents=True)
+    (latest_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {second_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (latest_run_dir / "changed_files.txt").write_text(
+        "tests/test_story_loop.py\n"
+        "services/story_loop.py\n",
+        encoding="utf-8",
+    )
+
+    add_commit(root_dir, "manual_finish.txt", "manual finish\n", "manual finish")
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner_after_manual_finish.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert f"[INFO] Preflight: classifying dirty paths for {story_id}" in result.stderr
+    assert f"[INFO] Preflight: passed for {story_id}" in result.stderr
+    assert "latest committed-head rerun did not converge" not in result.stderr
+    assert runner_marker.read_text(encoding="utf-8").strip() == "called"
+
+
 def test_run_story_blocks_when_latest_run_has_pending_escalation(tmp_path: Path) -> None:
     story_id = "US-AUTO-37"
     root_dir = tmp_path / "repo"

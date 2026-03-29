@@ -34,12 +34,15 @@ require_cmd() {
 
 read_ai_review_artifact_state() {
   local review_file="$1"
+  local prompt_file="${2:-}"
 
-  python3 - "$review_file" <<'PY'
+  python3 - "$review_file" "$prompt_file" <<'PY'
 import sys
+from difflib import SequenceMatcher
 from pathlib import Path
 
 path = Path(sys.argv[1])
+prompt_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
 
 if not path.exists():
     print("missing\tai_review_missing_artifact\trequired file not found")
@@ -62,20 +65,49 @@ if first_nonempty_index is None:
     print("invalid\tai_review_empty_artifact\tAI review artifact is empty")
     sys.exit(0)
 
-heading = normalized[first_nonempty_index]
-if heading not in {"# AI Review", "# AI Review Result"}:
+first_review_index = next((i for i, line in enumerate(normalized) if line == "# AI Review"), None)
+first_result_index = next((i for i, line in enumerate(normalized) if line == "# AI Review Result"), None)
+
+if first_review_index is None or first_result_index is None:
     print(
-        "invalid\tai_review_malformed_artifact\tAI review artifact must start with '# AI Review' or '# AI Review Result'"
+        "invalid\tai_review_normalization_failed\tAI review artifact failed required structure validation; it must contain both '# AI Review' and '# AI Review Result' sections"
     )
     sys.exit(0)
 
-body_lines = normalized[first_nonempty_index + 1 :]
-substantive = [line for line in body_lines if line and not line.startswith("#")]
-if not substantive:
+if first_review_index != first_nonempty_index or first_result_index <= first_review_index:
     print(
-        "invalid\tai_review_incomplete_artifact\tAI review artifact must include substantive review content after the heading"
+        "invalid\tai_review_normalization_failed\tAI review artifact failed required structure validation; it must start with '# AI Review' and include '# AI Review Result' after it"
     )
     sys.exit(0)
+
+review_body = [line for line in normalized[first_review_index + 1:first_result_index] if line and not line.startswith("#")]
+result_body = [line for line in normalized[first_result_index + 1:] if line and not line.startswith("#")]
+if not review_body or not result_body:
+    print(
+        "invalid\tai_review_normalization_failed\tAI review artifact failed required structure validation; it must include substantive content in both '# AI Review' and '# AI Review Result' sections"
+    )
+    sys.exit(0)
+
+if prompt_path and prompt_path.exists():
+    try:
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+    except Exception:
+        prompt_text = ""
+
+    if prompt_text.strip():
+        review_norm = " ".join(text.split())
+        prompt_norm = " ".join(prompt_text.split())
+        if review_norm == prompt_norm:
+            print(
+                "invalid\tai_review_normalization_failed\tAI review artifact matches the prompt content and appears to be prompt echo"
+            )
+            sys.exit(0)
+        similarity = SequenceMatcher(a=review_norm.lower(), b=prompt_norm.lower()).ratio()
+        if len(review_norm) >= 200 and len(prompt_norm) >= 200 and similarity >= 0.92:
+            print(
+                "invalid\tai_review_normalization_failed\tAI review artifact is too similar to the prompt content and appears to be prompt echo"
+            )
+            sys.exit(0)
 
 print("valid\tai_review_valid\tvalidated")
 PY
@@ -111,17 +143,25 @@ lines = text.splitlines()
 start_index = None
 for index, line in enumerate(lines):
     normalized = line.lstrip("\ufeff").strip()
-    if normalized in {"# AI Review", "# AI Review Result"}:
+    if normalized == "# AI Review":
         start_index = index
         break
 
 if start_index is None:
     print(
-        "invalid\tai_review_normalization_failed\tAI review raw output did not contain a normalized '# AI Review' or '# AI Review Result' section"
+        "invalid\tai_review_normalization_failed\tAI review raw output did not contain the required '# AI Review' section"
+    )
+    sys.exit(0)
+
+first_nonempty_index = next((i for i, line in enumerate(lines) if line.lstrip("\ufeff").strip()), None)
+if first_nonempty_index != start_index:
+    print(
+        "invalid\tai_review_normalization_failed\tAI review raw output contained unexpected content before the required '# AI Review' section"
     )
     sys.exit(0)
 
 normalized_text = "\n".join(lines[start_index:]).rstrip()
+
 review_path.parent.mkdir(parents=True, exist_ok=True)
 
 with tempfile.NamedTemporaryFile(
@@ -308,7 +348,7 @@ if [[ $review_exit_code -ne 0 ]]; then
   fail "AI review command failed for '$STORY_ID' (exit $review_exit_code). Raw output: $RAW_OUTPUT_FILE"
 fi
 
-validation_state="$(read_ai_review_artifact_state "$RESULT_FILE")"
+validation_state="$(read_ai_review_artifact_state "$RESULT_FILE" "$PROMPT_FILE")"
 IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
 
 if [[ "$validation_status" != "valid" ]]; then
@@ -316,18 +356,18 @@ if [[ "$validation_status" != "valid" ]]; then
   IFS=$'\t' read -r normalization_status normalization_code normalization_reason <<< "$normalization_state"
 
   if [[ "$normalization_status" == "valid" ]]; then
-    validation_state="$(read_ai_review_artifact_state "$RESULT_FILE")"
+    validation_state="$(read_ai_review_artifact_state "$RESULT_FILE" "$PROMPT_FILE")"
     IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
     if [[ "$validation_status" != "valid" ]]; then
       rm -f "$RESULT_FILE"
-      fail "AI review completed but produced an invalid normalized artifact ($validation_code): $validation_reason. Raw output: $RAW_OUTPUT_FILE"
+      fail "AI review completed but normalization failed (ai_review_normalization_failed): $validation_reason. Raw output: $RAW_OUTPUT_FILE"
     fi
   elif [[ "$validation_status" == "missing" ]]; then
     rm -f "$RESULT_FILE"
     fail "AI review completed but normalization failed ($normalization_code): $normalization_reason. Raw output: $RAW_OUTPUT_FILE"
   else
     rm -f "$RESULT_FILE"
-    fail "AI review completed but produced an invalid artifact ($validation_code): $validation_reason. Normalization from raw also failed ($normalization_code): $normalization_reason. Raw output: $RAW_OUTPUT_FILE"
+    fail "AI review completed but normalization failed (ai_review_normalization_failed): $validation_reason. Normalization from raw also failed ($normalization_code): $normalization_reason. Raw output: $RAW_OUTPUT_FILE"
   fi
 fi
 

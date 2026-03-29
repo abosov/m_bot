@@ -125,13 +125,16 @@ json_bool_value() {
 read_ai_review_artifact_state() {
   local review_file="$1"
   local raw_output_file="${2:-}"
+  local prompt_file="${3:-}"
 
-  python3 - "$review_file" "$raw_output_file" <<'PY'
+  python3 - "$review_file" "$raw_output_file" "$prompt_file" <<'PY'
 import sys
+from difflib import SequenceMatcher
 from pathlib import Path
 
 path = Path(sys.argv[1])
 raw_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
+prompt_path = Path(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
 
 if not path.exists():
     if raw_path and raw_path.exists():
@@ -159,20 +162,49 @@ if first_nonempty_index is None:
     print("invalid\tai_review_empty_artifact\tAI review artifact is empty")
     sys.exit(0)
 
-heading = normalized[first_nonempty_index]
-if heading not in {"# AI Review", "# AI Review Result"}:
+first_review_index = next((i for i, line in enumerate(normalized) if line == "# AI Review"), None)
+first_result_index = next((i for i, line in enumerate(normalized) if line == "# AI Review Result"), None)
+
+if first_review_index is None or first_result_index is None:
     print(
-        "invalid\tai_review_malformed_artifact\tAI review artifact must start with '# AI Review' or '# AI Review Result'"
+        "invalid\tai_review_normalization_failed\tAI review artifact failed required structure validation; it must contain both '# AI Review' and '# AI Review Result' sections"
     )
     sys.exit(0)
 
-body_lines = normalized[first_nonempty_index + 1 :]
-substantive = [line for line in body_lines if line and not line.startswith("#")]
-if not substantive:
+if first_review_index != first_nonempty_index or first_result_index <= first_review_index:
     print(
-        "invalid\tai_review_incomplete_artifact\tAI review artifact must include substantive review content after the heading"
+        "invalid\tai_review_normalization_failed\tAI review artifact failed required structure validation; it must start with '# AI Review' and include '# AI Review Result' after it"
     )
     sys.exit(0)
+
+review_body = [line for line in normalized[first_review_index + 1:first_result_index] if line and not line.startswith("#")]
+result_body = [line for line in normalized[first_result_index + 1:] if line and not line.startswith("#")]
+if not review_body or not result_body:
+    print(
+        "invalid\tai_review_normalization_failed\tAI review artifact failed required structure validation; it must include substantive content in both '# AI Review' and '# AI Review Result' sections"
+    )
+    sys.exit(0)
+
+if prompt_path and prompt_path.exists():
+    try:
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+    except Exception:
+        prompt_text = ""
+
+    if prompt_text.strip():
+        review_norm = " ".join(text.split())
+        prompt_norm = " ".join(prompt_text.split())
+        if review_norm == prompt_norm:
+            print(
+                "invalid\tai_review_normalization_failed\tAI review artifact matches the prompt content and appears to be prompt echo"
+            )
+            sys.exit(0)
+        similarity = SequenceMatcher(a=review_norm.lower(), b=prompt_norm.lower()).ratio()
+        if len(review_norm) >= 200 and len(prompt_norm) >= 200 and similarity >= 0.92:
+            print(
+                "invalid\tai_review_normalization_failed\tAI review artifact is too similar to the prompt content and appears to be prompt echo"
+            )
+            sys.exit(0)
 
 print("valid\tai_review_valid\tvalidated")
 PY
@@ -545,7 +577,7 @@ summarize_ai_review_status() {
   local prereq_status validation_state validation_status validation_code validation_reason
 
   prereq_status="$(review_prereq_status "$run_dir")"
-  validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$raw_output_file")"
+  validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$raw_output_file" "$run_dir/chatgpt_review_prompt.md")"
   IFS=$'\t' read -r validation_status validation_code validation_reason <<< "$validation_state"
 
   if [[ -f "$ai_review_file" ]]; then
@@ -757,7 +789,7 @@ summarize_workflow_resume() {
   materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
   prereq_status="$(review_prereq_status "$run_dir")"
   head_status="$(head_consistency_status "$manifest_file")"
-  ai_review_validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$raw_output_file" 2>/dev/null || true)"
+  ai_review_validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$raw_output_file" "$run_dir/chatgpt_review_prompt.md" 2>/dev/null || true)"
   IFS=$'\t' read -r ai_review_validation_status ai_review_validation_code ai_review_validation_reason <<<"$ai_review_validation_state"
   escalation_file="$run_dir/escalation_result.json"
   escalation_state="$(read_escalation_artifact_state "$escalation_file")"
@@ -976,6 +1008,8 @@ summarize_workflow_resume() {
   fi
   if [[ "$stage" == "blocked_non_converging_rerun" ]]; then
     printf 'Manual finish: inspect workspace-only changes, finish the story manually, commit the result to HEAD, then continue review on committed HEAD without rerunning automation/scripts/run_story.sh\n'
+  elif [[ "$stage" == "manual_finish_ready_for_review" ]]; then
+    printf 'Manual finish complete: committed HEAD moved past the run manifest after a non-converging rerun; continue review on the committed HEAD using the pinned run artifacts\n'
   fi
 }
 
@@ -1003,12 +1037,21 @@ final_status_line() {
   materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
   prereq_status="$(review_prereq_status "$run_dir")"
   head_status="$(head_consistency_status "$manifest_file")"
-  ai_review_validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$raw_output_file" 2>/dev/null || true)"
+  ai_review_validation_state="$(read_ai_review_artifact_state "$ai_review_file" "$raw_output_file" "$run_dir/chatgpt_review_prompt.md" 2>/dev/null || true)"
   IFS=$'\t' read -r ai_review_validation_status ai_review_validation_code ai_review_validation_reason <<<"$ai_review_validation_state"
   escalation_file="$run_dir/escalation_result.json"
   escalation_state="$(read_escalation_artifact_state "$escalation_file")"
   IFS=$'\x1f' read -r escalation_valid escalation_required escalation_status escalation_decision_source _ resolution_action <<<"$escalation_state"
   previous_non_converging_run_dir="$(detect_non_converging_rerun_for_run "$STORY_RUNS_ROOT" "$run_dir" || true)"
+
+  if [[ -n "$previous_non_converging_run_dir" && "$head_status" == mismatch:* ]]; then
+    if working_tree_is_clean; then
+      printf 'RUN STATUS: READY (manual finish committed; review can continue on current HEAD)\n'
+    else
+      printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
+    fi
+    return 0
+  fi
 
   if [[ "$head_status" == mismatch:* ]]; then
     expected_head="${head_status#mismatch:}"
