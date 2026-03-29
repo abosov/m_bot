@@ -407,19 +407,25 @@ review_artifact_fidelity_status() {
   expected_changed_files_file="$(mktemp)"
   artifact_changed_files_file="$(mktemp)"
 
-  if ! git -C "$ROOT_DIR" diff "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$expected_diff_file"; then
+  if ! git -C "$ROOT_DIR" diff "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+      | filter_review_fidelity_diff "$STORY_ID" > "$expected_diff_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
     printf 'reject\treview_diff_generation_failed\tunable to regenerate authoritative diff from review_artifact_base %s\n' "$review_artifact_base"
     return 0
   fi
 
-  if ! git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" | sed '/^$/d' | LC_ALL=C sort -u > "$expected_changed_files_file"; then
+  git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | sed '/^$/d' \
+    | filter_review_fidelity_paths "$STORY_ID" "$expected_changed_files_file"
+
+  if [[ $? -ne 0 ]]; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
     printf 'reject\treview_changed_files_generation_failed\tunable to regenerate authoritative changed_files from review_artifact_base %s\n' "$review_artifact_base"
     return 0
   fi
+  
 
-  sed '/^$/d' "$changed_files_artifact" | LC_ALL=C sort -u > "$artifact_changed_files_file"
+  sorted_changed_files_to "$STORY_ID" "$changed_files_artifact" "$artifact_changed_files_file"
 
   if ! cmp -s "$artifact_changed_files_file" "$expected_changed_files_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
@@ -491,11 +497,84 @@ review_input_artifact_status() {
   printf 'reject\tinvalid_or_missing_merge_recommendation\tReview classification artifact did not contain a valid merge recommendation\n'
 }
 
-sorted_changed_files_to() {
-  local changed_files_file="$1"
+is_story_artifact_review_ignored_path() {
+  local story_id="$1"
+  local path="$2"
+
+  # bundle pack
+  [[ "$path" == "automation/bundle_packs/$story_id.bundle.md" ]] && return 0
+
+  # active bundle directory (both dir and nested files)
+  if [[ "$path" == "automation/bundles/active/$story_id" ]]; then
+    return 0
+  fi
+
+  if [[ "$path" == automation/bundles/active/$story_id/* ]]; then
+    return 0
+  fi
+
+  # 🔥 ДОБАВКА: защита от git edge cases (directory-like paths)
+  if [[ "$path" == "automation/bundles/active/$story_id"* ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+filter_review_fidelity_paths() {
+  local story_id="$1"
   local output_file="$2"
 
-  sed '/^$/d' "$changed_files_file" | LC_ALL=C sort -u > "$output_file"
+  local tmp
+  tmp="$(mktemp)"
+
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    if is_story_artifact_review_ignored_path "$story_id" "$path"; then
+      continue
+    fi
+    printf '%s\n' "$path"
+  done | LC_ALL=C sort -u > "$tmp"
+
+  mv "$tmp" "$output_file"
+}
+
+filter_review_fidelity_diff() {
+  local story_id="$1"
+  local line
+  local skip=0
+
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^diff\ --git\ a/(.+)\ b/(.+)$ ]]; then
+      file="${BASH_REMATCH[1]}"
+      if is_story_artifact_review_ignored_path "$story_id" "$file"; then
+        skip=1
+        continue
+      else
+        skip=0
+      fi
+    fi
+
+    if [[ "${skip:-0}" == "1" ]]; then
+      continue
+    fi
+
+    printf '%s\n' "$line"
+  done
+}
+
+sorted_changed_files_to() {
+  local story_id="$1"
+  local changed_files_file="$2"
+  local output_file="$3"
+
+  local tmp
+  tmp="$(mktemp)"
+
+  sed '/^$/d' "$changed_files_file" \
+    | filter_review_fidelity_paths "$story_id" "$tmp"
+
+  mv "$tmp" "$output_file"
 }
 
 find_previous_reject_stagnation_run() {
@@ -510,7 +589,7 @@ find_previous_reject_stagnation_run() {
   current_run_id="$(basename "$current_run_dir")"
 
   current_changed_files_sorted="$(mktemp)"
-  sorted_changed_files_to "$current_changed_files" "$current_changed_files_sorted"
+  sorted_changed_files_to "$STORY_ID" "$current_changed_files" "$current_changed_files_sorted"
 
   while IFS= read -r candidate_run_dir; do
     [[ -n "$candidate_run_dir" ]] || continue
@@ -532,7 +611,7 @@ find_previous_reject_stagnation_run() {
     fi
 
     previous_changed_files_sorted="$(mktemp)"
-    sorted_changed_files_to "$candidate_run_dir/changed_files.txt" "$previous_changed_files_sorted"
+    sorted_changed_files_to "$STORY_ID" "$candidate_run_dir/changed_files.txt" "$previous_changed_files_sorted"
     if cmp -s "$current_changed_files_sorted" "$previous_changed_files_sorted"; then
       rm -f "$previous_changed_files_sorted" "$current_changed_files_sorted"
       printf '%s\n' "$candidate_run_dir"
