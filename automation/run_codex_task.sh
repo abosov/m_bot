@@ -623,6 +623,42 @@ CODEX_PROMPT_FILE="$RUN_DIR/codex_prompt.md"
 REPOSITORY_MAP_RUNTIME_FILE="$RUN_DIR/repository_map_runtime.md"
 LOG_FILE="$RUN_DIR/codex.log"
 LAST_MESSAGE_FILE="$RUN_DIR/codex_last_message.txt"
+
+is_story_artifact_ignored_path() {
+  local story_id="$1"
+  local path="$2"
+
+  [[ "$path" == "automation/bundle_packs/$story_id.bundle.md" ]] && return 0
+  [[ "$path" == "automation/bundles/active/$story_id" ]] && return 0
+  [[ "$path" == "automation/bundles/active/$story_id/"* ]] && return 0
+  return 1
+}
+
+filter_story_artifact_diff() {
+  local story_id="$1"
+  local line
+  local file=""
+  local skip=0
+
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^diff\ --git\ a/(.+)\ b/(.+)$ ]]; then
+      file="${BASH_REMATCH[1]}"
+      if is_story_artifact_ignored_path "$story_id" "$file"; then
+        skip=1
+        continue
+      else
+        skip=0
+      fi
+    fi
+
+    if [[ "$skip" == "1" ]]; then
+      continue
+    fi
+
+    printf '%s\n' "$line"
+  done
+}
+
 DIFF_FILE="$RUN_DIR/diff.patch"
 STAT_FILE="$RUN_DIR/diff.stat"
 NAMEONLY_FILE="$RUN_DIR/changed_files.txt"
@@ -979,7 +1015,10 @@ collect_git_artifacts() {
 
   info "Collecting git artifacts"
   git diff --stat "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$STAT_FILE" || true
-  git diff "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$DIFF_FILE" || true
+
+  git diff "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | filter_story_artifact_diff "$STORY_ID" > "$DIFF_FILE" || true
+
   git diff --name-only "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$tracked_names_file" || true
   cp "$WORKTREE_UNTRACKED_LIST_FILE" "$untracked_names_file"
 
