@@ -45,6 +45,15 @@ def current_head(root_dir: Path) -> str:
     ).stdout.strip()
 
 
+def add_commit(root_dir: Path, relative_path: str, content: str, message: str) -> str:
+    target = root_dir / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    subprocess.run(["git", "add", relative_path], check=True, cwd=root_dir, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", message], check=True, cwd=root_dir, capture_output=True, text=True)
+    return current_head(root_dir)
+
+
 def write_manifest(
     run_dir: Path,
     root_dir: Path,
@@ -489,6 +498,89 @@ def test_review_gate_story_run_rejects_stale_diff_patch_before_consuming_pinned_
     assert "diff.patch is stale or inconsistent" in result.stderr
     gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
     assert '"decision_source": "review_diff_patch_mismatch"' in gate_result
+
+
+def test_review_gate_story_run_allows_manual_finish_continuation_after_non_converging_rerun(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-51"
+
+    first_head = current_head(root_dir)
+    second_head = add_commit(root_dir, "story_impl.txt", "second\n", "second head")
+
+    previous_run = make_run_dir(root_dir, story_id, "2026-03-27_10-00-00")
+    run_dir = make_run_dir(root_dir, story_id, "2026-03-27_11-00-00")
+
+    add_commit(root_dir, "manual_finish.txt", "manual finish\n", "manual finish")
+
+    write_required_review_artifacts(
+        run_dir,
+        root_dir,
+        review_artifact_base=first_head,
+    )
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+    (run_dir / "manifest.md").write_text(
+        "# Manifest\n"
+        f"- story_id: {story_id}\n"
+        f"- starting_head: {second_head}\n"
+        f"- review_artifact_base: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n\n"
+        "## Artifacts\n- manifest.md\n",
+        encoding="utf-8",
+    )
+
+    (previous_run / "manifest.md").write_text(
+        "# Manifest\n"
+        f"- story_id: {story_id}\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n\n"
+        "## Artifacts\n- manifest.md\n",
+        encoding="utf-8",
+    )
+    (previous_run / "changed_files.txt").write_text(
+        (run_dir / "changed_files.txt").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode == 0, result.stderr
+    assert "Final decision: approve" in result.stdout
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "review_classification"' in gate_result
+    assert '"decision_source": "review_head_mismatch"' not in gate_result
+
+
+def test_review_gate_story_run_rejects_generic_stale_head_mismatch(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    run_dir = make_run_dir(root_dir, "US-AUTO-51", "2026-03-27_12-00-00")
+
+    write_required_review_artifacts(run_dir, root_dir)
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+    write_manifest(
+        run_dir,
+        root_dir,
+        "US-AUTO-51",
+        starting_head="0000000000000000000000000000000000000000",
+    )
+
+    result = run_review_gate(root_dir, "US-AUTO-51", env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    assert "does not match current checkout HEAD" in result.stderr
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "review_head_mismatch"' in gate_result
 
 def test_review_gate_story_run_ignores_committed_story_artifacts_in_fidelity_check(
     tmp_path: Path,

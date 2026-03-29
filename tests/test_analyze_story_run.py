@@ -2104,12 +2104,18 @@ def test_analyze_story_run_allows_review_handoff_after_manual_finish_for_non_con
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
+        encoding="utf-8",
+    )
 
     third_head = add_commit(root_dir, "manual_finish.txt", "manual finish\n", "manual finish")
 
     result = run_script(root_dir, "US-AUTO-47", run_dir=run_dir)
 
     assert result.returncode == 0, result.stderr
+    assert "Current stage: manual_finish_ready_for_review" in result.stdout
     assert "stale run evidence:" not in result.stdout
     assert "RUN STATUS: READY (manual finish committed; review can continue on current HEAD)" in result.stdout
     assert third_head in result.stdout

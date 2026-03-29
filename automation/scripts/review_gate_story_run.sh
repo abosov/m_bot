@@ -366,6 +366,117 @@ head_consistency_status() {
   printf 'mismatch:%s:%s\n' "$expected_head" "$current_head"
 }
 
+list_story_run_dirs() {
+  local story_runs_root="$1"
+
+  find "$story_runs_root" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort
+}
+
+run_has_nonempty_changed_files() {
+  local run_dir="$1"
+  local changed_files_file="$run_dir/changed_files.txt"
+
+  [[ -f "$changed_files_file" ]] || return 1
+  [[ -n "$(sed '/^[[:space:]]*$/d' "$changed_files_file")" ]]
+}
+
+run_is_non_converging_boundary_candidate() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  local codex_exit_code materialization_status pytest_exit_code changed_files_detected
+
+  [[ -f "$manifest_file" ]] || return 1
+
+  codex_exit_code="$(manifest_value "$manifest_file" "codex_exit_code")"
+  pytest_exit_code="$(manifest_value "$manifest_file" "pytest_exit_code")"
+  materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
+  changed_files_detected="$(manifest_value "$manifest_file" "changed_files_detected")"
+
+  [[ "$codex_exit_code" == "0" ]] || return 1
+  [[ "$pytest_exit_code" == "0" ]] || return 1
+  [[ "$changed_files_detected" == "yes" ]] || return 1
+  [[ "$materialization_status" == "applied" || "$materialization_status" == "not_needed" ]] || return 1
+  run_has_nonempty_changed_files "$run_dir" || return 1
+}
+
+changed_files_match() {
+  local left_file="$1"
+  local right_file="$2"
+
+  python3 - "$left_file" "$right_file" <<'PY'
+import sys
+from pathlib import Path
+
+def normalized(path: Path) -> list[str]:
+    return sorted(line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+
+raise SystemExit(0 if normalized(Path(sys.argv[1])) == normalized(Path(sys.argv[2])) else 1)
+PY
+}
+
+resolve_previous_run_dir() {
+  local story_runs_root="$1"
+  local target_run_dir="$2"
+  local previous_run_dir=""
+  local candidate_run_dir
+
+  while IFS= read -r candidate_run_dir; do
+    [[ "$candidate_run_dir" == "$target_run_dir" ]] && break
+    previous_run_dir="$candidate_run_dir"
+  done < <(list_story_run_dirs "$story_runs_root")
+
+  [[ -n "$previous_run_dir" ]] || return 1
+  printf '%s\n' "$previous_run_dir"
+}
+
+detect_non_converging_rerun_for_run() {
+  local story_runs_root="$1"
+  local run_dir="$2"
+  local previous_run_dir previous_head latest_head
+
+  previous_run_dir="$(resolve_previous_run_dir "$story_runs_root" "$run_dir" || true)"
+  [[ -n "$previous_run_dir" ]] || return 1
+
+  run_is_non_converging_boundary_candidate "$previous_run_dir" || return 1
+  run_is_non_converging_boundary_candidate "$run_dir" || return 1
+
+  previous_head="$(manifest_source_of_truth_head "$previous_run_dir/manifest.md")"
+  latest_head="$(manifest_source_of_truth_head "$run_dir/manifest.md")"
+
+  [[ "$previous_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$latest_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$previous_head" != "$latest_head" ]] || return 1
+
+  changed_files_match \
+    "$previous_run_dir/changed_files.txt" \
+    "$run_dir/changed_files.txt" || return 1
+
+  printf '%s\n' "$previous_run_dir"
+}
+
+head_is_ancestor_of_checkout() {
+  local expected_head="$1"
+  local current_head="$2"
+
+  [[ "$expected_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$current_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+  git -C "$ROOT_DIR" merge-base --is-ancestor "$expected_head" "$current_head" >/dev/null 2>&1
+}
+
+manual_finish_continuation_allowed() {
+  local head_status="$1"
+  local previous_non_converging_run_dir="$2"
+  local expected_head current_head
+
+  [[ "$head_status" == mismatch:* ]] || return 1
+  [[ -n "$previous_non_converging_run_dir" ]] || return 1
+
+  expected_head="${head_status#mismatch:}"
+  current_head="${expected_head#*:}"
+  expected_head="${expected_head%%:*}"
+  head_is_ancestor_of_checkout "$expected_head" "$current_head"
+}
+
 resolve_review_artifact_base() {
   local manifest_file="$1"
   local review_artifact_base
@@ -822,25 +933,28 @@ fi
 reviewed_head="$(manifest_source_of_truth_head "$MANIFEST_FILE")"
 checkout_head="$(current_checkout_head)"
 head_status="$(head_consistency_status "$MANIFEST_FILE")"
+previous_non_converging_run_dir="$(detect_non_converging_rerun_for_run "$STORY_RUNS_ROOT" "$LATEST_RUN_DIR" || true)"
 
-case "$head_status" in
-  mismatch:*)
-    reason="Reviewed HEAD $reviewed_head does not match current checkout HEAD $checkout_head"
-    decision_source="review_head_mismatch"
-    ;;
-  unknown:manifest_head_missing)
-    reason="Run manifest is missing the reviewed HEAD contract"
-    decision_source="review_head_missing"
-    ;;
-  unknown:current_head_unavailable:*)
-    reason="Current checkout HEAD is unavailable for reviewed HEAD $reviewed_head"
-    decision_source="checkout_head_unavailable"
-    ;;
-  *)
-    reason=""
-    decision_source=""
-    ;;
-esac
+reason=""
+decision_source=""
+if ! manual_finish_continuation_allowed "$head_status" "$previous_non_converging_run_dir"; then
+  case "$head_status" in
+    mismatch:*)
+      reason="Reviewed HEAD $reviewed_head does not match current checkout HEAD $checkout_head"
+      decision_source="review_head_mismatch"
+      ;;
+    unknown:manifest_head_missing)
+      reason="Run manifest is missing the reviewed HEAD contract"
+      decision_source="review_head_missing"
+      ;;
+    unknown:current_head_unavailable:*)
+      reason="Current checkout HEAD is unavailable for reviewed HEAD $reviewed_head"
+      decision_source="checkout_head_unavailable"
+      ;;
+    *)
+      ;;
+  esac
+fi
 
 if [[ -n "$decision_source" ]]; then
   write_gate_result \

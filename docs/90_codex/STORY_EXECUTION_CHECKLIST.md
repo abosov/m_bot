@@ -70,12 +70,13 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    AI review must fail closed on any workspace-only divergence from committed `HEAD`; it consumes the pinned run as committed review evidence and must not review uncommitted repository state.
 21. Execute and persist the review classification result for the latest run (`automation/scripts/classify_review_story_run.sh <STORY-ID>`).
    Classification must fail closed on any workspace-only divergence from committed `HEAD`; it classifies the pinned committed review result only.
+   Classification must fail closed when the selected run manifest HEAD does not match checkout HEAD, except for the narrow manual-finish continuation case: a confirmed non-converging rerun boundary with committed clean `HEAD` continuation.
    The classification artifact must contain an exact standalone `MERGE RECOMMENDATION: approve` or `MERGE RECOMMENDATION: reject` line for the gate.
    If classification text is malformed or ambiguous, preserve `review_classification.md` for debugging and fail closed instead of deleting the artifact.
 22. Execute the review gate for the latest run (`automation/scripts/review_gate_story_run.sh <STORY-ID>`).
    The gate must fail closed before consuming pinned review artifacts when the current branch working tree has workspace-only changes outside the exact ephemeral ledger path `automation/story_change_ledger.jsonl`.
    Gate decisions operate on committed `HEAD` only; workspace-only divergence from the committed `origin/main...HEAD` review boundary is never merge-valid.
-   The gate must also fail closed when the selected run's manifest HEAD does not match the current checkout HEAD; stale pre-finalize approval is never merge-valid.
+   The gate must also fail closed when the selected run's manifest HEAD does not match the current checkout HEAD, except for the same narrow manual-finish continuation case: a confirmed non-converging rerun boundary with committed clean `HEAD` continuation.
    The gate must fail closed when review artifacts are not faithful to the authoritative branch diff reconstructed from the run manifest `review_artifact_base` and current checkout `HEAD`.
    Fidelity enforcement compares the selected run's `changed_files.txt` and `diff.patch` against regenerated git outputs for `review_artifact_base..HEAD`; any mismatch is a deterministic reject.
    The gate is a strict consumer of the pinned run's existing `ai_review_result.md` and `review_classification.md` artifacts and must not rerun upstream review or classification steps.
@@ -98,6 +99,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    - exact next recommended command.
    The canonical resumable stage sequence is `run_artifacts_ready` -> `ai_review_completed` -> `classification_approved` -> `review_gate_passed`.
    Reject, invalid, stale, failed, or dirty conditions must remain explicit `blocked_*` states rather than being treated as resumable stages.
+   For confirmed non-converging rerun manual-finish continuation on committed clean `HEAD`, analysis should report continuation-ready status and must not fall back to contradictory generic stale-run messaging after downstream artifacts are present.
    Escalation states must remain explicit as well: unresolved repeated-reject stagnation is `blocked_escalation_required`, `force-followup` resolution is resumable through a new `run_story.sh` execution, and `accept-as-is` / `abort` remain non-resumable operator decisions.
    Resume commands should pin `AUTOMATION_RUN_DIR` to the selected run directory for deterministic continuation, and downstream scripts must accept both absolute and repository-relative pinned run paths.
    The command is intentionally read-only and should be the first inspection step for missing artifacts, incomplete review stages, or gate failures.
