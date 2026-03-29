@@ -100,6 +100,7 @@ Stable SOP for running one user story through the Codex workflow with minimal ri
    The canonical resumable stage sequence is `run_artifacts_ready` -> `ai_review_completed` -> `classification_approved` -> `review_gate_passed`.
    Reject, invalid, stale, failed, or dirty conditions must remain explicit `blocked_*` states rather than being treated as resumable stages.
    For confirmed non-converging rerun manual-finish continuation on committed clean `HEAD`, analysis should report continuation-ready status and must not fall back to contradictory generic stale-run messaging after downstream artifacts are present.
+   If a pinned gate artifact was rejected only for `review_head_mismatch` before manual finish was committed, analysis should treat that gate artifact as stale pre-continuation evidence and keep the run in continuation-ready status.
    Escalation states must remain explicit as well: unresolved repeated-reject stagnation is `blocked_escalation_required`, `force-followup` resolution is resumable through a new `run_story.sh` execution, and `accept-as-is` / `abort` remain non-resumable operator decisions.
    Resume commands should pin `AUTOMATION_RUN_DIR` to the selected run directory for deterministic continuation, and downstream scripts must accept both absolute and repository-relative pinned run paths.
    The command is intentionally read-only and should be the first inspection step for missing artifacts, incomplete review stages, or gate failures.

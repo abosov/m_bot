@@ -569,6 +569,27 @@ format_head_consistency_status() {
   esac
 }
 
+format_head_evidence_status() {
+  local manifest_file="$1"
+  local story_runs_root="$2"
+  local run_dir="$3"
+  local status previous_non_converging_run_dir expected_head current_head
+
+  status="$(head_consistency_status "$manifest_file")"
+  if [[ "$status" == mismatch:* ]]; then
+    previous_non_converging_run_dir="$(detect_non_converging_rerun_for_run "$story_runs_root" "$run_dir" || true)"
+    if manual_finish_continuation_allowed "$status" "$previous_non_converging_run_dir"; then
+      expected_head="${status#mismatch:}"
+      current_head="${expected_head#*:}"
+      expected_head="${expected_head%%:*}"
+      printf 'continuation-ready (manual finish committed; manifest %s != checkout %s)\n' "$expected_head" "$current_head"
+      return 0
+    fi
+  fi
+
+  format_head_consistency_status "$manifest_file"
+}
+
 review_prereq_status() {
   local run_dir="$1"
   local missing=()
@@ -861,6 +882,11 @@ summarize_workflow_resume() {
     resume_safety="safe"
     blocked_reason=""
     next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
+    if [[ "$recommendation" == "approve" ]]; then
+      next_command="$(resume_next_command "review_gate_story_run.sh" "$story_id" "$run_dir")"
+    elif [[ "$ai_review_validation_status" == "valid" ]]; then
+      next_command="$(resume_next_command "classify_review_story_run.sh" "$story_id" "$run_dir")"
+    fi
   elif [[ "$head_status" == mismatch:* ]]; then
     expected_head="${head_status#mismatch:}"
     current_head="${expected_head#*:}"
@@ -946,7 +972,12 @@ summarize_workflow_resume() {
     fi
   fi
 
-  if [[ -f "$gate_result_file" ]]; then
+  if [[ "$manual_finish_allowed" == "yes" \
+    && -f "$gate_result_file" \
+    && "$gate_decision" == "reject" \
+    && "$decision_source" == "review_head_mismatch" ]]; then
+    :
+  elif [[ -f "$gate_result_file" ]]; then
     if [[ "$gate_decision" == "approve" && "$gate_status" == "passed" ]]; then
       stage="review_gate_passed"
       latest_valid_stage="review_gate_passed"
@@ -1297,7 +1328,7 @@ printf 'Branch / Starting HEAD / Review Base\n'
 printf 'Branch: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "branch" || true)")"
 printf 'Starting HEAD: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "starting_head" || true)")"
 printf 'Review Base: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "review_base_ref" || true)")"
-printf 'Evidence HEAD Consistency: %s\n' "$(format_head_consistency_status "$MANIFEST_FILE")"
+printf 'Evidence HEAD Consistency: %s\n' "$(format_head_evidence_status "$MANIFEST_FILE" "$STORY_RUNS_ROOT" "$RUN_DIR")"
 printf '\n'
 
 printf 'Manifest Metadata\n'
