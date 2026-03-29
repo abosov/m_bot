@@ -71,17 +71,16 @@ The registry does **not** replace story bundles.
 - Repeated rerun after committed-HEAD handoff may fail to converge to a fixed point for some stories, materializing fresh workspace-only changes and making the review pipeline unreachable without manual finish. Track this as future operator UX / anti-cycle follow-up work, not as part of US-AUTO-42.
 - US-AUTO-43 reproduced this non-converging pattern: after committed-head rerun, fresh workspace-only changes were materialized again, preventing pinned ai_review/classify/gate from completing; this establishes a confirmed need for a convergence or manual-finish contract in the workflow.
 - First run of `US-AUTO-28-F1` confirmed an orchestration blocker: scope validation evaluated a diff that included already-committed bundle artifacts for the active story (`automation/bundle_packs/US-AUTO-28-F1.bundle.md` and `automation/bundles/active/US-AUTO-28-F1/*`). As a result, the run was blocked before the review stage even though Codex produced valid in-scope implementation changes (`automation/scripts/run_story.sh`, `tests/test_run_story.py`). This indicates that the current scope validation uses a branch-level diff instead of isolating Codex-produced changes. Treat this as a separate workflow/scope-baseline follow-up, not as part of `US-AUTO-28-F1`.
-- `US-AUTO-49` was implemented and merged to `main`, but during its review pipeline a separate blocker was confirmed: AI review failed closed with `ai_review_normalization_failed` because the raw AI review output echoed prompt/context instead of producing a normalized `# AI Review` artifact. Treat that remaining issue as separate follow-up `US-AUTO-50`, not as part of `US-AUTO-49`.
+- `US-AUTO-49` was implemented and merged to `main`, and its downstream AI review-output blocker was addressed by `US-AUTO-50`. The remaining `US-AUTO-50` review rejection is accepted as a governance/review outcome, not a pipeline integrity defect.
 
 ### Next Recommended Story
-1. US-AUTO-50 — AI review must produce structured output (no prompt echo / normalization fail-closed contract)
-2. US-AUTO-28-F1 — escalation input validation hardening (resume after US-AUTO-50 is resolved)
-3. US-AUTO-26 — expensive run budget guard
-4. US-AUTO-27 — pipeline zone cap
-5. US-AUTO-29 — targeted test strategy
-6. US-AUTO-30 — review reuse / cache guard
-7. US-AUTO-31 — post-run checkpoint workflow
-8. US-AUTO-18 — operator UX
+1. US-AUTO-28-F1 — escalation input validation hardening
+2. US-AUTO-26 — expensive run budget guard
+3. US-AUTO-27 — pipeline zone cap
+4. US-AUTO-29 — targeted test strategy
+5. US-AUTO-30 — review reuse / cache guard
+6. US-AUTO-31 — post-run checkpoint workflow
+7. US-AUTO-18 — operator UX
 
 ---
 
@@ -126,9 +125,9 @@ The registry does **not** replace story bundles.
 | US-AUTO-43 | AI review failure handling and recovery contract | Enforce fail-closed AI review validation boundary so missing, malformed, incomplete, or logically invalid AI review artifacts cannot propagate to classification or gate | follow-up | Implemented | P1 | None | US-AUTO-28 | automation/bundle_packs/US-AUTO-43.bundle.md | Merged in PR #232; implementation and tests are complete, but committed-head reruns do not converge to a fixed point and can re-materialize workspace-only changes, preventing pinned review chain completion without manual intervention; tracked as separate convergence/operator UX follow-up |
 | US-AUTO-47 | Rerun convergence boundary | Bound rerun behavior so reruns stop cleanly at a deterministic convergence boundary instead of widening in place. | implementation | Implemented | P1 | Merged in PR #236; no further action in this story. | US-AUTO-43 | automation/bundle_packs/US-AUTO-47.bundle.md | Merged to `main`. During review/run validation, a separate AI review artifact contract issue was observed and split out into follow-up US-AUTO-48. |
 | US-AUTO-48 | AI review artifact contract hardening | Harden the AI review artifact contract so malformed or incomplete AI review output cannot leave the pipeline without a valid normalized `ai_review_result.md` or explicit fail-closed evidence for downstream stages. | follow-up | Implemented | P1 | None | US-AUTO-47 | automation/bundle_packs/US-AUTO-48.bundle.md | Merged in PR #239. AI review now normalizes `ai_review_result.md` from preserved raw output when possible and otherwise emits deterministic `ai_review_normalization_failed` evidence so analyze, classify, and gate fail closed consistently. |
-| US-AUTO-28-F1 | Escalation input validation hardening | Enforce strict fail-closed validation of escalation artifact input (schema, origin, transitions) | follow-up | Blocked | P1 | Wait for US-AUTO-50, then rerun | US-AUTO-28 | automation/bundle_packs/US-AUTO-28-F1.bundle.md | Bundle validated; first run was initially blocked by committed active-story bundle artifacts, fixed by US-AUTO-49; rerun is now deferred until the separate AI review-output blocker in US-AUTO-50 is resolved |
+| US-AUTO-28-F1 | Escalation input validation hardening | Enforce strict fail-closed validation of escalation artifact input (schema, origin, transitions) | follow-up | Blocked | P1 | Resume execution when selected as next story | US-AUTO-28 | automation/bundle_packs/US-AUTO-28-F1.bundle.md | Bundle validated; first run was initially blocked by committed active-story bundle artifacts, fixed by US-AUTO-49. US-AUTO-50 resolved the separate AI review-output pipeline blocker; remaining review/governance concerns in US-AUTO-50 were accepted as-is and do not block future story selection. |
 | US-AUTO-49 | Scope validation ignores committed active-story bundle artifacts | Exclude already-committed canonical bundle artifacts for the active story from runtime scope validation so only Codex-produced implementation delta is checked | follow-up | Implemented | P1 | None | US-AUTO-28-F1 | automation/bundle_packs/US-AUTO-49.bundle.md | Merged in PR #243; implemented runtime scope-baseline fix in `automation/run_codex_task.sh` with regression coverage in `tests/test_run_codex_task.py`. During review, a separate AI review-output blocker was confirmed and split into US-AUTO-50 |
-| US-AUTO-50 | AI review must produce structured output | Detect and fail closed on prompt-echo / malformed AI review output, and restore a deterministic normalized AI review artifact contract for classify/gate | follow-up | Bundle Drafted | P1 | Merge bundle PR, then execute story | US-AUTO-49 | automation/bundle_packs/US-AUTO-50.bundle.md | Follow-up for confirmed blocker on US-AUTO-49 where ai_review_raw_output.txt echoed prompt/context and normalization failed |
+| US-AUTO-50 | AI review must produce structured output | Detect and fail closed on prompt-echo / malformed AI review output, and restore a deterministic normalized AI review artifact contract for classify/gate | follow-up | Blocked | P1 | None | US-AUTO-49 | automation/bundle_packs/US-AUTO-50.bundle.md | Pipeline fidelity issues were resolved: changed_files generation mismatch fixed, diff.patch mismatch fixed via story-artifact filtering in run_codex_task.sh, and gate now reaches review_classification without internal inconsistencies. Final state accepted as-is: pipeline is stable and reproducible, and the remaining reject comes from review_classification/governance concerns rather than a system error. Reviewer remarks about bundle-artifact governance and prefix matcher risk were not pursued further in this story. |
 
 
 ---
