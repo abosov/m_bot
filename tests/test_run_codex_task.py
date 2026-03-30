@@ -257,6 +257,8 @@ def test_materialized_primary_checkout_state() -> None:
     assert "tracked.txt" in diff_patch
     assert "codex isolated edit" in diff_patch
     assert "generated/from_worktree.txt" in diff_patch
+    assert "diff --git a/generated/from_worktree.txt b/generated/from_worktree.txt" in diff_patch
+    assert str(root_dir / "generated" / "from_worktree.txt") not in diff_patch
     assert "generated/from_worktree.txt" in diff_stat
     assert "- review_base_ref: origin/main" in manifest
     assert "- review_diff_range: origin/main...HEAD" in manifest
@@ -335,6 +337,19 @@ def test_materialized_primary_checkout_state() -> None:
     assert "The first non-empty line must be exactly:" in review_prompt
     assert "Under # AI Review Result, output exactly one of:" in review_prompt
     assert "Do not output anything before # AI Review." in review_prompt
+
+    review_artifact_base = next(
+        line.split(": ", 1)[1]
+        for line in manifest.splitlines()
+        if line.startswith("- review_artifact_base: ")
+    )
+    run(["git", "add", "tracked.txt", "generated/from_worktree.txt"], cwd=root_dir)
+    run(["git", "commit", "-m", "Commit materialized implementation delta"], cwd=root_dir)
+    committed_diff = run(
+        ["git", "diff", review_artifact_base, "--", ".", ":(exclude)automation/story_change_ledger.jsonl"],
+        cwd=root_dir,
+    ).stdout
+    assert diff_patch == committed_diff
 
 def test_run_codex_task_marks_scope_parse_status_missing(tmp_path: Path) -> None:
     root_dir, prompt_file = setup_story_repo(tmp_path)
@@ -799,6 +814,9 @@ printf '%s\\n' 'codex summary' > "$output"
     assert changed_files.splitlines() == ["reports/materialized.txt", "tracked.txt"]
     assert "reports/materialized.txt" in diff_patch
     assert "artifact body" in diff_patch
+    assert diff_patch.index("diff --git a/reports/materialized.txt b/reports/materialized.txt") < diff_patch.index(
+        "diff --git a/tracked.txt b/tracked.txt"
+    )
     assert "Untracked files materialized into primary checkout:" in diff_stat
     assert "reports/materialized.txt" in diff_stat
 

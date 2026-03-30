@@ -63,7 +63,8 @@ The registry does **not** replace story bundles.
 - P1 review-boundary fidelity: US-AUTO-46
 - P1 rerun convergence boundary / manual finish contract: US-AUTO-47
 - P1 manual-finish continuation strictness correction: US-AUTO-52
-- P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28 (US-AUTO-28 in progress; US-AUTO-28-F1 implementation is parked pending a follow-up fix for review artifact fidelity after `review_diff_patch_mismatch` blocked merge on clean committed HEAD)
+- P1 committed-HEAD diff.patch review fidelity: US-AUTO-53
+- P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28 (US-AUTO-28 in progress; US-AUTO-28-F1 implementation is parked pending a follow-up fix for committed-HEAD review artifact fidelity after `review_diff_patch_mismatch` blocked merge on clean committed HEAD)
 - P3 cycle cost reduction: US-AUTO-29 → US-AUTO-31
 - P4 operator UX: US-AUTO-18
 - Future workflow simplification: make bundle pack the single source of truth and treat bundles/active as materialized-only output
@@ -76,13 +77,14 @@ The registry does **not** replace story bundles.
 - `US-AUTO-28-F1` was resumed on a clean branch from `origin/main`, the escalation compatibility regression was fixed, and story-local tests passed on committed HEAD `6714800`. Fresh `run_story.sh`, `analyze_story_run.sh`, and `ai_review_story_run.sh` succeeded on clean committed state, but `review_gate_story_run.sh` still rejected merge with `review_diff_patch_mismatch` despite `Evidence HEAD Consistency: match`. Treat this as a downstream review-artifact fidelity blocker, not as an implementation defect in `US-AUTO-28-F1`.
 
 ### Next Recommended Story
-1. US-AUTO-28-F1 — escalation input validation hardening
-2. US-AUTO-26 — expensive run budget guard
-3. US-AUTO-27 — pipeline zone cap
-4. US-AUTO-29 — targeted test strategy
-5. US-AUTO-30 — review reuse / cache guard
-6. US-AUTO-31 — post-run checkpoint workflow
-7. US-AUTO-18 — operator UX
+1. US-AUTO-53 — committed-HEAD diff.patch review fidelity
+2. US-AUTO-28-F1 — escalation input validation hardening (resume only after US-AUTO-53 merges)
+3. US-AUTO-26 — expensive run budget guard
+4. US-AUTO-27 — pipeline zone cap
+5. US-AUTO-29 — targeted test strategy
+6. US-AUTO-30 — review reuse / cache guard
+7. US-AUTO-31 — post-run checkpoint workflow
+8. US-AUTO-18 — operator UX
 
 ---
 
@@ -127,11 +129,11 @@ The registry does **not** replace story bundles.
 | US-AUTO-43 | AI review failure handling and recovery contract | Enforce fail-closed AI review validation boundary so missing, malformed, incomplete, or logically invalid AI review artifacts cannot propagate to classification or gate | follow-up | Implemented | P1 | None | US-AUTO-28 | automation/bundle_packs/US-AUTO-43.bundle.md | Merged in PR #232; implementation and tests are complete, but committed-head reruns do not converge to a fixed point and can re-materialize workspace-only changes, preventing pinned review chain completion without manual intervention; tracked as separate convergence/operator UX follow-up |
 | US-AUTO-47 | Rerun convergence boundary | Bound rerun behavior so reruns stop cleanly at a deterministic convergence boundary instead of widening in place. | implementation | Implemented | P1 | Merged in PR #236; no further action in this story. | US-AUTO-43 | automation/bundle_packs/US-AUTO-47.bundle.md | Merged to `main`. During review/run validation, a separate AI review artifact contract issue was observed and split out into follow-up US-AUTO-48. |
 | US-AUTO-48 | AI review artifact contract hardening | Harden the AI review artifact contract so malformed or incomplete AI review output cannot leave the pipeline without a valid normalized `ai_review_result.md` or explicit fail-closed evidence for downstream stages. | follow-up | Implemented | P1 | None | US-AUTO-47 | automation/bundle_packs/US-AUTO-48.bundle.md | Merged in PR #239. AI review now normalizes `ai_review_result.md` from preserved raw output when possible and otherwise emits deterministic `ai_review_normalization_failed` evidence so analyze, classify, and gate fail closed consistently. |
-| US-AUTO-28-F1 | Escalation input validation hardening | Enforce strict fail-closed validation of escalation artifact input (schema, origin, transitions) | follow-up | Blocked | P1 | Resume after follow-up fix for manual-finish review continuation | US-AUTO-28 | automation/bundle_packs/US-AUTO-28-F1.bundle.md | Implementation complete and tests passing on parked branch `feat/us-auto-28-f1-run`. Original scope-baseline blocker was fixed by US-AUTO-49, and the AI review-output blocker was fixed by US-AUTO-50. Story is now blocked by a downstream pipeline contract mismatch: after manual finish commit, analyze/classify/gate treat the pinned run as stale because manifest HEAD no longer matches checkout HEAD. Do not rerun or force review on this branch; resume only after the manual-finish review continuation follow-up is merged. |
+| US-AUTO-28-F1 | Escalation input validation hardening | Enforce strict fail-closed validation of escalation artifact input (schema, origin, transitions) | follow-up | Blocked | P1 | Resume after US-AUTO-53 merges and rerun from fresh committed HEAD | US-AUTO-28 | automation/bundle_packs/US-AUTO-28-F1.bundle.md | Implementation was resumed on a clean branch, the escalation compatibility regression was fixed, and story-local tests plus fresh run/analyze/ai_review succeeded on committed HEAD. The remaining blocker is downstream review artifact fidelity: `review_gate_story_run.sh` rejected with `review_diff_patch_mismatch` despite committed HEAD consistency matching. Original scope-baseline blocker was fixed by US-AUTO-49, and the AI review-output blocker was fixed by US-AUTO-50. Do not resume this story until US-AUTO-53 is merged. |
 | US-AUTO-49 | Scope validation ignores committed active-story bundle artifacts | Exclude already-committed canonical bundle artifacts for the active story from runtime scope validation so only Codex-produced implementation delta is checked | follow-up | Implemented | P1 | None | US-AUTO-28-F1 | automation/bundle_packs/US-AUTO-49.bundle.md | Merged in PR #243; implemented runtime scope-baseline fix in `automation/run_codex_task.sh` with regression coverage in `tests/test_run_codex_task.py`. During review, a separate AI review-output blocker was confirmed and split into US-AUTO-50 |
 | US-AUTO-50 | AI review must produce structured output | Detect and fail closed on prompt-echo / malformed AI review output, and restore a deterministic normalized AI review artifact contract for classify/gate | follow-up | Implemented | P1 | None | US-AUTO-49 | automation/bundle_packs/US-AUTO-50.bundle.md | Merged in PR #245. Pipeline fidelity issues were resolved: changed_files generation mismatch fixed, diff.patch mismatch fixed via story-artifact filtering in run_codex_task.sh, and gate now reaches review_classification without internal inconsistencies. Final state accepted as-is: pipeline is stable and reproducible, and the remaining reject comes from review_classification/governance concerns rather than a system error. Reviewer remarks about bundle-artifact governance and prefix matcher risk were not pursued further in this story. |
 | US-AUTO-52 | Strict manual-finish continuation contract | Narrow stale-HEAD continuation to the exact committed manual-finish case tied to immediate prior non-converging rerun evidence, and fail closed for ancestor-run or descendant-commit variants | follow-up | Implemented | P1 | None | US-AUTO-47 | automation/bundles/active/US-AUTO-52/ | Corrective follow-up that tightened review gate continuation predicate and added explicit regression coverage for exact-allow, descendant-reject, and ancestor-run-history reject behavior without widening orchestration scope. |
-
+| US-AUTO-53 | Committed-HEAD diff.patch review fidelity | Make downstream review compare the exact committed implementation diff represented by the pinned run so `review_diff_patch_mismatch` rejects only true stale or inconsistent evidence | follow-up | Implemented | P1 | None | US-AUTO-28-F1 | automation/bundle_packs/US-AUTO-53.bundle.md | Implemented by making `run_codex_task.sh` generate `diff.patch` through a temporary intent-to-add index so mixed tracked and newly materialized files are emitted in the same canonical order as committed `git diff`, with focused regression coverage for committed-match acceptance and true mismatch rejection in `tests/test_run_codex_task.py` and `tests/test_review_gate_story_run.py`. |
 
 ---
 

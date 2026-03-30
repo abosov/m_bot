@@ -958,7 +958,7 @@ materialize_worktree_changes() {
 }
 
 append_untracked_artifacts() {
-  local rel file
+  local rel
 
   if [[ "$MATERIALIZED_UNTRACKED_COUNT" == "0" ]]; then
     return 0
@@ -972,13 +972,35 @@ append_untracked_artifacts() {
       echo "  $rel"
     done < "$WORKTREE_UNTRACKED_LIST_FILE"
   } >> "$STAT_FILE"
+}
 
-  while IFS= read -r rel; do
-    [[ -n "$rel" ]] || continue
-    file="$ROOT_DIR/$rel"
-    printf '\n' >> "$DIFF_FILE"
-    git diff --no-index -- /dev/null "$file" >> "$DIFF_FILE" || true
-  done < "$WORKTREE_UNTRACKED_LIST_FILE"
+write_review_diff_patch() {
+  local merge_base="$1"
+  local temp_index=""
+  local git_index_path=""
+
+  if [[ "$MATERIALIZED_UNTRACKED_COUNT" == "0" ]]; then
+    git diff "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+      | filter_story_artifact_diff "$STORY_ID" > "$DIFF_FILE" || true
+    return 0
+  fi
+
+  temp_index="$(mktemp)"
+  git_index_path="$(git -C "$ROOT_DIR" rev-parse --git-path index)"
+
+  if [[ -f "$git_index_path" ]]; then
+    cp "$git_index_path" "$temp_index"
+  else
+    : > "$temp_index"
+  fi
+
+  GIT_INDEX_FILE="$temp_index" git -C "$ROOT_DIR" add -N \
+    --pathspec-from-file="$WORKTREE_UNTRACKED_LIST_FILE" -- >/dev/null
+
+  GIT_INDEX_FILE="$temp_index" git -C "$ROOT_DIR" diff "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | filter_story_artifact_diff "$STORY_ID" > "$DIFF_FILE" || true
+
+  rm -f "$temp_index"
 }
 
 is_canonical_active_story_bundle_artifact() {
@@ -1016,8 +1038,7 @@ collect_git_artifacts() {
   info "Collecting git artifacts"
   git diff --stat "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$STAT_FILE" || true
 
-  git diff "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
-    | filter_story_artifact_diff "$STORY_ID" > "$DIFF_FILE" || true
+  write_review_diff_patch "$merge_base"
 
   git diff --name-only "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$tracked_names_file" || true
   cp "$WORKTREE_UNTRACKED_LIST_FILE" "$untracked_names_file"
