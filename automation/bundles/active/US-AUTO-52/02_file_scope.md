@@ -2,10 +2,8 @@
 
 ## Files Allowed To Change
 - `automation/scripts/analyze_story_run.sh`
-- `automation/scripts/classify_review_story_run.sh`
 - `automation/scripts/review_gate_story_run.sh`
 - `tests/test_analyze_story_run.py`
-- `tests/test_classify_review_story_run.py`
 - `tests/test_review_gate_story_run.py`
 - `docs/90_codex/STORY_EXECUTION_CHECKLIST.md`
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
