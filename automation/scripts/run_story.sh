@@ -83,14 +83,22 @@ json_has_string_key() {
 
 inspect_escalation_artifact_strict() {
   local json_file="$1"
+  local expected_story_id="$2"
+  local expected_run_id="$3"
+  local expected_run_dir="$4"
+  local expected_gate_result="$5"
   [[ -f "$json_file" ]] || return 0
 
-  python3 - "$json_file" <<'PY'
+  python3 - "$json_file" "$expected_story_id" "$expected_run_id" "$expected_run_dir" "$expected_gate_result" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+expected_story_id = sys.argv[2]
+expected_run_id = sys.argv[3]
+expected_run_dir = sys.argv[4]
+expected_gate_result = sys.argv[5]
 SUPPORTED_ACTIONS = {"accept-as-is", "force-followup", "abort"}
 
 def fail(message: str) -> None:
@@ -127,6 +135,34 @@ if "decision_source" not in data:
     fail("missing_decision_source")
 if not isinstance(data["decision_source"], str):
     fail("non_string_decision_source")
+
+if "story_id" not in data:
+    fail("missing_story_id")
+if not isinstance(data["story_id"], str):
+    fail("non_string_story_id")
+if data["story_id"] != expected_story_id:
+    fail("story_id_mismatch")
+
+if "run_id" not in data:
+    fail("missing_run_id")
+if not isinstance(data["run_id"], str):
+    fail("non_string_run_id")
+if data["run_id"] != expected_run_id:
+    fail("run_id_mismatch")
+
+if "run_dir" not in data:
+    fail("missing_run_dir")
+if not isinstance(data["run_dir"], str):
+    fail("non_string_run_dir")
+if data["run_dir"] != expected_run_dir:
+    fail("run_dir_mismatch")
+
+if "gate_result" not in data:
+    fail("missing_gate_result")
+if not isinstance(data["gate_result"], str):
+    fail("non_string_gate_result")
+if data["gate_result"] != expected_gate_result:
+    fail("gate_result_mismatch")
 
 print("ok")
 print("true" if data["escalation_required"] else "false")
@@ -295,6 +331,15 @@ resolve_latest_run_dir() {
   printf '%s\n' "$latest_run_dir"
 }
 
+resolve_dir_path() {
+  local dir_path="$1"
+  [[ -d "$dir_path" ]] || return 1
+  (
+    cd "$dir_path"
+    pwd -P
+  )
+}
+
 list_story_run_dirs() {
   local story_runs_root="$1"
 
@@ -428,12 +473,17 @@ fail_non_converging_rerun() {
 enforce_escalation_resolution() {
   local story_id="$1"
   local story_runs_root="$RUNS_ROOT/$story_id"
-  local latest_run_dir escalation_file escalation_required escalation_status resolution_action decision_source
+  local latest_run_dir latest_run_dir_resolved latest_run_id latest_gate_result escalation_file escalation_required escalation_status resolution_action decision_source
   local parsed_fields parse_error invalid_resolution_detail
 
   [[ -d "$story_runs_root" ]] || return 0
   latest_run_dir="$(resolve_latest_run_dir "$story_runs_root" || true)"
   [[ -n "$latest_run_dir" ]] || return 0
+  latest_run_dir_resolved="$(resolve_dir_path "$latest_run_dir" || true)"
+  [[ -n "$latest_run_dir_resolved" ]] || \
+    fail_invalid_escalation_resolution "$story_id" "$latest_run_dir" "unable to resolve latest run directory"
+  latest_run_id="$(basename "$latest_run_dir_resolved")"
+  latest_gate_result="$latest_run_dir_resolved/review_gate_result.json"
 
   escalation_file="$latest_run_dir/escalation_result.json"
   if [[ ! -f "$escalation_file" ]]; then
@@ -442,7 +492,13 @@ enforce_escalation_resolution() {
     return 0
   fi
 
-  if ! parsed_fields="$(inspect_escalation_artifact_strict "$escalation_file")"; then
+  if ! parsed_fields="$(inspect_escalation_artifact_strict \
+    "$escalation_file" \
+    "$story_id" \
+    "$latest_run_id" \
+    "$latest_run_dir_resolved" \
+    "$latest_gate_result"
+  )"; then
     parse_error="$(printf '%s\n' "$parsed_fields" | tail -n 1)"
     parse_error="${parse_error//_/ }"
     fail_invalid_escalation_resolution "$story_id" "$latest_run_dir" "$parse_error"
