@@ -958,7 +958,7 @@ materialize_worktree_changes() {
 }
 
 append_untracked_artifacts() {
-  local rel file
+  local rel
 
   if [[ "$MATERIALIZED_UNTRACKED_COUNT" == "0" ]]; then
     return 0
@@ -975,9 +975,8 @@ append_untracked_artifacts() {
 
   while IFS= read -r rel; do
     [[ -n "$rel" ]] || continue
-    file="$ROOT_DIR/$rel"
     printf '\n' >> "$DIFF_FILE"
-    git diff --no-index -- /dev/null "$file" >> "$DIFF_FILE" || true
+    git -C "$ROOT_DIR" diff --no-index /dev/null "$rel" >> "$DIFF_FILE" || true
   done < "$WORKTREE_UNTRACKED_LIST_FILE"
 }
 

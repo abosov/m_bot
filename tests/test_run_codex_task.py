@@ -257,6 +257,8 @@ def test_materialized_primary_checkout_state() -> None:
     assert "tracked.txt" in diff_patch
     assert "codex isolated edit" in diff_patch
     assert "generated/from_worktree.txt" in diff_patch
+    assert "diff --git a/generated/from_worktree.txt b/generated/from_worktree.txt" in diff_patch
+    assert str(root_dir / "generated" / "from_worktree.txt") not in diff_patch
     assert "generated/from_worktree.txt" in diff_stat
     assert "- review_base_ref: origin/main" in manifest
     assert "- review_diff_range: origin/main...HEAD" in manifest
