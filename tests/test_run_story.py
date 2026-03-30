@@ -89,7 +89,9 @@ def write_escalation_result(
         "decision_source": "repeated_reject_stagnation",
         "resolution_action": "force-followup",
     }
+
     payload.update(overrides)
+
     for key in omit_keys or set():
         payload.pop(key, None)
     (artifact_run_dir / "escalation_result.json").write_text(
@@ -601,7 +603,13 @@ def test_run_story_allows_latest_run_with_valid_non_blocking_escalation_artifact
 
     latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
     latest_run_dir.mkdir(parents=True)
-    write_escalation_result(latest_run_dir, story_id, escalation_required=False)
+    write_escalation_result(
+        latest_run_dir,
+        story_id,
+        status="resolved",
+        resolution_action="force-followup",
+        escalation_required=False,
+    )
 
     runner_marker = root_dir / "runner_called.txt"
     fake_runner = make_runner(
@@ -642,7 +650,13 @@ def test_run_story_honors_automation_runs_root_for_escalation(tmp_path: Path) ->
     custom_runs_root = tmp_path / "tmp_runs"
     custom_run_dir = custom_runs_root / story_id / "2026-03-24_12-00-00"
     custom_run_dir.mkdir(parents=True)
-    write_escalation_result(custom_run_dir, story_id, status="pending", resolution_action="force-followup")
+    write_escalation_result(
+        custom_run_dir,
+        story_id,
+        status="pending",
+        resolution_action="force-followup",
+        escalation_required=True,
+    )
 
     runner_marker = root_dir / "runner_called.txt"
     fake_runner = make_runner(
@@ -666,14 +680,54 @@ def test_run_story_honors_automation_runs_root_for_escalation(tmp_path: Path) ->
     assert not runner_marker.exists()
 
 
-def test_run_story_blocks_escalation_with_invalid_status_value(tmp_path: Path) -> None:
+def test_run_story_allows_resolved_force_followup_escalation(tmp_path: Path) -> None:
     story_id = "US-AUTO-37"
     root_dir = tmp_path / "repo"
     setup_repo(root_dir, story_id)
 
     latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
     latest_run_dir.mkdir(parents=True)
-    write_escalation_result(latest_run_dir, story_id, status="resolved")
+    write_escalation_result(
+        latest_run_dir,
+        story_id,
+        status="resolved",
+        resolution_action="force-followup",
+        escalation_required=False,
+    )
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert f"[INFO] Preflight: passed for {story_id}" in result.stderr
+    assert runner_marker.read_text(encoding="utf-8").strip() == "called"
+
+def test_run_story_blocks_escalation_with_invalid_status_value(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-01"
+    latest_run_dir.mkdir(parents=True)
+    write_escalation_result(
+        latest_run_dir,
+        story_id,
+        status="invalid-status",
+        resolution_action="force-followup",
+        escalation_required=True,
+    )
 
     runner_marker = root_dir / "runner_called.txt"
     fake_runner = make_runner(
@@ -693,7 +747,6 @@ def test_run_story_blocks_escalation_with_invalid_status_value(tmp_path: Path) -
     assert result.returncode != 0
     assert "escalation resolution is invalid: invalid status" in result.stderr
     assert not runner_marker.exists()
-
 
 def test_run_story_blocks_resolved_escalation_with_story_id_mismatch(tmp_path: Path) -> None:
     story_id = "US-AUTO-37"
@@ -1094,7 +1147,13 @@ def test_run_story_blocks_resolved_escalation_with_abort_resolution_action(tmp_p
 
     latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
     latest_run_dir.mkdir(parents=True)
-    write_escalation_result(latest_run_dir, story_id, resolution_action="abort")
+    write_escalation_result(
+        latest_run_dir,
+        story_id,
+        status="resolved",
+        resolution_action="abort",
+        escalation_required=True,
+    )
 
     runner_marker = root_dir / "runner_called.txt"
     fake_runner = make_runner(
@@ -1112,9 +1171,42 @@ def test_run_story_blocks_resolved_escalation_with_abort_resolution_action(tmp_p
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert "because escalation is required for the latest rejected run" in result.stderr
+    assert "because escalation was resolved as 'abort'" in result.stderr
     assert not runner_marker.exists()
 
+def test_run_story_blocks_resolved_force_followup_when_escalation_still_required(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-02"
+    latest_run_dir.mkdir(parents=True)
+    write_escalation_result(
+        latest_run_dir,
+        story_id,
+        status="resolved",
+        resolution_action="force-followup",
+        escalation_required=True,
+    )
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "resolved force followup requires nonblocking escalation" in result.stderr
+    assert not runner_marker.exists()
 
 def test_run_story_blocks_resolved_escalation_with_missing_decision_source(tmp_path: Path) -> None:
     story_id = "US-AUTO-37"

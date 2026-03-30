@@ -100,7 +100,7 @@ expected_run_id = sys.argv[3]
 expected_run_dir = sys.argv[4]
 expected_gate_result = sys.argv[5]
 SUPPORTED_ACTIONS = {"accept-as-is", "force-followup", "abort"}
-REQUIRED_STATUS = "pending"
+ALLOWED_STATUSES = {"pending", "resolved"}
 REQUIRED_DECISION_SOURCE = "repeated_reject_stagnation"
 
 def fail(message: str) -> None:
@@ -132,7 +132,7 @@ if "status" not in data:
     fail("missing_status")
 if not isinstance(data["status"], str):
     fail("non_string_status")
-if data["status"] != REQUIRED_STATUS:
+if data["status"] not in ALLOWED_STATUSES:
     fail("invalid_status")
 
 if "decision_source" not in data:
@@ -181,8 +181,32 @@ if data["resolution_action"].strip() == "":
 if data["resolution_action"] not in SUPPORTED_ACTIONS:
     fail("invalid_resolution_action")
 
+status = data["status"]
+resolution_action = data["resolution_action"]
+escalation_required = data["escalation_required"]
+
+if status == "pending":
+    if escalation_required is not True:
+        fail("pending_requires_escalation")
+elif status == "resolved":
+    if resolution_action == "force-followup":
+        if escalation_required is not False:
+            fail("resolved_force_followup_requires_nonblocking_escalation")
+    elif resolution_action == "accept-as-is":
+        if escalation_required is not False:
+            fail("resolved_accept_as_is_requires_nonblocking_escalation")
+    elif resolution_action == "abort":
+        if escalation_required is not True:
+            fail("resolved_abort_requires_escalation")
+    else:
+        fail("invalid_resolution_action")
+else:
+    fail("invalid_status")
+
 print("ok")
-print("true" if data["escalation_required"] else "false")
+print("true" if escalation_required else "false")
+print(status)
+print(resolution_action)
 PY
 }
 
@@ -481,15 +505,31 @@ enforce_escalation_resolution() {
   done <<< "$parsed_fields"
 
   escalation_required="${parsed_lines[1]:-}"
+  escalation_status="${parsed_lines[2]:-}"
+  resolution_action="${parsed_lines[3]:-}"
 
-  [[ "$escalation_required" == "true" ]] || return 0
+  if [[ "$escalation_status" == "pending" ]]; then
+    {
+      echo "ERROR: run blocked for '$story_id' because escalation is required for the latest rejected run"
+      printf 'Required action: AUTOMATION_RUN_DIR=%q automation/scripts/escalate_story.sh %q %s\n' "$latest_run_dir" "$story_id" "<accept-as-is|force-followup|abort>"
+      printf 'Inspect first: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    } >&2
+    exit 1
+  fi
 
-  {
-    echo "ERROR: run blocked for '$story_id' because escalation is required for the latest rejected run"
-    printf 'Required action: AUTOMATION_RUN_DIR=%q automation/scripts/escalate_story.sh %q %s\n' "$latest_run_dir" "$story_id" "<accept-as-is|force-followup|abort>"
-    printf 'Inspect first: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
-  } >&2
-  exit 1
+  if [[ "$escalation_status" == "resolved" && "$resolution_action" == "abort" ]]; then
+    {
+      echo "ERROR: run blocked for '$story_id' because escalation was resolved as 'abort'"
+      printf 'Latest decision: %s\n' "$latest_run_dir/escalation_result.json"
+      printf 'Inspect first: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    } >&2
+    exit 1
+  fi
+
+  [[ "$escalation_required" == "true" ]] && \
+    fail_invalid_escalation_resolution "$story_id" "$latest_run_dir" "resolved escalation cannot remain required"
+
+  return 0
 }
 
 [[ $# -eq 1 ]] || usage
