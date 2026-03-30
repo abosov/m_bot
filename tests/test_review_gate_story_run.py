@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import os
 import subprocess
@@ -44,6 +45,13 @@ def current_head(root_dir: Path) -> str:
         text=True,
     ).stdout.strip()
 
+def add_commit(root_dir: Path, relative_path: str, content: str, message: str) -> str:
+    file_path = root_dir / relative_path
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text(content, encoding="utf-8")
+    subprocess.run(["git", "add", relative_path], check=True, cwd=root_dir)
+    subprocess.run(["git", "commit", "-m", message], check=True, cwd=root_dir, capture_output=True, text=True)
+    return current_head(root_dir)
 
 def write_manifest(
     run_dir: Path,
@@ -644,3 +652,341 @@ def test_review_gate_story_run_ignores_committed_story_artifacts_in_fidelity_che
     gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
     assert '"decision": "approve"' in gate_result
     assert '"decision_source": "review_classification"' in gate_result
+
+def test_review_gate_allows_exact_manual_finish_continuation(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    first_head = current_head(root_dir)
+    reviewed_head = add_commit(root_dir, "story_impl.txt", "second\n", "second head")
+
+    previous_run = make_run_dir(root_dir, "US-AUTO-47", "2026-03-27_10-00-00")
+    (previous_run / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- review_artifact_base: HEAD~1\n",
+        encoding="utf-8",
+    )
+    (previous_run / "changed_files.txt").write_text(
+        "manual_finish.txt\n",
+        encoding="utf-8",
+    )
+    (previous_run / "diff.patch").write_text(
+        "placeholder previous diff\n",
+        encoding="utf-8",
+    )
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-47", "2026-03-27_11-00-00")
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {reviewed_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- review_artifact_base: HEAD~1\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "tests/test_story_loop.py\n"
+        "services/story_loop.py\n",
+        encoding="utf-8",
+    )
+    (run_dir / "diff.patch").write_text("", encoding="utf-8")
+
+    exact_manual_finish_head = add_commit(root_dir, "manual_finish.txt", "manual finish\n", "manual finish")
+
+    # Match the current committed HEAD diff/fidelity contract for the pinned run.
+    changed_files = sorted(
+        subprocess.run(
+            ["git", "diff", "--name-only", "HEAD~1"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "".join(f"{path}\n" for path in changed_files),
+        encoding="utf-8",
+    )
+    diff_patch = subprocess.run(
+        ["git", "diff", "HEAD~1"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    (run_dir / "diff.patch").write_text(diff_patch, encoding="utf-8")
+
+    (run_dir / "ai_review_result.md").write_text(
+        "# AI Review\n\nLooks good.\n\n# AI Review Result\n\nApproved.\n",
+        encoding="utf-8",
+    )
+    (run_dir / "ai_review_raw_output.txt").write_text(
+        "# AI Review\n\nLooks good.\n\n# AI Review Result\n\nApproved.\n",
+        encoding="utf-8",
+    )
+    (run_dir / "chatgpt_review_prompt.md").write_text(
+        "Prompt content that does not match the AI review artifact.\n",
+        encoding="utf-8",
+    )
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
+        encoding="utf-8",
+    )
+
+    result = run_review_gate(root_dir, "US-AUTO-47", env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode == 0, result.stderr
+    assert "Final decision: approve" in result.stdout
+
+    gate_result = json.loads((run_dir / "review_gate_result.json").read_text(encoding="utf-8"))
+    assert gate_result["decision"] == "approve"
+    assert gate_result["status"] == "passed"
+    assert gate_result["reviewed_head"] == reviewed_head
+    assert gate_result["checkout_head"] == exact_manual_finish_head
+    assert gate_result["decision_source"] == "review_classification"
+
+
+def test_review_gate_rejects_descendant_after_manual_finish_continuation(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    first_head = current_head(root_dir)
+    reviewed_head = add_commit(root_dir, "story_impl.txt", "second\n", "second head")
+
+    previous_run = make_run_dir(root_dir, "US-AUTO-47", "2026-03-27_10-00-00")
+    (previous_run / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- review_artifact_base: HEAD~2\n",
+        encoding="utf-8",
+    )
+    (previous_run / "changed_files.txt").write_text(
+        "followup.txt\nmanual_finish.txt\n",
+        encoding="utf-8",
+    )
+    (previous_run / "diff.patch").write_text("placeholder previous diff\n", encoding="utf-8")
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-47", "2026-03-27_11-00-00")
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {reviewed_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- review_artifact_base: HEAD~2\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "tests/test_story_loop.py\n"
+        "services/story_loop.py\n",
+        encoding="utf-8",
+    )
+    (run_dir / "diff.patch").write_text("", encoding="utf-8")
+
+    _manual_finish_head = add_commit(root_dir, "manual_finish.txt", "manual finish\n", "manual finish")
+    descendant_head = add_commit(root_dir, "followup.txt", "descendant\n", "descendant after manual finish")
+
+    changed_files = sorted(
+        subprocess.run(
+            ["git", "diff", "--name-only", "HEAD~2"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "".join(f"{path}\n" for path in changed_files),
+        encoding="utf-8",
+    )
+    diff_patch = subprocess.run(
+        ["git", "diff", "HEAD~2"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    (run_dir / "diff.patch").write_text(diff_patch, encoding="utf-8")
+
+    (run_dir / "ai_review_result.md").write_text(
+        "# AI Review\n\nLooks good.\n\n# AI Review Result\n\nApproved.\n",
+        encoding="utf-8",
+    )
+    (run_dir / "ai_review_raw_output.txt").write_text(
+        "# AI Review\n\nLooks good.\n\n# AI Review Result\n\nApproved.\n",
+        encoding="utf-8",
+    )
+    (run_dir / "chatgpt_review_prompt.md").write_text(
+        "Prompt content that does not match the AI review artifact.\n",
+        encoding="utf-8",
+    )
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
+        encoding="utf-8",
+    )
+
+    result = run_review_gate(root_dir, "US-AUTO-47", env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    assert "review gate rejected merge for 'US-AUTO-47'" in result.stderr
+    assert "Reviewed HEAD" in result.stderr
+    assert "does not match current checkout HEAD" in result.stderr
+
+    gate_result = json.loads((run_dir / "review_gate_result.json").read_text(encoding="utf-8"))
+    assert gate_result["decision"] == "reject"
+    assert gate_result["status"] == "failed"
+    assert gate_result["reviewed_head"] == reviewed_head
+    assert gate_result["checkout_head"] == descendant_head
+    assert gate_result["decision_source"] == "review_head_mismatch"
+
+
+def test_review_gate_rejects_ancestor_run_based_manual_finish_continuation(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    first_head = current_head(root_dir)
+    reviewed_head = add_commit(root_dir, "story_impl.txt", "second\n", "second head")
+
+    ancestor_matching_run = make_run_dir(root_dir, "US-AUTO-47", "2026-03-27_09-00-00")
+    (ancestor_matching_run / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- review_artifact_base: HEAD~1\n",
+        encoding="utf-8",
+    )
+    (ancestor_matching_run / "changed_files.txt").write_text(
+        "tests/test_story_loop.py\n"
+        "services/story_loop.py\n",
+        encoding="utf-8",
+    )
+    (ancestor_matching_run / "diff.patch").write_text("placeholder older matching diff\n", encoding="utf-8")
+
+    immediate_previous_non_matching_run = make_run_dir(root_dir, "US-AUTO-47", "2026-03-27_10-00-00")
+    (immediate_previous_non_matching_run / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- review_artifact_base: HEAD~1\n",
+        encoding="utf-8",
+    )
+    (immediate_previous_non_matching_run / "changed_files.txt").write_text(
+        "services/other_story_file.py\n",
+        encoding="utf-8",
+    )
+    (immediate_previous_non_matching_run / "diff.patch").write_text("placeholder immediate previous diff\n", encoding="utf-8")
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-47", "2026-03-27_11-00-00")
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {reviewed_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- review_artifact_base: HEAD~1\n",
+        encoding="utf-8",
+    )
+
+    manual_finish_head = add_commit(root_dir, "manual_finish.txt", "manual finish\n", "manual finish")
+
+    changed_files = sorted(
+        subprocess.run(
+            ["git", "diff", "--name-only", "HEAD~1"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "".join(f"{path}\n" for path in changed_files),
+        encoding="utf-8",
+    )
+    diff_patch = subprocess.run(
+        ["git", "diff", "HEAD~1"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    (run_dir / "diff.patch").write_text(diff_patch, encoding="utf-8")
+
+    (run_dir / "ai_review_result.md").write_text(
+        "# AI Review\n\nLooks good.\n\n# AI Review Result\n\nApproved.\n",
+        encoding="utf-8",
+    )
+    (run_dir / "ai_review_raw_output.txt").write_text(
+        "# AI Review\n\nLooks good.\n\n# AI Review Result\n\nApproved.\n",
+        encoding="utf-8",
+    )
+    (run_dir / "chatgpt_review_prompt.md").write_text(
+        "Prompt content that does not match the AI review artifact.\n",
+        encoding="utf-8",
+    )
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
+        encoding="utf-8",
+    )
+
+    result = run_review_gate(root_dir, "US-AUTO-47", env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    assert "review gate rejected merge for 'US-AUTO-47'" in result.stderr
+    assert "Reviewed HEAD" in result.stderr
+    assert "does not match current checkout HEAD" in result.stderr
+
+    gate_result = json.loads((run_dir / "review_gate_result.json").read_text(encoding="utf-8"))
+    assert gate_result["decision"] == "reject"
+    assert gate_result["status"] == "failed"
+    assert gate_result["reviewed_head"] == reviewed_head
+    assert gate_result["checkout_head"] == manual_finish_head
+    assert gate_result["decision_source"] == "review_head_mismatch"
