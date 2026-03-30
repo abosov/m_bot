@@ -85,7 +85,7 @@ def write_escalation_result(
         "run_dir": str(artifact_run_dir),
         "gate_result": str(artifact_run_dir / "review_gate_result.json"),
         "escalation_required": True,
-        "status": "resolved",
+        "status": "pending",
         "decision_source": "repeated_reject_stagnation",
         "resolution_action": "force-followup",
     }
@@ -571,7 +571,7 @@ def test_run_story_blocks_when_latest_run_has_pending_escalation(tmp_path: Path)
 
     latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
     latest_run_dir.mkdir(parents=True)
-    write_escalation_result(latest_run_dir, story_id, status="pending", resolution_action="")
+    write_escalation_result(latest_run_dir, story_id, status="pending", resolution_action="force-followup")
 
     runner_marker = root_dir / "runner_called.txt"
     fake_runner = make_runner(
@@ -613,7 +613,7 @@ def test_run_story_honors_automation_runs_root_for_escalation(tmp_path: Path) ->
     custom_runs_root = tmp_path / "tmp_runs"
     custom_run_dir = custom_runs_root / story_id / "2026-03-24_12-00-00"
     custom_run_dir.mkdir(parents=True)
-    write_escalation_result(custom_run_dir, story_id, status="pending", resolution_action="")
+    write_escalation_result(custom_run_dir, story_id, status="pending", resolution_action="force-followup")
 
     runner_marker = root_dir / "runner_called.txt"
     fake_runner = make_runner(
@@ -637,14 +637,14 @@ def test_run_story_honors_automation_runs_root_for_escalation(tmp_path: Path) ->
     assert not runner_marker.exists()
 
 
-def test_run_story_allows_force_followup_after_escalation_resolution(tmp_path: Path) -> None:
+def test_run_story_blocks_escalation_with_invalid_status_value(tmp_path: Path) -> None:
     story_id = "US-AUTO-37"
     root_dir = tmp_path / "repo"
     setup_repo(root_dir, story_id)
 
     latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
     latest_run_dir.mkdir(parents=True)
-    write_escalation_result(latest_run_dir, story_id)
+    write_escalation_result(latest_run_dir, story_id, status="resolved")
 
     runner_marker = root_dir / "runner_called.txt"
     fake_runner = make_runner(
@@ -661,8 +661,9 @@ def test_run_story_allows_force_followup_after_escalation_resolution(tmp_path: P
 
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
-    assert result.returncode == 0, result.stderr
-    assert runner_marker.read_text(encoding="utf-8").strip() == "called"
+    assert result.returncode != 0
+    assert "escalation resolution is invalid: invalid status" in result.stderr
+    assert not runner_marker.exists()
 
 
 def test_run_story_blocks_resolved_escalation_with_story_id_mismatch(tmp_path: Path) -> None:
@@ -806,7 +807,7 @@ def test_run_story_blocks_resolved_escalation_with_missing_resolution_action(tmp
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert "escalation resolution is invalid: missing resolution_action" in result.stderr
+    assert "escalation resolution is invalid: missing resolution action" in result.stderr
     assert "Fix the escalation artifact for this run before rerunning:" in result.stderr
     assert not runner_marker.exists()
 
@@ -866,7 +867,7 @@ def test_run_story_blocks_resolved_escalation_with_non_string_resolution_action(
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert "non-string resolution_action" in result.stderr
+    assert "non string resolution action" in result.stderr
     assert "Fix the escalation artifact for this run before rerunning:" in result.stderr
     assert not runner_marker.exists()
 
@@ -896,7 +897,7 @@ def test_run_story_blocks_resolved_escalation_with_empty_resolution_action(tmp_p
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert "empty resolution_action" in result.stderr
+    assert "empty resolution action" in result.stderr
     assert "Fix the escalation artifact for this run before rerunning:" in result.stderr
     assert not runner_marker.exists()
 
@@ -926,7 +927,7 @@ def test_run_story_blocks_resolved_escalation_with_whitespace_only_resolution_ac
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert "whitespace-only resolution_action" in result.stderr
+    assert "blank resolution action" in result.stderr
     assert "Fix the escalation artifact for this run before rerunning:" in result.stderr
     assert not runner_marker.exists()
 
@@ -956,7 +957,7 @@ def test_run_story_blocks_resolved_escalation_with_unexpected_resolution_action(
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert 'unknown resolution_action "retry"' in result.stderr
+    assert "invalid resolution action" in result.stderr
     assert "Fix the escalation artifact for this run before rerunning:" in result.stderr
     assert not runner_marker.exists()
 
@@ -986,7 +987,7 @@ def test_run_story_blocks_resolved_escalation_with_multiline_resolution_action(t
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert 'unknown resolution_action "force-followup\\nretry"' in result.stderr
+    assert "invalid resolution action" in result.stderr
     assert "Fix the escalation artifact for this run before rerunning:" in result.stderr
     assert not runner_marker.exists()
 
@@ -1052,7 +1053,7 @@ def test_run_story_blocks_resolved_escalation_with_only_nested_resolution_action
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert "missing resolution_action" in result.stderr
+    assert "missing resolution action" in result.stderr
     assert "Fix the escalation artifact for this run before rerunning:" in result.stderr
     assert not runner_marker.exists()
 
@@ -1082,7 +1083,7 @@ def test_run_story_blocks_resolved_escalation_with_abort_resolution_action(tmp_p
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert "because escalation was resolved as 'abort'" in result.stderr
+    assert "because escalation is required for the latest rejected run" in result.stderr
     assert not runner_marker.exists()
 
 
@@ -1163,7 +1164,7 @@ def test_run_story_blocks_resolved_escalation_with_duplicate_decision_source_key
         f' "run_dir": "{latest_run_dir}",'
         f' "gate_result": "{latest_run_dir / "review_gate_result.json"}",'
         ' "escalation_required": true,'
-        ' "status": "resolved",'
+        ' "status": "pending",'
         ' "decision_source": "repeated_reject_stagnation",'
         ' "decision_source": "manual_override",'
         ' "resolution_action": "force-followup"'

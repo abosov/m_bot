@@ -100,6 +100,7 @@ expected_run_id = sys.argv[3]
 expected_run_dir = sys.argv[4]
 expected_gate_result = sys.argv[5]
 SUPPORTED_ACTIONS = {"accept-as-is", "force-followup", "abort"}
+REQUIRED_STATUS = "pending"
 
 def fail(message: str) -> None:
     print(message)
@@ -130,6 +131,8 @@ if "status" not in data:
     fail("missing_status")
 if not isinstance(data["status"], str):
     fail("non_string_status")
+if data["status"] != REQUIRED_STATUS:
+    fail("invalid_status")
 
 if "decision_source" not in data:
     fail("missing_decision_source")
@@ -164,55 +167,23 @@ if not isinstance(data["gate_result"], str):
 if data["gate_result"] != expected_gate_result:
     fail("gate_result_mismatch")
 
+if "resolution_action" not in data:
+    fail("missing_resolution_action")
+if not isinstance(data["resolution_action"], str):
+    fail("non_string_resolution_action")
+if data["resolution_action"] == "":
+    fail("empty_resolution_action")
+if data["resolution_action"].strip() == "":
+    fail("blank_resolution_action")
+if data["resolution_action"] not in SUPPORTED_ACTIONS:
+    fail("invalid_resolution_action")
+
 print("ok")
 print("true" if data["escalation_required"] else "false")
 print(data["status"])
 print(data["decision_source"])
-if "resolution_action" not in data:
-    print("missing")
-elif not isinstance(data["resolution_action"], str):
-    print("non-string")
-elif data["resolution_action"] == "":
-    print("empty")
-elif data["resolution_action"].strip() == "":
-    print("blank")
-elif data["resolution_action"] in SUPPORTED_ACTIONS:
-    print(f"supported:{data['resolution_action']}")
-else:
-    print(f"unknown:{json.dumps(data['resolution_action'])}")
+print(data["resolution_action"])
 PY
-}
-
-invalid_resolution_action_detail() {
-  local resolution_action="${1:-}"
-
-  case "$resolution_action" in
-    missing)
-      printf '%s\n' "missing resolution_action"
-      return 0
-      ;;
-    non-string)
-      printf '%s\n' "non-string resolution_action"
-      return 0
-      ;;
-    empty)
-      printf '%s\n' "empty resolution_action"
-      return 0
-      ;;
-    blank)
-      printf '%s\n' "whitespace-only resolution_action"
-      return 0
-      ;;
-    supported:*)
-      return 1
-      ;;
-    unknown:*)
-      printf "unknown resolution_action %s\n" "${resolution_action#unknown:}"
-      return 0
-      ;;
-  esac
-
-  return 1
 }
 
 manifest_declares_escalation_artifact() {
@@ -474,7 +445,7 @@ enforce_escalation_resolution() {
   local story_id="$1"
   local story_runs_root="$RUNS_ROOT/$story_id"
   local latest_run_dir latest_run_dir_resolved latest_run_id latest_gate_result escalation_file escalation_required escalation_status resolution_action decision_source
-  local parsed_fields parse_error invalid_resolution_detail
+  local parsed_fields parse_error
 
   [[ -d "$story_runs_root" ]] || return 0
   latest_run_dir="$(resolve_latest_run_dir "$story_runs_root" || true)"
@@ -516,13 +487,11 @@ enforce_escalation_resolution() {
 
   [[ "$escalation_required" == "true" ]] || return 0
 
-  if [[ "$escalation_status" != "resolved" ]]; then
-    {
-      echo "ERROR: run blocked for '$story_id' because escalation is required for the latest rejected run"
-      printf 'Required action: AUTOMATION_RUN_DIR=%q automation/scripts/escalate_story.sh %q %s\n' "$latest_run_dir" "$story_id" "<accept-as-is|force-followup|abort>"
-      printf 'Inspect first: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
-    } >&2
-    exit 1
+  if [[ "$escalation_status" != "pending" ]]; then
+    fail_invalid_escalation_resolution \
+      "$story_id" \
+      "$latest_run_dir" \
+      "invalid status"
   fi
 
   if [[ "$decision_source" != "repeated_reject_stagnation" ]]; then
@@ -532,25 +501,23 @@ enforce_escalation_resolution() {
       "invalid decision_source '$decision_source'"
   fi
 
-  if invalid_resolution_detail="$(invalid_resolution_action_detail "$resolution_action")"; then
-    fail_invalid_escalation_resolution \
-      "$story_id" \
-      "$latest_run_dir" \
-      "$invalid_resolution_detail"
-  fi
-
   case "$resolution_action" in
-    supported:force-followup)
-      return 0
+    accept-as-is|force-followup|abort)
       ;;
-    supported:accept-as-is|supported:abort)
-      {
-        echo "ERROR: run blocked for '$story_id' because escalation was resolved as '${resolution_action#supported:}'"
-        printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
-      } >&2
-      exit 1
+    *)
+      fail_invalid_escalation_resolution \
+        "$story_id" \
+        "$latest_run_dir" \
+        "invalid resolution_action '$resolution_action'"
       ;;
   esac
+
+  {
+    echo "ERROR: run blocked for '$story_id' because escalation is required for the latest rejected run"
+    printf 'Required action: AUTOMATION_RUN_DIR=%q automation/scripts/escalate_story.sh %q %s\n' "$latest_run_dir" "$story_id" "<accept-as-is|force-followup|abort>"
+    printf 'Inspect first: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+  } >&2
+  exit 1
 }
 
 [[ $# -eq 1 ]] || usage
