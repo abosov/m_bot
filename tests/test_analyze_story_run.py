@@ -2046,7 +2046,7 @@ def test_analyze_story_run_reports_abort_as_terminal_blocked(tmp_path: Path) -> 
     assert "Next recommended command: none" in result.stdout
     assert "RUN STATUS: BLOCKED (escalation resolved: abort)" in result.stdout
 
-def test_analyze_story_run_allows_review_handoff_after_manual_finish_for_non_converging_rerun(
+def test_analyze_story_run_blocks_stale_run_evidence_after_manual_finish_for_non_converging_rerun(
     tmp_path: Path,
 ) -> None:
     root_dir = tmp_path / "repo"
@@ -2110,6 +2110,7 @@ def test_analyze_story_run_allows_review_handoff_after_manual_finish_for_non_con
     result = run_script(root_dir, "US-AUTO-47", run_dir=run_dir)
 
     assert result.returncode == 0, result.stderr
-    assert "stale run evidence:" not in result.stdout
-    assert "RUN STATUS: READY (manual finish committed; review can continue on current HEAD)" in result.stdout
+    assert "RUN STATUS: BLOCKED (stale run evidence:" in result.stdout
+    assert f"manifest HEAD {second_head} != current HEAD {third_head}" in result.stdout
+    assert "RUN STATUS: READY (manual finish committed; review can continue on current HEAD)" not in result.stdout
     assert third_head in result.stdout

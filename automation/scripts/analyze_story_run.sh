@@ -1045,11 +1045,10 @@ final_status_line() {
   previous_non_converging_run_dir="$(detect_non_converging_rerun_for_run "$STORY_RUNS_ROOT" "$run_dir" || true)"
 
   if [[ -n "$previous_non_converging_run_dir" && "$head_status" == mismatch:* ]]; then
-    if working_tree_is_clean; then
-      printf 'RUN STATUS: READY (manual finish committed; review can continue on current HEAD)\n'
-    else
-      printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
-    fi
+    expected_head="${head_status#mismatch:}"
+    current_head="${expected_head#*:}"
+    expected_head="${expected_head%%:*}"
+    printf 'RUN STATUS: BLOCKED (stale run evidence: manifest HEAD %s != current HEAD %s)\n' "$expected_head" "$current_head"
     return 0
   fi
 
