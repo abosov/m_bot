@@ -63,7 +63,7 @@ The registry does **not** replace story bundles.
 - P1 review-boundary fidelity: US-AUTO-46
 - P1 rerun convergence boundary / manual finish contract: US-AUTO-47
 - P1 manual-finish continuation strictness correction: US-AUTO-52
-- P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28 (US-AUTO-28 in progress; US-AUTO-28-F1 implementation is parked pending a follow-up fix for manual-finish review continuation after stale-run-evidence conflict)
+- P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28 (US-AUTO-28 in progress; US-AUTO-28-F1 implementation is parked pending a follow-up fix for review artifact fidelity after `review_diff_patch_mismatch` blocked merge on clean committed HEAD)
 - P3 cycle cost reduction: US-AUTO-29 → US-AUTO-31
 - P4 operator UX: US-AUTO-18
 - Future workflow simplification: make bundle pack the single source of truth and treat bundles/active as materialized-only output
@@ -73,6 +73,7 @@ The registry does **not** replace story bundles.
 - US-AUTO-43 reproduced this non-converging pattern: after committed-head rerun, fresh workspace-only changes were materialized again, preventing pinned ai_review/classify/gate from completing; this establishes a confirmed need for a convergence or manual-finish contract in the workflow.
 - First run of `US-AUTO-28-F1` confirmed an orchestration blocker: scope validation evaluated a diff that included already-committed bundle artifacts for the active story (`automation/bundle_packs/US-AUTO-28-F1.bundle.md` and `automation/bundles/active/US-AUTO-28-F1/*`). As a result, the run was blocked before the review stage even though Codex produced valid in-scope implementation changes (`automation/scripts/run_story.sh`, `tests/test_run_story.py`). This indicates that the current scope validation uses a branch-level diff instead of isolating Codex-produced changes. Treat this as a separate workflow/scope-baseline follow-up, not as part of `US-AUTO-28-F1`.
 - `US-AUTO-49` was implemented and merged to `main`, and its downstream AI review-output blocker was addressed by `US-AUTO-50`. The remaining `US-AUTO-50` review rejection is accepted as a governance/review outcome, not a pipeline integrity defect.
+- `US-AUTO-28-F1` was resumed on a clean branch from `origin/main`, the escalation compatibility regression was fixed, and story-local tests passed on committed HEAD `6714800`. Fresh `run_story.sh`, `analyze_story_run.sh`, and `ai_review_story_run.sh` succeeded on clean committed state, but `review_gate_story_run.sh` still rejected merge with `review_diff_patch_mismatch` despite `Evidence HEAD Consistency: match`. Treat this as a downstream review-artifact fidelity blocker, not as an implementation defect in `US-AUTO-28-F1`.
 
 ### Next Recommended Story
 1. US-AUTO-28-F1 — escalation input validation hardening
