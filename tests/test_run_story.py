@@ -594,6 +594,35 @@ def test_run_story_blocks_when_latest_run_has_pending_escalation(tmp_path: Path)
     assert not runner_marker.exists()
 
 
+def test_run_story_allows_latest_run_with_valid_non_blocking_escalation_artifact(tmp_path: Path) -> None:
+    story_id = "US-AUTO-37"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-24_12-00-00"
+    latest_run_dir.mkdir(parents=True)
+    write_escalation_result(latest_run_dir, story_id, escalation_required=False)
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert f"[INFO] Preflight: passed for {story_id}" in result.stderr
+    assert runner_marker.read_text(encoding="utf-8").strip() == "called"
+
+
 def test_run_story_honors_automation_runs_root_for_escalation(tmp_path: Path) -> None:
     story_id = "US-AUTO-37"
     root_dir = tmp_path / "repo"
@@ -1126,7 +1155,7 @@ def test_run_story_blocks_resolved_escalation_with_wrong_decision_source(tmp_pat
     result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
 
     assert result.returncode != 0
-    assert "invalid decision_source 'manual_override'" in result.stderr
+    assert "invalid decision source" in result.stderr
 
 
 def test_run_story_blocks_resolved_escalation_with_nested_decision_source_spoof(tmp_path: Path) -> None:

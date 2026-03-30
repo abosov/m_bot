@@ -101,6 +101,7 @@ expected_run_dir = sys.argv[4]
 expected_gate_result = sys.argv[5]
 SUPPORTED_ACTIONS = {"accept-as-is", "force-followup", "abort"}
 REQUIRED_STATUS = "pending"
+REQUIRED_DECISION_SOURCE = "repeated_reject_stagnation"
 
 def fail(message: str) -> None:
     print(message)
@@ -138,6 +139,8 @@ if "decision_source" not in data:
     fail("missing_decision_source")
 if not isinstance(data["decision_source"], str):
     fail("non_string_decision_source")
+if data["decision_source"] != REQUIRED_DECISION_SOURCE:
+    fail("invalid_decision_source")
 
 if "story_id" not in data:
     fail("missing_story_id")
@@ -180,9 +183,6 @@ if data["resolution_action"] not in SUPPORTED_ACTIONS:
 
 print("ok")
 print("true" if data["escalation_required"] else "false")
-print(data["status"])
-print(data["decision_source"])
-print(data["resolution_action"])
 PY
 }
 
@@ -444,7 +444,7 @@ fail_non_converging_rerun() {
 enforce_escalation_resolution() {
   local story_id="$1"
   local story_runs_root="$RUNS_ROOT/$story_id"
-  local latest_run_dir latest_run_dir_resolved latest_run_id latest_gate_result escalation_file escalation_required escalation_status resolution_action decision_source
+  local latest_run_dir latest_run_dir_resolved latest_run_id latest_gate_result escalation_file escalation_required
   local parsed_fields parse_error
 
   [[ -d "$story_runs_root" ]] || return 0
@@ -481,36 +481,8 @@ enforce_escalation_resolution() {
   done <<< "$parsed_fields"
 
   escalation_required="${parsed_lines[1]:-}"
-  escalation_status="${parsed_lines[2]:-}"
-  decision_source="${parsed_lines[3]:-}"
-  resolution_action="${parsed_lines[4]:-}"
 
   [[ "$escalation_required" == "true" ]] || return 0
-
-  if [[ "$escalation_status" != "pending" ]]; then
-    fail_invalid_escalation_resolution \
-      "$story_id" \
-      "$latest_run_dir" \
-      "invalid status"
-  fi
-
-  if [[ "$decision_source" != "repeated_reject_stagnation" ]]; then
-    fail_invalid_escalation_resolution \
-      "$story_id" \
-      "$latest_run_dir" \
-      "invalid decision_source '$decision_source'"
-  fi
-
-  case "$resolution_action" in
-    accept-as-is|force-followup|abort)
-      ;;
-    *)
-      fail_invalid_escalation_resolution \
-        "$story_id" \
-        "$latest_run_dir" \
-        "invalid resolution_action '$resolution_action'"
-      ;;
-  esac
 
   {
     echo "ERROR: run blocked for '$story_id' because escalation is required for the latest rejected run"
