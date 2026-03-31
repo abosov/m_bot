@@ -63,6 +63,7 @@ The registry does **not** replace story bundles.
 - US-AUTO-53 — committed-HEAD diff.patch review fidelity
 - US-AUTO-54 — rerun-artifact review diff fidelity for US-AUTO-28-F1 path
 - US-AUTO-55 — final-HEAD manual-finish review compliance for exact allowed continuation path
+- US-AUTO-56 — post-run stage-gate guidance for review eligibility and manual-finish continuation
 
 ### Current Gaps
 - P0 review-boundary fidelity gap was closed by US-AUTO-46.
@@ -142,6 +143,8 @@ The registry does **not** replace story bundles.
 - The only allowed exception is the explicit manual-finish continuation path after `blocked_non_converging_rerun`; in that mode, do not rerun again until manual finish is complete.
 - A transient external `codex exec` failure can still interrupt review-stage automation even when the pinned run and continuation contract are valid; treat such incidents as infrastructure instability, not as workflow-contract defects.
 - The current durable `story_change_ledger.jsonl` is useful but too narrow for process analytics; future workflow improvement should add a separate telemetry registry rather than overloading the durable ledger.
+- US-AUTO-56 added explicit deterministic stage-gate guidance so operators can see when review-stage is allowed, when commit/discard is required first, and when manual-finish continuation forbids rerun without changing the underlying fail-closed workflow policy.
+
 
 ### Story Renaming / Supersession Map
 - US-AUTO-26 (`Expensive run budget guard`) → **Superseded by US-AUTO-57** (`Preflight rerun-skip detection`)
