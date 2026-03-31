@@ -65,6 +65,7 @@ The registry does **not** replace story bundles.
 - P1 manual-finish continuation strictness correction: US-AUTO-52
 - P1 committed-HEAD diff.patch review fidelity: US-AUTO-53
 - P1 committed-HEAD review diff fidelity for US-AUTO-28-F1 rerun artifacts: US-AUTO-54
+- P1 post-run stage-gate guidance for review eligibility and manual-finish continuation: US-AUTO-56
 - P2 anti-cycle enforcement: US-AUTO-25 → US-AUTO-28 (US-AUTO-28 in progress; US-AUTO-28-F1 implementation is complete, and the remaining blocker is tracked separately as committed-HEAD review artifact fidelity after `review_diff_patch_mismatch` persisted on a clean committed rerun)
 - P3 cycle cost reduction: US-AUTO-29 → US-AUTO-31
 - P4 operator UX: US-AUTO-18
@@ -77,6 +78,7 @@ The registry does **not** replace story bundles.
 - Non-urgent future goal: introduce early rerun-skip detection (preflight convergence check) so the workflow can stop before a full Codex rerun when the next rerun would not change the effective review surface.
 - Non-urgent future goal: explore lightweight artifact refresh for committed-HEAD alignment cases where review fidelity can be restored without a full Codex execution.
 - Non-urgent future goal: improve operator UX messaging for manual-finish continuation paths so the workflow makes it explicit when rerun is prohibited and manual finish is required.
+- This operator guidance has become concrete enough to justify a narrow implementation follow-up: make post-run stage-gate output explicit about clean-tree review eligibility, commit-before-review requirements, and manual-finish continuation restrictions.
 
 
 ### Confirmed Workflow Observation
@@ -91,13 +93,14 @@ The registry does **not** replace story bundles.
 
 
 ### Next Recommended Story
-1. US-AUTO-55 — manual-finish final-HEAD review compliance after allowed non-converging rerun continuation
-2. US-AUTO-26 — expensive run budget guard
-3. US-AUTO-27 — pipeline zone cap
-4. US-AUTO-29 — targeted test strategy
-5. US-AUTO-30 — review reuse / cache guard
-6. US-AUTO-31 — post-run checkpoint workflow
-7. US-AUTO-18 — operator UX
+1. US-AUTO-56 — post-run stage-gate guidance for review eligibility and manual-finish continuation
+2. US-AUTO-55 — manual-finish final-HEAD review compliance after allowed non-converging rerun continuation
+3. US-AUTO-26 — expensive run budget guard
+4. US-AUTO-27 — pipeline zone cap
+5. US-AUTO-29 — targeted test strategy
+6. US-AUTO-30 — review reuse / cache guard
+7. US-AUTO-31 — post-run checkpoint workflow
+8. US-AUTO-18 — operator UX
 
 ---
 
@@ -149,6 +152,7 @@ The registry does **not** replace story bundles.
 | US-AUTO-53 | Committed-HEAD diff.patch review fidelity | Make downstream review compare the exact committed implementation diff represented by the pinned run so `review_diff_patch_mismatch` rejects only true stale or inconsistent evidence | follow-up | Implemented | P1 | None | US-AUTO-28-F1 | automation/bundle_packs/US-AUTO-53.bundle.md | Implemented by making `run_codex_task.sh` generate `diff.patch` through a temporary intent-to-add index so mixed tracked and newly materialized files are emitted in the same canonical order as committed `git diff`, with focused regression coverage for committed-match acceptance and true mismatch rejection in `tests/test_run_codex_task.py` and `tests/test_review_gate_story_run.py`. |
 | US-AUTO-54 | Committed-HEAD review diff fidelity for US-AUTO-28-F1 rerun artifacts | Determine why `review_gate_story_run.sh` still reports `review_diff_patch_mismatch` for `US-AUTO-28-F1` after a clean committed-head rerun with matching manifest HEAD, and restore deterministic gate fidelity for that exact rerun path | follow-up | Implemented | P1 | None | US-AUTO-28-F1 | automation/bundle_packs/US-AUTO-54.bundle.md | Implemented on branch `feat/us-auto-54-review-diff-fidelity`. The rerun-artifact diff fidelity defect was corrected so review no longer failed at `review_diff_patch_mismatch` for the reproduced path. Remaining reject came from downstream review classification because allowed manual-finish continuation still leaves pinned run artifacts tied to the pre-manual-finish HEAD. That final-HEAD/manual-finish compliance mismatch is tracked separately in US-AUTO-55. |
 | US-AUTO-55 | Manual-finish final-HEAD review compliance after allowed non-converging rerun continuation | Make downstream AI review, classification, and gate treat an allowed manual-finish continuation consistently with final reviewed HEAD semantics, or produce compliant final-HEAD evidence without reopening the rerun loop | follow-up | Planned | P1 | Draft bundle | US-AUTO-54 | N/A | Narrow follow-up created after `US-AUTO-54` fixed rerun diff fidelity but final merge still rejected because the allowed manual-finish path advanced HEAD beyond the pinned rerun manifest, causing downstream workflow/branch compliance failure. Scope is limited to final-HEAD review compliance for approved manual-finish continuation. |
+| US-AUTO-56 | Post-run stage-gate guidance for review eligibility and manual-finish continuation | Make the pipeline explicitly tell the operator whether review-stage is allowed after `run_story.sh`, whether commit/discard is required first, and whether manual-finish continuation forbids rerun, so next-step guidance cannot be inferred incorrectly from generic resume hints alone | follow-up | Planned | P1 | Draft bundle | US-AUTO-54 | N/A | Narrow follow-up created after repeated operator-facing ambiguity around `run_story.sh` completion, dirty working tree state, stale run evidence, and manual-finish continuation. Scope is limited to stage-gate messaging and review-eligibility guidance; it must not change review semantics or continuation contracts themselves. |
 
 ---
 
