@@ -3,7 +3,7 @@ Story-ID: US-AUTO-56
 Version: 1
 
 === FILE: 00_story.md ===
-# Story ID and Title
+## Story ID and Title
 US-AUTO-56 — Post-run stage-gate guidance for review eligibility and manual-finish continuation
 
 ## Objective
@@ -91,7 +91,7 @@ Acceptance requires all of the following:
 - tests prove the guidance exists for the intended paths without broadening scope
 
 === FILE: 01_context_bundle.md ===
-# Source of Truth
+## Source of Truth
 - `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/scripts/run_story.sh`
 - `automation/scripts/analyze_story_run.sh`
@@ -132,7 +132,7 @@ A correct implementation keeps all existing boundaries intact and only makes the
 - no other scripts become part of scope
 
 === FILE: 02_file_scope.md ===
-# Files Allowed To Change
+## Files Allowed To Change
 - `automation/scripts/run_story.sh`
 - `automation/scripts/analyze_story_run.sh`
 - `tests/test_run_story.py`
@@ -167,7 +167,7 @@ Disallowed change types:
 - changing external contracts outside stage-gate guidance
 
 === FILE: 03_master_prompt.md ===
-# Role
+## Role
 You are the implementation engineer for US-AUTO-56 working inside the fail-closed US-AUTO automation pipeline.
 
 ## Goal
@@ -246,7 +246,7 @@ Deliver:
 5. no additional follow-up implementation in the same story
 
 === FILE: 04_review_checklist.md ===
-# Scope Validation
+## Scope Validation
 - APPROVE only if changed files are limited to the allowed scope
 - REJECT if any review/gate/classify/AI-review script changed
 - REJECT if any new file or telemetry artifact was introduced
@@ -271,7 +271,7 @@ Deliver:
 - Final result must be binary: APPROVE or REJECT with no soft-pass language
 
 === FILE: 05_followups.md ===
-# Follow-Up Prompt Queue
+## Follow-Up Prompt Queue
 1. US-AUTO-57 — preflight rerun-skip detection
 2. US-AUTO-31 — mandatory analyze gate before rerun or next phase
 3. US-AUTO-58 — stage-loop cap and forced escalation threshold
@@ -286,7 +286,7 @@ Deliver:
 - Any durable workflow measurement belongs to US-AUTO-61 and follow-ups, not this story.
 
 === FILE: 06_manual_actions.md ===
-# Required Human Actions
+## Required Human Actions
 1. Save this bundle pack to `automation/bundle_packs/US-AUTO-56.bundle.md`.
 2. Run `automation/scripts/materialize_story_bundle.sh US-AUTO-56`.
 3. Run `automation/scripts/validate_story_bundle.sh US-AUTO-56`.
