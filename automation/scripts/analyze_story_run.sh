@@ -1324,15 +1324,42 @@ final_status_line() {
   fi
 
   if [[ "$gate_decision" == "approve" && "$gate_status" == "passed" ]]; then
-    if [[ "$head_status" == "unknown:manifest_head_missing" ]]; then
-      printf 'RUN STATUS: BLOCKED (cannot verify run evidence: manifest source-of-truth HEAD missing)\n'
-    elif [[ "$head_status" == unknown:current_head_unavailable:* ]]; then
-      printf 'RUN STATUS: BLOCKED (cannot verify run evidence: checkout HEAD unavailable)\n'
-    elif working_tree_is_clean; then
-      printf 'RUN STATUS: READY FOR MERGE REVIEW (gate approve)\n'
-    else
-      printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
-    fi
+    case "$head_contract_code" in
+      review_head_missing)
+        printf 'RUN STATUS: BLOCKED (cannot verify run evidence: manifest source-of-truth HEAD missing)\n'
+        ;;
+      checkout_head_unavailable)
+        printf 'RUN STATUS: BLOCKED (cannot verify run evidence: checkout HEAD unavailable)\n'
+        ;;
+      review_head_match)
+        if working_tree_is_clean; then
+          printf 'RUN STATUS: READY FOR MERGE REVIEW (gate approve)\n'
+        else
+          printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
+        fi
+        ;;
+      manual_finish_continuation_valid)
+        if [[ "$final_head_fidelity_status" == "ok" ]]; then
+          if working_tree_is_clean; then
+            printf 'RUN STATUS: READY FOR MERGE REVIEW (gate approve)\n'
+          else
+            printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
+          fi
+        else
+          printf 'RUN STATUS: BLOCKED (manual-finish continuation allowed but final-HEAD compliance is not proven: %s [%s])\n' \
+            "$final_head_fidelity_reason" \
+            "$final_head_fidelity_code"
+        fi
+        ;;
+      review_head_mismatch)
+        printf 'RUN STATUS: BLOCKED (stale run evidence: manifest HEAD %s != current HEAD %s)\n' \
+          "$reviewed_head" \
+          "$checkout_head"
+        ;;
+      *)
+        printf 'RUN STATUS: BLOCKED (cannot verify run evidence: %s)\n' "$head_contract_code"
+        ;;
+    esac
     return 0
   fi
 
