@@ -1185,8 +1185,10 @@ def test_review_gate_allows_exact_manual_finish_continuation(tmp_path: Path) -> 
     gate_result = json.loads((run_dir / "review_gate_result.json").read_text(encoding="utf-8"))
     assert gate_result["decision"] == "approve"
     assert gate_result["status"] == "passed"
-    assert gate_result["reviewed_head"] == reviewed_head
+    assert gate_result["reviewed_head"] == exact_manual_finish_head
     assert gate_result["checkout_head"] == exact_manual_finish_head
+    assert gate_result["manifest_reviewed_head"] == reviewed_head
+    assert gate_result["review_head_mode"] == "manual_finish_continuation"
     assert gate_result["decision_source"] == "review_classification"
 
 
@@ -1296,6 +1298,8 @@ def test_review_gate_rejects_descendant_after_manual_finish_continuation(tmp_pat
     assert gate_result["status"] == "failed"
     assert gate_result["reviewed_head"] == reviewed_head
     assert gate_result["checkout_head"] == descendant_head
+    assert gate_result["manifest_reviewed_head"] == reviewed_head
+    assert gate_result["review_head_mode"] == "pinned_run_manifest"
     assert gate_result["decision_source"] == "review_head_mismatch"
 
 
@@ -1416,4 +1420,6 @@ def test_review_gate_rejects_ancestor_run_based_manual_finish_continuation(tmp_p
     assert gate_result["status"] == "failed"
     assert gate_result["reviewed_head"] == reviewed_head
     assert gate_result["checkout_head"] == manual_finish_head
+    assert gate_result["manifest_reviewed_head"] == reviewed_head
+    assert gate_result["review_head_mode"] == "pinned_run_manifest"
     assert gate_result["decision_source"] == "review_head_mismatch"

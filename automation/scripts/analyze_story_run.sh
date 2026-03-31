@@ -399,11 +399,6 @@ run_is_convergence_candidate() {
   [[ "$changed_files_detected" == "yes" ]] || return 1
   [[ "$materialization_status" == "applied" || "$materialization_status" == "not_needed" ]] || return 1
   run_has_nonempty_changed_files "$run_dir" || return 1
-
-  [[ ! -f "$run_dir/ai_review_result.md" ]] || return 1
-  [[ ! -f "$run_dir/review_classification.md" ]] || return 1
-  [[ ! -f "$run_dir/review_gate_result.json" ]] || return 1
-  [[ ! -f "$run_dir/escalation_result.json" ]] || return 1
 }
 
 changed_files_match() {
@@ -481,6 +476,194 @@ strict_manual_finish_continuation_allowed() {
   [[ "$parent_head" == "$reviewed_head" ]]
 }
 
+resolve_review_head_contract() {
+  local story_runs_root="$1"
+  local run_dir="$2"
+  local manifest_file="$3"
+  local manifest_reviewed_head checkout_head
+
+  manifest_reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
+  if [[ -z "$manifest_reviewed_head" ]]; then
+    printf 'reject\x1freview_head_missing\x1fRun manifest is missing the reviewed HEAD contract\x1f\x1f\x1fpinned_run_manifest\n'
+    return 0
+  fi
+
+  checkout_head="$(current_checkout_head)"
+  if [[ -z "$checkout_head" ]]; then
+    printf 'reject\x1fcheckout_head_unavailable\x1fCurrent checkout HEAD is unavailable for reviewed HEAD %s\x1f\x1f%s\x1fpinned_run_manifest\n' \
+      "$manifest_reviewed_head" \
+      "$manifest_reviewed_head"
+    return 0
+  fi
+
+  if head_matches_expected "$manifest_reviewed_head" "$checkout_head"; then
+    printf 'allow\x1freview_head_match\x1fvalidated\x1f%s\x1f%s\x1fcommitted_head_match\n' \
+      "$checkout_head" \
+      "$manifest_reviewed_head"
+    return 0
+  fi
+
+  if strict_manual_finish_continuation_allowed "$story_runs_root" "$run_dir" "$manifest_reviewed_head" "$checkout_head"; then
+    printf 'allow\x1fmanual_finish_continuation_valid\x1fvalidated\x1f%s\x1f%s\x1fmanual_finish_continuation\n' \
+      "$checkout_head" \
+      "$manifest_reviewed_head"
+    return 0
+  fi
+
+  printf 'reject\x1freview_head_mismatch\x1fReviewed HEAD %s does not match current checkout HEAD %s\x1f\x1f%s\x1fpinned_run_manifest\n' \
+    "$manifest_reviewed_head" \
+    "$checkout_head" \
+    "$manifest_reviewed_head"
+}
+
+resolve_review_artifact_base() {
+  local manifest_file="$1"
+  local review_artifact_base
+
+  review_artifact_base="$(manifest_value "$manifest_file" "review_artifact_base")"
+  if [[ -z "$review_artifact_base" ]]; then
+    return 1
+  fi
+
+  git -C "$ROOT_DIR" rev-parse --verify "${review_artifact_base}^{commit}" 2>/dev/null || return 1
+}
+
+is_story_artifact_review_ignored_path() {
+  local story_id="$1"
+  local path="$2"
+
+  [[ "$path" == "automation/bundle_packs/$story_id.bundle.md" ]] && return 0
+  [[ "$path" == "automation/bundles/active/$story_id" ]] && return 0
+  [[ "$path" == automation/bundles/active/$story_id/* ]] && return 0
+
+  return 1
+}
+
+filter_review_fidelity_paths() {
+  local story_id="$1"
+  local output_file="$2"
+  local tmp
+
+  tmp="$(mktemp)"
+
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    if is_story_artifact_review_ignored_path "$story_id" "$path"; then
+      continue
+    fi
+    printf '%s\n' "$path"
+  done | LC_ALL=C sort -u > "$tmp"
+
+  mv "$tmp" "$output_file"
+}
+
+filter_review_fidelity_diff() {
+  local story_id="$1"
+  local line file
+  local skip=0
+
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^diff\ --git\ a/(.+)\ b/(.+)$ ]]; then
+      file="${BASH_REMATCH[1]}"
+      if is_story_artifact_review_ignored_path "$story_id" "$file"; then
+        skip=1
+        continue
+      fi
+      skip=0
+    fi
+
+    if [[ "$skip" == "1" ]]; then
+      continue
+    fi
+
+    printf '%s\n' "$line"
+  done
+}
+
+sorted_changed_files_to() {
+  local story_id="$1"
+  local changed_files_file="$2"
+  local output_file="$3"
+  local tmp
+
+  tmp="$(mktemp)"
+
+  sed '/^$/d' "$changed_files_file" \
+    | filter_review_fidelity_paths "$story_id" "$tmp"
+
+  mv "$tmp" "$output_file"
+}
+
+review_artifact_fidelity_status() {
+  local run_dir="$1"
+  local manifest_file="$2"
+  local diff_artifact changed_files_artifact review_artifact_base
+  local expected_diff_file expected_changed_files_file artifact_changed_files_file normalized_artifact_diff_file
+
+  diff_artifact="$run_dir/diff.patch"
+  changed_files_artifact="$run_dir/changed_files.txt"
+
+  if [[ ! -f "$diff_artifact" ]]; then
+    printf 'reject\treview_diff_artifact_missing\trequired file not found: %s\n' "$diff_artifact"
+    return 0
+  fi
+
+  if [[ ! -f "$changed_files_artifact" ]]; then
+    printf 'reject\treview_changed_files_artifact_missing\trequired file not found: %s\n' "$changed_files_artifact"
+    return 0
+  fi
+
+  if ! review_artifact_base="$(resolve_review_artifact_base "$manifest_file")"; then
+    printf 'reject\treview_artifact_base_missing\trun manifest is missing or has invalid review_artifact_base; final-HEAD compliance is not proven for this manual-finish continuation\n'
+    return 0
+  fi
+
+  expected_diff_file="$(mktemp)"
+  expected_changed_files_file="$(mktemp)"
+  artifact_changed_files_file="$(mktemp)"
+  normalized_artifact_diff_file="$(mktemp)"
+
+  if ! git -C "$ROOT_DIR" diff "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+      | filter_review_fidelity_diff "$STORY_ID" > "$expected_diff_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
+    printf 'reject\treview_diff_generation_failed\tunable to regenerate final-HEAD diff from review_artifact_base %s\n' "$review_artifact_base"
+    return 0
+  fi
+
+  git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | sed '/^$/d' \
+    | filter_review_fidelity_paths "$STORY_ID" "$expected_changed_files_file"
+
+  if [[ $? -ne 0 ]]; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
+    printf 'reject\treview_changed_files_generation_failed\tunable to regenerate final-HEAD changed_files from review_artifact_base %s\n' "$review_artifact_base"
+    return 0
+  fi
+
+  if ! filter_review_fidelity_diff "$STORY_ID" < "$diff_artifact" > "$normalized_artifact_diff_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
+    printf 'reject\treview_diff_artifact_invalid\treview artifact diff.patch could not be normalized; final-HEAD compliance is not proven for this manual-finish continuation\n'
+    return 0
+  fi
+
+  sorted_changed_files_to "$STORY_ID" "$changed_files_artifact" "$artifact_changed_files_file"
+
+  if ! cmp -s "$artifact_changed_files_file" "$expected_changed_files_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
+    printf 'reject\treview_changed_files_mismatch\treview artifact changed_files.txt does not prove final-HEAD compliance for this manual-finish continuation\n'
+    return 0
+  fi
+
+  if ! cmp -s "$normalized_artifact_diff_file" "$expected_diff_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
+    printf 'reject\treview_diff_patch_mismatch\treview artifact diff.patch does not prove final-HEAD compliance for this manual-finish continuation\n'
+    return 0
+  fi
+
+  rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
+  printf 'ok\treview_artifact_fidelity_valid\tartifact fidelity verified against final HEAD via review_artifact_base %s\n' "$review_artifact_base"
+}
+
 head_matches_expected() {
   local expected_head="$1"
   local current_head="$2"
@@ -523,8 +706,17 @@ head_consistency_status() {
 format_head_consistency_status() {
   local manifest_file="$1"
   local status expected_head current_head
+  local head_contract_state head_contract_code effective_reviewed_head manifest_reviewed_head
 
   status="$(head_consistency_status "$manifest_file")"
+  head_contract_state="$(resolve_review_head_contract "$STORY_RUNS_ROOT" "$RUN_DIR" "$manifest_file")"
+  IFS=$'\x1f' read -r _ head_contract_code _ effective_reviewed_head manifest_reviewed_head _ <<< "$head_contract_state"
+  if [[ "$head_contract_code" == "manual_finish_continuation_valid" ]]; then
+    printf 'manual-finish continuation (manifest %s -> final reviewed HEAD %s)\n' \
+      "$manifest_reviewed_head" \
+      "$effective_reviewed_head"
+    return 0
+  fi
   case "$status" in
     match:*)
       printf 'match (%s)\n' "${status#match:}"
@@ -798,6 +990,7 @@ summarize_workflow_resume() {
   local head_status expected_head current_head stage latest_valid_stage resume_safety blocked_reason next_command decision_source
   local ai_review_validation_state ai_review_validation_status ai_review_validation_code ai_review_validation_reason
   local previous_non_converging_run_dir reviewed_head checkout_head manual_finish_continuation_allowed
+  local head_contract_state head_contract_code final_head_fidelity_state final_head_fidelity_status final_head_fidelity_code final_head_fidelity_reason
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -818,8 +1011,16 @@ summarize_workflow_resume() {
   reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
   checkout_head="$(current_checkout_head)"
   manual_finish_continuation_allowed="false"
-  if strict_manual_finish_continuation_allowed "$STORY_RUNS_ROOT" "$run_dir" "$reviewed_head" "$checkout_head"; then
+  head_contract_state="$(resolve_review_head_contract "$STORY_RUNS_ROOT" "$run_dir" "$manifest_file")"
+  IFS=$'\x1f' read -r _ head_contract_code _ _ _ _ <<<"$head_contract_state"
+  if [[ "$head_contract_code" == "manual_finish_continuation_valid" ]]; then
     manual_finish_continuation_allowed="true"
+    final_head_fidelity_state="$(review_artifact_fidelity_status "$run_dir" "$manifest_file")"
+    IFS=$'\t' read -r final_head_fidelity_status final_head_fidelity_code final_head_fidelity_reason <<<"$final_head_fidelity_state"
+  else
+    final_head_fidelity_status=""
+    final_head_fidelity_code=""
+    final_head_fidelity_reason=""
   fi
 
   if [[ -f "$changed_files_file" ]]; then
@@ -879,20 +1080,28 @@ summarize_workflow_resume() {
     resume_safety="blocked"
     blocked_reason="latest committed-head rerun matched changed_files.txt from previous run $(basename "$previous_non_converging_run_dir"); manual finish required"
     next_command="none"
+  elif [[ "$manual_finish_continuation_allowed" == "true" && "$final_head_fidelity_status" == "reject" ]]; then
+    stage="blocked_manual_finish_final_head_unproven"
+    latest_valid_stage="run_artifacts_ready"
+    resume_safety="blocked"
+    blocked_reason="$final_head_fidelity_reason ($final_head_fidelity_code)"
+    next_command="none"
   else
     stage="run_artifacts_ready"
     latest_valid_stage="run_artifacts_ready"
     next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
+    if [[ "$manual_finish_continuation_allowed" == "true" ]]; then
+      stage="manual_finish_ready_for_review"
+      latest_valid_stage="manual_finish_ready_for_review"
+    fi
 
     if [[ "$ai_review_validation_status" == "invalid" && "$ai_review_validation_code" == "ai_review_normalization_failed" ]]; then
       stage="blocked_ai_review_normalization_failed"
-      latest_valid_stage="run_artifacts_ready"
       blocked_reason="AI review normalization failed; inspect ai_review_raw_output.txt"
       next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
     elif [[ -f "$ai_review_file" ]]; then
       if [[ "$ai_review_validation_status" != "valid" ]]; then
         stage="blocked_ai_review_invalid"
-        latest_valid_stage="run_artifacts_ready"
         blocked_reason="invalid AI review artifact (${ai_review_validation_code:-unknown})"
         next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
       else
@@ -1034,6 +1243,8 @@ summarize_workflow_resume() {
   fi
   if [[ "$stage" == "blocked_non_converging_rerun" ]]; then
     printf 'Manual finish: inspect workspace-only changes, finish the story manually, commit the result to HEAD, then continue review on committed HEAD without rerunning automation/scripts/run_story.sh\n'
+  elif [[ "$stage" == "blocked_manual_finish_final_head_unproven" ]]; then
+    printf 'Manual finish evidence pending: update the pinned review artifacts so they prove final-HEAD compliance for the committed manual-finish continuation before continuing review\n'
   elif [[ "$stage" == "manual_finish_ready_for_review" ]]; then
     printf 'Manual finish complete: committed HEAD moved past the run manifest after a non-converging rerun; continue review on the committed HEAD using the pinned run artifacts\n'
   fi
@@ -1053,6 +1264,7 @@ final_status_line() {
   local head_status expected_head current_head
   local ai_review_validation_state ai_review_validation_status ai_review_validation_code ai_review_validation_reason
   local previous_non_converging_run_dir reviewed_head checkout_head manual_finish_continuation_allowed
+  local head_contract_state head_contract_code final_head_fidelity_state final_head_fidelity_status final_head_fidelity_code final_head_fidelity_reason
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -1072,8 +1284,16 @@ final_status_line() {
   reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
   checkout_head="$(current_checkout_head)"
   manual_finish_continuation_allowed="false"
-  if strict_manual_finish_continuation_allowed "$STORY_RUNS_ROOT" "$run_dir" "$reviewed_head" "$checkout_head"; then
+  head_contract_state="$(resolve_review_head_contract "$STORY_RUNS_ROOT" "$run_dir" "$manifest_file")"
+  IFS=$'\x1f' read -r _ head_contract_code _ _ _ _ <<<"$head_contract_state"
+  if [[ "$head_contract_code" == "manual_finish_continuation_valid" ]]; then
     manual_finish_continuation_allowed="true"
+    final_head_fidelity_state="$(review_artifact_fidelity_status "$run_dir" "$manifest_file")"
+    IFS=$'\t' read -r final_head_fidelity_status final_head_fidelity_code final_head_fidelity_reason <<<"$final_head_fidelity_state"
+  else
+    final_head_fidelity_status=""
+    final_head_fidelity_code=""
+    final_head_fidelity_reason=""
   fi
 
   if [[ -n "$previous_non_converging_run_dir" && "$head_status" == mismatch:* && "$manual_finish_continuation_allowed" != "true" ]]; then
@@ -1099,15 +1319,42 @@ final_status_line() {
   fi
 
   if [[ "$gate_decision" == "approve" && "$gate_status" == "passed" ]]; then
-    if [[ "$head_status" == "unknown:manifest_head_missing" ]]; then
-      printf 'RUN STATUS: BLOCKED (cannot verify run evidence: manifest source-of-truth HEAD missing)\n'
-    elif [[ "$head_status" == unknown:current_head_unavailable:* ]]; then
-      printf 'RUN STATUS: BLOCKED (cannot verify run evidence: checkout HEAD unavailable)\n'
-    elif working_tree_is_clean; then
-      printf 'RUN STATUS: READY FOR MERGE REVIEW (gate approve)\n'
-    else
-      printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
-    fi
+    case "$head_contract_code" in
+      review_head_missing)
+        printf 'RUN STATUS: BLOCKED (cannot verify run evidence: manifest source-of-truth HEAD missing)\n'
+        ;;
+      checkout_head_unavailable)
+        printf 'RUN STATUS: BLOCKED (cannot verify run evidence: checkout HEAD unavailable)\n'
+        ;;
+      review_head_match)
+        if working_tree_is_clean; then
+          printf 'RUN STATUS: READY FOR MERGE REVIEW (gate approve)\n'
+        else
+          printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
+        fi
+        ;;
+      manual_finish_continuation_valid)
+        if [[ "$final_head_fidelity_status" == "ok" ]]; then
+          if working_tree_is_clean; then
+            printf 'RUN STATUS: READY FOR MERGE REVIEW (gate approve)\n'
+          else
+            printf 'RUN STATUS: BLOCKED (%s)\n' "$(dirty_tree_reason)"
+          fi
+        else
+          printf 'RUN STATUS: BLOCKED (manual-finish continuation allowed but final-HEAD compliance is not proven: %s [%s])\n' \
+            "$final_head_fidelity_reason" \
+            "$final_head_fidelity_code"
+        fi
+        ;;
+      review_head_mismatch)
+        printf 'RUN STATUS: BLOCKED (stale run evidence: manifest HEAD %s != current HEAD %s)\n' \
+          "$reviewed_head" \
+          "$checkout_head"
+        ;;
+      *)
+        printf 'RUN STATUS: BLOCKED (cannot verify run evidence: %s)\n' "$head_contract_code"
+        ;;
+    esac
     return 0
   fi
 
@@ -1201,6 +1448,13 @@ final_status_line() {
 
   if [[ -n "$previous_non_converging_run_dir" && "$manual_finish_continuation_allowed" != "true" ]]; then
     printf 'RUN STATUS: BLOCKED (non-converging rerun; manual finish required)\n'
+    return 0
+  fi
+
+  if [[ "$manual_finish_continuation_allowed" == "true" && "$final_head_fidelity_status" == "reject" ]]; then
+    printf 'RUN STATUS: BLOCKED (manual-finish continuation allowed but final-HEAD compliance is not proven: %s [%s])\n' \
+      "$final_head_fidelity_reason" \
+      "$final_head_fidelity_code"
     return 0
   fi
 
