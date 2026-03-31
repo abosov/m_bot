@@ -399,11 +399,6 @@ run_is_convergence_candidate() {
   [[ "$changed_files_detected" == "yes" ]] || return 1
   [[ "$materialization_status" == "applied" || "$materialization_status" == "not_needed" ]] || return 1
   run_has_nonempty_changed_files "$run_dir" || return 1
-
-  [[ ! -f "$run_dir/ai_review_result.md" ]] || return 1
-  [[ ! -f "$run_dir/review_classification.md" ]] || return 1
-  [[ ! -f "$run_dir/review_gate_result.json" ]] || return 1
-  [[ ! -f "$run_dir/escalation_result.json" ]] || return 1
 }
 
 changed_files_match() {
