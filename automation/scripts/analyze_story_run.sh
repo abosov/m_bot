@@ -974,6 +974,47 @@ run_story_command() {
   printf 'automation/scripts/run_story.sh %q\n' "$story_id"
 }
 
+print_stage_gate_guidance() {
+  local stage="$1"
+  local latest_valid_stage="$2"
+  local manual_finish_continuation_allowed="$3"
+
+  case "$stage" in
+    blocked_dirty_working_tree)
+      printf 'Review-stage: blocked; commit or discard workspace-only changes first because review/classify/gate operate on committed HEAD only\n'
+      printf 'Rerun gate: wait; review-stage stays blocked until commit/discard restores a clean committed HEAD\n'
+      return 0
+      ;;
+    blocked_non_converging_rerun)
+      printf 'Review-stage: blocked; manual finish must be committed before review-stage is allowed again\n'
+      printf 'Rerun gate: forbidden; manual-finish continuation is active until manual finish is complete\n'
+      return 0
+      ;;
+    blocked_manual_finish_final_head_unproven)
+      printf 'Review-stage: blocked; prove final-HEAD compliance for the committed manual-finish continuation before review-stage is allowed\n'
+      printf 'Rerun gate: forbidden; manual-finish continuation must proceed from committed HEAD without another rerun\n'
+      return 0
+      ;;
+    manual_finish_ready_for_review)
+      printf 'Review-stage: allowed on the committed manual-finish HEAD; the manual-finish continuation is the active review path\n'
+      printf 'Rerun gate: forbidden; continue review from the committed manual-finish HEAD without another rerun\n'
+      return 0
+      ;;
+  esac
+
+  case "$latest_valid_stage" in
+    run_artifacts_ready|ai_review_completed|classification_approved|review_gate_passed)
+      if [[ "$manual_finish_continuation_allowed" == "true" ]]; then
+        printf 'Review-stage: allowed on the committed manual-finish HEAD; the manual-finish continuation is the active review path\n'
+        printf 'Rerun gate: forbidden; continue review from the committed manual-finish HEAD without another rerun\n'
+      else
+        printf 'Review-stage: allowed; this committed-head rerun completed the required review sequence for the pinned run\n'
+        printf 'Rerun gate: no additional run_story rerun is needed before review/classify/gate on committed HEAD\n'
+      fi
+      ;;
+  esac
+}
+
 summarize_workflow_resume() {
   local story_id="$1"
   local run_dir="$2"
@@ -1241,6 +1282,7 @@ summarize_workflow_resume() {
   if [[ -n "$blocked_reason" ]]; then
     printf 'Blocked reason: %s\n' "$blocked_reason"
   fi
+  print_stage_gate_guidance "$stage" "$latest_valid_stage" "$manual_finish_continuation_allowed"
   if [[ "$stage" == "blocked_non_converging_rerun" ]]; then
     printf 'Manual finish: inspect workspace-only changes, finish the story manually, commit the result to HEAD, then continue review on committed HEAD without rerunning automation/scripts/run_story.sh\n'
   elif [[ "$stage" == "blocked_manual_finish_final_head_unproven" ]]; then

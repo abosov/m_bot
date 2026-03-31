@@ -71,7 +71,7 @@ The registry does **not** replace story bundles.
 - P1 rerun-convergence / manual-finish boundary was closed by US-AUTO-47 and tightened by US-AUTO-52.
 - P1 committed-HEAD review evidence fidelity was closed by US-AUTO-53 and US-AUTO-54.
 - P1 final-HEAD manual-finish review compliance gap was closed by US-AUTO-55.
-- The next active workflow gap is **operator-facing stage guidance**, tracked in US-AUTO-56.
+- The operator-facing stage guidance gap was closed by US-AUTO-56.
 - Remaining work after US-AUTO-56 is no longer about missing fail-closed boundary contracts; it is about **cycle-cost reduction, observability, better decision gates, safer reuse, and stronger pre-code discipline**.
 
 ### Strategic Directions After US-AUTO-56
@@ -100,7 +100,7 @@ The registry does **not** replace story bundles.
 - P1 committed-HEAD diff.patch review fidelity (completed): US-AUTO-53
 - P1 rerun-artifact review diff fidelity (completed): US-AUTO-54
 - P1 final-HEAD manual-finish review compliance (completed): US-AUTO-55
-- P1 post-run stage-gate guidance: US-AUTO-56
+- P1 post-run stage-gate guidance (completed): US-AUTO-56
 - P1 rerun cost and cycle control after US-AUTO-56:
   - US-AUTO-57 — preflight rerun-skip detection
   - US-AUTO-31 — mandatory analyze gate before rerun or next phase
@@ -154,22 +154,21 @@ The registry does **not** replace story bundles.
 - US-AUTO-31 remains the same ID but is re-scoped from “post-run checkpoint workflow” to **mandatory analyze gate before rerun or next phase**
 
 ### Next Recommended Story
-1. US-AUTO-56 — post-run stage-gate guidance for review eligibility and manual-finish continuation
-2. US-AUTO-57 — preflight rerun-skip detection
-3. US-AUTO-31 — mandatory analyze gate before rerun or next phase
-4. US-AUTO-58 — stage-loop cap and forced escalation threshold
-5. US-AUTO-61 — workflow telemetry registry for run stages, blockers, manual interventions, and timings
-6. US-AUTO-62 — manual workflow event logging and automation-opportunity tagging
-7. US-AUTO-63 — periodic workflow analytics and optimization reporting
-8. US-AUTO-60 — lightweight review-evidence refresh without full rerun
-9. US-AUTO-30 — safe review-artifact reuse eligibility
-10. US-AUTO-29 — deterministic story-scoped verification strategy
-11. US-AUTO-64 — fact-only research artifact for story execution
-12. US-AUTO-68 — structured failure packet for follow-up and retry decisions
-13. US-AUTO-67 — intent restatement and plan acknowledgement before code edits
-14. US-AUTO-65 — explicit design-complete gate before implementation run
-15. US-AUTO-66 — phase-scoped implementation runs for multi-step stories
-16. US-AUTO-59 — failure-summary and operator decision UX
+1. US-AUTO-57 — preflight rerun-skip detection
+2. US-AUTO-31 — mandatory analyze gate before rerun or next phase
+3. US-AUTO-58 — stage-loop cap and forced escalation threshold
+4. US-AUTO-61 — workflow telemetry registry for run stages, blockers, manual interventions, and timings
+5. US-AUTO-62 — manual workflow event logging and automation-opportunity tagging
+6. US-AUTO-63 — periodic workflow analytics and optimization reporting
+7. US-AUTO-60 — lightweight review-evidence refresh without full rerun
+8. US-AUTO-30 — safe review-artifact reuse eligibility
+9. US-AUTO-29 — deterministic story-scoped verification strategy
+10. US-AUTO-64 — fact-only research artifact for story execution
+11. US-AUTO-68 — structured failure packet for follow-up and retry decisions
+12. US-AUTO-67 — intent restatement and plan acknowledgement before code edits
+13. US-AUTO-65 — explicit design-complete gate before implementation run
+14. US-AUTO-66 — phase-scoped implementation runs for multi-step stories
+15. US-AUTO-59 — failure-summary and operator decision UX
 
 ---
 
@@ -212,7 +211,7 @@ The registry does **not** replace story bundles.
 | US-AUTO-53 | Committed-HEAD diff.patch review fidelity | Make downstream review compare the exact committed implementation diff represented by the pinned run | follow-up | Implemented | P1 | None | US-AUTO-28-F1 | automation/bundle_packs/US-AUTO-53.bundle.md | Stable committed-head diff fidelity |
 | US-AUTO-54 | Committed-HEAD review diff fidelity for US-AUTO-28-F1 rerun artifacts | Restore deterministic gate fidelity for the reproduced rerun path | follow-up | Implemented | P1 | None | US-AUTO-28-F1 | automation/bundle_packs/US-AUTO-54.bundle.md | Remaining final-HEAD/manual-finish compliance gap was closed by US-AUTO-55 |
 | US-AUTO-55 | Manual-finish final-HEAD review compliance after allowed non-converging rerun continuation | Make exact allowed manual-finish continuation reach downstream review/gate with deterministic final-HEAD compliance | follow-up | Implemented | P1 | None | US-AUTO-54 | automation/bundles/active/US-AUTO-55/ | Final validation succeeded on exact continuation path; transient external Codex 403 treated as infra noise |
-| US-AUTO-56 | Post-run stage-gate guidance for review eligibility and manual-finish continuation | Explicitly tell the operator whether review-stage is allowed, whether commit/discard is required, and whether manual-finish continuation forbids rerun | follow-up | Planned | P1 | Draft bundle | US-AUTO-55 | N/A | Scope limited to stage-gate messaging and review-eligibility guidance only |
+| US-AUTO-56 | Post-run stage-gate guidance for review eligibility and manual-finish continuation | Explicitly tell the operator whether review-stage is allowed, whether commit/discard is required, and whether manual-finish continuation forbids rerun | follow-up | Implemented | P1 | None | US-AUTO-55 | automation/bundle_packs/US-AUTO-56.bundle.md | Scope remained limited to deterministic stage-gate messaging and review-eligibility guidance only |
 
 | US-AUTO-57 | Preflight rerun-skip detection | Stop before a full Codex rerun when the next rerun would not change the effective review surface | enforcement | Planned | P1 | Draft bundle | US-AUTO-26 | N/A | Concrete replacement for old budget-guard idea |
 | US-AUTO-58 | Stage-loop cap and forced escalation threshold | Detect repeated stage cycling without meaningful progress and force explicit escalation/manual decision | enforcement | Planned | P1 | Draft bundle | US-AUTO-27 | N/A | Concrete replacement for old pipeline-zone framing |
