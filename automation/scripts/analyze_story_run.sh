@@ -1008,8 +1008,8 @@ print_stage_gate_guidance() {
         printf 'Review-stage: allowed on the committed manual-finish HEAD\n'
         printf 'Rerun gate: forbidden; continue review from the committed manual-finish HEAD\n'
       else
-        printf 'Review-stage: allowed on committed HEAD\n'
-        printf 'Rerun gate: review can continue without another run_story rerun\n'
+        printf 'Review-stage: allowed on this committed-head rerun\n'
+        printf 'Rerun gate: no additional run_story rerun is needed before review/classify/gate\n'
       fi
       ;;
   esac

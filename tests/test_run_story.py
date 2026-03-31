@@ -465,6 +465,9 @@ def test_run_story_blocks_non_converging_rerun_and_routes_to_manual_finish(tmp_p
 
     assert result.returncode != 0
     assert "latest committed-head rerun did not converge" in result.stderr
+    assert "Stage gate:" in result.stderr
+    assert "Review-stage: blocked until manual finish is committed on HEAD." in result.stderr
+    assert "Rerun gate: forbidden until manual finish is complete." in result.stderr
     assert "Manual finish required:" in result.stderr
     assert "Inspect pinned evidence:" in result.stderr
     assert "Do not rerun automation/scripts/run_story.sh again until manual finish is complete." in result.stderr

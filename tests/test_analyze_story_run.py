@@ -205,6 +205,8 @@ def test_analyze_story_run_blocks_merge_ready_status_when_gate_approved_but_work
     result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
 
     assert result.returncode == 0, result.stderr
+    assert "Review-stage: blocked; commit or discard workspace-only changes first" in result.stdout
+    assert "Rerun gate: wait; review/classify/gate stay blocked until the dirty state is resolved" in result.stdout
     assert "Gate: present (approve/passed via review_classification)" in result.stdout
     assert "RUN STATUS: READY FOR MERGE REVIEW" not in result.stdout
     assert (
@@ -1885,6 +1887,8 @@ def test_analyze_story_run_reports_non_converging_rerun_manual_finish_boundary(t
     assert "Latest valid stage: run_artifacts_ready" in result.stdout
     assert "Resume safety: blocked" in result.stdout
     assert "Next recommended command: none" in result.stdout
+    assert "Review-stage: blocked; manual finish must be committed before review continues" in result.stdout
+    assert "Rerun gate: forbidden until manual finish is complete" in result.stdout
     assert "manual finish required" in result.stdout
     assert "Manual finish: inspect workspace-only changes" in result.stdout
     assert "RUN STATUS: BLOCKED (non-converging rerun; manual finish required)" in result.stdout
@@ -2391,6 +2395,8 @@ def test_analyze_story_run_marks_gate_approved_manual_finish_continuation_ready_
     assert "Current stage: review_gate_passed" in result.stdout
     assert "Latest valid stage: review_gate_passed" in result.stdout
     assert "Resume safety: safe" in result.stdout
+    assert "Review-stage: allowed on the committed manual-finish HEAD" in result.stdout
+    assert "Rerun gate: forbidden; continue review from the committed manual-finish HEAD" in result.stdout
     assert (
         f"Evidence HEAD Consistency: manual-finish continuation (manifest {second_head} -> final reviewed HEAD {third_head})"
         in result.stdout
@@ -2398,3 +2404,54 @@ def test_analyze_story_run_marks_gate_approved_manual_finish_continuation_ready_
     assert "RUN STATUS: READY FOR MERGE REVIEW (gate approve)" in result.stdout
     assert "RUN STATUS: BLOCKED (stale run evidence:" not in result.stdout
     assert "manual-finish continuation allowed but final-HEAD compliance is not proven" not in result.stdout
+
+
+def test_analyze_story_run_reports_review_stage_allowed_only_on_committed_head_rerun(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    starting_head = current_head(root_dir)
+    run_dir = make_run_dir(root_dir, "US-AUTO-56", "2026-03-31_10-00-00")
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- branch: feature/us-auto-56\n"
+        f"- starting_head: {starting_head}\n"
+        "- review_base_ref: origin/main\n"
+        "- materialization_status: applied\n"
+        "- codex_exit_code: 0\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "automation/scripts/analyze_story_run.sh\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-56", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Current stage: classification_approved" in result.stdout
+    assert "Latest valid stage: classification_approved" in result.stdout
+    assert "Review-stage: allowed on this committed-head rerun" in result.stdout
+    assert "Rerun gate: no additional run_story rerun is needed before review/classify/gate" in result.stdout
+    assert "RUN STATUS: READY TO RUN GATE (pinned artifacts ready; classification approve)" in result.stdout
