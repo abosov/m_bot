@@ -70,12 +70,24 @@ The registry does **not** replace story bundles.
 - P4 operator UX: US-AUTO-18
 - Future workflow simplification: make bundle pack the single source of truth and treat bundles/active as materialized-only output
 
+
+### Future Optimization (Non-Urgent)
+- The pipeline is intentionally fail-closed and preserves strict committed-HEAD and review-artifact fidelity boundaries.
+- This strictness is correct, but it increases operator cost through extra reruns, longer turnaround time, and higher token usage when the workflow discovers non-convergence late.
+- Non-urgent future goal: introduce early rerun-skip detection (preflight convergence check) so the workflow can stop before a full Codex rerun when the next rerun would not change the effective review surface.
+- Non-urgent future goal: explore lightweight artifact refresh for committed-HEAD alignment cases where review fidelity can be restored without a full Codex execution.
+- Non-urgent future goal: improve operator UX messaging for manual-finish continuation paths so the workflow makes it explicit when rerun is prohibited and manual finish is required.
+
+
 ### Confirmed Workflow Observation
 - Repeated rerun after committed-HEAD handoff may fail to converge to a fixed point for some stories, materializing fresh workspace-only changes and making the review pipeline unreachable without manual finish. Track this as future operator UX / anti-cycle follow-up work, not as part of US-AUTO-42.
 - US-AUTO-43 reproduced this non-converging pattern: after committed-head rerun, fresh workspace-only changes were materialized again, preventing pinned ai_review/classify/gate from completing; this establishes a confirmed need for a convergence or manual-finish contract in the workflow.
 - First run of `US-AUTO-28-F1` confirmed an orchestration blocker: scope validation evaluated a diff that included already-committed bundle artifacts for the active story (`automation/bundle_packs/US-AUTO-28-F1.bundle.md` and `automation/bundles/active/US-AUTO-28-F1/*`). As a result, the run was blocked before the review stage even though Codex produced valid in-scope implementation changes (`automation/scripts/run_story.sh`, `tests/test_run_story.py`). This indicates that the current scope validation uses a branch-level diff instead of isolating Codex-produced changes. Treat this as a separate workflow/scope-baseline follow-up, not as part of `US-AUTO-28-F1`.
 - `US-AUTO-49` was implemented and merged to `main`, and its downstream AI review-output blocker was addressed by `US-AUTO-50`. The remaining `US-AUTO-50` review rejection is accepted as a governance/review outcome, not a pipeline integrity defect.
 - `US-AUTO-54` corrected the rerun-artifact diff fidelity issue so the review pipeline no longer failed at `review_diff_patch_mismatch` for the reproduced `US-AUTO-28-F1` path. The remaining blocker is a downstream workflow/compliance mismatch: after an allowed manual-finish continuation from `blocked_non_converging_rerun`, AI review and review classification still reject because the pinned run artifacts remain tied to the pre-manual-finish committed HEAD while the final branch tip has advanced. Treat this as a separate final-HEAD/manual-finish review compliance follow-up, not as an implementation defect in `US-AUTO-54`.
+- After any implementation commit, the ordinary review path must use a fresh committed-head rerun before `ai_review_story_run.sh`, `classify_review_story_run.sh`, or `review_gate_story_run.sh` consume run artifacts. Direct `run -> commit -> review` is invalid because it risks stale run evidence even when the implementation diff appears unchanged.
+- The only allowed exception is the explicit manual-finish continuation path after `blocked_non_converging_rerun`. In that mode, do not rerun again until manual finish is complete; continue only through the exact continuation flow tied to the pinned run evidence.
+
 
 
 ### Next Recommended Story
@@ -145,3 +157,6 @@ The registry does **not** replace story bundles.
 - Always update after change
 - Prefer conservative status
 - Never guess — document uncertainty
+- After any implementation commit, ordinary review must proceed only from a fresh committed-head rerun unless the workflow has explicitly entered manual-finish continuation after `blocked_non_converging_rerun`.
+- Never treat `run -> commit -> review` as a valid normal path.
+- When manual-finish continuation is active, do not rerun again until manual finish is complete.
