@@ -93,8 +93,8 @@ The registry does **not** replace story bundles.
 
 
 ### Next Recommended Story
-1. US-AUTO-56 — post-run stage-gate guidance for review eligibility and manual-finish continuation
-2. US-AUTO-55 — manual-finish final-HEAD review compliance after allowed non-converging rerun continuation
+1. US-AUTO-55 — manual-finish final-HEAD review compliance after allowed non-converging rerun continuation
+2. US-AUTO-56 — post-run stage-gate guidance for review eligibility and manual-finish continuation
 3. US-AUTO-26 — expensive run budget guard
 4. US-AUTO-27 — pipeline zone cap
 5. US-AUTO-29 — targeted test strategy
