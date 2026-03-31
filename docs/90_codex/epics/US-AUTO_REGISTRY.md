@@ -154,22 +154,21 @@ The registry does **not** replace story bundles.
 - US-AUTO-31 remains the same ID but is re-scoped from “post-run checkpoint workflow” to **mandatory analyze gate before rerun or next phase**
 
 ### Next Recommended Story
-1. US-AUTO-56 — post-run stage-gate guidance for review eligibility and manual-finish continuation
-2. US-AUTO-57 — preflight rerun-skip detection
-3. US-AUTO-31 — mandatory analyze gate before rerun or next phase
-4. US-AUTO-58 — stage-loop cap and forced escalation threshold
-5. US-AUTO-61 — workflow telemetry registry for run stages, blockers, manual interventions, and timings
-6. US-AUTO-62 — manual workflow event logging and automation-opportunity tagging
-7. US-AUTO-63 — periodic workflow analytics and optimization reporting
-8. US-AUTO-60 — lightweight review-evidence refresh without full rerun
-9. US-AUTO-30 — safe review-artifact reuse eligibility
-10. US-AUTO-29 — deterministic story-scoped verification strategy
-11. US-AUTO-64 — fact-only research artifact for story execution
-12. US-AUTO-68 — structured failure packet for follow-up and retry decisions
-13. US-AUTO-67 — intent restatement and plan acknowledgement before code edits
-14. US-AUTO-65 — explicit design-complete gate before implementation run
-15. US-AUTO-66 — phase-scoped implementation runs for multi-step stories
-16. US-AUTO-59 — failure-summary and operator decision UX
+1. US-AUTO-57 — preflight rerun-skip detection
+2. US-AUTO-31 — mandatory analyze gate before rerun or next phase
+3. US-AUTO-58 — stage-loop cap and forced escalation threshold
+4. US-AUTO-61 — workflow telemetry registry for run stages, blockers, manual interventions, and timings
+5. US-AUTO-62 — manual workflow event logging and automation-opportunity tagging
+6. US-AUTO-63 — periodic workflow analytics and optimization reporting
+7. US-AUTO-60 — lightweight review-evidence refresh without full rerun
+8. US-AUTO-30 — safe review-artifact reuse eligibility
+9. US-AUTO-29 — deterministic story-scoped verification strategy
+10. US-AUTO-64 — fact-only research artifact for story execution
+11. US-AUTO-68 — structured failure packet for follow-up and retry decisions
+12. US-AUTO-67 — intent restatement and plan acknowledgement before code edits
+13. US-AUTO-65 — explicit design-complete gate before implementation run
+14. US-AUTO-66 — phase-scoped implementation runs for multi-step stories
+15. US-AUTO-59 — failure-summary and operator decision UX
 
 ---
 

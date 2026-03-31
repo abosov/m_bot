@@ -207,6 +207,9 @@ def test_run_story_blocks_dirty_story_artifacts_with_commit_hint(tmp_path: Path)
     assert result.returncode != 0
     assert f"[INFO] Preflight: classifying dirty paths for {story_id}" in result.stderr
     assert f"ERROR: preflight blocked for '{story_id}' because requested story artifacts are dirty:" in result.stderr
+    assert "Stage gate:" in result.stderr
+    assert "Review-stage: blocked until those story-artifact changes are committed or discarded." in result.stderr
+    assert "Rerun gate: blocked until commit/discard resolves the dirty state." in result.stderr
     assert "Operator handoff:" in result.stderr
     assert "Review the requested story artifact changes." in result.stderr
     assert f"Run: automation/scripts/commit_story_artifacts.sh {story_id}" in result.stderr
@@ -240,6 +243,9 @@ def test_run_story_blocks_dirty_pack_artifact_with_commit_hint(tmp_path: Path) -
     assert result.returncode != 0
     assert f"[INFO] Preflight: classifying dirty paths for {story_id}" in result.stderr
     assert f"ERROR: preflight blocked for '{story_id}' because requested story artifacts are dirty:" in result.stderr
+    assert "Stage gate:" in result.stderr
+    assert "Review-stage: blocked until those story-artifact changes are committed or discarded." in result.stderr
+    assert "Rerun gate: blocked until commit/discard resolves the dirty state." in result.stderr
     assert "Operator handoff:" in result.stderr
     assert f"Run: automation/scripts/commit_story_artifacts.sh {story_id}" in result.stderr
     assert f"Rerun: automation/scripts/run_story.sh {story_id}" in result.stderr
@@ -466,8 +472,11 @@ def test_run_story_blocks_non_converging_rerun_and_routes_to_manual_finish(tmp_p
     assert result.returncode != 0
     assert "latest committed-head rerun did not converge" in result.stderr
     assert "Stage gate:" in result.stderr
-    assert "Review-stage: blocked until manual finish is committed on HEAD." in result.stderr
-    assert "Rerun gate: forbidden until manual finish is complete." in result.stderr
+    assert (
+        "Review-stage: blocked until manual finish is committed on HEAD and the manual-finish "
+        "continuation becomes the new review surface."
+    ) in result.stderr
+    assert "Rerun gate: forbidden; manual-finish continuation is active until manual finish is complete." in result.stderr
     assert "Manual finish required:" in result.stderr
     assert "Inspect pinned evidence:" in result.stderr
     assert "Do not rerun automation/scripts/run_story.sh again until manual finish is complete." in result.stderr

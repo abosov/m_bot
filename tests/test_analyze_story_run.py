@@ -205,8 +205,11 @@ def test_analyze_story_run_blocks_merge_ready_status_when_gate_approved_but_work
     result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
 
     assert result.returncode == 0, result.stderr
-    assert "Review-stage: blocked; commit or discard workspace-only changes first" in result.stdout
-    assert "Rerun gate: wait; review/classify/gate stay blocked until the dirty state is resolved" in result.stdout
+    assert (
+        "Review-stage: blocked; commit or discard workspace-only changes first because "
+        "review/classify/gate operate on committed HEAD only"
+    ) in result.stdout
+    assert "Rerun gate: wait; review-stage stays blocked until commit/discard restores a clean committed HEAD" in result.stdout
     assert "Gate: present (approve/passed via review_classification)" in result.stdout
     assert "RUN STATUS: READY FOR MERGE REVIEW" not in result.stdout
     assert (
@@ -1887,8 +1890,8 @@ def test_analyze_story_run_reports_non_converging_rerun_manual_finish_boundary(t
     assert "Latest valid stage: run_artifacts_ready" in result.stdout
     assert "Resume safety: blocked" in result.stdout
     assert "Next recommended command: none" in result.stdout
-    assert "Review-stage: blocked; manual finish must be committed before review continues" in result.stdout
-    assert "Rerun gate: forbidden until manual finish is complete" in result.stdout
+    assert "Review-stage: blocked; manual finish must be committed before review-stage is allowed again" in result.stdout
+    assert "Rerun gate: forbidden; manual-finish continuation is active until manual finish is complete" in result.stdout
     assert "manual finish required" in result.stdout
     assert "Manual finish: inspect workspace-only changes" in result.stdout
     assert "RUN STATUS: BLOCKED (non-converging rerun; manual finish required)" in result.stdout
@@ -2395,8 +2398,11 @@ def test_analyze_story_run_marks_gate_approved_manual_finish_continuation_ready_
     assert "Current stage: review_gate_passed" in result.stdout
     assert "Latest valid stage: review_gate_passed" in result.stdout
     assert "Resume safety: safe" in result.stdout
-    assert "Review-stage: allowed on the committed manual-finish HEAD" in result.stdout
-    assert "Rerun gate: forbidden; continue review from the committed manual-finish HEAD" in result.stdout
+    assert (
+        "Review-stage: allowed on the committed manual-finish HEAD; the manual-finish continuation "
+        "is the active review path"
+    ) in result.stdout
+    assert "Rerun gate: forbidden; continue review from the committed manual-finish HEAD without another rerun" in result.stdout
     assert (
         f"Evidence HEAD Consistency: manual-finish continuation (manifest {second_head} -> final reviewed HEAD {third_head})"
         in result.stdout
@@ -2452,6 +2458,6 @@ def test_analyze_story_run_reports_review_stage_allowed_only_on_committed_head_r
     assert result.returncode == 0, result.stderr
     assert "Current stage: classification_approved" in result.stdout
     assert "Latest valid stage: classification_approved" in result.stdout
-    assert "Review-stage: allowed on this committed-head rerun" in result.stdout
-    assert "Rerun gate: no additional run_story rerun is needed before review/classify/gate" in result.stdout
+    assert "Review-stage: allowed; this committed-head rerun completed the required review sequence for the pinned run" in result.stdout
+    assert "Rerun gate: no additional run_story rerun is needed before review/classify/gate on committed HEAD" in result.stdout
     assert "RUN STATUS: READY TO RUN GATE (pinned artifacts ready; classification approve)" in result.stdout

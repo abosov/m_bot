@@ -981,23 +981,23 @@ print_stage_gate_guidance() {
 
   case "$stage" in
     blocked_dirty_working_tree)
-      printf 'Review-stage: blocked; commit or discard workspace-only changes first\n'
-      printf 'Rerun gate: wait; review/classify/gate stay blocked until the dirty state is resolved\n'
+      printf 'Review-stage: blocked; commit or discard workspace-only changes first because review/classify/gate operate on committed HEAD only\n'
+      printf 'Rerun gate: wait; review-stage stays blocked until commit/discard restores a clean committed HEAD\n'
       return 0
       ;;
     blocked_non_converging_rerun)
-      printf 'Review-stage: blocked; manual finish must be committed before review continues\n'
-      printf 'Rerun gate: forbidden until manual finish is complete\n'
+      printf 'Review-stage: blocked; manual finish must be committed before review-stage is allowed again\n'
+      printf 'Rerun gate: forbidden; manual-finish continuation is active until manual finish is complete\n'
       return 0
       ;;
     blocked_manual_finish_final_head_unproven)
-      printf 'Review-stage: blocked; prove final-HEAD compliance for the committed manual-finish continuation first\n'
-      printf 'Rerun gate: forbidden during manual-finish continuation; continue from committed HEAD\n'
+      printf 'Review-stage: blocked; prove final-HEAD compliance for the committed manual-finish continuation before review-stage is allowed\n'
+      printf 'Rerun gate: forbidden; manual-finish continuation must proceed from committed HEAD without another rerun\n'
       return 0
       ;;
     manual_finish_ready_for_review)
-      printf 'Review-stage: allowed on the committed manual-finish HEAD\n'
-      printf 'Rerun gate: forbidden; continue review from the committed manual-finish HEAD\n'
+      printf 'Review-stage: allowed on the committed manual-finish HEAD; the manual-finish continuation is the active review path\n'
+      printf 'Rerun gate: forbidden; continue review from the committed manual-finish HEAD without another rerun\n'
       return 0
       ;;
   esac
@@ -1005,11 +1005,11 @@ print_stage_gate_guidance() {
   case "$latest_valid_stage" in
     run_artifacts_ready|ai_review_completed|classification_approved|review_gate_passed)
       if [[ "$manual_finish_continuation_allowed" == "true" ]]; then
-        printf 'Review-stage: allowed on the committed manual-finish HEAD\n'
-        printf 'Rerun gate: forbidden; continue review from the committed manual-finish HEAD\n'
+        printf 'Review-stage: allowed on the committed manual-finish HEAD; the manual-finish continuation is the active review path\n'
+        printf 'Rerun gate: forbidden; continue review from the committed manual-finish HEAD without another rerun\n'
       else
-        printf 'Review-stage: allowed on this committed-head rerun\n'
-        printf 'Rerun gate: no additional run_story rerun is needed before review/classify/gate\n'
+        printf 'Review-stage: allowed; this committed-head rerun completed the required review sequence for the pinned run\n'
+        printf 'Rerun gate: no additional run_story rerun is needed before review/classify/gate on committed HEAD\n'
       fi
       ;;
   esac
