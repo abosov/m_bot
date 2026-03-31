@@ -2110,9 +2110,14 @@ def test_analyze_story_run_allows_exact_manual_finish_continuation_for_non_conve
     result = run_script(root_dir, "US-AUTO-47", run_dir=run_dir)
 
     assert result.returncode == 0, result.stderr
-    assert "Current stage: run_artifacts_ready" in result.stdout
-    assert "Latest valid stage: run_artifacts_ready" in result.stdout
+    assert "Current stage: manual_finish_ready_for_review" in result.stdout
+    assert "Latest valid stage: manual_finish_ready_for_review" in result.stdout
     assert "Resume safety: safe" in result.stdout
+    assert (
+        f"Evidence HEAD Consistency: manual-finish continuation (manifest {second_head} -> final reviewed HEAD {third_head})"
+        in result.stdout
+    )
+    assert "Manual finish complete: committed HEAD moved past the run manifest" in result.stdout
     assert "RUN STATUS: INCOMPLETE (review artifacts not generated yet)" in result.stdout
     assert "RUN STATUS: BLOCKED (stale run evidence:" not in result.stdout
     assert third_head in result.stdout

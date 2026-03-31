@@ -674,6 +674,46 @@ strict_manual_finish_continuation_allowed() {
   [[ "$parent_head" == "$reviewed_head" ]]
 }
 
+resolve_review_head_contract() {
+  local story_runs_root="$1"
+  local current_run_dir="$2"
+  local manifest_file="$3"
+  local manifest_reviewed_head checkout_head
+
+  manifest_reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
+  if [[ -z "$manifest_reviewed_head" ]]; then
+    printf 'reject\x1freview_head_missing\x1fRun manifest is missing the reviewed HEAD contract\x1f\x1f\x1fpinned_run_manifest\n'
+    return 0
+  fi
+
+  checkout_head="$(current_checkout_head)"
+  if [[ -z "$checkout_head" ]]; then
+    printf 'reject\x1fcheckout_head_unavailable\x1fCurrent checkout HEAD is unavailable for reviewed HEAD %s\x1f\x1f%s\x1fpinned_run_manifest\n' \
+      "$manifest_reviewed_head" \
+      "$manifest_reviewed_head"
+    return 0
+  fi
+
+  if head_matches_expected "$manifest_reviewed_head" "$checkout_head"; then
+    printf 'allow\x1freview_head_match\x1fvalidated\x1f%s\x1f%s\x1fcommitted_head_match\n' \
+      "$checkout_head" \
+      "$manifest_reviewed_head"
+    return 0
+  fi
+
+  if strict_manual_finish_continuation_allowed "$story_runs_root" "$current_run_dir" "$manifest_reviewed_head" "$checkout_head"; then
+    printf 'allow\x1fmanual_finish_continuation_valid\x1fvalidated\x1f%s\x1f%s\x1fmanual_finish_continuation\n' \
+      "$checkout_head" \
+      "$manifest_reviewed_head"
+    return 0
+  fi
+
+  printf 'reject\x1freview_head_mismatch\x1fReviewed HEAD %s does not match current checkout HEAD %s\x1f\x1f%s\x1fpinned_run_manifest\n' \
+    "$manifest_reviewed_head" \
+    "$checkout_head" \
+    "$manifest_reviewed_head"
+}
+
 find_previous_reject_stagnation_run() {
   local story_runs_root="$1"
   local current_run_dir="$2"
@@ -739,10 +779,12 @@ write_gate_result() {
   local classification_file="$6"
   local reviewed_head="$7"
   local checkout_head="$8"
-  local decision="$9"
-  local decision_source="${10}"
-  local status="${11}"
-  local reason="${12}"
+  local manifest_reviewed_head="$9"
+  local review_head_mode="${10}"
+  local decision="${11}"
+  local decision_source="${12}"
+  local status="${13}"
+  local reason="${14}"
   local tmp_file
 
   tmp_file="$(mktemp "${gate_result_file}.tmp.XXXXXX")"
@@ -756,6 +798,8 @@ write_gate_result() {
   "review_classification_result": "$(json_escape "$classification_file")",
   "reviewed_head": "$(json_escape "$reviewed_head")",
   "checkout_head": "$(json_escape "$checkout_head")",
+  "manifest_reviewed_head": "$(json_escape "$manifest_reviewed_head")",
+  "review_head_mode": "$(json_escape "$review_head_mode")",
   "decision": "$(json_escape "$decision")",
   "status": "$(json_escape "$status")",
   "decision_source": "$(json_escape "$decision_source")",
@@ -918,11 +962,24 @@ fi
 
 reviewed_head="$(manifest_source_of_truth_head "$MANIFEST_FILE")"
 checkout_head="$(current_checkout_head)"
+manifest_reviewed_head="$reviewed_head"
+review_head_mode="pinned_run_manifest"
 head_status="$(head_consistency_status "$MANIFEST_FILE")"
+head_contract_state="$(resolve_review_head_contract "$STORY_RUNS_ROOT" "$LATEST_RUN_DIR" "$MANIFEST_FILE")"
+IFS=$'\x1f' read -r head_contract_status head_contract_code head_contract_reason effective_reviewed_head contract_manifest_reviewed_head contract_review_head_mode <<< "$head_contract_state"
 manual_finish_continuation_allowed="false"
 
-if strict_manual_finish_continuation_allowed "$STORY_RUNS_ROOT" "$LATEST_RUN_DIR" "$reviewed_head" "$checkout_head"; then
+if [[ "$head_contract_code" == "manual_finish_continuation_valid" ]]; then
   manual_finish_continuation_allowed="true"
+fi
+if [[ -n "$effective_reviewed_head" ]]; then
+  reviewed_head="$effective_reviewed_head"
+fi
+if [[ -n "$contract_manifest_reviewed_head" ]]; then
+  manifest_reviewed_head="$contract_manifest_reviewed_head"
+fi
+if [[ -n "$contract_review_head_mode" ]]; then
+  review_head_mode="$contract_review_head_mode"
 fi
 
 case "$head_status" in
@@ -949,6 +1006,11 @@ case "$head_status" in
     ;;
 esac
 
+if [[ "$head_contract_status" == "reject" ]]; then
+  reason="$head_contract_reason"
+  decision_source="$head_contract_code"
+fi
+
 if [[ -n "$decision_source" ]]; then
   write_gate_result \
     "$GATE_RESULT_FILE" \
@@ -959,6 +1021,8 @@ if [[ -n "$decision_source" ]]; then
     "$CLASSIFICATION_FILE" \
     "$reviewed_head" \
     "$checkout_head" \
+    "$manifest_reviewed_head" \
+    "$review_head_mode" \
     "reject" \
     "$decision_source" \
     "failed" \
@@ -985,6 +1049,8 @@ if [[ "$fidelity_decision" == "reject" ]]; then
     "$CLASSIFICATION_FILE" \
     "$reviewed_head" \
     "$checkout_head" \
+    "$manifest_reviewed_head" \
+    "$review_head_mode" \
     "reject" \
     "$fidelity_source" \
     "failed" \
@@ -1014,6 +1080,8 @@ write_gate_result \
   "$CLASSIFICATION_FILE" \
   "$reviewed_head" \
   "$checkout_head" \
+  "$manifest_reviewed_head" \
+  "$review_head_mode" \
   "$decision" \
   "$decision_source" \
   "$status" \

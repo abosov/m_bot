@@ -481,6 +481,46 @@ strict_manual_finish_continuation_allowed() {
   [[ "$parent_head" == "$reviewed_head" ]]
 }
 
+resolve_review_head_contract() {
+  local story_runs_root="$1"
+  local run_dir="$2"
+  local manifest_file="$3"
+  local manifest_reviewed_head checkout_head
+
+  manifest_reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
+  if [[ -z "$manifest_reviewed_head" ]]; then
+    printf 'reject\x1freview_head_missing\x1fRun manifest is missing the reviewed HEAD contract\x1f\x1f\x1fpinned_run_manifest\n'
+    return 0
+  fi
+
+  checkout_head="$(current_checkout_head)"
+  if [[ -z "$checkout_head" ]]; then
+    printf 'reject\x1fcheckout_head_unavailable\x1fCurrent checkout HEAD is unavailable for reviewed HEAD %s\x1f\x1f%s\x1fpinned_run_manifest\n' \
+      "$manifest_reviewed_head" \
+      "$manifest_reviewed_head"
+    return 0
+  fi
+
+  if head_matches_expected "$manifest_reviewed_head" "$checkout_head"; then
+    printf 'allow\x1freview_head_match\x1fvalidated\x1f%s\x1f%s\x1fcommitted_head_match\n' \
+      "$checkout_head" \
+      "$manifest_reviewed_head"
+    return 0
+  fi
+
+  if strict_manual_finish_continuation_allowed "$story_runs_root" "$run_dir" "$manifest_reviewed_head" "$checkout_head"; then
+    printf 'allow\x1fmanual_finish_continuation_valid\x1fvalidated\x1f%s\x1f%s\x1fmanual_finish_continuation\n' \
+      "$checkout_head" \
+      "$manifest_reviewed_head"
+    return 0
+  fi
+
+  printf 'reject\x1freview_head_mismatch\x1fReviewed HEAD %s does not match current checkout HEAD %s\x1f\x1f%s\x1fpinned_run_manifest\n' \
+    "$manifest_reviewed_head" \
+    "$checkout_head" \
+    "$manifest_reviewed_head"
+}
+
 head_matches_expected() {
   local expected_head="$1"
   local current_head="$2"
@@ -523,8 +563,17 @@ head_consistency_status() {
 format_head_consistency_status() {
   local manifest_file="$1"
   local status expected_head current_head
+  local head_contract_state head_contract_code effective_reviewed_head manifest_reviewed_head
 
   status="$(head_consistency_status "$manifest_file")"
+  head_contract_state="$(resolve_review_head_contract "$STORY_RUNS_ROOT" "$RUN_DIR" "$manifest_file")"
+  IFS=$'\x1f' read -r _ head_contract_code _ effective_reviewed_head manifest_reviewed_head _ <<< "$head_contract_state"
+  if [[ "$head_contract_code" == "manual_finish_continuation_valid" ]]; then
+    printf 'manual-finish continuation (manifest %s -> final reviewed HEAD %s)\n' \
+      "$manifest_reviewed_head" \
+      "$effective_reviewed_head"
+    return 0
+  fi
   case "$status" in
     match:*)
       printf 'match (%s)\n' "${status#match:}"
@@ -798,6 +847,7 @@ summarize_workflow_resume() {
   local head_status expected_head current_head stage latest_valid_stage resume_safety blocked_reason next_command decision_source
   local ai_review_validation_state ai_review_validation_status ai_review_validation_code ai_review_validation_reason
   local previous_non_converging_run_dir reviewed_head checkout_head manual_finish_continuation_allowed
+  local head_contract_state head_contract_code
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -818,7 +868,9 @@ summarize_workflow_resume() {
   reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
   checkout_head="$(current_checkout_head)"
   manual_finish_continuation_allowed="false"
-  if strict_manual_finish_continuation_allowed "$STORY_RUNS_ROOT" "$run_dir" "$reviewed_head" "$checkout_head"; then
+  head_contract_state="$(resolve_review_head_contract "$STORY_RUNS_ROOT" "$run_dir" "$manifest_file")"
+  IFS=$'\x1f' read -r _ head_contract_code _ _ _ _ <<<"$head_contract_state"
+  if [[ "$head_contract_code" == "manual_finish_continuation_valid" ]]; then
     manual_finish_continuation_allowed="true"
   fi
 
@@ -883,16 +935,18 @@ summarize_workflow_resume() {
     stage="run_artifacts_ready"
     latest_valid_stage="run_artifacts_ready"
     next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
+    if [[ "$manual_finish_continuation_allowed" == "true" ]]; then
+      stage="manual_finish_ready_for_review"
+      latest_valid_stage="manual_finish_ready_for_review"
+    fi
 
     if [[ "$ai_review_validation_status" == "invalid" && "$ai_review_validation_code" == "ai_review_normalization_failed" ]]; then
       stage="blocked_ai_review_normalization_failed"
-      latest_valid_stage="run_artifacts_ready"
       blocked_reason="AI review normalization failed; inspect ai_review_raw_output.txt"
       next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
     elif [[ -f "$ai_review_file" ]]; then
       if [[ "$ai_review_validation_status" != "valid" ]]; then
         stage="blocked_ai_review_invalid"
-        latest_valid_stage="run_artifacts_ready"
         blocked_reason="invalid AI review artifact (${ai_review_validation_code:-unknown})"
         next_command="$(resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir")"
       else
@@ -1053,6 +1107,7 @@ final_status_line() {
   local head_status expected_head current_head
   local ai_review_validation_state ai_review_validation_status ai_review_validation_code ai_review_validation_reason
   local previous_non_converging_run_dir reviewed_head checkout_head manual_finish_continuation_allowed
+  local head_contract_state head_contract_code
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -1072,7 +1127,9 @@ final_status_line() {
   reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
   checkout_head="$(current_checkout_head)"
   manual_finish_continuation_allowed="false"
-  if strict_manual_finish_continuation_allowed "$STORY_RUNS_ROOT" "$run_dir" "$reviewed_head" "$checkout_head"; then
+  head_contract_state="$(resolve_review_head_contract "$STORY_RUNS_ROOT" "$run_dir" "$manifest_file")"
+  IFS=$'\x1f' read -r _ head_contract_code _ _ _ _ <<<"$head_contract_state"
+  if [[ "$head_contract_code" == "manual_finish_continuation_valid" ]]; then
     manual_finish_continuation_allowed="true"
   fi
 
