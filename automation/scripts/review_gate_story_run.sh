@@ -383,7 +383,7 @@ review_artifact_fidelity_status() {
   local manifest_file="$2"
   local diff_artifact changed_files_artifact
   local review_artifact_base
-  local expected_diff_file expected_changed_files_file artifact_changed_files_file
+  local expected_diff_file expected_changed_files_file artifact_changed_files_file normalized_artifact_diff_file
 
   diff_artifact="$run_dir/diff.patch"
   changed_files_artifact="$run_dir/changed_files.txt"
@@ -406,10 +406,11 @@ review_artifact_fidelity_status() {
   expected_diff_file="$(mktemp)"
   expected_changed_files_file="$(mktemp)"
   artifact_changed_files_file="$(mktemp)"
+  normalized_artifact_diff_file="$(mktemp)"
 
   if ! git -C "$ROOT_DIR" diff "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
       | filter_review_fidelity_diff "$STORY_ID" > "$expected_diff_file"; then
-    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
     printf 'reject\treview_diff_generation_failed\tunable to regenerate authoritative diff from review_artifact_base %s\n' "$review_artifact_base"
     return 0
   fi
@@ -419,27 +420,32 @@ review_artifact_fidelity_status() {
     | filter_review_fidelity_paths "$STORY_ID" "$expected_changed_files_file"
 
   if [[ $? -ne 0 ]]; then
-    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
     printf 'reject\treview_changed_files_generation_failed\tunable to regenerate authoritative changed_files from review_artifact_base %s\n' "$review_artifact_base"
     return 0
   fi
   
+  if ! filter_review_fidelity_diff "$STORY_ID" < "$diff_artifact" > "$normalized_artifact_diff_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
+    printf 'reject\treview_diff_artifact_invalid\treview artifact diff.patch could not be normalized for fidelity comparison; rerun automation/scripts/run_story.sh %s\n' "$STORY_ID"
+    return 0
+  fi
 
   sorted_changed_files_to "$STORY_ID" "$changed_files_artifact" "$artifact_changed_files_file"
 
   if ! cmp -s "$artifact_changed_files_file" "$expected_changed_files_file"; then
-    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
     printf 'reject\treview_changed_files_mismatch\treview artifact changed_files.txt is stale or inconsistent with current HEAD diff; rerun automation/scripts/run_story.sh %s\n' "$STORY_ID"
     return 0
   fi
 
-  if ! cmp -s "$diff_artifact" "$expected_diff_file"; then
-    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
+  if ! cmp -s "$normalized_artifact_diff_file" "$expected_diff_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
     printf 'reject\treview_diff_patch_mismatch\treview artifact diff.patch is stale or inconsistent with current HEAD diff; rerun automation/scripts/run_story.sh %s\n' "$STORY_ID"
     return 0
   fi
 
-  rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file"
+  rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
   printf 'ok\treview_artifact_fidelity_valid\tartifact fidelity verified against review_artifact_base %s\n' "$review_artifact_base"
 }
 

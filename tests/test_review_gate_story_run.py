@@ -907,6 +907,179 @@ def test_review_gate_story_run_rejects_true_diff_mismatch_for_prefix_adjacent_st
     assert '"decision_source": "review_diff_patch_mismatch"' in gate_result
 
 
+def test_review_gate_story_run_accepts_committed_rerun_diff_with_same_story_bundle_artifacts(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-28-F1"
+    run_dir = make_run_dir(root_dir, story_id, "2026-03-31_12-00-02-same-story-artifact")
+
+    review_artifact_base = current_head(root_dir)
+    bundle_file = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    bundle_file.parent.mkdir(parents=True, exist_ok=True)
+    bundle_file.write_text("# committed bundle artifact\n", encoding="utf-8")
+    active_story_file = root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md"
+    active_story_file.parent.mkdir(parents=True, exist_ok=True)
+    active_story_file.write_text("# committed active story scope\n", encoding="utf-8")
+    impl_file = root_dir / "services" / "story_loop.py"
+    impl_file.parent.mkdir(parents=True, exist_ok=True)
+    impl_file.write_text("def run_story_loop():\n    return 'ok'\n", encoding="utf-8")
+    subprocess.run(
+        [
+            "git",
+            "add",
+            f"automation/bundle_packs/{story_id}.bundle.md",
+            f"automation/bundles/active/{story_id}/02_file_scope.md",
+            "services/story_loop.py",
+        ],
+        check=True,
+        cwd=root_dir,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "committed rerun delta with same-story artifacts"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    committed_diff_patch = subprocess.run(
+        [
+            "git",
+            "diff",
+            review_artifact_base,
+            "--",
+            ".",
+            ":(exclude)automation/story_change_ledger.jsonl",
+        ],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    (run_dir / "review_bundle.md").write_text("review_bundle.md\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("chatgpt_review_prompt.md\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(committed_diff_patch, encoding="utf-8")
+    (run_dir / "changed_files.txt").write_text(
+        "\n".join(
+            [
+                f"automation/bundle_packs/{story_id}.bundle.md",
+                f"automation/bundles/active/{story_id}/02_file_scope.md",
+                "services/story_loop.py",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("pytest.txt\n", encoding="utf-8")
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        review_artifact_base=review_artifact_base,
+    )
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode == 0, result.stderr
+    assert "Final decision: approve" in result.stdout
+
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision": "approve"' in gate_result
+    assert '"decision_source": "review_classification"' in gate_result
+
+
+def test_review_gate_story_run_rejects_true_diff_mismatch_with_same_story_bundle_artifacts(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-28-F1"
+    run_dir = make_run_dir(root_dir, story_id, "2026-03-31_12-00-03-same-story-artifact-mismatch")
+
+    review_artifact_base = current_head(root_dir)
+    bundle_file = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    bundle_file.parent.mkdir(parents=True, exist_ok=True)
+    bundle_file.write_text("# committed bundle artifact\n", encoding="utf-8")
+    active_story_file = root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md"
+    active_story_file.parent.mkdir(parents=True, exist_ok=True)
+    active_story_file.write_text("# committed active story scope\n", encoding="utf-8")
+    impl_file = root_dir / "services" / "story_loop.py"
+    impl_file.parent.mkdir(parents=True, exist_ok=True)
+    impl_file.write_text("def run_story_loop():\n    return 'ok'\n", encoding="utf-8")
+    subprocess.run(
+        [
+            "git",
+            "add",
+            f"automation/bundle_packs/{story_id}.bundle.md",
+            f"automation/bundles/active/{story_id}/02_file_scope.md",
+            "services/story_loop.py",
+        ],
+        check=True,
+        cwd=root_dir,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "committed rerun delta with same-story artifacts"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    committed_diff_patch = subprocess.run(
+        [
+            "git",
+            "diff",
+            review_artifact_base,
+            "--",
+            ".",
+            ":(exclude)automation/story_change_ledger.jsonl",
+        ],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    (run_dir / "review_bundle.md").write_text("review_bundle.md\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("chatgpt_review_prompt.md\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(
+        committed_diff_patch.replace("return 'ok'", "return 'stale'"),
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "\n".join(
+            [
+                f"automation/bundle_packs/{story_id}.bundle.md",
+                f"automation/bundles/active/{story_id}/02_file_scope.md",
+                "services/story_loop.py",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("pytest.txt\n", encoding="utf-8")
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        review_artifact_base=review_artifact_base,
+    )
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    assert "diff.patch is stale or inconsistent" in result.stderr
+
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision": "reject"' in gate_result
+    assert '"decision_source": "review_diff_patch_mismatch"' in gate_result
+
+
 def test_review_gate_allows_exact_manual_finish_continuation(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     root_dir.mkdir(parents=True, exist_ok=True)
