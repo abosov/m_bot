@@ -250,6 +250,149 @@ head_matches_expected() {
   return 1
 }
 
+resolve_review_artifact_base() {
+  local manifest_file="$1"
+  local review_artifact_base
+
+  review_artifact_base="$(manifest_value "$manifest_file" "review_artifact_base")"
+  if [[ -z "$review_artifact_base" ]]; then
+    return 1
+  fi
+
+  git -C "$ROOT_DIR" rev-parse --verify "${review_artifact_base}^{commit}" 2>/dev/null || return 1
+}
+
+is_story_artifact_review_ignored_path() {
+  local story_id="$1"
+  local path="$2"
+
+  [[ "$path" == "automation/bundle_packs/$story_id.bundle.md" ]] && return 0
+  [[ "$path" == "automation/bundles/active/$story_id" ]] && return 0
+  [[ "$path" == automation/bundles/active/$story_id/* ]] && return 0
+
+  return 1
+}
+
+filter_review_fidelity_paths() {
+  local story_id="$1"
+  local output_file="$2"
+  local tmp
+
+  tmp="$(mktemp)"
+
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    if is_story_artifact_review_ignored_path "$story_id" "$path"; then
+      continue
+    fi
+    printf '%s\n' "$path"
+  done | LC_ALL=C sort -u > "$tmp"
+
+  mv "$tmp" "$output_file"
+}
+
+filter_review_fidelity_diff() {
+  local story_id="$1"
+  local line file
+  local skip=0
+
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^diff\ --git\ a/(.+)\ b/(.+)$ ]]; then
+      file="${BASH_REMATCH[1]}"
+      if is_story_artifact_review_ignored_path "$story_id" "$file"; then
+        skip=1
+        continue
+      fi
+      skip=0
+    fi
+
+    if [[ "$skip" == "1" ]]; then
+      continue
+    fi
+
+    printf '%s\n' "$line"
+  done
+}
+
+sorted_changed_files_to() {
+  local story_id="$1"
+  local changed_files_file="$2"
+  local output_file="$3"
+  local tmp
+
+  tmp="$(mktemp)"
+
+  sed '/^$/d' "$changed_files_file" \
+    | filter_review_fidelity_paths "$story_id" "$tmp"
+
+  mv "$tmp" "$output_file"
+}
+
+review_artifact_fidelity_status() {
+  local run_dir="$1"
+  local manifest_file="$2"
+  local diff_artifact changed_files_artifact review_artifact_base
+  local expected_diff_file expected_changed_files_file artifact_changed_files_file normalized_artifact_diff_file
+
+  diff_artifact="$run_dir/diff.patch"
+  changed_files_artifact="$run_dir/changed_files.txt"
+
+  [[ -f "$diff_artifact" ]] || printf 'reject\treview_diff_artifact_missing\trequired file not found: %s\n' "$diff_artifact"
+  [[ -f "$diff_artifact" ]] || return 0
+  [[ -f "$changed_files_artifact" ]] || printf 'reject\treview_changed_files_artifact_missing\trequired file not found: %s\n' "$changed_files_artifact"
+  [[ -f "$changed_files_artifact" ]] || return 0
+
+  if ! review_artifact_base="$(resolve_review_artifact_base "$manifest_file")"; then
+    printf 'reject\treview_artifact_base_missing\trun manifest is missing or has invalid review_artifact_base; final-HEAD compliance is not proven for this manual-finish continuation\n'
+    return 0
+  fi
+
+  expected_diff_file="$(mktemp)"
+  expected_changed_files_file="$(mktemp)"
+  artifact_changed_files_file="$(mktemp)"
+  normalized_artifact_diff_file="$(mktemp)"
+
+  if ! git -C "$ROOT_DIR" diff "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+      | filter_review_fidelity_diff "$STORY_ID" > "$expected_diff_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
+    printf 'reject\treview_diff_generation_failed\tunable to regenerate final-HEAD diff from review_artifact_base %s\n' "$review_artifact_base"
+    return 0
+  fi
+
+  git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | sed '/^$/d' \
+    | filter_review_fidelity_paths "$STORY_ID" "$expected_changed_files_file"
+
+  if [[ $? -ne 0 ]]; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
+    printf 'reject\treview_changed_files_generation_failed\tunable to regenerate final-HEAD changed_files from review_artifact_base %s\n' "$review_artifact_base"
+    return 0
+  fi
+
+  if ! filter_review_fidelity_diff "$STORY_ID" < "$diff_artifact" > "$normalized_artifact_diff_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
+    printf 'reject\treview_diff_artifact_invalid\treview artifact diff.patch could not be normalized; final-HEAD compliance is not proven for this manual-finish continuation\n'
+    return 0
+  fi
+
+  sorted_changed_files_to "$STORY_ID" "$changed_files_artifact" "$artifact_changed_files_file"
+
+  if ! cmp -s "$artifact_changed_files_file" "$expected_changed_files_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
+    printf 'reject\treview_changed_files_mismatch\treview artifact changed_files.txt does not prove final-HEAD compliance for this manual-finish continuation\n'
+    return 0
+  fi
+
+  if ! cmp -s "$normalized_artifact_diff_file" "$expected_diff_file"; then
+    rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
+    printf 'reject\treview_diff_patch_mismatch\treview artifact diff.patch does not prove final-HEAD compliance for this manual-finish continuation\n'
+    return 0
+  fi
+
+  rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
+  printf 'ok\treview_artifact_fidelity_valid\tartifact fidelity verified against final HEAD via review_artifact_base %s\n' "$review_artifact_base"
+}
+
 run_has_nonempty_changed_files() {
   local run_dir="$1"
   local changed_files_file="$run_dir/changed_files.txt"
@@ -495,6 +638,15 @@ IFS=$'\t' read -r head_validation_status head_validation_code head_validation_re
 if [[ "$head_validation_status" == "reject" ]]; then
   clear_classification_artifacts "$LATEST_RUN_DIR"
   fail "review classification blocked for '$STORY_ID': $head_validation_reason"
+fi
+
+if [[ "$head_validation_code" == "manual_finish_continuation_valid" ]]; then
+  fidelity_state="$(review_artifact_fidelity_status "$LATEST_RUN_DIR" "$MANIFEST_FILE")"
+  IFS=$'\t' read -r fidelity_status fidelity_code fidelity_reason <<< "$fidelity_state"
+  if [[ "$fidelity_status" == "reject" ]]; then
+    clear_classification_artifacts "$LATEST_RUN_DIR"
+    fail "review classification blocked for '$STORY_ID': $fidelity_reason ($fidelity_code)"
+  fi
 fi
 
 AI_REVIEW_FILE="$LATEST_RUN_DIR/$AI_REVIEW_FILE_NAME"
