@@ -513,11 +513,6 @@ is_story_artifact_review_ignored_path() {
     return 0
   fi
 
-  # 🔥 ДОБАВКА: защита от git edge cases (directory-like paths)
-  if [[ "$path" == "automation/bundles/active/$story_id"* ]]; then
-    return 0
-  fi
-
   return 1
 }
 
