@@ -6,7 +6,7 @@
 - REJECT if any review-stage script, analyze script, registry file, bundle artifact, ledger file, or unrelated test file is changed.
 - REJECT if the implementation adds telemetry, analyze enforcement, stage-loop escalation, artifact reuse, or lightweight review refresh behavior.
 - REJECT if the implementation expands beyond preflight rerun-skip detection.
-- REJECT immediately if `docs/90_codex/epics/US-AUTO_REGISTRY.md` appears in changed files for this story.
+- REJECT immediately if any docs, registry, roadmap, planning, or status-tracking file appears in changed files for this story.
 
 ## Functional Validation
 - APPROVE only if `run_story.sh` can block a rerun before Codex execution when sameness is conservatively proven.

@@ -22,9 +22,9 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
 - `automation/scripts/review_gate_story_run.sh`
 - `automation/run_codex_task.sh`
 - `automation/story_change_ledger.jsonl`
-- `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/bundle_packs/*`
 - `automation/bundles/active/*`
+- Any docs, registry, roadmap, planning, or status-tracking files
 - Any unrelated tests outside `tests/test_run_story.py`
 
 ## Atomic Task Isolation Contract

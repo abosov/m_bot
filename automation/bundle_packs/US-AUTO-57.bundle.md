@@ -145,9 +145,9 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
 - `automation/scripts/review_gate_story_run.sh`
 - `automation/run_codex_task.sh`
 - `automation/story_change_ledger.jsonl`
-- `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/bundle_packs/*`
 - `automation/bundles/active/*`
+- Any docs, registry, roadmap, planning, or status-tracking files
 - Any unrelated tests outside `tests/test_run_story.py`
 
 ## Scope Notes
@@ -161,7 +161,7 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
   - changing review-stage script inputs or outputs
   - changing manual-finish continuation rules
   - adding telemetry persistence
-  - changing registry structure
+  - changing any docs, registry, roadmap, planning, or status-tracking files
   - changing bundle materialization or validation contracts
 - Anti-scope-drift rule:
   - do not implement analyze enforcement, stage-loop escalation, artifact reuse, or lightweight artifact refresh in this story
@@ -193,9 +193,9 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
 - `automation/scripts/review_gate_story_run.sh`
 - `automation/run_codex_task.sh`
 - `automation/story_change_ledger.jsonl`
-- `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/bundle_packs/*`
 - `automation/bundles/active/*`
+- Any docs, registry, roadmap, planning, or status-tracking files
 - Any unrelated tests outside `tests/test_run_story.py`
 
 ## Atomic Task Isolation Contract
@@ -255,7 +255,7 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
 - REJECT if any review-stage script, analyze script, registry file, bundle artifact, ledger file, or unrelated test file is changed.
 - REJECT if the implementation adds telemetry, analyze enforcement, stage-loop escalation, artifact reuse, or lightweight review refresh behavior.
 - REJECT if the implementation expands beyond preflight rerun-skip detection.
-- REJECT immediately if `docs/90_codex/epics/US-AUTO_REGISTRY.md` appears in changed files for this story.
+- REJECT immediately if any docs, registry, roadmap, planning, or status-tracking file appears in changed files for this story.
 
 ## Functional Validation
 - APPROVE only if `run_story.sh` can block a rerun before Codex execution when sameness is conservatively proven.

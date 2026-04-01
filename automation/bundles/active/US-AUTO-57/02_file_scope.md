@@ -11,9 +11,9 @@
 - `automation/scripts/review_gate_story_run.sh`
 - `automation/run_codex_task.sh`
 - `automation/story_change_ledger.jsonl`
-- `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/bundle_packs/*`
 - `automation/bundles/active/*`
+- Any docs, registry, roadmap, planning, or status-tracking files
 - Any unrelated tests outside `tests/test_run_story.py`
 
 ## Scope Notes
@@ -27,7 +27,7 @@
   - changing review-stage script inputs or outputs
   - changing manual-finish continuation rules
   - adding telemetry persistence
-  - changing registry structure
+  - changing any docs, registry, roadmap, planning, or status-tracking files
   - changing bundle materialization or validation contracts
 - Anti-scope-drift rule:
   - do not implement analyze enforcement, stage-loop escalation, artifact reuse, or lightweight artifact refresh in this story
