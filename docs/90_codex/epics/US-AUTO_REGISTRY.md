@@ -159,7 +159,7 @@ The registry does **not** replace story bundles.
 - US-AUTO-31 remains the same ID but is re-scoped from “post-run checkpoint workflow” to **mandatory analyze gate before rerun or next phase**
 
 ### Next Recommended Story
-1. US-AUTO-57 — preflight rerun-skip detection
+1. US-AUTO-69 — companion-artifact execution filtering for code-only stories
 2. US-AUTO-31 — mandatory analyze gate before rerun or next phase
 3. US-AUTO-58 — stage-loop cap and forced escalation threshold
 4. US-AUTO-61 — workflow telemetry registry for run stages, blockers, manual interventions, and timings
@@ -220,7 +220,7 @@ The registry does **not** replace story bundles.
 | US-AUTO-56 | Post-run stage-gate guidance for review eligibility and manual-finish continuation | Explicitly tell the operator whether review-stage is allowed, whether commit/discard is required, and whether manual-finish continuation forbids rerun | follow-up | Implemented | P1 | None | US-AUTO-55 | automation/bundle_packs/US-AUTO-56.bundle.md | Scope remained limited to deterministic stage-gate messaging and review-eligibility guidance only |
 
 | US-AUTO-57 | Preflight rerun-skip detection | Stop before a full Codex rerun when the next rerun would not change the effective review surface | enforcement | Blocked | P1 | Park implementation and create follow-up for companion-artifact execution filtering | US-AUTO-26 | automation/bundles/active/US-AUTO-57/ | Implementation commit 300d78f, tests passing; repeated run_story blocked because Codex introduces forbidden companion diff in docs/90_codex/epics/US-AUTO_REGISTRY.md |
-| US-AUTO-58 | Stage-loop cap and forced escalation threshold | Detect repeated stage cycling without meaningful progress and force explicit escalation/manual decision | enforcement | Planned | P1 | Draft bundle | US-AUTO-27 | N/A | Concrete replacement for old pipeline-zone framing |
+| US-AUTO-69 | Companion-artifact execution filtering for code-only stories | Prevent execution runs for code-only stories from failing solely because Codex adds companion doc or registry edits outside the allowed implementation scope | follow-up | Planned | P1 | Draft bundle | US-AUTO-57 | N/A | Follow-up for blocked US-AUTO-57 implementation line; scope should stay narrow to execution filtering / artifact handling only |
 | US-AUTO-29 | Deterministic story-scoped verification strategy | Select the minimal required verification scope for the current story/run instead of always paying full validation cost | follow-up | Planned | P2 | Draft bundle | Re-scoped from original US-AUTO-29 | N/A | Formerly “targeted test strategy”; now broader but still deterministic and story-scoped |
 | US-AUTO-30 | Safe review-artifact reuse eligibility | Reuse review-stage artifacts only when the review surface is provably unchanged | follow-up | Planned | P2 | Draft bundle | Re-scoped from original US-AUTO-30 | N/A | Distinct from already-implemented deterministic gate reuse in US-AUTO-45 |
 | US-AUTO-31 | Mandatory analyze gate before rerun or next phase | Make `analyze_story_run.sh` an explicit decision gate before rerun, review continuation, or phase advance | follow-up | Planned | P1 | Draft bundle | Re-scoped from original US-AUTO-31 | N/A | Replaces vague checkpoint language with explicit decision-gate semantics |
