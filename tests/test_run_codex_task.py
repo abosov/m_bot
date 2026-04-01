@@ -446,6 +446,56 @@ def test_run_codex_task_ignores_committed_same_story_bundle_artifacts_during_sco
     assert "automation/bundle_packs/US-AUTO-7.bundle.md" not in changed_files
 
 
+def test_run_codex_task_filters_companion_registry_and_docs_for_code_only_story(
+    tmp_path: Path,
+) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    registry_path = root_dir / "docs" / "90_codex" / "epics" / "US-AUTO_REGISTRY.md"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text("# Registry\n\nTracked registry.\n", encoding="utf-8")
+
+    doc_path = root_dir / "docs" / "implementation_notes.md"
+    doc_path.write_text("# Notes\n\nTracked documentation.\n", encoding="utf-8")
+
+    run(["git", "add", "docs/90_codex/epics/US-AUTO_REGISTRY.md", "docs/implementation_notes.md"], cwd=root_dir)
+    run(["git", "commit", "-m", "Add companion documentation artifacts"], cwd=root_dir)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    write_executable(
+        fake_bin_dir / "codex",
+        fake_codex_script(
+            "printf '%s\\n' 'registry update' >> \"$workdir/docs/90_codex/epics/US-AUTO_REGISTRY.md\"\n"
+            "printf '%s\\n' 'doc update' >> \"$workdir/docs/implementation_notes.md\""
+        ),
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["SKIP_PYTEST"] = "1"
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    run_dir = latest_run_dir(root_dir)
+    changed_files = (run_dir / "changed_files.txt").read_text(encoding="utf-8")
+    diff_patch = (run_dir / "diff.patch").read_text(encoding="utf-8")
+    manifest = (run_dir / "manifest.md").read_text(encoding="utf-8")
+
+    assert changed_files.splitlines() == ["tracked.txt"]
+    assert "diff --git a/tracked.txt b/tracked.txt" in diff_patch
+    assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_patch
+    assert "docs/implementation_notes.md" not in diff_patch
+    assert "- changed_files_detected: yes" in manifest
+
+
 def test_run_codex_task_marks_scope_parse_status_unparseable(tmp_path: Path) -> None:
     root_dir, prompt_file = setup_story_repo(tmp_path)
 
@@ -847,6 +897,88 @@ def test_run_codex_task_rejects_real_out_of_scope_implementation_change(tmp_path
     assert result.returncode != 0
     assert "ERROR: changed files outside allowed scope for story US-AUTO-7:" in result.stderr
     assert "backend/out_of_scope.py" in result.stderr
+
+
+def test_run_codex_task_rejects_mixed_companion_and_real_out_of_scope_changes(tmp_path: Path) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    registry_path = root_dir / "docs" / "90_codex" / "epics" / "US-AUTO_REGISTRY.md"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text("# Registry\n\nTracked registry.\n", encoding="utf-8")
+    run(["git", "add", "docs/90_codex/epics/US-AUTO_REGISTRY.md"], cwd=root_dir)
+    run(["git", "commit", "-m", "Add tracked registry artifact"], cwd=root_dir)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    write_executable(
+        fake_bin_dir / "codex",
+        fake_codex_script(
+            "printf '%s\\n' 'registry update' >> \"$workdir/docs/90_codex/epics/US-AUTO_REGISTRY.md\"\n"
+            "mkdir -p \"$workdir/backend\"\n"
+            "printf '%s\\n' 'rogue change' > \"$workdir/backend/out_of_scope.py\""
+        ),
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["SKIP_PYTEST"] = "1"
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "ERROR: changed files outside allowed scope for story US-AUTO-7:" in result.stderr
+    assert "backend/out_of_scope.py" in result.stderr
+    assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in result.stderr
+
+    run_dir = latest_run_dir(root_dir)
+    changed_files = (run_dir / "changed_files.txt").read_text(encoding="utf-8")
+    diff_patch = (run_dir / "diff.patch").read_text(encoding="utf-8")
+
+    assert changed_files.splitlines() == ["backend/out_of_scope.py", "tracked.txt"]
+    assert "backend/out_of_scope.py" in diff_patch
+    assert "diff --git a/tracked.txt b/tracked.txt" in diff_patch
+    assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_patch
+
+
+def test_run_codex_task_keeps_in_scope_review_surface_when_no_companion_artifacts_are_present(
+    tmp_path: Path,
+) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    write_executable(
+        fake_bin_dir / "codex",
+        fake_codex_script("printf '%s\\n' 'codex isolated edit' >> \"$workdir/tracked.txt\""),
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["SKIP_PYTEST"] = "1"
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    run_dir = latest_run_dir(root_dir)
+    changed_files = (run_dir / "changed_files.txt").read_text(encoding="utf-8")
+    diff_patch = (run_dir / "diff.patch").read_text(encoding="utf-8")
+    manifest = (run_dir / "manifest.md").read_text(encoding="utf-8")
+
+    assert changed_files.splitlines() == ["tracked.txt"]
+    assert "diff --git a/tracked.txt b/tracked.txt" in diff_patch
+    assert "codex isolated edit" in diff_patch
+    assert "- changed_files_detected: yes" in manifest
 
 
 def test_run_codex_task_treats_sigterm_as_failure_and_rolls_back(tmp_path: Path) -> None:
