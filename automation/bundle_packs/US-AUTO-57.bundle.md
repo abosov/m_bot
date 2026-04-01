@@ -7,7 +7,7 @@ Version: 1
 US-AUTO-57 — Preflight rerun-skip detection
 
 ## Objective
-Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that stops a new Codex rerun when the pipeline can conservatively prove that rerunning would not change the effective review surface for the current committed state. This story reduces cycle cost and avoids avoidable manual-finish situations without relaxing committed-HEAD or review-boundary invariants. :contentReference[oaicite:0]{index=0}
+Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that stops a new Codex rerun when the pipeline can conservatively prove that rerunning would not change the effective review surface for the current committed state. This story reduces cycle cost and avoids avoidable manual-finish situations without relaxing committed-HEAD or review-boundary invariants.
 
 ## Scope
 - Add deterministic preflight logic in `automation/scripts/run_story.sh` for the current story ID.
@@ -18,10 +18,10 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
 
 ## Non-goals
 - Do not change `analyze_story_run.sh` decision semantics.
-- Do not add mandatory analyze enforcement; that remains in US-AUTO-31. :contentReference[oaicite:1]{index=1}
-- Do not add stage-loop counters or escalation thresholds; that remains in US-AUTO-58. :contentReference[oaicite:2]{index=2}
-- Do not introduce review-artifact reuse; that remains in US-AUTO-30 and US-AUTO-60. :contentReference[oaicite:3]{index=3}
-- Do not add workflow telemetry or analytics; that remains in US-AUTO-61, US-AUTO-62, and US-AUTO-63. :contentReference[oaicite:4]{index=4}
+- Do not add mandatory analyze enforcement; that remains in US-AUTO-31.
+- Do not add stage-loop counters or escalation thresholds; that remains in US-AUTO-58.
+- Do not introduce review-artifact reuse; that remains in US-AUTO-30 and US-AUTO-60.
+- Do not add workflow telemetry or analytics; that remains in US-AUTO-61, US-AUTO-62, and US-AUTO-63.
 - Do not relax committed-HEAD, manual-finish, or review-boundary contracts.
 
 ## Dependencies
@@ -30,10 +30,10 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
 - US-AUTO-46 — committed-HEAD review boundary enforcement
 - US-AUTO-47 — rerun convergence boundary
 - US-AUTO-52 — strict manual-finish continuation contract
-- US-AUTO-56 — post-run stage-gate guidance for review eligibility and manual-finish continuation :contentReference[oaicite:5]{index=5} :contentReference[oaicite:6]{index=6}
+- US-AUTO-56 — post-run stage-gate guidance for review eligibility and manual-finish continuation
 
 ## Source of Truth
-- `docs/90_codex/epics/US-AUTO_REGISTRY.md`
+- Read-only reference: `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/scripts/run_story.sh`
 - `automation/scripts/analyze_story_run.sh`
 - `automation/scripts/review_story_run.sh`
@@ -58,8 +58,9 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
 ## Atomic Task Isolation Contract
 - This story is limited to preflight rerun-skip detection only.
 - The implementation must not change review-stage contracts, manual-finish rules, escalation behavior, telemetry shape, registry schema, or bundle validation rules.
+- The registry file `docs/90_codex/epics/US-AUTO_REGISTRY.md` is read-only context for this story and must never be edited during implementation.
 - Allowed behavior change: block a new rerun earlier when no meaningful review-surface change can occur.
-- Disallowed behavior change: modifying downstream stage semantics or adding alternative fallback execution paths.
+- Disallowed behavior change: modifying downstream stage semantics, editing the registry, or adding alternative fallback execution paths.
 - The implementation must stay deterministic and fail-closed when evidence is missing, ambiguous, stale, or inconsistent.
 
 ## Risks
@@ -76,7 +77,7 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
 - Keep implementation strictly inside the allowed runtime scope for this story.
 - Preserve follow-up sequencing for `US-AUTO-31` and `US-AUTO-58` as separate stories.
 - Use the standard workflow for implementation artifacts only: bundle pack → materialize → validate → branch creation → commit bundle artifacts → run story → analyze story run.
-- Treat any attempted registry edit during `run_story.sh` as scope drift and reject it. :contentReference[oaicite:8]{index=8}
+- Treat any attempted registry edit during `run_story.sh` as scope drift and reject it.
 
 ## Acceptance Notes
 - Intent: stop paying for a rerun when the pipeline can already prove that the next rerun would not change the effective review surface.
@@ -92,7 +93,7 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
 
 === FILE: 01_context_bundle.md ===
 ## Source of Truth
-- `docs/90_codex/epics/US-AUTO_REGISTRY.md`
+- Read-only reference: `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/scripts/run_story.sh`
 - `automation/scripts/analyze_story_run.sh`
 - Existing committed-head run artifacts under `automation/runs/<STORY_ID>/...`
@@ -102,7 +103,7 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
 - The current preflight in `run_story.sh` focuses on dirty-state classification, story-artifact handoff, and branch-safety checks.
 - Review-stage eligibility and manual-finish guidance are surfaced after runs and analysis, not before Codex execution.
 - Repeated reruns can still happen even when the effective review surface for the current committed HEAD would remain unchanged.
-- The registry identifies post-US-AUTO-56 remaining work as cycle-cost reduction, early stopping, better decision gates, safer reuse, and observability. :contentReference[oaicite:9]{index=9}
+- The registry identifies post-US-AUTO-56 remaining work as cycle-cost reduction, early stopping, better decision gates, safer reuse, and observability.
 
 ## Architectural Intent
 - Add an early fail-closed stop only where sameness is provable.
@@ -176,7 +177,7 @@ You are the implementation engineer for US-AUTO-57 working inside the Codex auto
 Implement a narrow preflight rerun-skip detector in `automation/scripts/run_story.sh` that blocks a new Codex rerun only when the pipeline can conservatively prove that rerunning would not change the effective review surface for the current committed state.
 
 ## Source of Truth
-- `docs/90_codex/epics/US-AUTO_REGISTRY.md`
+- Read-only reference: `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/scripts/run_story.sh`
 - Existing run evidence format already consumed by the pipeline
 - Existing workflow invariants from US-AUTO-41, US-AUTO-44, US-AUTO-46, US-AUTO-47, US-AUTO-52, and US-AUTO-56
@@ -214,6 +215,7 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
   - if evidence is missing, ambiguous, stale, malformed, or inconsistent, do not skip
   - if proof of sameness exists, stop the rerun and emit deterministic guidance
 - The skip decision must not mutate existing run artifacts and must not fabricate new review evidence.
+- Hard stop rule: do not edit `docs/90_codex/epics/US-AUTO_REGISTRY.md` under any circumstances during this story implementation.
 
 ## Implementation Requirements
 - Use existing committed-head and run-evidence concepts already present in the pipeline rather than inventing a new external state source.
@@ -244,6 +246,7 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
 - Focused tests proving the new fail-closed preflight behavior
 - No fallback modes
 - No scope expansion beyond US-AUTO-57
+- Zero changes to `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 
 === FILE: 04_review_checklist.md ===
 ## Scope Validation
@@ -254,6 +257,7 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
 - REJECT if any review-stage script, analyze script, registry file, bundle artifact, ledger file, or unrelated test file is changed.
 - REJECT if the implementation adds telemetry, analyze enforcement, stage-loop escalation, artifact reuse, or lightweight review refresh behavior.
 - REJECT if the implementation expands beyond preflight rerun-skip detection.
+- REJECT immediately if `docs/90_codex/epics/US-AUTO_REGISTRY.md` appears in changed files for this story.
 
 ## Functional Validation
 - APPROVE only if `run_story.sh` can block a rerun before Codex execution when sameness is conservatively proven.

@@ -5,7 +5,7 @@ You are the implementation engineer for US-AUTO-57 working inside the Codex auto
 Implement a narrow preflight rerun-skip detector in `automation/scripts/run_story.sh` that blocks a new Codex rerun only when the pipeline can conservatively prove that rerunning would not change the effective review surface for the current committed state.
 
 ## Source of Truth
-- `docs/90_codex/epics/US-AUTO_REGISTRY.md`
+- Read-only reference: `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/scripts/run_story.sh`
 - Existing run evidence format already consumed by the pipeline
 - Existing workflow invariants from US-AUTO-41, US-AUTO-44, US-AUTO-46, US-AUTO-47, US-AUTO-52, and US-AUTO-56
@@ -43,6 +43,7 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
   - if evidence is missing, ambiguous, stale, malformed, or inconsistent, do not skip
   - if proof of sameness exists, stop the rerun and emit deterministic guidance
 - The skip decision must not mutate existing run artifacts and must not fabricate new review evidence.
+- Hard stop rule: do not edit `docs/90_codex/epics/US-AUTO_REGISTRY.md` under any circumstances during this story implementation.
 
 ## Implementation Requirements
 - Use existing committed-head and run-evidence concepts already present in the pipeline rather than inventing a new external state source.
@@ -73,4 +74,5 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
 - Focused tests proving the new fail-closed preflight behavior
 - No fallback modes
 - No scope expansion beyond US-AUTO-57
+- Zero changes to `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 

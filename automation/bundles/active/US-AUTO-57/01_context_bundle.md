@@ -1,5 +1,5 @@
 ## Source of Truth
-- `docs/90_codex/epics/US-AUTO_REGISTRY.md`
+- Read-only reference: `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/scripts/run_story.sh`
 - `automation/scripts/analyze_story_run.sh`
 - Existing committed-head run artifacts under `automation/runs/<STORY_ID>/...`
@@ -9,7 +9,7 @@
 - The current preflight in `run_story.sh` focuses on dirty-state classification, story-artifact handoff, and branch-safety checks.
 - Review-stage eligibility and manual-finish guidance are surfaced after runs and analysis, not before Codex execution.
 - Repeated reruns can still happen even when the effective review surface for the current committed HEAD would remain unchanged.
-- The registry identifies post-US-AUTO-56 remaining work as cycle-cost reduction, early stopping, better decision gates, safer reuse, and observability. :contentReference[oaicite:9]{index=9}
+- The registry identifies post-US-AUTO-56 remaining work as cycle-cost reduction, early stopping, better decision gates, safer reuse, and observability.
 
 ## Architectural Intent
 - Add an early fail-closed stop only where sameness is provable.
