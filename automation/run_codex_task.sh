@@ -1059,6 +1059,15 @@ write_review_diff_patch() {
   rm -f "$temp_index"
 }
 
+write_review_diff_stat() {
+  if [[ ! -s "$DIFF_FILE" ]]; then
+    : > "$STAT_FILE"
+    return 0
+  fi
+
+  git apply --stat < "$DIFF_FILE" > "$STAT_FILE" || true
+}
+
 is_canonical_active_story_bundle_artifact() {
   local rel_path="$1"
 
@@ -1092,9 +1101,9 @@ collect_git_artifacts() {
   untracked_names_file="$RUN_DIR/.untracked_names.txt"
 
   info "Collecting git artifacts"
-  git diff --stat "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$STAT_FILE" || true
 
   write_review_diff_patch "$merge_base"
+  write_review_diff_stat
 
   git diff --name-only "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$tracked_names_file" || true
   cp "$WORKTREE_UNTRACKED_LIST_FILE" "$untracked_names_file"
