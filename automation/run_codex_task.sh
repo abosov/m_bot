@@ -669,14 +669,12 @@ is_execution_companion_artifact_path() {
 
   story_is_code_only_for_execution_filter "$story_id" || return 1
 
-  if [[ "$path" == "docs/90_codex/epics/US-AUTO_REGISTRY.md" ]]; then
-    path_exists_in_head "$path"
-    return
-  fi
-
-  if [[ "$path" =~ ^docs/.+\.md$ ]] && path_exists_in_head "$path"; then
-    return 0
-  fi
+  case "$path" in
+    docs/90_codex/epics/US-AUTO_REGISTRY.md)
+      path_exists_in_head "$path"
+      return
+      ;;
+  esac
 
   return 1
 }
