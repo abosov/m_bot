@@ -138,6 +138,7 @@ The registry does **not** replace story bundles.
 - US-AUTO-50 resolved the downstream structured-AI-review contract issues and stabilized the review artifact pipeline.
 - US-AUTO-54 corrected the rerun-artifact diff fidelity defect for the reproduced US-AUTO-28-F1 path.
 - US-AUTO-55 closed the remaining final-HEAD/manual-finish compliance gap for the exact allowed continuation path.
+- The earlier US-AUTO-51 line was not merged as-is; it was parked and later superseded by US-AUTO-52, so any surviving PR from that line should be treated as historical and intentionally closed rather than merged.
 - After any implementation commit, the ordinary review path must use a fresh committed-head rerun before `ai_review_story_run.sh`, `classify_review_story_run.sh`, or `review_gate_story_run.sh` consume run artifacts.
 - Direct `run -> commit -> review` remains invalid for the normal path because it risks stale run evidence.
 - The only allowed exception is the explicit manual-finish continuation path after `blocked_non_converging_rerun`; in that mode, do not rerun again until manual finish is complete.
@@ -147,6 +148,7 @@ The registry does **not** replace story bundles.
 
 
 ### Story Renaming / Supersession Map
+- US-AUTO-51 (`Manual-finish review continuation contract`) → **Superseded by US-AUTO-52** (`Strict manual-finish continuation contract`)
 - US-AUTO-26 (`Expensive run budget guard`) → **Superseded by US-AUTO-57** (`Preflight rerun-skip detection`)
 - US-AUTO-27 (`Pipeline zone cap`) → **Superseded by US-AUTO-58** (`Stage-loop cap and forced escalation threshold`)
 - US-AUTO-18 (`Operator UX`) → **Split / partially absorbed**
@@ -210,6 +212,7 @@ The registry does **not** replace story bundles.
 | US-AUTO-28-F1 | Escalation input validation hardening | Enforce strict fail-closed validation of escalation artifact input | follow-up | Implemented | P1 | None | US-AUTO-28 | automation/bundle_packs/US-AUTO-28-F1.bundle.md | Core implementation complete; downstream review-fidelity issues were split out |
 | US-AUTO-49 | Scope validation ignores committed active-story bundle artifacts | Exclude committed active-story bundle artifacts from runtime scope validation | follow-up | Implemented | P1 | None | US-AUTO-28-F1 | automation/bundle_packs/US-AUTO-49.bundle.md | Restored scope validation to Codex-produced implementation delta |
 | US-AUTO-50 | AI review must produce structured output | Detect prompt echo / malformed AI review output and restore deterministic normalized artifact contract | follow-up | Implemented | P1 | None | US-AUTO-49 | automation/bundle_packs/US-AUTO-50.bundle.md | Remaining rejection accepted as governance outcome, not pipeline defect |
+| US-AUTO-51 | Manual-finish review continuation contract | Historical first pass at allowing review continuation after a non-converging rerun and committed manual finish | follow-up | Superseded | P1 | None | US-AUTO-47 | automation/bundle_packs/US-AUTO-51.bundle.md | Parked and superseded by US-AUTO-52; old PR line was intentionally closed rather than merged |
 | US-AUTO-52 | Strict manual-finish continuation contract | Narrow stale-HEAD continuation to the exact committed manual-finish case | follow-up | Implemented | P1 | None | US-AUTO-47 | automation/bundles/active/US-AUTO-52/ | Tightened exact-allow / descendant-reject / ancestor-run-history reject semantics |
 | US-AUTO-53 | Committed-HEAD diff.patch review fidelity | Make downstream review compare the exact committed implementation diff represented by the pinned run | follow-up | Implemented | P1 | None | US-AUTO-28-F1 | automation/bundle_packs/US-AUTO-53.bundle.md | Stable committed-head diff fidelity |
 | US-AUTO-54 | Committed-HEAD review diff fidelity for US-AUTO-28-F1 rerun artifacts | Restore deterministic gate fidelity for the reproduced rerun path | follow-up | Implemented | P1 | None | US-AUTO-28-F1 | automation/bundle_packs/US-AUTO-54.bundle.md | Remaining final-HEAD/manual-finish compliance gap was closed by US-AUTO-55 |
