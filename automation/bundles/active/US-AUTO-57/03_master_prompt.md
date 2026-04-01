@@ -55,6 +55,7 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
 - Preserve branch-safety, dirty-state classification, and story-artifact handoff behavior already implemented in the pipeline.
 - Keep helper extraction small and local if needed; avoid broad utility redesign.
 - Keep console messaging aligned with the operator-guidance style introduced by US-AUTO-56.
+- Do not modify `docs/90_codex/epics/US-AUTO_REGISTRY.md`; registry maintenance is outside implementation scope for this story and any attempted registry edit must be treated as forbidden scope drift.
 
 ## Verification Requirements
 - Add focused automated coverage in `tests/test_run_story.py` for:

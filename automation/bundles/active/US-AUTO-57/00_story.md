@@ -68,10 +68,10 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
 - Observability expectation: the skip path must print a deterministic reason and a deterministic next-step message.
 
 ## Manual Actions
-- Update the registry entry for `US-AUTO-57` from `Planned` to `Bundle Drafted` after materialize and validate succeed.
-- Keep `US-AUTO-56` as implemented; no additional status change is needed there.
+- Keep implementation strictly inside the allowed runtime scope for this story.
 - Preserve follow-up sequencing for `US-AUTO-31` and `US-AUTO-58` as separate stories.
-- Use the standard workflow: bundle pack → materialize → validate → registry update → branch creation → commit bundle artifacts → run story → analyze story run. :contentReference[oaicite:8]{index=8}
+- Use the standard workflow for implementation artifacts only: bundle pack → materialize → validate → branch creation → commit bundle artifacts → run story → analyze story run.
+- Treat any attempted registry edit during `run_story.sh` as scope drift and reject it. :contentReference[oaicite:8]{index=8}
 
 ## Acceptance Notes
 - Intent: stop paying for a rerun when the pipeline can already prove that the next rerun would not change the effective review surface.

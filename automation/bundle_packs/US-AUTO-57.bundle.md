@@ -73,10 +73,10 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
 - Observability expectation: the skip path must print a deterministic reason and a deterministic next-step message.
 
 ## Manual Actions
-- Update the registry entry for `US-AUTO-57` from `Planned` to `Bundle Drafted` after materialize and validate succeed.
-- Keep `US-AUTO-56` as implemented; no additional status change is needed there.
+- Keep implementation strictly inside the allowed runtime scope for this story.
 - Preserve follow-up sequencing for `US-AUTO-31` and `US-AUTO-58` as separate stories.
-- Use the standard workflow: bundle pack → materialize → validate → registry update → branch creation → commit bundle artifacts → run story → analyze story run. :contentReference[oaicite:8]{index=8}
+- Use the standard workflow for implementation artifacts only: bundle pack → materialize → validate → branch creation → commit bundle artifacts → run story → analyze story run.
+- Treat any attempted registry edit during `run_story.sh` as scope drift and reject it. :contentReference[oaicite:8]{index=8}
 
 ## Acceptance Notes
 - Intent: stop paying for a rerun when the pipeline can already prove that the next rerun would not change the effective review surface.
@@ -226,6 +226,7 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
 - Preserve branch-safety, dirty-state classification, and story-artifact handoff behavior already implemented in the pipeline.
 - Keep helper extraction small and local if needed; avoid broad utility redesign.
 - Keep console messaging aligned with the operator-guidance style introduced by US-AUTO-56.
+- Do not modify `docs/90_codex/epics/US-AUTO_REGISTRY.md`; registry maintenance is outside implementation scope for this story and any attempted registry edit must be treated as forbidden scope drift.
 
 ## Verification Requirements
 - Add focused automated coverage in `tests/test_run_story.py` for:
@@ -308,27 +309,23 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
    Local:
    `automation/scripts/validate_story_bundle.sh US-AUTO-57`
 
-4. Update the registry entry for `US-AUTO-57` to reflect bundle readiness logic for this bundle draft, while keeping `US-AUTO-56` as implemented.
-   File:
-   `docs/90_codex/epics/US-AUTO_REGISTRY.md`
-
-5. Create the feature branch.
+4. Create the feature branch.
    Local:
    `git checkout -b feat/us-auto-57-rerun-skip-detection`
 
-6. Commit the story artifacts through the canonical handoff flow.
+5. Commit the story artifacts through the canonical handoff flow.
    Local:
    `automation/scripts/commit_story_artifacts.sh US-AUTO-57`
 
-7. Run the story implementation.
+6. Run the story implementation.
    Local:
    `automation/scripts/run_story.sh US-AUTO-57`
 
-8. Analyze the resulting run using the fresh run directory produced by the current HEAD.
+7. Analyze the resulting run using the fresh run directory produced by the current HEAD.
    Local:
    `automation/scripts/analyze_story_run.sh US-AUTO-57`
 
-9. Before any future push or PR creation, explicitly discard ledger-only dirtiness if it is the only unintended workspace change.
+8. Before any future push or PR creation, explicitly discard ledger-only dirtiness if it is the only unintended workspace change.
    Local:
    `git restore automation/story_change_ledger.jsonl`
 
