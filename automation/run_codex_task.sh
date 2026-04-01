@@ -637,6 +637,12 @@ is_story_artifact_ignored_path() {
   return 1
 }
 
+path_exists_in_head() {
+  local rel_path="$1"
+
+  git cat-file -e "HEAD:$rel_path" >/dev/null 2>&1
+}
+
 story_is_code_only_for_execution_filter() {
   local story_id="$1"
   local scope_file
@@ -663,8 +669,15 @@ is_execution_companion_artifact_path() {
 
   story_is_code_only_for_execution_filter "$story_id" || return 1
 
-  [[ "$path" == "docs/90_codex/epics/US-AUTO_REGISTRY.md" ]] && return 0
-  [[ "$path" =~ ^docs/.+\.md$ ]] && return 0
+  if [[ "$path" == "docs/90_codex/epics/US-AUTO_REGISTRY.md" ]]; then
+    path_exists_in_head "$path"
+    return
+  fi
+
+  if [[ "$path" =~ ^docs/.+\.md$ ]] && path_exists_in_head "$path"; then
+    return 0
+  fi
+
   return 1
 }
 

@@ -899,6 +899,34 @@ def test_run_codex_task_rejects_real_out_of_scope_implementation_change(tmp_path
     assert "backend/out_of_scope.py" in result.stderr
 
 
+def test_run_codex_task_rejects_untracked_out_of_scope_doc_change(tmp_path: Path) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    write_executable(
+        fake_bin_dir / "codex",
+        fake_codex_script(
+            "mkdir -p \"$workdir/docs\"\nprintf '%s\\n' '# Rogue doc' > \"$workdir/docs/untracked_companion.md\""
+        ),
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["SKIP_PYTEST"] = "1"
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "ERROR: changed files outside allowed scope for story US-AUTO-7:" in result.stderr
+    assert "docs/untracked_companion.md" in result.stderr
+
+
 def test_run_codex_task_rejects_mixed_companion_and_real_out_of_scope_changes(tmp_path: Path) -> None:
     root_dir, prompt_file = setup_story_repo(tmp_path)
 
