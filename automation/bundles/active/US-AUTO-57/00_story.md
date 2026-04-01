@@ -28,7 +28,6 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
 - US-AUTO-56 — post-run stage-gate guidance for review eligibility and manual-finish continuation
 
 ## Source of Truth
-- Read-only reference: `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/scripts/run_story.sh`
 - `automation/scripts/analyze_story_run.sh`
 - `automation/scripts/review_story_run.sh`
@@ -53,9 +52,9 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
 ## Atomic Task Isolation Contract
 - This story is limited to preflight rerun-skip detection only.
 - The implementation must not change review-stage contracts, manual-finish rules, escalation behavior, telemetry shape, registry schema, or bundle validation rules.
-- The registry file `docs/90_codex/epics/US-AUTO_REGISTRY.md` is read-only context for this story and must never be edited during implementation.
+- The implementation must not read, edit, or rely on `docs/90_codex/epics/US-AUTO_REGISTRY.md` during code changes for this story.
 - Allowed behavior change: block a new rerun earlier when no meaningful review-surface change can occur.
-- Disallowed behavior change: modifying downstream stage semantics, editing the registry, or adding alternative fallback execution paths.
+- Disallowed behavior change: modifying downstream stage semantics, touching the registry, or adding alternative fallback execution paths.
 - The implementation must stay deterministic and fail-closed when evidence is missing, ambiguous, stale, or inconsistent.
 
 ## Risks

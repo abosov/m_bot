@@ -33,7 +33,6 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
 - US-AUTO-56 — post-run stage-gate guidance for review eligibility and manual-finish continuation
 
 ## Source of Truth
-- Read-only reference: `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/scripts/run_story.sh`
 - `automation/scripts/analyze_story_run.sh`
 - `automation/scripts/review_story_run.sh`
@@ -58,9 +57,9 @@ Add a fail-closed preflight decision in `automation/scripts/run_story.sh` that s
 ## Atomic Task Isolation Contract
 - This story is limited to preflight rerun-skip detection only.
 - The implementation must not change review-stage contracts, manual-finish rules, escalation behavior, telemetry shape, registry schema, or bundle validation rules.
-- The registry file `docs/90_codex/epics/US-AUTO_REGISTRY.md` is read-only context for this story and must never be edited during implementation.
+- The implementation must not read, edit, or rely on `docs/90_codex/epics/US-AUTO_REGISTRY.md` during code changes for this story.
 - Allowed behavior change: block a new rerun earlier when no meaningful review-surface change can occur.
-- Disallowed behavior change: modifying downstream stage semantics, editing the registry, or adding alternative fallback execution paths.
+- Disallowed behavior change: modifying downstream stage semantics, touching the registry, or adding alternative fallback execution paths.
 - The implementation must stay deterministic and fail-closed when evidence is missing, ambiguous, stale, or inconsistent.
 
 ## Risks
@@ -177,7 +176,6 @@ You are the implementation engineer for US-AUTO-57 working inside the Codex auto
 Implement a narrow preflight rerun-skip detector in `automation/scripts/run_story.sh` that blocks a new Codex rerun only when the pipeline can conservatively prove that rerunning would not change the effective review surface for the current committed state.
 
 ## Source of Truth
-- Read-only reference: `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 - `automation/scripts/run_story.sh`
 - Existing run evidence format already consumed by the pipeline
 - Existing workflow invariants from US-AUTO-41, US-AUTO-44, US-AUTO-46, US-AUTO-47, US-AUTO-52, and US-AUTO-56
@@ -215,7 +213,7 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
   - if evidence is missing, ambiguous, stale, malformed, or inconsistent, do not skip
   - if proof of sameness exists, stop the rerun and emit deterministic guidance
 - The skip decision must not mutate existing run artifacts and must not fabricate new review evidence.
-- Hard stop rule: do not edit `docs/90_codex/epics/US-AUTO_REGISTRY.md` under any circumstances during this story implementation.
+- Hard stop rule: do not read, inspect, or edit `docs/90_codex/epics/US-AUTO_REGISTRY.md` under any circumstances during this story implementation.
 
 ## Implementation Requirements
 - Use existing committed-head and run-evidence concepts already present in the pipeline rather than inventing a new external state source.
@@ -228,7 +226,7 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
 - Preserve branch-safety, dirty-state classification, and story-artifact handoff behavior already implemented in the pipeline.
 - Keep helper extraction small and local if needed; avoid broad utility redesign.
 - Keep console messaging aligned with the operator-guidance style introduced by US-AUTO-56.
-- Do not modify `docs/90_codex/epics/US-AUTO_REGISTRY.md`; registry maintenance is outside implementation scope for this story and any attempted registry edit must be treated as forbidden scope drift.
+- Do not read or modify `docs/90_codex/epics/US-AUTO_REGISTRY.md`; registry maintenance is outside implementation scope for this story and any attempted registry access or edit must be treated as forbidden scope drift.
 
 ## Verification Requirements
 - Add focused automated coverage in `tests/test_run_story.py` for:
@@ -246,7 +244,7 @@ Implement a narrow preflight rerun-skip detector in `automation/scripts/run_stor
 - Focused tests proving the new fail-closed preflight behavior
 - No fallback modes
 - No scope expansion beyond US-AUTO-57
-- Zero changes to `docs/90_codex/epics/US-AUTO_REGISTRY.md`
+- Zero reads and zero changes for `docs/90_codex/epics/US-AUTO_REGISTRY.md`
 
 === FILE: 04_review_checklist.md ===
 ## Scope Validation
