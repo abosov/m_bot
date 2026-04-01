@@ -73,6 +73,7 @@ The registry does **not** replace story bundles.
 - P1 committed-HEAD review evidence fidelity was closed by US-AUTO-53 and US-AUTO-54.
 - P1 final-HEAD manual-finish review compliance gap was closed by US-AUTO-55.
 - The operator-facing stage guidance gap was closed by US-AUTO-56.
+- A new split-story gap was confirmed while attempting US-AUTO-69: companion-artifact execution filtering and rerun-preflight stable-review recomputation are not one atomic change and must be tracked separately.
 - Remaining work after US-AUTO-56 is no longer about missing fail-closed boundary contracts; it is about **cycle-cost reduction, observability, better decision gates, safer reuse, and stronger pre-code discipline**.
 
 ### Strategic Directions After US-AUTO-56
@@ -145,6 +146,8 @@ The registry does **not** replace story bundles.
 - A transient external `codex exec` failure can still interrupt review-stage automation even when the pinned run and continuation contract are valid; treat such incidents as infrastructure instability, not as workflow-contract defects.
 - The current durable `story_change_ledger.jsonl` is useful but too narrow for process analytics; future workflow improvement should add a separate telemetry registry rather than overloading the durable ledger.
 - US-AUTO-56 added explicit deterministic stage-gate guidance so operators can see when review-stage is allowed, when commit/discard is required first, and when manual-finish continuation forbids rerun without changing the underlying fail-closed workflow policy.
+- Attempted implementation of US-AUTO-69 confirmed a real scope split rather than stale evidence: companion-artifact execution filtering in `automation/run_codex_task.sh` and rerun-preflight / stable-review recomputation in `automation/scripts/run_story.sh` are separate change lines and should not be forced through one continuation story.
+- When a story is parked, blocked, or split, the registry must record the explicit return condition: what is already complete, what remains blocked, which follow-up story must land first, and what concrete event makes the parked line eligible to resume.
 
 
 ### Story Renaming / Supersession Map
@@ -159,7 +162,7 @@ The registry does **not** replace story bundles.
 - US-AUTO-31 remains the same ID but is re-scoped from “post-run checkpoint workflow” to **mandatory analyze gate before rerun or next phase**
 
 ### Next Recommended Story
-1. US-AUTO-69 — companion-artifact execution filtering for code-only stories
+1. US-AUTO-70 — rerun-preflight stable-review recomputation for companion-filtered stories
 2. US-AUTO-31 — mandatory analyze gate before rerun or next phase
 3. US-AUTO-58 — stage-loop cap and forced escalation threshold
 4. US-AUTO-61 — workflow telemetry registry for run stages, blockers, manual interventions, and timings
@@ -219,7 +222,8 @@ The registry does **not** replace story bundles.
 | US-AUTO-55 | Manual-finish final-HEAD review compliance after allowed non-converging rerun continuation | Make exact allowed manual-finish continuation reach downstream review/gate with deterministic final-HEAD compliance | follow-up | Implemented | P1 | None | US-AUTO-54 | automation/bundles/active/US-AUTO-55/ | Final validation succeeded on exact continuation path; transient external Codex 403 treated as infra noise |
 | US-AUTO-56 | Post-run stage-gate guidance for review eligibility and manual-finish continuation | Explicitly tell the operator whether review-stage is allowed, whether commit/discard is required, and whether manual-finish continuation forbids rerun | follow-up | Implemented | P1 | None | US-AUTO-55 | automation/bundle_packs/US-AUTO-56.bundle.md | Scope remained limited to deterministic stage-gate messaging and review-eligibility guidance only |
 | US-AUTO-57 | Preflight rerun-skip detection | Stop before a full Codex rerun when the next rerun would not change the effective review surface | enforcement | Blocked | P1 | Park implementation; resolved via follow-up US-AUTO-69 | US-AUTO-26 | automation/bundles/active/US-AUTO-57/ | Implementation commit 300d78f, tests passing; BLOCKED by companion-artifact diff (docs/90_codex/epics/US-AUTO_REGISTRY.md) introduced during Codex execution; see US-AUTO-69 |
-| US-AUTO-69 | Companion-artifact execution filtering for code-only stories | Prevent execution runs for code-only stories from failing solely because Codex adds companion doc or registry edits outside the allowed implementation scope | follow-up | Planned | P1 | Draft bundle | US-AUTO-57 | N/A | Follow-up for blocked US-AUTO-57 implementation line; scope should stay narrow to execution filtering / artifact handling only |
+| US-AUTO-69 | Companion-artifact execution filtering for code-only stories | Isolate the execution-surface filtering half of the blocked US-AUTO-57 follow-up without expanding into rerun-preflight recomputation | split | Split | P1 | Park this split line until US-AUTO-70 lands and proves rerun-preflight / stable-review recomputation separately | US-AUTO-57 | N/A | Split from the attempted continuation: execution filtering belongs to `automation/run_codex_task.sh` + `tests/test_run_codex_task.py`; return condition: resume only after US-AUTO-70 is implemented and the rerun-preflight half is no longer coupled to this line |
+| US-AUTO-70 | Rerun-preflight stable-review recomputation for companion-filtered stories | Recompute the effective filtered review surface before rerun/gate so companion-filtered stories do not fail acceptance because rerun-preflight still evaluates the unadjusted surface | follow-up | Planned | P1 | Draft bundle | US-AUTO-69 split follow-up | N/A | Scope must stay limited to `automation/scripts/run_story.sh` and `tests/test_run_story.py`; do not modify `automation/run_codex_task.sh`; completion of this story is the return condition for resuming the parked US-AUTO-69 line |
 | US-AUTO-29 | Deterministic story-scoped verification strategy | Select the minimal required verification scope for the current story/run instead of always paying full validation cost | follow-up | Planned | P2 | Draft bundle | Re-scoped from original US-AUTO-29 | N/A | Formerly “targeted test strategy”; now broader but still deterministic and story-scoped |
 | US-AUTO-30 | Safe review-artifact reuse eligibility | Reuse review-stage artifacts only when the review surface is provably unchanged | follow-up | Planned | P2 | Draft bundle | Re-scoped from original US-AUTO-30 | N/A | Distinct from already-implemented deterministic gate reuse in US-AUTO-45 |
 | US-AUTO-31 | Mandatory analyze gate before rerun or next phase | Make `analyze_story_run.sh` an explicit decision gate before rerun, review continuation, or phase advance | follow-up | Planned | P1 | Draft bundle | Re-scoped from original US-AUTO-31 | N/A | Replaces vague checkpoint language with explicit decision-gate semantics |
@@ -245,6 +249,7 @@ The registry does **not** replace story bundles.
 - Always update the registry after meaningful change.
 - Prefer conservative status.
 - Never guess — document uncertainty.
+- When a story is parked, blocked, or split, always record the return condition explicitly: the blocking reason, the follow-up story or prerequisite that must complete first, and the concrete event that makes the parked line eligible to resume.
 - After any implementation commit, ordinary review must proceed only from a fresh committed-head rerun unless the workflow has explicitly entered manual-finish continuation after `blocked_non_converging_rerun`.
 - Never treat `run -> commit -> review` as a valid normal path.
 - When manual-finish continuation is active, do not rerun again until manual finish is complete.
