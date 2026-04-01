@@ -266,11 +266,14 @@ ensure_story_artifacts_committed() {
 run_preflight_stage() {
   local story_id="$1"
   local story_runs_root="$RUNS_ROOT/$story_id"
-  local convergence_boundary previous_run_dir latest_run_dir
+  local convergence_boundary previous_run_dir latest_run_dir stable_review_surface_run_dir
 
   echo "[INFO] Preflight: classifying dirty paths for $story_id" >&2
   ensure_story_artifacts_committed "$story_id"
   enforce_escalation_resolution "$story_id"
+  if [[ -d "$story_runs_root" ]] && stable_review_surface_run_dir="$(detect_stable_review_surface_rerun "$story_runs_root" || true)" && [[ -n "$stable_review_surface_run_dir" ]]; then
+    fail_stable_review_surface_rerun "$story_id" "$stable_review_surface_run_dir"
+  fi
   if [[ -d "$story_runs_root" ]] && convergence_boundary="$(detect_non_converging_rerun "$story_runs_root" || true)" && [[ -n "$convergence_boundary" ]]; then
     IFS=$'\n' read -r previous_run_dir latest_run_dir <<< "$convergence_boundary"
     fail_non_converging_rerun "$story_id" "$previous_run_dir" "$latest_run_dir"
@@ -332,6 +335,31 @@ run_has_nonempty_changed_files() {
   [[ -n "$(sed '/^[[:space:]]*$/d' "$changed_files_file")" ]]
 }
 
+run_has_nonempty_file() {
+  local path="$1"
+
+  [[ -f "$path" ]] || return 1
+  [[ -n "$(sed '/^[[:space:]]*$/d' "$path")" ]]
+}
+
+json_file_is_valid_object() {
+  local json_file="$1"
+  [[ -f "$json_file" ]] || return 1
+
+  python3 - "$json_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+try:
+    data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+except json.JSONDecodeError:
+    raise SystemExit(1)
+
+raise SystemExit(0 if isinstance(data, dict) else 1)
+PY
+}
+
 run_is_convergence_candidate() {
   local run_dir="$1"
   local manifest_file="$run_dir/manifest.md"
@@ -354,6 +382,36 @@ run_is_convergence_candidate() {
   [[ ! -f "$run_dir/review_classification.md" ]] || return 1
   [[ ! -f "$run_dir/review_gate_result.json" ]] || return 1
   [[ ! -f "$run_dir/escalation_result.json" ]] || return 1
+}
+
+run_has_stable_review_surface_evidence() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  local codex_exit_code materialization_status pytest_exit_code changed_files_detected review_artifact_base
+
+  [[ -f "$manifest_file" ]] || return 1
+
+  codex_exit_code="$(manifest_value "$manifest_file" "codex_exit_code")"
+  pytest_exit_code="$(manifest_value "$manifest_file" "pytest_exit_code")"
+  materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
+  changed_files_detected="$(manifest_value "$manifest_file" "changed_files_detected")"
+  review_artifact_base="$(manifest_value "$manifest_file" "review_artifact_base")"
+
+  [[ "$codex_exit_code" == "0" ]] || return 1
+  [[ "$pytest_exit_code" == "0" ]] || return 1
+  [[ "$changed_files_detected" == "yes" ]] || return 1
+  [[ "$materialization_status" == "applied" || "$materialization_status" == "not_needed" ]] || return 1
+  [[ -n "$review_artifact_base" ]] || return 1
+  run_has_nonempty_changed_files "$run_dir" || return 1
+
+  run_has_nonempty_file "$run_dir/run_meta.txt" || return 1
+  run_has_nonempty_file "$run_dir/pytest.txt" || return 1
+  run_has_nonempty_file "$run_dir/diff.patch" || return 1
+  run_has_nonempty_file "$run_dir/review_bundle.md" || return 1
+  run_has_nonempty_file "$run_dir/chatgpt_review_prompt.md" || return 1
+  run_has_nonempty_file "$run_dir/ai_review_result.md" || return 1
+  run_has_nonempty_file "$run_dir/review_classification.md" || return 1
+  json_file_is_valid_object "$run_dir/review_gate_result.json" || return 1
 }
 
 changed_files_match() {
@@ -410,6 +468,25 @@ detect_non_converging_rerun() {
   printf '%s\n%s\n' "$previous_run_dir" "$latest_run_dir"
 }
 
+detect_stable_review_surface_rerun() {
+  local story_runs_root="$1"
+  local latest_run_dir latest_head current_head
+
+  latest_run_dir="$(resolve_latest_run_dir "$story_runs_root" || true)"
+  [[ -n "$latest_run_dir" ]] || return 1
+
+  run_has_stable_review_surface_evidence "$latest_run_dir" || return 1
+
+  latest_head="$(run_source_of_truth_head "$latest_run_dir")"
+  current_head="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+
+  [[ "$latest_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$current_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$latest_head" == "$current_head" ]] || return 1
+
+  printf '%s\n' "$latest_run_dir"
+}
+
 fail_non_converging_rerun() {
   local story_id="$1"
   local previous_run_dir="$2"
@@ -427,6 +504,28 @@ fail_non_converging_rerun() {
     echo " - Commit the manual-finish result to HEAD once the branch is in its intended final state."
     printf ' - Inspect pinned evidence: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
     echo " - Do not rerun automation/scripts/run_story.sh again until manual finish is complete."
+  } >&2
+  exit 1
+}
+
+fail_stable_review_surface_rerun() {
+  local story_id="$1"
+  local latest_run_dir="$2"
+  local current_head
+
+  current_head="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+
+  {
+    echo "ERROR: run blocked for '$story_id' because rerunning would not change the effective review surface"
+    echo "Reason: unchanged_effective_review_surface_for_committed_head"
+    printf 'Pinned evidence: %s\n' "$latest_run_dir"
+    printf 'Current committed HEAD: %s\n' "$current_head"
+    echo "Stage gate:"
+    echo " - Review-stage: use the pinned evidence already recorded for this committed HEAD."
+    echo " - Rerun gate: blocked until HEAD changes and the committed review surface becomes different."
+    echo "Operator handoff:"
+    printf ' - Inspect pinned evidence: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    echo " - Do not rerun automation/scripts/run_story.sh again unless you first commit a change that alters the review surface."
   } >&2
   exit 1
 }
