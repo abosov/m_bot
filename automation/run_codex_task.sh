@@ -624,6 +624,9 @@ REPOSITORY_MAP_RUNTIME_FILE="$RUN_DIR/repository_map_runtime.md"
 LOG_FILE="$RUN_DIR/codex.log"
 LAST_MESSAGE_FILE="$RUN_DIR/codex_last_message.txt"
 
+COMPANION_FILTER_SCOPE_STORY_ID=""
+COMPANION_FILTER_SCOPE_ENABLED="0"
+
 is_story_artifact_ignored_path() {
   local story_id="$1"
   local path="$2"
@@ -634,7 +637,60 @@ is_story_artifact_ignored_path() {
   return 1
 }
 
-filter_story_artifact_diff() {
+path_exists_in_head() {
+  local rel_path="$1"
+
+  git cat-file -e "HEAD:$rel_path" >/dev/null 2>&1
+}
+
+story_is_code_only_for_execution_filter() {
+  local story_id="$1"
+  local scope_file
+
+  [[ -n "$story_id" && "$story_id" != "ADHOC" ]] || return 1
+
+  if [[ "$COMPANION_FILTER_SCOPE_STORY_ID" != "$story_id" ]]; then
+    COMPANION_FILTER_SCOPE_STORY_ID="$story_id"
+    COMPANION_FILTER_SCOPE_ENABLED="0"
+    scope_file="$ROOT_DIR/automation/bundles/active/$story_id/02_file_scope.md"
+
+    if [[ -f "$scope_file" ]] && ! extract_markdown_section_items "$scope_file" "allowed" \
+      | grep -Eq '(^docs/|\.md$)'; then
+      COMPANION_FILTER_SCOPE_ENABLED="1"
+    fi
+  fi
+
+  [[ "$COMPANION_FILTER_SCOPE_ENABLED" == "1" ]]
+}
+
+is_execution_companion_artifact_path() {
+  local story_id="$1"
+  local path="$2"
+
+  story_is_code_only_for_execution_filter "$story_id" || return 1
+
+  case "$path" in
+    docs/90_codex/epics/US-AUTO_REGISTRY.md)
+      path_exists_in_head "$path"
+      return
+      ;;
+  esac
+
+  return 1
+}
+
+is_execution_diff_ignored_path() {
+  local story_id="$1"
+  local path="$2"
+
+  if is_story_artifact_ignored_path "$story_id" "$path"; then
+    return 0
+  fi
+
+  is_execution_companion_artifact_path "$story_id" "$path"
+}
+
+filter_ignored_execution_diff_paths() {
   local story_id="$1"
   local line
   local file=""
@@ -643,7 +699,7 @@ filter_story_artifact_diff() {
   while IFS= read -r line; do
     if [[ "$line" =~ ^diff\ --git\ a/(.+)\ b/(.+)$ ]]; then
       file="${BASH_REMATCH[1]}"
-      if is_story_artifact_ignored_path "$story_id" "$file"; then
+      if is_execution_diff_ignored_path "$story_id" "$file"; then
         skip=1
         continue
       else
@@ -981,7 +1037,7 @@ write_review_diff_patch() {
 
   if [[ "$MATERIALIZED_UNTRACKED_COUNT" == "0" ]]; then
     git diff "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
-      | filter_story_artifact_diff "$STORY_ID" > "$DIFF_FILE" || true
+      | filter_ignored_execution_diff_paths "$STORY_ID" > "$DIFF_FILE" || true
     return 0
   fi
 
@@ -998,9 +1054,18 @@ write_review_diff_patch() {
     --pathspec-from-file="$WORKTREE_UNTRACKED_LIST_FILE" -- >/dev/null
 
   GIT_INDEX_FILE="$temp_index" git -C "$ROOT_DIR" diff "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
-    | filter_story_artifact_diff "$STORY_ID" > "$DIFF_FILE" || true
+    | filter_ignored_execution_diff_paths "$STORY_ID" > "$DIFF_FILE" || true
 
   rm -f "$temp_index"
+}
+
+write_review_diff_stat() {
+  if [[ ! -s "$DIFF_FILE" ]]; then
+    : > "$STAT_FILE"
+    return 0
+  fi
+
+  git apply --stat < "$DIFF_FILE" > "$STAT_FILE" || true
 }
 
 is_canonical_active_story_bundle_artifact() {
@@ -1036,9 +1101,9 @@ collect_git_artifacts() {
   untracked_names_file="$RUN_DIR/.untracked_names.txt"
 
   info "Collecting git artifacts"
-  git diff --stat "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$STAT_FILE" || true
 
   write_review_diff_patch "$merge_base"
+  write_review_diff_stat
 
   git diff --name-only "$merge_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" > "$tracked_names_file" || true
   cp "$WORKTREE_UNTRACKED_LIST_FILE" "$untracked_names_file"
@@ -1094,7 +1159,8 @@ check_allowed_files() {
     if [[ -n "${tracked_names_file:-}" && -f "$tracked_names_file" ]]; then
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
-        if is_committed_same_story_bundle_artifact "$changed_file"; then
+        if is_committed_same_story_bundle_artifact "$changed_file" \
+          || is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
           continue
         fi
         printf '%s\n' "$changed_file" >> "$filtered_nameonly_file"
@@ -1102,7 +1168,13 @@ check_allowed_files() {
     fi
 
     if [[ -n "${untracked_names_file:-}" && -f "$untracked_names_file" ]]; then
-      cat "$untracked_names_file" >> "$filtered_nameonly_file"
+      while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        if is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
+          continue
+        fi
+        printf '%s\n' "$changed_file" >> "$filtered_nameonly_file"
+      done < "$untracked_names_file"
     fi
 
     if [[ -s "$filtered_nameonly_file" ]]; then
