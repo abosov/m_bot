@@ -9,8 +9,12 @@ RUNNER="${AUTOMATION_RUNNER:-$ROOT_DIR/automation/run_codex_task.sh}"
 VALIDATOR_SCRIPT="$ROOT_DIR/automation/scripts/validate_story_bundle.sh"
 COMMIT_ARTIFACTS_HINT="automation/scripts/commit_story_artifacts.sh"
 EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
+EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC=":(exclude)$EPHEMERAL_LEDGER_PATH"
 # shellcheck source=automation/scripts/story_change_ledger.sh
 source "$SCRIPT_DIR/story_change_ledger.sh"
+
+COMPANION_FILTER_SCOPE_STORY_ID=""
+COMPANION_FILTER_SCOPE_ENABLED="0"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -47,6 +51,46 @@ validate_story_id() {
 require_file() {
   local path="$1"
   [[ -f "$path" ]] || fail "required file not found: $path"
+}
+
+extract_markdown_section_items() {
+  local file="$1"
+  local heading_kind="$2"
+
+  [[ -f "$file" ]] || return 0
+
+  awk -v heading_kind="$heading_kind" '
+    function is_target_heading(line, kind) {
+      if (kind == "allowed") {
+        return line == "## Files Allowed To Change"
+      }
+      if (kind == "blocked") {
+        return line == "## Files Not Allowed To Change"
+      }
+      return 0
+    }
+
+    BEGIN {
+      in_section = 0
+    }
+
+    /^## / {
+      if (is_target_heading($0, heading_kind)) {
+        in_section = 1
+        next
+      }
+      if (in_section) {
+        exit
+      }
+    }
+
+    in_section && /^[[:space:]]*-[[:space:]]+/ {
+      item = $0
+      sub(/^[[:space:]]*-[[:space:]]+/, "", item)
+      gsub(/`/, "", item)
+      print item
+    }
+  ' "$file"
 }
 
 manifest_value() {
@@ -267,12 +311,20 @@ run_preflight_stage() {
   local story_id="$1"
   local story_runs_root="$RUNS_ROOT/$story_id"
   local convergence_boundary previous_run_dir latest_run_dir stable_review_surface_run_dir
+  local stable_review_surface_status stable_review_surface_detail
 
   echo "[INFO] Preflight: classifying dirty paths for $story_id" >&2
   ensure_story_artifacts_committed "$story_id"
   enforce_escalation_resolution "$story_id"
-  if [[ -d "$story_runs_root" ]] && stable_review_surface_run_dir="$(detect_stable_review_surface_rerun "$story_runs_root" || true)" && [[ -n "$stable_review_surface_run_dir" ]]; then
-    fail_stable_review_surface_rerun "$story_id" "$stable_review_surface_run_dir"
+  if [[ -d "$story_runs_root" ]]; then
+    stable_review_surface_status=0
+    stable_review_surface_detail="$(detect_stable_review_surface_rerun "$story_id" "$story_runs_root")" || stable_review_surface_status=$?
+    if [[ "$stable_review_surface_status" -eq 0 && -n "$stable_review_surface_detail" ]]; then
+      fail_stable_review_surface_rerun "$story_id" "$stable_review_surface_detail"
+    fi
+    if [[ "$stable_review_surface_status" -eq 2 ]]; then
+      fail_companion_filtered_review_surface_recomputation "$story_id" "$stable_review_surface_detail"
+    fi
   fi
   if [[ -d "$story_runs_root" ]] && convergence_boundary="$(detect_non_converging_rerun "$story_runs_root" || true)" && [[ -n "$convergence_boundary" ]]; then
     IFS=$'\n' read -r previous_run_dir latest_run_dir <<< "$convergence_boundary"
@@ -384,10 +436,10 @@ run_is_convergence_candidate() {
   [[ ! -f "$run_dir/escalation_result.json" ]] || return 1
 }
 
-run_has_stable_review_surface_evidence() {
+run_has_stable_review_surface_prerequisites() {
   local run_dir="$1"
   local manifest_file="$run_dir/manifest.md"
-  local codex_exit_code materialization_status pytest_exit_code changed_files_detected review_artifact_base
+  local codex_exit_code materialization_status pytest_exit_code changed_files_detected
 
   [[ -f "$manifest_file" ]] || return 1
 
@@ -395,13 +447,11 @@ run_has_stable_review_surface_evidence() {
   pytest_exit_code="$(manifest_value "$manifest_file" "pytest_exit_code")"
   materialization_status="$(manifest_value "$manifest_file" "materialization_status")"
   changed_files_detected="$(manifest_value "$manifest_file" "changed_files_detected")"
-  review_artifact_base="$(manifest_value "$manifest_file" "review_artifact_base")"
 
   [[ "$codex_exit_code" == "0" ]] || return 1
   [[ "$pytest_exit_code" == "0" ]] || return 1
   [[ "$changed_files_detected" == "yes" ]] || return 1
   [[ "$materialization_status" == "applied" || "$materialization_status" == "not_needed" ]] || return 1
-  [[ -n "$review_artifact_base" ]] || return 1
   run_has_nonempty_changed_files "$run_dir" || return 1
 
   run_has_nonempty_file "$run_dir/run_meta.txt" || return 1
@@ -412,6 +462,17 @@ run_has_stable_review_surface_evidence() {
   run_has_nonempty_file "$run_dir/ai_review_result.md" || return 1
   run_has_nonempty_file "$run_dir/review_classification.md" || return 1
   json_file_is_valid_object "$run_dir/review_gate_result.json" || return 1
+}
+
+run_has_stable_review_surface_evidence() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  local review_artifact_base
+
+  run_has_stable_review_surface_prerequisites "$run_dir" || return 1
+
+  review_artifact_base="$(manifest_value "$manifest_file" "review_artifact_base")"
+  [[ -n "$review_artifact_base" ]] || return 1
 }
 
 changed_files_match() {
@@ -427,6 +488,120 @@ def normalized(path: Path) -> list[str]:
 
 raise SystemExit(0 if normalized(Path(sys.argv[1])) == normalized(Path(sys.argv[2])) else 1)
 PY
+}
+
+path_exists_in_head() {
+  local rel_path="$1"
+
+  git -C "$ROOT_DIR" cat-file -e "HEAD:$rel_path" >/dev/null 2>&1
+}
+
+story_is_code_only_for_companion_filter() {
+  local story_id="$1"
+  local scope_file
+
+  [[ -n "$story_id" && "$story_id" != "ADHOC" ]] || return 1
+
+  if [[ "$COMPANION_FILTER_SCOPE_STORY_ID" != "$story_id" ]]; then
+    COMPANION_FILTER_SCOPE_STORY_ID="$story_id"
+    COMPANION_FILTER_SCOPE_ENABLED="0"
+    scope_file="$BUNDLES_ROOT/$story_id/02_file_scope.md"
+
+    if [[ -f "$scope_file" ]] \
+      && grep -q '^## Files Allowed To Change$' "$scope_file" \
+      && ! extract_markdown_section_items "$scope_file" "allowed" \
+      | grep -Eq '(^docs/|\.md$)'; then
+      COMPANION_FILTER_SCOPE_ENABLED="1"
+    fi
+  fi
+
+  [[ "$COMPANION_FILTER_SCOPE_ENABLED" == "1" ]]
+}
+
+is_companion_filtered_review_path() {
+  local story_id="$1"
+  local path="$2"
+
+  story_is_code_only_for_companion_filter "$story_id" || return 1
+
+  case "$path" in
+    docs/90_codex/epics/US-AUTO_REGISTRY.md)
+      path_exists_in_head "$path"
+      return
+      ;;
+  esac
+
+  return 1
+}
+
+resolve_review_artifact_base() {
+  local manifest_file="$1"
+  local review_artifact_base
+
+  review_artifact_base="$(manifest_value "$manifest_file" "review_artifact_base")"
+  [[ -n "$review_artifact_base" ]] || return 1
+
+  git -C "$ROOT_DIR" rev-parse --verify "${review_artifact_base}^{commit}" 2>/dev/null
+}
+
+companion_filtered_review_surface_status() {
+  local story_id="$1"
+  local run_dir="$2"
+  local manifest_file="$run_dir/manifest.md"
+  local changed_files_artifact="$run_dir/changed_files.txt"
+  local review_artifact_base changed_files_output line
+  local companion_seen="0"
+  local -a effective_changed_files=()
+
+  story_is_code_only_for_companion_filter "$story_id" || return 1
+
+  if ! review_artifact_base="$(resolve_review_artifact_base "$manifest_file")"; then
+    printf '%s\n' "missing or invalid review_artifact_base in $manifest_file"
+    return 2
+  fi
+
+  if ! changed_files_output="$(
+    git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC"
+  )"; then
+    printf '%s\n' "unable to regenerate changed_files from review_artifact_base $review_artifact_base"
+    return 2
+  fi
+
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    if is_companion_filtered_review_path "$story_id" "$line"; then
+      companion_seen="1"
+      continue
+    fi
+    effective_changed_files+=("$line")
+  done <<< "$changed_files_output"
+
+  [[ "$companion_seen" == "1" ]] || return 1
+
+  if ! [[ -f "$changed_files_artifact" ]]; then
+    printf '%s\n' "missing changed_files artifact for companion-filtered rerun evidence: $changed_files_artifact"
+    return 2
+  fi
+
+  if ! python3 - "$changed_files_artifact" "${effective_changed_files[@]}" <<'PY'
+import sys
+from pathlib import Path
+
+artifact_path = Path(sys.argv[1])
+expected = sorted(arg for arg in sys.argv[2:] if arg.strip())
+artifact = sorted(
+    line.strip()
+    for line in artifact_path.read_text(encoding="utf-8").splitlines()
+    if line.strip()
+)
+raise SystemExit(0 if artifact == expected else 1)
+PY
+  then
+    printf '%s\n' "rerun evidence changed_files.txt does not match the recomputed companion-filtered review surface"
+    return 2
+  fi
+
+  return 0
 }
 
 detect_non_converging_rerun() {
@@ -469,13 +644,14 @@ detect_non_converging_rerun() {
 }
 
 detect_stable_review_surface_rerun() {
-  local story_runs_root="$1"
-  local latest_run_dir latest_head current_head
+  local story_id="$1"
+  local story_runs_root="$2"
+  local latest_run_dir latest_head current_head companion_filter_status companion_filter_detail
 
   latest_run_dir="$(resolve_latest_run_dir "$story_runs_root" || true)"
   [[ -n "$latest_run_dir" ]] || return 1
 
-  run_has_stable_review_surface_evidence "$latest_run_dir" || return 1
+  run_has_stable_review_surface_prerequisites "$latest_run_dir" || return 1
 
   latest_head="$(run_source_of_truth_head "$latest_run_dir")"
   current_head="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
@@ -483,6 +659,15 @@ detect_stable_review_surface_rerun() {
   [[ "$latest_head" =~ ^[0-9a-f]{40}$ ]] || return 1
   [[ "$current_head" =~ ^[0-9a-f]{40}$ ]] || return 1
   [[ "$latest_head" == "$current_head" ]] || return 1
+
+  companion_filter_status=0
+  companion_filter_detail="$(companion_filtered_review_surface_status "$story_id" "$latest_run_dir")" || companion_filter_status=$?
+  if [[ "$companion_filter_status" -eq 2 ]]; then
+    printf '%s\n' "$companion_filter_detail"
+    return 2
+  fi
+
+  run_has_stable_review_surface_evidence "$latest_run_dir" || return 1
 
   printf '%s\n' "$latest_run_dir"
 }
@@ -526,6 +711,20 @@ fail_stable_review_surface_rerun() {
     echo "Operator handoff:"
     printf ' - Inspect pinned evidence: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
     echo " - Do not rerun automation/scripts/run_story.sh again unless you first commit a change that alters the review surface."
+  } >&2
+  exit 1
+}
+
+fail_companion_filtered_review_surface_recomputation() {
+  local story_id="$1"
+  local detail="$2"
+
+  {
+    echo "ERROR: run blocked for '$story_id' because rerun-preflight could not recompute the effective companion-filtered review surface"
+    printf 'Reason: %s\n' "$detail"
+    echo "Stage gate:"
+    echo " - Review-stage: blocked until the committed review surface can be derived deterministically."
+    echo " - Rerun gate: blocked because continuing would risk using a stale or widened review surface."
   } >&2
   exit 1
 }

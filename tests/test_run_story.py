@@ -94,6 +94,15 @@ def make_run_dir(root_dir: Path, story_id: str, run_id: str) -> Path:
     return run_dir
 
 
+def write_scope_file(root_dir: Path, story_id: str, *, allowed: list[str], blocked: list[str] | None = None) -> None:
+    scope_file = root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md"
+    blocked = blocked or []
+    lines = ["## Files Allowed To Change", *[f"- `{item}`" for item in allowed], ""]
+    if blocked:
+        lines.extend(["## Files Not Allowed To Change", *[f"- `{item}`" for item in blocked], ""])
+    scope_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def write_stable_review_surface_run(run_dir: Path, head: str, *, review_gate_result: str = '{\n  "status": "pass"\n}\n') -> None:
     (run_dir / "manifest.md").write_text(
         "# Codex Run Manifest\n\n"
@@ -411,6 +420,157 @@ def test_run_story_blocks_rerun_when_current_head_review_surface_is_already_pinn
     assert f"Pinned evidence: {latest_run_dir}" in result.stderr
     assert "Review-stage: use the pinned evidence already recorded for this committed HEAD." in result.stderr
     assert "Do not rerun automation/scripts/run_story.sh again unless you first commit a change" in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_blocks_rerun_when_companion_filtered_review_surface_recomputes_cleanly(tmp_path: Path) -> None:
+    story_id = "US-AUTO-70"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+    write_scope_file(root_dir, story_id, allowed=["services/story_surface.py"])
+    run(["git", "add", "automation/bundles/active/US-AUTO-70/02_file_scope.md"], cwd=root_dir)
+    commit = run(["git", "commit", "-m", "Make story code only"], cwd=root_dir)
+    assert commit.returncode == 0, commit.stderr
+
+    registry_path = root_dir / "docs" / "90_codex" / "epics" / "US-AUTO_REGISTRY.md"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text("# Registry\n", encoding="utf-8")
+    run(["git", "add", "docs/90_codex/epics/US-AUTO_REGISTRY.md"], cwd=root_dir)
+    commit = run(["git", "commit", "-m", "Add registry"], cwd=root_dir)
+    assert commit.returncode == 0, commit.stderr
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "services/story_surface.py", "implementation\n", "Add implementation delta")
+    registry_path.write_text("# Registry\n\nCompanion update.\n", encoding="utf-8")
+    run(["git", "add", "docs/90_codex/epics/US-AUTO_REGISTRY.md"], cwd=root_dir)
+    commit = run(["git", "commit", "-m", "Add companion registry update"], cwd=root_dir)
+    assert commit.returncode == 0, commit.stderr
+
+    latest_run_dir = make_run_dir(root_dir, story_id, "2026-03-28_10-00-00")
+    write_stable_review_surface_run(latest_run_dir, current_head(root_dir))
+    (latest_run_dir / "manifest.md").write_text(
+        (latest_run_dir / "manifest.md")
+        .read_text(encoding="utf-8")
+        .replace("- review_artifact_base: HEAD~1\n", f"- review_artifact_base: {review_artifact_base}\n"),
+        encoding="utf-8",
+    )
+    (latest_run_dir / "changed_files.txt").write_text("services/story_surface.py\n", encoding="utf-8")
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "because rerunning would not change the effective review surface" in result.stderr
+    assert "Reason: unchanged_effective_review_surface_for_committed_head" in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_preserves_existing_rerun_behavior_for_non_code_only_story(tmp_path: Path) -> None:
+    story_id = "US-AUTO-70"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+    write_scope_file(root_dir, story_id, allowed=["services/story_surface.py", "docs/guide.md"])
+    run(["git", "add", "automation/bundles/active/US-AUTO-70/02_file_scope.md"], cwd=root_dir)
+    commit = run(["git", "commit", "-m", "Allow docs in scope"], cwd=root_dir)
+    assert commit.returncode == 0, commit.stderr
+
+    latest_run_dir = make_run_dir(root_dir, story_id, "2026-03-28_10-00-00")
+    write_stable_review_surface_run(latest_run_dir, current_head(root_dir))
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "because rerunning would not change the effective review surface" in result.stderr
+    assert "could not recompute the effective companion-filtered review surface" not in result.stderr
+    assert not runner_marker.exists()
+
+
+def test_run_story_blocks_when_companion_filtered_recomputation_input_is_missing(tmp_path: Path) -> None:
+    story_id = "US-AUTO-70"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+    write_scope_file(root_dir, story_id, allowed=["services/story_surface.py"])
+    run(["git", "add", "automation/bundles/active/US-AUTO-70/02_file_scope.md"], cwd=root_dir)
+    commit = run(["git", "commit", "-m", "Make story code only"], cwd=root_dir)
+    assert commit.returncode == 0, commit.stderr
+
+    registry_path = root_dir / "docs" / "90_codex" / "epics" / "US-AUTO_REGISTRY.md"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text("# Registry\n", encoding="utf-8")
+    run(["git", "add", "docs/90_codex/epics/US-AUTO_REGISTRY.md"], cwd=root_dir)
+    commit = run(["git", "commit", "-m", "Add registry"], cwd=root_dir)
+    assert commit.returncode == 0, commit.stderr
+
+    add_commit(root_dir, "services/story_surface.py", "implementation\n", "Add implementation delta")
+    registry_path.write_text("# Registry\n\nCompanion update.\n", encoding="utf-8")
+    run(["git", "add", "docs/90_codex/epics/US-AUTO_REGISTRY.md"], cwd=root_dir)
+    commit = run(["git", "commit", "-m", "Add companion registry update"], cwd=root_dir)
+    assert commit.returncode == 0, commit.stderr
+
+    latest_run_dir = make_run_dir(root_dir, story_id, "2026-03-28_10-00-00")
+    write_stable_review_surface_run(latest_run_dir, current_head(root_dir))
+    (latest_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {current_head(root_dir)}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (latest_run_dir / "changed_files.txt").write_text("services/story_surface.py\n", encoding="utf-8")
+    (latest_run_dir / "run_meta.txt").write_text("run_id=2026-03-28_10-00-00\n", encoding="utf-8")
+    (latest_run_dir / "pytest.txt").write_text("2 passed\n", encoding="utf-8")
+    (latest_run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    (latest_run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (latest_run_dir / "chatgpt_review_prompt.md").write_text("# Review Prompt\n", encoding="utf-8")
+    (latest_run_dir / "ai_review_result.md").write_text("# AI Review\npass\n", encoding="utf-8")
+    (latest_run_dir / "review_classification.md").write_text("pass\treview_surface_stable\tPinned review surface\n", encoding="utf-8")
+    (latest_run_dir / "review_gate_result.json").write_text('{\n  "status": "pass"\n}\n', encoding="utf-8")
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "could not recompute the effective companion-filtered review surface" in result.stderr
+    assert "missing or invalid review_artifact_base" in result.stderr
     assert not runner_marker.exists()
 
 
