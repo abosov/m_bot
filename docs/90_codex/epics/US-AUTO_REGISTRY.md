@@ -151,7 +151,14 @@ The registry does **not** replace story bundles.
 - Attempted implementation of US-AUTO-69 confirmed a real scope split rather than stale evidence: companion-artifact execution filtering in `automation/run_codex_task.sh` and rerun-preflight / stable-review recomputation in `automation/scripts/run_story.sh` are separate change lines and should not be forced through one continuation story.
 - Attempted implementation of US-AUTO-70 confirmed a second follow-up boundary after the rerun-preflight fix itself: a valid manual-finish continuation from a companion-filtered pinned run can still fail at final-HEAD proof because `changed_files.txt` reflects the filtered implementation surface while final `origin/main...HEAD` also contains story bundle / registry commits, producing `blocked_manual_finish_final_head_unproven` / `review_changed_files_mismatch`.
 - When a story is parked, blocked, or split, the registry must record the explicit return condition: what is already complete, what remains blocked, which follow-up story must land first, and what concrete event makes the parked line eligible to resume.
-
+- A stop-splitting guard is required to prevent infinite decomposition of follow-up stories on the same pipeline seam.
+- If a story line has already been split 2 or more times along the same execution path (for example: US-AUTO-57 → US-AUTO-69 → US-AUTO-70 → US-AUTO-71), further micro follow-ups should not be created automatically.
+- Indicators that stop-splitting must trigger:
+  - repeated blocking in the same pipeline layer (e.g. manual-finish / final-HEAD proof)
+  - the same class of error persists across follow-ups (e.g. `review_changed_files_mismatch`)
+  - implementation pressure suggests changes across multiple pipeline stages
+- When triggered, the next story must be elevated to a higher-level contract story instead of another atomic patch.
+- This rule does not invalidate atomicity; it defines when atomic decomposition must stop and abstraction level must increase.
 
 ### Story Renaming / Supersession Map
 - US-AUTO-51 (`Manual-finish review continuation contract`) → **Superseded by US-AUTO-52** (`Strict manual-finish continuation contract`)
