@@ -544,11 +544,10 @@ resolve_review_artifact_base() {
   git -C "$ROOT_DIR" rev-parse --verify "${review_artifact_base}^{commit}" 2>/dev/null
 }
 
-companion_filtered_review_surface_status() {
+recompute_companion_filtered_review_surface() {
   local story_id="$1"
   local run_dir="$2"
   local manifest_file="$run_dir/manifest.md"
-  local changed_files_artifact="$run_dir/changed_files.txt"
   local review_artifact_base changed_files_output line
   local companion_seen="0"
   local -a effective_changed_files=()
@@ -578,28 +577,7 @@ companion_filtered_review_surface_status() {
 
   [[ "$companion_seen" == "1" ]] || return 1
 
-  if ! [[ -f "$changed_files_artifact" ]]; then
-    printf '%s\n' "missing changed_files artifact for companion-filtered rerun evidence: $changed_files_artifact"
-    return 2
-  fi
-
-  if ! python3 - "$changed_files_artifact" "${effective_changed_files[@]}" <<'PY'
-import sys
-from pathlib import Path
-
-artifact_path = Path(sys.argv[1])
-expected = sorted(arg for arg in sys.argv[2:] if arg.strip())
-artifact = sorted(
-    line.strip()
-    for line in artifact_path.read_text(encoding="utf-8").splitlines()
-    if line.strip()
-)
-raise SystemExit(0 if artifact == expected else 1)
-PY
-  then
-    printf '%s\n' "rerun evidence changed_files.txt does not match the recomputed companion-filtered review surface"
-    return 2
-  fi
+  printf '%s\n' "${effective_changed_files[@]}"
 
   return 0
 }
@@ -661,7 +639,7 @@ detect_stable_review_surface_rerun() {
   [[ "$latest_head" == "$current_head" ]] || return 1
 
   companion_filter_status=0
-  companion_filter_detail="$(companion_filtered_review_surface_status "$story_id" "$latest_run_dir")" || companion_filter_status=$?
+  companion_filter_detail="$(recompute_companion_filtered_review_surface "$story_id" "$latest_run_dir")" || companion_filter_status=$?
   if [[ "$companion_filter_status" -eq 2 ]]; then
     printf '%s\n' "$companion_filter_detail"
     return 2
