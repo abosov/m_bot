@@ -582,6 +582,29 @@ recompute_companion_filtered_review_surface() {
   return 0
 }
 
+normalized_nonempty_lines_from_file() {
+  local path="$1"
+
+  [[ -f "$path" ]] || return 1
+  sed '/^[[:space:]]*$/d' "$path" | LC_ALL=C sort -u
+}
+
+normalized_nonempty_lines_from_text() {
+  printf '%s\n' "$1" | sed '/^[[:space:]]*$/d' | LC_ALL=C sort -u
+}
+
+companion_filtered_surface_matches_run_artifacts() {
+  local run_dir="$1"
+  local effective_surface="$2"
+  local changed_files_file="$run_dir/changed_files.txt"
+  local normalized_effective_surface normalized_recorded_surface
+
+  normalized_effective_surface="$(normalized_nonempty_lines_from_text "$effective_surface")"
+  normalized_recorded_surface="$(normalized_nonempty_lines_from_file "$changed_files_file")" || return 1
+
+  [[ "$normalized_effective_surface" == "$normalized_recorded_surface" ]]
+}
+
 detect_non_converging_rerun() {
   local story_runs_root="$1"
   local previous_run_dir latest_run_dir
@@ -646,6 +669,11 @@ detect_stable_review_surface_rerun() {
   fi
 
   run_has_stable_review_surface_evidence "$latest_run_dir" || return 1
+
+  if [[ "$companion_filter_status" -eq 0 ]] \
+    && ! companion_filtered_surface_matches_run_artifacts "$latest_run_dir" "$companion_filter_detail"; then
+    return 1
+  fi
 
   printf '%s\n' "$latest_run_dir"
 }
