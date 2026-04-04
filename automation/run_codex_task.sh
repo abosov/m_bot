@@ -674,8 +674,7 @@ is_execution_companion_artifact_path() {
 
   case "$path" in
     docs/90_codex/epics/US-AUTO_REGISTRY.md)
-      path_exists_in_head "$path"
-      return
+      return 0
       ;;
   esac
 

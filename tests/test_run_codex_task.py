@@ -544,6 +544,87 @@ def test_run_codex_task_fails_closed_when_companion_isolation_leaves_empty_deliv
     assert not pytest_marker.exists()
 
 
+def test_run_codex_task_filters_explicit_untracked_registry_companion_for_code_only_story(
+    tmp_path: Path,
+) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    write_executable(
+        fake_bin_dir / "codex",
+        fake_codex_script(
+            "printf '%s\\n' 'codex isolated edit' >> \"$workdir/tracked.txt\"\n"
+            "mkdir -p \"$workdir/docs/90_codex/epics\"\n"
+            "printf '%s\\n' 'registry update' > \"$workdir/docs/90_codex/epics/US-AUTO_REGISTRY.md\""
+        ),
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["SKIP_PYTEST"] = "1"
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    run_dir = latest_run_dir(root_dir)
+    changed_files = (run_dir / "changed_files.txt").read_text(encoding="utf-8")
+    diff_patch = (run_dir / "diff.patch").read_text(encoding="utf-8")
+    diff_stat = (run_dir / "diff.stat").read_text(encoding="utf-8")
+    review_bundle = (run_dir / "review_bundle.md").read_text(encoding="utf-8")
+
+    assert changed_files.splitlines() == ["tracked.txt"]
+    assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_patch
+    assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_stat
+    assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in review_bundle
+    assert not (root_dir / "docs" / "90_codex" / "epics" / "US-AUTO_REGISTRY.md").exists()
+
+
+def test_run_codex_task_fails_closed_when_only_untracked_registry_companion_is_present(
+    tmp_path: Path,
+) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    pytest_marker = tmp_path / "pytest_called.txt"
+    write_executable(
+        fake_bin_dir / "codex",
+        fake_codex_script(
+            "mkdir -p \"$workdir/docs/90_codex/epics\"\n"
+            "printf '%s\\n' 'registry update' > \"$workdir/docs/90_codex/epics/US-AUTO_REGISTRY.md\""
+        ),
+    )
+    write_executable(
+        fake_bin_dir / "pytest",
+        "#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' called > \"$PYTEST_MARKER\"\n",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["PYTEST_MARKER"] = str(pytest_marker)
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert (
+        "ERROR: explicit companion contamination removed all implementation changes; "
+        "refusing empty delivery surface"
+    ) in result.stderr
+    assert not pytest_marker.exists()
+
+
 def test_run_codex_task_marks_scope_parse_status_unparseable(tmp_path: Path) -> None:
     root_dir, prompt_file = setup_story_repo(tmp_path)
 
