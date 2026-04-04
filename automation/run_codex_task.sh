@@ -40,6 +40,9 @@ CHECK_ALLOWED_FILES_SCRIPT=""
 FALLBACK_CHECK_ALLOWED_FILES_SCRIPT=""
 WORKTREE_TRACKED_LIST_FILE=""
 WORKTREE_UNTRACKED_LIST_FILE=""
+WORKTREE_COMPANION_TRACKED_LIST_FILE=""
+WORKTREE_COMPANION_UNTRACKED_LIST_FILE=""
+COMPANION_CONTAMINATION_DETECTED="0"
 
 MATERIALIZATION_STATUS="not_needed"
 MATERIALIZED_TRACKED_COUNT="0"
@@ -729,6 +732,8 @@ CHECK_ALLOWED_FILES_SCRIPT="$ROOT_DIR/automation/scripts/check_allowed_files.sh"
 FALLBACK_CHECK_ALLOWED_FILES_SCRIPT="$RUNNER_DIR/scripts/check_allowed_files.sh"
 WORKTREE_TRACKED_LIST_FILE="$RUN_DIR/.worktree_tracked.txt"
 WORKTREE_UNTRACKED_LIST_FILE="$RUN_DIR/.worktree_untracked.txt"
+WORKTREE_COMPANION_TRACKED_LIST_FILE="$RUN_DIR/.worktree_companion_tracked.txt"
+WORKTREE_COMPANION_UNTRACKED_LIST_FILE="$RUN_DIR/.worktree_companion_untracked.txt"
 
 RUN_STATUS="started"
 ensure_run_artifact_placeholders
@@ -936,24 +941,74 @@ filter_materialization_exclusions() {
   mv "$tmp_file" "$WORKTREE_UNTRACKED_LIST_FILE"
 }
 
+isolate_explicit_execution_companion_paths() {
+  local rel tmp_file
+
+  : > "$WORKTREE_COMPANION_TRACKED_LIST_FILE"
+  : > "$WORKTREE_COMPANION_UNTRACKED_LIST_FILE"
+
+  tmp_file="$(mktemp)"
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    if is_execution_companion_artifact_path "$STORY_ID" "$rel"; then
+      printf '%s\n' "$rel" >> "$WORKTREE_COMPANION_TRACKED_LIST_FILE"
+      COMPANION_CONTAMINATION_DETECTED="1"
+      continue
+    fi
+    printf '%s\n' "$rel" >> "$tmp_file"
+  done < "$WORKTREE_TRACKED_LIST_FILE"
+  mv "$tmp_file" "$WORKTREE_TRACKED_LIST_FILE"
+
+  tmp_file="$(mktemp)"
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    if is_execution_companion_artifact_path "$STORY_ID" "$rel"; then
+      printf '%s\n' "$rel" >> "$WORKTREE_COMPANION_UNTRACKED_LIST_FILE"
+      COMPANION_CONTAMINATION_DETECTED="1"
+      continue
+    fi
+    printf '%s\n' "$rel" >> "$tmp_file"
+  done < "$WORKTREE_UNTRACKED_LIST_FILE"
+  mv "$tmp_file" "$WORKTREE_UNTRACKED_LIST_FILE"
+}
+
 load_worktree_changes() {
   git -C "$WORKTREE_DIR" diff --name-only "$WORKTREE_HEAD" -- > "$WORKTREE_TRACKED_LIST_FILE" || true
   git -C "$WORKTREE_DIR" ls-files --others --exclude-standard > "$WORKTREE_UNTRACKED_LIST_FILE" || true
 
   filter_materialization_exclusions
+  isolate_explicit_execution_companion_paths
 
   MATERIALIZED_TRACKED_COUNT="$(wc -l < "$WORKTREE_TRACKED_LIST_FILE" | tr -d ' ')"
   MATERIALIZED_UNTRACKED_COUNT="$(wc -l < "$WORKTREE_UNTRACKED_LIST_FILE" | tr -d ' ')"
   MATERIALIZED_CHANGE_COUNT="$(( MATERIALIZED_TRACKED_COUNT + MATERIALIZED_UNTRACKED_COUNT ))"
+
+  if [[ "$COMPANION_CONTAMINATION_DETECTED" == "1" && "$MATERIALIZED_CHANGE_COUNT" -eq 0 ]]; then
+    fail "explicit companion contamination removed all implementation changes; refusing empty delivery surface"
+  fi
+
   write_run_meta
 }
 
 materialize_tracked_changes() {
+  local rel patch_file
+
   if [[ "$MATERIALIZED_TRACKED_COUNT" == "0" ]]; then
     return 0
   fi
 
-  git -C "$WORKTREE_DIR" diff --binary "$WORKTREE_HEAD" -- | git -C "$ROOT_DIR" apply --binary --whitespace=nowarn
+  patch_file="$(mktemp)"
+
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    git -C "$WORKTREE_DIR" diff --binary "$WORKTREE_HEAD" -- "$rel" >> "$patch_file"
+  done < "$WORKTREE_TRACKED_LIST_FILE"
+
+  if [[ -s "$patch_file" ]]; then
+    git -C "$ROOT_DIR" apply --binary --whitespace=nowarn < "$patch_file"
+  fi
+
+  rm -f "$patch_file"
 }
 
 materialize_untracked_files() {
@@ -1168,6 +1223,9 @@ check_allowed_files() {
         [[ -n "$changed_file" ]] || continue
         if is_committed_same_story_bundle_artifact "$changed_file" \
           || is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
+          if is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
+            COMPANION_CONTAMINATION_DETECTED="1"
+          fi
           continue
         fi
         printf '%s\n' "$changed_file" >> "$filtered_nameonly_file"
@@ -1178,6 +1236,7 @@ check_allowed_files() {
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
         if is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
+          COMPANION_CONTAMINATION_DETECTED="1"
           continue
         fi
         printf '%s\n' "$changed_file" >> "$filtered_nameonly_file"
@@ -1186,6 +1245,10 @@ check_allowed_files() {
 
     if [[ -s "$filtered_nameonly_file" ]]; then
       LC_ALL=C sort -u "$filtered_nameonly_file" > "$NAMEONLY_FILE"
+    fi
+
+    if [[ "$COMPANION_CONTAMINATION_DETECTED" == "1" && ! -s "$NAMEONLY_FILE" ]]; then
+      fail "explicit companion contamination removed all implementation changes; refusing empty delivery surface"
     fi
   fi
 

@@ -463,6 +463,7 @@ def test_run_codex_task_filters_only_explicit_registry_companion_for_code_only_s
     write_executable(
         fake_bin_dir / "codex",
         fake_codex_script(
+            "printf '%s\\n' 'codex isolated edit' >> \"$workdir/tracked.txt\"\n"
             "printf '%s\\n' 'registry update' >> \"$workdir/docs/90_codex/epics/US-AUTO_REGISTRY.md\""
         ),
     )
@@ -493,6 +494,54 @@ def test_run_codex_task_filters_only_explicit_registry_companion_for_code_only_s
     assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_stat
     assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in review_bundle
     assert "- changed_files_detected: yes" in manifest
+    assert registry_path.read_text(encoding="utf-8") == "# Registry\n\nTracked registry.\n"
+
+
+def test_run_codex_task_fails_closed_when_companion_isolation_leaves_empty_delivery_surface(
+    tmp_path: Path,
+) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    run(["git", "checkout", "main"], cwd=root_dir)
+    run(["git", "checkout", "-b", "feat/us-auto-7-empty-surface"], cwd=root_dir)
+
+    registry_path = root_dir / "docs" / "90_codex" / "epics" / "US-AUTO_REGISTRY.md"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text("# Registry\n\nTracked registry.\n", encoding="utf-8")
+    run(["git", "add", "docs/90_codex/epics/US-AUTO_REGISTRY.md"], cwd=root_dir)
+    run(["git", "commit", "-m", "Add tracked registry artifact"], cwd=root_dir)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    pytest_marker = tmp_path / "pytest_called.txt"
+    write_executable(
+        fake_bin_dir / "codex",
+        fake_codex_script(
+            "printf '%s\\n' 'registry update' >> \"$workdir/docs/90_codex/epics/US-AUTO_REGISTRY.md\""
+        ),
+    )
+    write_executable(
+        fake_bin_dir / "pytest",
+        "#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' called > \"$PYTEST_MARKER\"\n",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["PYTEST_MARKER"] = str(pytest_marker)
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert (
+        "ERROR: explicit companion contamination removed all implementation changes; "
+        "refusing empty delivery surface"
+    ) in result.stderr
+    assert not pytest_marker.exists()
 
 
 def test_run_codex_task_marks_scope_parse_status_unparseable(tmp_path: Path) -> None:
