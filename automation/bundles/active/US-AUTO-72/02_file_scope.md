@@ -21,7 +21,19 @@ automation/bundle_packs/US-AUTO-71.bundle.md
 
 ## Scope Notes
 
-Scope filtering must happen **inside pipeline**, not via Codex discipline.
+Delivery isolation must happen inside the pipeline, not via Codex discipline.
+
+Hard scope rules for this story:
+
+* allowed behavior:
+  * isolate only explicitly supported companion contamination
+  * preserve valid in-scope implementation changes
+  * keep the existing fail-closed scope contract
+
+* forbidden behavior:
+  * filtering arbitrary tracked or untracked worktree changes down to the allowed file list before normal scope validation
+  * redefining real out-of-scope changes as ignorable noise
+  * changing tests to accept fail-open filtered-empty semantics
 
 ---
 

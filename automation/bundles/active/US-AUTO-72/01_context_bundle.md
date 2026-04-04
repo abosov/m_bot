@@ -12,11 +12,14 @@ Mismatch causes systemic failure.
 
 ## Architectural Intent
 
-System must be robust to generator noise.
+System must be robust to generator noise without weakening scope enforcement.
 
-Key rule:
+Key rules:
 
-Pipeline trusts scope, not generator.
+* pipeline trusts scope, not generator
+* explicit companion contamination may be isolated
+* real out-of-scope changes must still block execution
+* delivery isolation must not become a generic pre-scope filtering layer
 
 ## Risks
 
@@ -27,8 +30,9 @@ Pipeline trusts scope, not generator.
 
 Must prove:
 
-* subset extraction works
-* invalid files are excluded
+* explicit companion contamination is isolated correctly
+* real out-of-scope changes are still rejected
+* no generic filtering of arbitrary changed paths is introduced
 
 ---
 
