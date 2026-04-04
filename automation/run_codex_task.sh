@@ -718,6 +718,9 @@ filter_ignored_execution_diff_paths() {
 DIFF_FILE="$RUN_DIR/diff.patch"
 STAT_FILE="$RUN_DIR/diff.stat"
 NAMEONLY_FILE="$RUN_DIR/changed_files.txt"
+
+
+
 TEST_FILE="$RUN_DIR/pytest.txt"
 BUNDLE_FILE="$RUN_DIR/review_bundle.md"
 REVIEW_PROMPT_FILE="$RUN_DIR/chatgpt_review_prompt.md"
@@ -899,6 +902,8 @@ run_codex() {
   echo "$exit_code"
 }
 
+
+
 run_pytest() {
   if [[ "$SKIP_PYTEST" == "1" ]]; then
     echo "SKIPPED"
@@ -1005,6 +1010,8 @@ materialize_worktree_changes() {
   write_run_meta
 
   info "Materializing isolated worktree changes into primary checkout"
+
+
   materialize_tracked_changes
   materialize_untracked_files
   verify_materialized_changes
