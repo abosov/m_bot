@@ -1190,7 +1190,7 @@ check_allowed_files() {
   fi
 
   info "Validating changed files against bundle scope"
-  if bash "$script_path" "$STORY_ID" "$NAMEONLY_FILE" "$bundle_dir"; then
+  if bash "$script_path" "$STORY_ID" "$NAMEONLY_FILE" "$bundle_dir" >&2; then
     SCOPE_PARSE_STATUS="parsed"
     write_run_meta
   else
