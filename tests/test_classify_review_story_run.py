@@ -539,3 +539,131 @@ exit 0
     assert not marker_file.exists()
     assert not (run_dir / "review_classification.md").exists()
     assert not (run_dir / "review_classification_raw_output.txt").exists()
+
+def test_classify_review_story_run_allows_manual_finish_continuation_with_companion_filtered_baseline(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+    init_git_repo(root_dir)
+
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init ignore automation"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    # scope: code-only
+    scope_file = root_dir / "automation" / "bundles" / "active" / "US-AUTO-70" / "02_file_scope.md"
+    scope_file.parent.mkdir(parents=True, exist_ok=True)
+    scope_file.write_text(
+        "# Scope\n\n"
+        "## Files Allowed To Change\n"
+        "- `services/story_loop.py`\n\n"
+        "## Files Not Allowed To Change\n"
+        "- `backend/**`\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "-f", str(scope_file.relative_to(root_dir))], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "scope"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    rules_file = root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text("# Rules\n", encoding="utf-8")
+    subprocess.run(["git", "add", str(rules_file.relative_to(root_dir))], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "rules"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    review_artifact_base = current_head(root_dir)
+
+    # implementation + companion change
+    impl_file = root_dir / "services" / "story_loop.py"
+    impl_file.parent.mkdir(parents=True, exist_ok=True)
+    impl_file.write_text("impl\n", encoding="utf-8")
+
+    registry_file = root_dir / "docs" / "90_codex" / "epics" / "US-AUTO_REGISTRY.md"
+    registry_file.parent.mkdir(parents=True, exist_ok=True)
+    registry_file.write_text("registry\n", encoding="utf-8")
+
+    subprocess.run(
+        ["git", "add", "services/story_loop.py", "docs/90_codex/epics/US-AUTO_REGISTRY.md"],
+        cwd=root_dir,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "impl + companion"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    # ВАЖНО: только impl в diff
+    filtered_diff = subprocess.run(
+        ["git", "diff", review_artifact_base, "--", "services/story_loop.py"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    run_dir = root_dir / "automation" / "runs" / "US-AUTO-70" / "2026-04-01_12-00-00"
+    run_dir.mkdir(parents=True)
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {current_head(root_dir)}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+
+    (run_dir / "diff.patch").write_text(filtered_diff, encoding="utf-8")
+    (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+
+    (run_dir / "ai_review_result.md").write_text(
+        "# AI Review\n\nOK\n\n# AI Review Result\n\nPASS\n",
+        encoding="utf-8",
+    )
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    marker_file = tmp_path / "codex_called.txt"
+
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' called > "{marker_file}"
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o) output="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+printf '%s\\n' '# Review Classification' > "$output"
+printf '%s\\n' 'MERGE RECOMMENDATION: approve' >> "$output"
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+    env["CLASSIFICATION_RULES_FILE"] = str(rules_file)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-70"],
+        cwd=root_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert marker_file.exists()
