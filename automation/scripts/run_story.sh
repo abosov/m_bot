@@ -187,6 +187,23 @@ manifest_declares_escalation_artifact() {
   grep -Fqx -- "- escalation_result.json" "$manifest_file"
 }
 
+run_manifest_starting_head() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  manifest_value "$manifest_file" "starting_head"
+}
+
+run_dir_matches_current_head() {
+  local run_dir="$1"
+  local current_head="$2"
+  local starting_head=""
+
+  [[ -n "$run_dir" ]] || return 1
+  starting_head="$(run_manifest_starting_head "$run_dir")"
+  [[ -n "$starting_head" ]] || return 1
+  [[ "$starting_head" == "$current_head" ]]
+}
+
 fail_invalid_escalation_resolution() {
   local story_id="$1"
   local latest_run_dir="$2"
@@ -275,8 +292,24 @@ run_preflight_stage() {
     fail_stable_review_surface_rerun "$story_id" "$stable_review_surface_run_dir"
   fi
   if [[ -d "$story_runs_root" ]] && convergence_boundary="$(detect_non_converging_rerun "$story_runs_root" || true)" && [[ -n "$convergence_boundary" ]]; then
-    IFS=$'\n' read -r previous_run_dir latest_run_dir <<< "$convergence_boundary"
-    fail_non_converging_rerun "$story_id" "$previous_run_dir" "$latest_run_dir"
+    local current_head stale_starting_head
+    previous_run_dir="${convergence_boundary%%$'\n'*}"
+    if [[ "$convergence_boundary" == *$'\n'* ]]; then
+      latest_run_dir="${convergence_boundary#*$'\n'}"
+    else
+      latest_run_dir=""
+    fi
+    current_head="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+
+    if [[ -n "$latest_run_dir" ]] && [[ -n "$current_head" ]] && ! run_dir_matches_current_head "$latest_run_dir" "$current_head"; then
+      stale_starting_head="$(run_manifest_starting_head "$latest_run_dir")"
+      printf '[INFO] Ignoring stale rerun evidence for %s: %s does not match current HEAD %s\n' \
+        "$story_id" \
+        "$stale_starting_head" \
+        "$current_head" >&2
+    else
+      fail_non_converging_rerun "$story_id" "$previous_run_dir" "$latest_run_dir"
+    fi
   fi
   echo "[INFO] Preflight: passed for $story_id" >&2
 }

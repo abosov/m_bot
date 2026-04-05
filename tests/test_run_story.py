@@ -1346,3 +1346,110 @@ def test_run_story_blocks_resolved_escalation_with_duplicate_decision_source_key
 
     assert result.returncode != 0
     assert "escalation resolution is invalid: duplicate key" in result.stderr
+
+def test_run_story_ignores_stale_non_converging_rerun_evidence_from_old_head(tmp_path: Path) -> None:
+    story_id = "US-AUTO-70"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    first_head = current_head(root_dir)
+    second_head = add_commit(root_dir, "tracked_1.txt", "one\n", "advance HEAD once for stale rerun pair")
+
+    orphan_checkout = run(["git", "checkout", "--orphan", "fresh-head"], cwd=root_dir)
+    assert orphan_checkout.returncode == 0, orphan_checkout.stderr
+
+    remove_index = run(["git", "rm", "-rf", "."], cwd=root_dir)
+    assert remove_index.returncode == 0, remove_index.stderr
+
+    bundle_dir = root_dir / "automation" / "bundles" / "active" / story_id
+    bundle_dir.mkdir(parents=True)
+    for file_name in REQUIRED_BUNDLE_FILES:
+        (bundle_dir / file_name).write_text(f"# {file_name}\n", encoding="utf-8")
+
+    pack_path = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
+    pack_path.parent.mkdir(parents=True, exist_ok=True)
+    pack_path.write_text(f"# Story Bundle Pack\nStory-ID: {story_id}\nVersion: 1\n", encoding="utf-8")
+
+    ledger_path = root_dir / "automation" / "story_change_ledger.jsonl"
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path.write_text("", encoding="utf-8")
+
+    gitignore_path = root_dir / ".gitignore"
+    gitignore_path.write_text("/automation/runs/*\n!/automation/runs/.gitkeep\n", encoding="utf-8")
+
+    runs_keep = root_dir / "automation" / "runs" / ".gitkeep"
+    runs_keep.parent.mkdir(parents=True, exist_ok=True)
+    runs_keep.write_text("", encoding="utf-8")
+
+    validator = root_dir / "automation" / "scripts" / "validate_story_bundle.sh"
+    validator.parent.mkdir(parents=True, exist_ok=True)
+    validator.write_text("#!/usr/bin/env bash\nset -euo pipefail\nexit 0\n", encoding="utf-8")
+    validator.chmod(0o755)
+
+    add = run(["git", "add", "."], cwd=root_dir)
+    assert add.returncode == 0, add.stderr
+    commit = run(["git", "commit", "-m", "create unrelated fresh head"], cwd=root_dir)
+    assert commit.returncode == 0, commit.stderr
+
+    third_head = current_head(root_dir)
+    assert first_head != second_head
+    assert second_head != third_head
+
+    previous_run_dir = make_run_dir(root_dir, story_id, "2026-04-01_22-30-00")
+    (previous_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (previous_run_dir / "changed_files.txt").write_text(
+        "automation/scripts/run_story.sh\n"
+        "tests/test_run_story.py\n",
+        encoding="utf-8",
+    )
+
+    latest_run_dir = make_run_dir(root_dir, story_id, "2026-04-01_22-39-02")
+    (latest_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {second_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (latest_run_dir / "changed_files.txt").write_text(
+        "automation/scripts/run_story.sh\n"
+        "tests/test_run_story.py\n",
+        encoding="utf-8",
+    )
+    (latest_run_dir / "run_meta.txt").write_text("run_id=2026-04-01_22-39-02\n", encoding="utf-8")
+    (latest_run_dir / "pytest.txt").write_text("2 passed\n", encoding="utf-8")
+    (latest_run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    (latest_run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (latest_run_dir / "chatgpt_review_prompt.md").write_text("# Review Prompt\n", encoding="utf-8")
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert third_head == current_head(root_dir)
+    assert runner_marker.read_text(encoding="utf-8").strip() == "called"
+    assert f"[INFO] Ignoring stale rerun evidence for {story_id}:" in result.stderr
+    assert second_head in result.stderr
+    assert third_head in result.stderr
