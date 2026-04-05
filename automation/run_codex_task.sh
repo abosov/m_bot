@@ -269,9 +269,9 @@ extract_markdown_section_items() {
       }
     }
 
-    in_section && /^[[:space:]]*-[[:space:]]+/ {
+    in_section && /^[[:space:]]*[-*][[:space:]]+/ {
       item = $0
-      sub(/^[[:space:]]*-[[:space:]]+/, "", item)
+      sub(/^[[:space:]]*[-*][[:space:]]+/, "", item)
       gsub(/`/, "", item)
       print item
     }

@@ -101,16 +101,16 @@ def setup_story_repo(tmp_path: Path) -> tuple[Path, Path]:
         """# US-AUTO-7: File Scope
 
 ## Files Allowed To Change
-- `tracked.txt`
-- `generated/from_worktree.txt`
-- `reports/materialized.txt`
-- `tests/test_materialized_state.py`
+* `tracked.txt`
+* `generated/from_worktree.txt`
+* `reports/materialized.txt`
+* `tests/test_materialized_state.py`
 
 ## Files Not Allowed To Change
-- `backend/**`
+* `backend/**`
 
 ## Scope Notes
-- Minimal test scope for run_codex_task integration tests.
+* Minimal test scope for run_codex_task integration tests.
 """,
         encoding="utf-8",
     )

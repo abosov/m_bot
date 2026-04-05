@@ -419,7 +419,7 @@ review_artifact_fidelity_status() {
   normalized_artifact_diff_file="$(mktemp)"
 
   if ! git -C "$ROOT_DIR" diff "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
-      | filter_review_fidelity_diff "$STORY_ID" > "$expected_diff_file"; then
+      | filter_review_fidelity_diff "$STORY_ID" "$run_dir" > "$expected_diff_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
     printf 'reject\treview_diff_generation_failed\tunable to regenerate authoritative diff from review_artifact_base %s\n' "$review_artifact_base"
     return 0
@@ -427,7 +427,7 @@ review_artifact_fidelity_status() {
 
   git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
     | sed '/^$/d' \
-    | filter_review_fidelity_paths "$STORY_ID" "$expected_changed_files_file"
+    | filter_review_fidelity_paths "$STORY_ID" "$run_dir" "$expected_changed_files_file"
 
   if [[ $? -ne 0 ]]; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
@@ -435,13 +435,13 @@ review_artifact_fidelity_status() {
     return 0
   fi
   
-  if ! filter_review_fidelity_diff "$STORY_ID" < "$diff_artifact" > "$normalized_artifact_diff_file"; then
+  if ! filter_review_fidelity_diff "$STORY_ID" "$run_dir" < "$diff_artifact" > "$normalized_artifact_diff_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
     printf 'reject\treview_diff_artifact_invalid\treview artifact diff.patch could not be normalized for fidelity comparison; rerun automation/scripts/run_story.sh %s\n' "$STORY_ID"
     return 0
   fi
 
-  sorted_changed_files_to "$STORY_ID" "$changed_files_artifact" "$artifact_changed_files_file"
+  sorted_changed_files_to "$STORY_ID" "$run_dir" "$changed_files_artifact" "$artifact_changed_files_file"
 
   if ! cmp -s "$artifact_changed_files_file" "$expected_changed_files_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
@@ -513,9 +513,6 @@ review_input_artifact_status() {
   printf 'reject\tinvalid_or_missing_merge_recommendation\tReview classification artifact did not contain a valid merge recommendation\n'
 }
 
-COMPANION_FILTER_SCOPE_STORY_ID=""
-COMPANION_FILTER_SCOPE_ENABLED="0"
-
 extract_markdown_section_items() {
   local file="$1"
   local heading_kind="$2"
@@ -547,40 +544,20 @@ extract_markdown_section_items() {
       }
     }
 
-    in_section && /^[[:space:]]*-[[:space:]]+/ {
+    in_section && /^[[:space:]]*[-*][[:space:]]+/ {
       item = $0
-      sub(/^[[:space:]]*-[[:space:]]+/, "", item)
+      sub(/^[[:space:]]*[-*][[:space:]]+/, "", item)
       gsub(/`/, "", item)
       print item
     }
   ' "$file"
 }
 
-story_is_code_only_for_execution_filter() {
-  local story_id="$1"
-  local scope_file
-
-  [[ -n "$story_id" ]] || return 1
-
-  if [[ "$COMPANION_FILTER_SCOPE_STORY_ID" != "$story_id" ]]; then
-    COMPANION_FILTER_SCOPE_STORY_ID="$story_id"
-    COMPANION_FILTER_SCOPE_ENABLED="0"
-    scope_file="$ROOT_DIR/automation/bundles/active/$story_id/02_file_scope.md"
-
-    if [[ -f "$scope_file" ]] && ! extract_markdown_section_items "$scope_file" "allowed" \
-      | grep -Eq '(^docs/|\.md$)'; then
-      COMPANION_FILTER_SCOPE_ENABLED="1"
-    fi
-  fi
-
-  [[ "$COMPANION_FILTER_SCOPE_ENABLED" == "1" ]]
-}
-
 is_execution_companion_artifact_path() {
-  local story_id="$1"
+  local run_dir="$1"
   local path="$2"
 
-  story_is_code_only_for_execution_filter "$story_id" || return 1
+  run_manifest_companion_filter_enabled "$run_dir" || return 1
 
   case "$path" in
     docs/90_codex/epics/US-AUTO_REGISTRY.md)
@@ -593,44 +570,38 @@ is_execution_companion_artifact_path() {
 
 is_review_fidelity_ignored_path() {
   local story_id="$1"
-  local path="$2"
+  local run_dir="$2"
+  local path="$3"
 
   if is_story_artifact_review_ignored_path "$story_id" "$path"; then
     return 0
   fi
 
-  is_execution_companion_artifact_path "$story_id" "$path"
+  is_execution_companion_artifact_path "$run_dir" "$path"
 }
 
 is_story_artifact_review_ignored_path() {
   local story_id="$1"
   local path="$2"
 
-  # bundle pack
   [[ "$path" == "automation/bundle_packs/$story_id.bundle.md" ]] && return 0
-
-  # active bundle directory (both dir and nested files)
-  if [[ "$path" == "automation/bundles/active/$story_id" ]]; then
-    return 0
-  fi
-
-  if [[ "$path" == automation/bundles/active/$story_id/* ]]; then
-    return 0
-  fi
+  [[ "$path" == "automation/bundles/active/$story_id" ]] && return 0
+  [[ "$path" == automation/bundles/active/$story_id/* ]] && return 0
 
   return 1
 }
 
 filter_review_fidelity_paths() {
   local story_id="$1"
-  local output_file="$2"
-
+  local run_dir="$2"
+  local output_file="$3"
   local tmp
+
   tmp="$(mktemp)"
 
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
-    if is_review_fidelity_ignored_path "$story_id" "$path"; then
+    if is_review_fidelity_ignored_path "$story_id" "$run_dir" "$path"; then
       continue
     fi
     printf '%s\n' "$path"
@@ -641,13 +612,14 @@ filter_review_fidelity_paths() {
 
 filter_review_fidelity_diff() {
   local story_id="$1"
-  local line
+  local run_dir="$2"
+  local line file
   local skip=0
 
   while IFS= read -r line; do
     if [[ "$line" =~ ^diff\ --git\ a/(.+)\ b/(.+)$ ]]; then
       file="${BASH_REMATCH[1]}"
-      if is_review_fidelity_ignored_path "$story_id" "$file"; then
+      if is_review_fidelity_ignored_path "$story_id" "$run_dir" "$file"; then
         skip=1
         continue
       else
@@ -665,14 +637,15 @@ filter_review_fidelity_diff() {
 
 sorted_changed_files_to() {
   local story_id="$1"
-  local changed_files_file="$2"
-  local output_file="$3"
-
+  local run_dir="$2"
+  local changed_files_file="$3"
+  local output_file="$4"
   local tmp
+
   tmp="$(mktemp)"
 
   sed '/^$/d' "$changed_files_file" \
-    | filter_review_fidelity_paths "$story_id" "$tmp"
+    | filter_review_fidelity_paths "$story_id" "$run_dir" "$tmp"
 
   mv "$tmp" "$output_file"
 }
@@ -692,9 +665,13 @@ recompute_filtered_changed_files_for_run_to() {
   [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
   [[ "$run_head" =~ ^[0-9a-f]{40}$ ]] || return 1
 
-  git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" "$run_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
-    | sed '/^$/d' \
-    | filter_review_fidelity_paths "$story_id" "$output_file"
+  if [[ -f "$run_dir/changed_files.txt" ]]; then
+    sed '/^$/d' "$run_dir/changed_files.txt" \
+      | filter_review_fidelity_paths "$story_id" "$run_dir" "$output_file"
+    return 0
+  fi
+
+  return 1
 }
 
 sorted_effective_changed_files_for_run_to() {
@@ -703,14 +680,14 @@ sorted_effective_changed_files_for_run_to() {
   local output_file="$3"
   local changed_files_file="$run_dir/changed_files.txt"
 
-  if story_is_code_only_for_execution_filter "$story_id" && run_manifest_companion_filter_enabled "$run_dir"; then
+  if run_manifest_companion_filter_enabled "$run_dir"; then
     if recompute_filtered_changed_files_for_run_to "$story_id" "$run_dir" "$output_file"; then
       return 0
     fi
   fi
 
   [[ -f "$changed_files_file" ]] || return 1
-  sorted_changed_files_to "$story_id" "$changed_files_file" "$output_file"
+  sorted_changed_files_to "$story_id" "$run_dir" "$changed_files_file" "$output_file"
 }
 
 run_has_nonempty_changed_files() {
@@ -882,7 +859,7 @@ find_previous_reject_stagnation_run() {
     return 1
   }
   normalized_current_diff="$(mktemp)"
-  filter_review_fidelity_diff "$STORY_ID" < "$current_diff" > "$normalized_current_diff"
+  filter_review_fidelity_diff "$STORY_ID" "$current_run_dir" < "$current_diff" > "$normalized_current_diff"
 
   while IFS= read -r candidate_run_dir; do
     [[ -n "$candidate_run_dir" ]] || continue
@@ -900,7 +877,7 @@ find_previous_reject_stagnation_run() {
     [[ -f "$candidate_run_dir/changed_files.txt" ]] || continue
 
     normalized_candidate_diff="$(mktemp)"
-    filter_review_fidelity_diff "$STORY_ID" < "$candidate_run_dir/diff.patch" > "$normalized_candidate_diff"
+    filter_review_fidelity_diff "$STORY_ID" "$candidate_run_dir" < "$candidate_run_dir/diff.patch" > "$normalized_candidate_diff"
 
     if ! cmp -s "$normalized_current_diff" "$normalized_candidate_diff"; then
       rm -f "$normalized_candidate_diff"

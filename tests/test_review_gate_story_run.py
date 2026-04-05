@@ -839,6 +839,11 @@ def test_review_gate_story_run_ignores_companion_registry_diff_for_code_only_sto
         story_id,
         review_artifact_base=review_artifact_base,
     )
+    (run_dir / "manifest.md").write_text(
+        (run_dir / "manifest.md").read_text(encoding="utf-8")
+        + "- execution_companion_filter_mode: enabled\n",
+        encoding="utf-8",
+    )
     write_pinned_review_artifacts(run_dir, recommendation="approve")
 
     result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})

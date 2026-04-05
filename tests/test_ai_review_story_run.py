@@ -408,7 +408,8 @@ def test_ai_review_story_run_allows_manual_finish_continuation_with_companion_fi
         "- codex_exit_code: 0\n"
         "- materialization_status: applied\n"
         "- pytest_exit_code: 0\n"
-        "- changed_files_detected: yes\n",
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n",
         encoding="utf-8",
     )
     (previous_run / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
@@ -423,6 +424,7 @@ def test_ai_review_story_run_allows_manual_finish_continuation_with_companion_fi
         "- materialization_status: applied\n"
         "- pytest_exit_code: 0\n"
         "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
         "- review_artifact_base: HEAD~1\n",
         encoding="utf-8",
     )
