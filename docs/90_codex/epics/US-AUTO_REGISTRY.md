@@ -19,6 +19,27 @@ Use this registry to track the minimum portfolio-level facts for the epic:
 
 The registry does **not** replace story bundles.
 
+## Source of Truth Model
+
+The US-AUTO workflow enforces strict separation of responsibilities between artifacts:
+
+- **Bundle pack (`automation/bundle_packs/US-AUTO-*.bundle.md`)**
+  - The **only authoring source of truth for story definition**
+  - All story content, constraints, and contracts must originate here
+  - Any changes to story behavior must be made in the bundle pack first
+
+- **Active bundle (`automation/bundles/active/US-AUTO-*`)**
+  - A **generated runtime artifact produced by materialize_story_bundle.sh**
+  - Must never be edited manually as a source of truth
+  - Any drift between bundle pack and active bundle is resolved by re-materialization
+
+- **Registry (`US-AUTO_REGISTRY.md`)**
+  - The **epic-level portfolio source of truth**
+  - Tracks story existence, status, relationships, and sequencing
+  - Must not contain story-level behavioral contracts or duplicate bundle content
+
+Violation of this separation (e.g., editing active bundle directly or duplicating logic in registry) is considered a workflow integrity breach.
+
 ## Status Legend
 - Planned
 - Bundle Drafted
@@ -148,6 +169,7 @@ The registry does **not** replace story bundles.
 - US-AUTO-56 added explicit deterministic stage-gate guidance so operators can see when review-stage is allowed, when commit/discard is required first, and when manual-finish continuation forbids rerun without changing the underlying fail-closed workflow policy.
 - Attempted implementation of US-AUTO-69 confirmed a real scope split rather than stale evidence: companion-artifact execution filtering in `automation/run_codex_task.sh` and rerun-preflight / stable-review recomputation in `automation/scripts/run_story.sh` are separate change lines and should not be forced through one continuation story.
 - When a story is parked, blocked, or split, the registry must record the explicit return condition: what is already complete, what remains blocked, which follow-up story must land first, and what concrete event makes the parked line eligible to resume.
+- A story must always be driven to full completion (run → analyze → review → gate → merge → cleanup) before switching to another story; partial completion or premature context switching is forbidden and considered a workflow violation.
 
 
 ### Story Renaming / Supersession Map
@@ -224,6 +246,7 @@ The registry does **not** replace story bundles.
 | US-AUTO-57 | Preflight rerun-skip detection | Stop before a full Codex rerun when the next rerun would not change the effective review surface | enforcement | Blocked | P1 | Park implementation; resolved via follow-up US-AUTO-69 | US-AUTO-26 | automation/bundles/active/US-AUTO-57/ | Implementation commit 300d78f, tests passing; BLOCKED by companion-artifact diff (docs/90_codex/epics/US-AUTO_REGISTRY.md) introduced during Codex execution; see US-AUTO-69 |
 | US-AUTO-69 | Companion-artifact execution filtering for code-only stories | Isolate the execution-surface filtering half of the blocked US-AUTO-57 follow-up without expanding into rerun-preflight recomputation | split | Split | P1 | Park this split line until US-AUTO-70 lands and proves rerun-preflight / stable-review recomputation separately | US-AUTO-57 | N/A | Split from the attempted continuation: execution filtering belongs to `automation/run_codex_task.sh` + `tests/test_run_codex_task.py`; return condition: resume only after US-AUTO-70 is implemented and the rerun-preflight half is no longer coupled to this line |
 | US-AUTO-70 | Rerun-preflight stable-review recomputation for companion-filtered stories | Recompute the effective filtered review surface before rerun/gate so companion-filtered stories do not fail acceptance because rerun-preflight still evaluates the unadjusted surface | follow-up | Planned | P1 | Draft bundle | US-AUTO-69 split follow-up | N/A | Scope must stay limited to `automation/scripts/run_story.sh` and `tests/test_run_story.py`; do not modify `automation/run_codex_task.sh`; completion of this story is the return condition for resuming the parked US-AUTO-69 line |
+| US-AUTO-72 | Explicit companion isolation | Filter execution companion artifacts and enforce non-empty delivery surface | enforcement | Implemented | P1 | None | US-AUTO-69 split | automation/bundles/active/US-AUTO-72/ | Completed and merged |
 | US-AUTO-29 | Deterministic story-scoped verification strategy | Select the minimal required verification scope for the current story/run instead of always paying full validation cost | follow-up | Planned | P2 | Draft bundle | Re-scoped from original US-AUTO-29 | N/A | Formerly “targeted test strategy”; now broader but still deterministic and story-scoped |
 | US-AUTO-30 | Safe review-artifact reuse eligibility | Reuse review-stage artifacts only when the review surface is provably unchanged | follow-up | Planned | P2 | Draft bundle | Re-scoped from original US-AUTO-30 | N/A | Distinct from already-implemented deterministic gate reuse in US-AUTO-45 |
 | US-AUTO-31 | Mandatory analyze gate before rerun or next phase | Make `analyze_story_run.sh` an explicit decision gate before rerun, review continuation, or phase advance | follow-up | Planned | P1 | Draft bundle | Re-scoped from original US-AUTO-31 | N/A | Replaces vague checkpoint language with explicit decision-gate semantics |
