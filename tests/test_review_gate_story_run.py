@@ -969,6 +969,117 @@ def test_review_gate_story_run_allows_manual_finish_continuation_with_companion_
     assert '"decision_source": "review_classification"' in gate_result
 
 
+def test_review_gate_story_run_rejects_manual_finish_when_companion_filtered_diff_changed_across_reruns(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-70"
+    run_dir = make_run_dir(root_dir, story_id, "2026-04-01_12-00-02-manual-finish-diff-change")
+
+    scope_file = root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md"
+    scope_file.parent.mkdir(parents=True, exist_ok=True)
+    scope_file.write_text(
+        "# Scope\n\n"
+        "## Files Allowed To Change\n"
+        "- `services/story_loop.py`\n\n"
+        "## Files Not Allowed To Change\n"
+        "- `backend/**`\n",
+        encoding="utf-8",
+    )
+    subprocess.run(
+        ["git", "add", str(scope_file.relative_to(root_dir))],
+        check=True,
+        cwd=root_dir,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add code-only scope for companion filtering"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    review_artifact_base = current_head(root_dir)
+    first_head = add_commit(root_dir, "services/story_loop.py", "return 'first'\n", "first rerun head")
+    second_head = add_commit(root_dir, "services/story_loop.py", "return 'second'\n", "second rerun head")
+
+    previous_run = make_run_dir(root_dir, story_id, "2026-04-01_11-00-00-diff-change-previous")
+    (previous_run / "manifest.md").write_text(
+        "# Manifest\n"
+        f"- story_id: {story_id}\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (previous_run / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (previous_run / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, first_head, "--", "services/story_loop.py"],
+            check=True,
+            cwd=root_dir,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        starting_head=second_head,
+        review_artifact_base=review_artifact_base,
+    )
+    (run_dir / "manifest.md").write_text(
+        (run_dir / "manifest.md").read_text(encoding="utf-8")
+        + "- codex_exit_code: 0\n"
+        + "- materialization_status: applied\n"
+        + "- pytest_exit_code: 0\n"
+        + "- changed_files_detected: yes\n"
+        + "- execution_companion_filter_mode: enabled\n",
+        encoding="utf-8",
+    )
+
+    manual_finish_head = add_commit(
+        root_dir,
+        "services/story_loop.py",
+        "return 'manual finish'\n",
+        "manual finish after diff changed",
+    )
+
+    (run_dir / "review_bundle.md").write_text("review_bundle.md\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("chatgpt_review_prompt.md\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, manual_finish_head, "--", "services/story_loop.py"],
+            check=True,
+            cwd=root_dir,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("pytest.txt\n", encoding="utf-8")
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    assert "Reviewed HEAD" in result.stderr
+    assert "does not match current checkout HEAD" in result.stderr
+
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision": "reject"' in gate_result
+    assert '"decision_source": "review_head_mismatch"' in gate_result
+
+
 def test_review_gate_story_run_accepts_committed_rerun_diff_with_prefix_adjacent_story_artifact(
     tmp_path: Path,
 ) -> None:

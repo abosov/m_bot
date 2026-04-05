@@ -284,13 +284,16 @@ ensure_story_artifacts_committed() {
 run_preflight_stage() {
   local story_id="$1"
   local story_runs_root="$RUNS_ROOT/$story_id"
-  local convergence_boundary previous_run_dir latest_run_dir stable_review_surface_run_dir
+  local convergence_boundary previous_run_dir latest_run_dir
 
   echo "[INFO] Preflight: classifying dirty paths for $story_id" >&2
   ensure_story_artifacts_committed "$story_id"
   enforce_escalation_resolution "$story_id"
-  if [[ -d "$story_runs_root" ]] && stable_review_surface_run_dir="$(detect_stable_review_surface_rerun "$story_runs_root" || true)" && [[ -n "$stable_review_surface_run_dir" ]]; then
-    fail_stable_review_surface_rerun "$story_id" "$stable_review_surface_run_dir"
+  if [[ -d "$story_runs_root" ]]; then
+    DETECTED_STABLE_REVIEW_SURFACE_RUN_DIR=""
+    if detect_stable_review_surface_rerun "$story_runs_root" && [[ -n "$DETECTED_STABLE_REVIEW_SURFACE_RUN_DIR" ]]; then
+      fail_stable_review_surface_rerun "$story_id" "$DETECTED_STABLE_REVIEW_SURFACE_RUN_DIR"
+    fi
   fi
   if [[ -d "$story_runs_root" ]] && convergence_boundary="$(detect_non_converging_rerun "$story_runs_root" || true)" && [[ -n "$convergence_boundary" ]]; then
     local surface_match stale_starting_head
@@ -386,6 +389,7 @@ run_manifest_companion_filter_enabled() {
 
 COMPANION_FILTER_SCOPE_STORY_ID=""
 COMPANION_FILTER_SCOPE_ENABLED="0"
+DETECTED_STABLE_REVIEW_SURFACE_RUN_DIR=""
 
 extract_markdown_section_items() {
   local file="$1"
@@ -576,7 +580,7 @@ sorted_effective_changed_files_for_run_to() {
   local output_file="$3"
   local changed_files_file="$run_dir/changed_files.txt"
 
-  if story_is_code_only_for_execution_filter "$story_id" && run_can_recompute_review_surface "$run_dir"; then
+  if run_manifest_companion_filter_enabled "$run_dir"; then
     recompute_filtered_changed_files_for_run_to "$story_id" "$run_dir" "$output_file" || return 1
     return 0
   fi
@@ -591,7 +595,7 @@ effective_diff_patch_for_run_to() {
   local output_file="$3"
   local diff_artifact="$run_dir/diff.patch"
 
-  if story_is_code_only_for_execution_filter "$story_id" && run_can_recompute_review_surface "$run_dir"; then
+  if run_manifest_companion_filter_enabled "$run_dir"; then
     recompute_filtered_diff_patch_for_run_to "$story_id" "$run_dir" "$output_file" || return 1
     return 0
   fi
@@ -819,6 +823,19 @@ run_has_nonempty_file() {
   [[ -n "$(sed '/^[[:space:]]*$/d' "$path")" ]]
 }
 
+run_has_complete_review_stage_artifacts() {
+  local run_dir="$1"
+
+  run_has_nonempty_file "$run_dir/run_meta.txt" || return 1
+  run_has_nonempty_file "$run_dir/pytest.txt" || return 1
+  run_has_nonempty_file "$run_dir/diff.patch" || return 1
+  run_has_nonempty_file "$run_dir/review_bundle.md" || return 1
+  run_has_nonempty_file "$run_dir/chatgpt_review_prompt.md" || return 1
+  run_has_nonempty_file "$run_dir/ai_review_result.md" || return 1
+  run_has_nonempty_file "$run_dir/review_classification.md" || return 1
+  json_file_is_valid_object "$run_dir/review_gate_result.json" || return 1
+}
+
 json_file_is_valid_object() {
   local json_file="$1"
   [[ -f "$json_file" ]] || return 1
@@ -894,8 +911,9 @@ run_has_stable_review_surface_evidence() {
   run_has_nonempty_file "$run_dir/review_classification.md" || return 1
   json_file_is_valid_object "$run_dir/review_gate_result.json" || return 1
 
-  if story_is_code_only_for_execution_filter "$STORY_ID" && run_manifest_companion_filter_enabled "$run_dir"; then
-    run_filtered_review_artifacts_match_recomputed_surface "$run_dir" || return 1
+  if run_manifest_companion_filter_enabled "$run_dir"; then
+    run_can_recompute_review_surface "$run_dir" || fail "unable to verify effective review surface for current HEAD: review_surface_recompute_unavailable"
+    run_filtered_review_artifacts_match_recomputed_surface "$run_dir" || fail "unable to verify effective review surface for current HEAD: review_artifacts_do_not_match_recomputed_surface"
   fi
 }
 
@@ -959,10 +977,7 @@ review_surfaces_match() {
   local right_run_dir="$3"
 
   changed_files_match "$story_id" "$left_run_dir" "$right_run_dir" || return 1
-  if ! story_is_code_only_for_execution_filter "$story_id"; then
-    return 0
-  fi
-  if ! run_can_recompute_review_surface "$left_run_dir" && ! run_can_recompute_review_surface "$right_run_dir"; then
+  if ! run_manifest_companion_filter_enabled "$left_run_dir" && ! run_manifest_companion_filter_enabled "$right_run_dir"; then
     return 0
   fi
   diff_patch_match "$story_id" "$left_run_dir" "$right_run_dir" || return 1
@@ -1005,8 +1020,15 @@ detect_stable_review_surface_rerun() {
   local story_runs_root="$1"
   local latest_run_dir surface_match
 
+  DETECTED_STABLE_REVIEW_SURFACE_RUN_DIR=""
   latest_run_dir="$(resolve_latest_run_dir "$story_runs_root" || true)"
   [[ -n "$latest_run_dir" ]] || return 1
+
+  if run_manifest_companion_filter_enabled "$latest_run_dir" && run_has_complete_review_stage_artifacts "$latest_run_dir"; then
+    run_can_recompute_review_surface "$latest_run_dir" || fail "unable to verify effective review surface for current HEAD: review_surface_recompute_unavailable"
+    run_has_nonempty_changed_files "$latest_run_dir" || fail "unable to verify effective review surface for current HEAD: effective_changed_files_unavailable"
+    run_filtered_review_artifacts_match_recomputed_surface "$latest_run_dir" || fail "unable to verify effective review surface for current HEAD: review_artifacts_do_not_match_recomputed_surface"
+  fi
 
   run_has_stable_review_surface_evidence "$latest_run_dir" || return 1
 
@@ -1025,7 +1047,8 @@ detect_stable_review_surface_rerun() {
       ;;
   esac
 
-  printf '%s\n' "$latest_run_dir"
+  DETECTED_STABLE_REVIEW_SURFACE_RUN_DIR="$latest_run_dir"
+  return 0
 }
 
 fail_non_converging_rerun() {
