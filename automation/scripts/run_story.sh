@@ -9,6 +9,7 @@ RUNNER="${AUTOMATION_RUNNER:-$ROOT_DIR/automation/run_codex_task.sh}"
 VALIDATOR_SCRIPT="$ROOT_DIR/automation/scripts/validate_story_bundle.sh"
 COMMIT_ARTIFACTS_HINT="automation/scripts/commit_story_artifacts.sh"
 EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
+EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC=":(exclude)$EPHEMERAL_LEDGER_PATH"
 # shellcheck source=automation/scripts/story_change_ledger.sh
 source "$SCRIPT_DIR/story_change_ledger.sh"
 
@@ -292,24 +293,37 @@ run_preflight_stage() {
     fail_stable_review_surface_rerun "$story_id" "$stable_review_surface_run_dir"
   fi
   if [[ -d "$story_runs_root" ]] && convergence_boundary="$(detect_non_converging_rerun "$story_runs_root" || true)" && [[ -n "$convergence_boundary" ]]; then
-    local current_head stale_starting_head
+    local surface_match stale_starting_head
     previous_run_dir="${convergence_boundary%%$'\n'*}"
     if [[ "$convergence_boundary" == *$'\n'* ]]; then
       latest_run_dir="${convergence_boundary#*$'\n'}"
     else
       latest_run_dir=""
     fi
-    current_head="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+    if [[ -n "$latest_run_dir" ]]; then
+      surface_match="$(run_effective_review_surface_matches_checkout_head "$latest_run_dir")"
+    else
+      surface_match="unknown:latest_run_dir_missing"
+    fi
 
-    if [[ -n "$latest_run_dir" ]] && [[ -n "$current_head" ]] && ! run_dir_matches_current_head "$latest_run_dir" "$current_head"; then
+    case "$surface_match" in
+      match:*)
+        fail_non_converging_rerun "$story_id" "$previous_run_dir" "$latest_run_dir"
+        ;;
+      mismatch:*)
       stale_starting_head="$(run_manifest_starting_head "$latest_run_dir")"
       printf '[INFO] Ignoring stale rerun evidence for %s: %s does not match current HEAD %s\n' \
         "$story_id" \
         "$stale_starting_head" \
-        "$current_head" >&2
-    else
-      fail_non_converging_rerun "$story_id" "$previous_run_dir" "$latest_run_dir"
-    fi
+        "${surface_match##*:}" >&2
+        ;;
+      unknown:*)
+        fail "unable to verify rerun evidence for current HEAD: ${surface_match#unknown:}"
+        ;;
+      *)
+        fail "unable to verify rerun evidence for current HEAD: unexpected comparison state '$surface_match'"
+        ;;
+    esac
   fi
   echo "[INFO] Preflight: passed for $story_id" >&2
 }
@@ -605,6 +619,122 @@ recompute_filtered_diff_patch_for_run_to() {
     | filter_preflight_ignored_diff "$story_id" > "$output_file"
 }
 
+recompute_filtered_changed_files_for_head_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local target_head="$3"
+  local output_file="$4"
+  local manifest_file="$run_dir/manifest.md"
+  local review_artifact_base tmp
+
+  [[ -f "$manifest_file" ]] || return 1
+  [[ "$target_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+
+  review_artifact_base="$(resolve_run_review_artifact_base "$manifest_file" || true)"
+  [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
+
+  tmp="$(mktemp)"
+
+  git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" "$target_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | sed '/^$/d' \
+    | while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        if is_preflight_ignored_path "$story_id" "$path"; then
+          continue
+        fi
+        printf '%s\n' "$path"
+      done \
+    | LC_ALL=C sort -u > "$tmp"
+
+  mv "$tmp" "$output_file"
+}
+
+recompute_filtered_diff_patch_for_head_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local target_head="$3"
+  local output_file="$4"
+  local manifest_file="$run_dir/manifest.md"
+  local review_artifact_base
+
+  [[ -f "$manifest_file" ]] || return 1
+  [[ "$target_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+
+  review_artifact_base="$(resolve_run_review_artifact_base "$manifest_file" || true)"
+  [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
+
+  git -C "$ROOT_DIR" diff "$review_artifact_base" "$target_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | filter_preflight_ignored_diff "$story_id" > "$output_file"
+}
+
+run_effective_review_surface_matches_checkout_head() {
+  local run_dir="$1"
+  local current_head run_head
+  local run_changed_files checkout_changed_files run_diff checkout_diff
+
+  current_head="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+  [[ "$current_head" =~ ^[0-9a-f]{40}$ ]] || {
+    printf 'unknown:current_head_unavailable\n'
+    return 0
+  }
+
+  run_head="$(run_source_of_truth_head "$run_dir")"
+  [[ "$run_head" =~ ^[0-9a-f]{40}$ ]] || {
+    printf 'unknown:run_head_unavailable:%s\n' "$current_head"
+    return 0
+  }
+
+  if [[ "$run_head" == "$current_head" ]]; then
+    printf 'match:%s\n' "$current_head"
+    return 0
+  fi
+
+  if ! run_manifest_companion_filter_enabled "$run_dir"; then
+    printf 'mismatch:%s:%s\n' "$run_head" "$current_head"
+    return 0
+  fi
+
+  if ! run_can_recompute_review_surface "$run_dir"; then
+    printf 'unknown:review_surface_recompute_unavailable:%s:%s\n' "$run_head" "$current_head"
+    return 0
+  fi
+
+  run_changed_files="$(mktemp)"
+  checkout_changed_files="$(mktemp)"
+  run_diff="$(mktemp)"
+  checkout_diff="$(mktemp)"
+
+  sorted_effective_changed_files_for_run_to "$STORY_ID" "$run_dir" "$run_changed_files" || {
+    rm -f "$run_changed_files" "$checkout_changed_files" "$run_diff" "$checkout_diff"
+    printf 'unknown:run_effective_changed_files_unavailable:%s:%s\n' "$run_head" "$current_head"
+    return 0
+  }
+  recompute_filtered_changed_files_for_head_to "$STORY_ID" "$run_dir" "$current_head" "$checkout_changed_files" || {
+    rm -f "$run_changed_files" "$checkout_changed_files" "$run_diff" "$checkout_diff"
+    printf 'unknown:checkout_effective_changed_files_unavailable:%s:%s\n' "$run_head" "$current_head"
+    return 0
+  }
+  effective_diff_patch_for_run_to "$STORY_ID" "$run_dir" "$run_diff" || {
+    rm -f "$run_changed_files" "$checkout_changed_files" "$run_diff" "$checkout_diff"
+    printf 'unknown:run_effective_diff_unavailable:%s:%s\n' "$run_head" "$current_head"
+    return 0
+  }
+  recompute_filtered_diff_patch_for_head_to "$STORY_ID" "$run_dir" "$current_head" "$checkout_diff" || {
+    rm -f "$run_changed_files" "$checkout_changed_files" "$run_diff" "$checkout_diff"
+    printf 'unknown:checkout_effective_diff_unavailable:%s:%s\n' "$run_head" "$current_head"
+    return 0
+  }
+
+  if cmp -s "$run_changed_files" "$checkout_changed_files" && cmp -s "$run_diff" "$checkout_diff"; then
+    rm -f "$run_changed_files" "$checkout_changed_files" "$run_diff" "$checkout_diff"
+    printf 'match:%s\n' "$current_head"
+    return 0
+  fi
+
+  rm -f "$run_changed_files" "$checkout_changed_files" "$run_diff" "$checkout_diff"
+  printf 'mismatch:%s:%s\n' "$run_head" "$current_head"
+}
+
 run_has_nonempty_effective_changed_files() {
   local story_id="$1"
   local run_dir="$2"
@@ -841,7 +971,7 @@ review_surfaces_match() {
 detect_non_converging_rerun() {
   local story_runs_root="$1"
   local previous_run_dir latest_run_dir
-  local previous_head latest_head current_head
+  local previous_head latest_head
   local run_dir
   local run_dirs=()
 
@@ -859,16 +989,9 @@ detect_non_converging_rerun() {
 
   previous_head="$(run_source_of_truth_head "$previous_run_dir")"
   latest_head="$(run_source_of_truth_head "$latest_run_dir")"
-  current_head="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
 
   [[ -n "$previous_head" && -n "$latest_head" ]] || return 1
   [[ "$previous_head" != "$latest_head" ]] || return 1
-
-  if [[ -n "$current_head" && "$current_head" != "$latest_head" ]]; then
-    if git -C "$ROOT_DIR" merge-base --is-ancestor "$latest_head" "$current_head" >/dev/null 2>&1; then
-      return 1
-    fi
-  fi
 
   review_surfaces_match \
     "$STORY_ID" \
@@ -880,19 +1003,27 @@ detect_non_converging_rerun() {
 
 detect_stable_review_surface_rerun() {
   local story_runs_root="$1"
-  local latest_run_dir latest_head current_head
+  local latest_run_dir surface_match
 
   latest_run_dir="$(resolve_latest_run_dir "$story_runs_root" || true)"
   [[ -n "$latest_run_dir" ]] || return 1
 
   run_has_stable_review_surface_evidence "$latest_run_dir" || return 1
 
-  latest_head="$(run_source_of_truth_head "$latest_run_dir")"
-  current_head="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
-
-  [[ "$latest_head" =~ ^[0-9a-f]{40}$ ]] || return 1
-  [[ "$current_head" =~ ^[0-9a-f]{40}$ ]] || return 1
-  [[ "$latest_head" == "$current_head" ]] || return 1
+  surface_match="$(run_effective_review_surface_matches_checkout_head "$latest_run_dir")"
+  case "$surface_match" in
+    match:*)
+      ;;
+    mismatch:*)
+      return 1
+      ;;
+    unknown:*)
+      fail "unable to verify effective review surface for current HEAD: ${surface_match#unknown:}"
+      ;;
+    *)
+      fail "unable to verify effective review surface for current HEAD: unexpected comparison state '$surface_match'"
+      ;;
+  esac
 
   printf '%s\n' "$latest_run_dir"
 }
