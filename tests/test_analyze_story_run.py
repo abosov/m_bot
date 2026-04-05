@@ -2113,11 +2113,7 @@ def test_analyze_story_run_recomputes_filtered_non_converging_surface_for_code_o
         f"- review_artifact_base: {review_artifact_base}\n",
         encoding="utf-8",
     )
-    (run_dir / "changed_files.txt").write_text(
-        "services/story_a.py\n"
-        "services/story_b.py\n",
-        encoding="utf-8",
-    )
+    (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
     (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
     (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
     (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")

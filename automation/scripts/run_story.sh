@@ -517,7 +517,7 @@ recompute_filtered_changed_files_for_run_to() {
   local run_dir="$2"
   local output_file="$3"
   local manifest_file="$run_dir/manifest.md"
-  local review_artifact_base run_head tmp
+  local review_artifact_base run_head tmp changed_files_file
 
   [[ -f "$manifest_file" ]] || return 1
 
@@ -527,10 +527,12 @@ recompute_filtered_changed_files_for_run_to() {
   [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
   [[ "$run_head" =~ ^[0-9a-f]{40}$ ]] || return 1
 
+  changed_files_file="$run_dir/changed_files.txt"
+  [[ -f "$changed_files_file" ]] || return 1
+
   tmp="$(mktemp)"
 
-  git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" "$run_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
-    | sed '/^$/d' \
+  sed '/^$/d' "$changed_files_file" \
     | while IFS= read -r path; do
         [[ -n "$path" ]] || continue
         if is_preflight_ignored_path "$story_id" "$path"; then
@@ -550,9 +552,8 @@ sorted_effective_changed_files_for_run_to() {
   local changed_files_file="$run_dir/changed_files.txt"
 
   if story_is_code_only_for_execution_filter "$story_id" && run_manifest_companion_filter_enabled "$run_dir"; then
-    if recompute_filtered_changed_files_for_run_to "$story_id" "$run_dir" "$output_file"; then
-      return 0
-    fi
+    recompute_filtered_changed_files_for_run_to "$story_id" "$run_dir" "$output_file" || return 1
+    return 0
   fi
 
   [[ -f "$changed_files_file" ]] || return 1

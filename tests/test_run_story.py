@@ -716,7 +716,7 @@ def test_run_story_recomputes_filtered_non_converging_surface_for_code_only_stor
         f"- review_artifact_base: {review_artifact_base}\n",
         encoding="utf-8",
     )
-    (previous_run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (previous_run_dir / "changed_files.txt").write_text("services/story_a.py\n", encoding="utf-8")
 
     latest_run_dir = make_run_dir(root_dir, story_id, "2026-03-27_11-00-00")
     (latest_run_dir / "manifest.md").write_text(
@@ -730,7 +730,11 @@ def test_run_story_recomputes_filtered_non_converging_surface_for_code_only_stor
         f"- review_artifact_base: {review_artifact_base}\n",
         encoding="utf-8",
     )
-    (latest_run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (latest_run_dir / "changed_files.txt").write_text(
+        "services/story_a.py\n"
+        "services/story_b.py\n",
+        encoding="utf-8",
+    )
 
     runner_marker = root_dir / "runner_called.txt"
     fake_runner = make_runner(

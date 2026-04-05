@@ -457,7 +457,7 @@ recompute_filtered_changed_files_for_run_to() {
   local run_dir="$2"
   local output_file="$3"
   local manifest_file="$run_dir/manifest.md"
-  local review_artifact_base run_head
+  local review_artifact_base run_head tmp
 
   [[ -f "$manifest_file" ]] || return 1
 
@@ -467,14 +467,20 @@ recompute_filtered_changed_files_for_run_to() {
   [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
   [[ "$run_head" =~ ^[0-9a-f]{40}$ ]] || return 1
 
-  # Use run-pinned diff instead of recomputing from current workspace
-  if [[ -f "$run_dir/changed_files.txt" ]]; then
-    sed '/^$/d' "$run_dir/changed_files.txt" \
-      | filter_review_fidelity_paths "$story_id" "$run_dir" "$output_file"
-    return 0
-  fi
+  tmp="$(mktemp)"
 
-  return 1
+  git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" "$run_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | sed '/^$/d' \
+    | while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        if is_review_fidelity_ignored_path "$story_id" "$run_dir" "$path"; then
+          continue
+        fi
+        printf '%s\n' "$path"
+      done \
+    | LC_ALL=C sort -u > "$tmp"
+
+  mv "$tmp" "$output_file"
 }
 
 sorted_effective_changed_files_for_run_to() {
@@ -484,9 +490,8 @@ sorted_effective_changed_files_for_run_to() {
   local changed_files_file="$run_dir/changed_files.txt"
 
   if run_manifest_companion_filter_enabled "$run_dir"; then
-    if recompute_filtered_changed_files_for_run_to "$story_id" "$run_dir" "$output_file"; then
-      return 0
-    fi
+    recompute_filtered_changed_files_for_run_to "$story_id" "$run_dir" "$output_file" || return 1
+    return 0
   fi
 
   [[ -f "$changed_files_file" ]] || return 1

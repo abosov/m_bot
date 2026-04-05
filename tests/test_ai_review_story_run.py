@@ -396,8 +396,8 @@ def test_ai_review_story_run_allows_manual_finish_continuation_with_companion_fi
     subprocess.run(["git", "add", "-f", str(scope_file.relative_to(root_dir))], cwd=root_dir, check=True)
     subprocess.run(["git", "commit", "-m", "add code-only scope"], cwd=root_dir, check=True, capture_output=True, text=True)
 
-    first_head = current_head(root_dir)
-    reviewed_head = add_commit(root_dir, "services/story_loop.py", "implementation\n", "story implementation")
+    review_artifact_base = current_head(root_dir)
+    first_head = add_commit(root_dir, "services/story_loop.py", "implementation\n", "story implementation")
 
     previous_run = root_dir / "automation" / "runs" / "US-AUTO-70" / "2026-03-27_10-00-00"
     previous_run.mkdir(parents=True)
@@ -409,10 +409,18 @@ def test_ai_review_story_run_allows_manual_finish_continuation_with_companion_fi
         "- materialization_status: applied\n"
         "- pytest_exit_code: 0\n"
         "- changed_files_detected: yes\n"
-        "- execution_companion_filter_mode: enabled\n",
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
         encoding="utf-8",
     )
     (previous_run / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+
+    reviewed_head = add_commit(
+        root_dir,
+        "docs/90_codex/epics/US-AUTO_REGISTRY.md",
+        "# registry\n",
+        "companion-only rerun",
+    )
 
     run_dir = root_dir / "automation" / "runs" / "US-AUTO-70" / "2026-03-27_11-00-00"
     run_dir.mkdir(parents=True)
@@ -425,7 +433,7 @@ def test_ai_review_story_run_allows_manual_finish_continuation_with_companion_fi
         "- pytest_exit_code: 0\n"
         "- changed_files_detected: yes\n"
         "- execution_companion_filter_mode: enabled\n"
-        "- review_artifact_base: HEAD~1\n",
+        f"- review_artifact_base: {review_artifact_base}\n",
         encoding="utf-8",
     )
     for artifact_name in [
@@ -440,8 +448,8 @@ def test_ai_review_story_run_allows_manual_finish_continuation_with_companion_fi
 
     registry_file = root_dir / "docs" / "90_codex" / "epics" / "US-AUTO_REGISTRY.md"
     registry_file.parent.mkdir(parents=True, exist_ok=True)
-    registry_file.write_text("# registry\n", encoding="utf-8")
     (root_dir / "services" / "story_loop.py").write_text("implementation\nmanual finish\n", encoding="utf-8")
+    registry_file.write_text("# registry\nmanual finish\n", encoding="utf-8")
     subprocess.run(
         ["git", "add", "services/story_loop.py", "docs/90_codex/epics/US-AUTO_REGISTRY.md"],
         cwd=root_dir,
@@ -458,7 +466,7 @@ def test_ai_review_story_run_allows_manual_finish_continuation_with_companion_fi
     (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
     (run_dir / "diff.patch").write_text(
         subprocess.run(
-            ["git", "diff", "HEAD~1", "--", "services/story_loop.py"],
+            ["git", "diff", review_artifact_base, "--", "services/story_loop.py"],
             cwd=root_dir,
             check=True,
             capture_output=True,
