@@ -177,6 +177,9 @@ def test_ai_review_story_run_allows_exact_manual_finish_continuation(tmp_path: P
         encoding="utf-8",
     )
     (previous_run / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (previous_run / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    (previous_run / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    (previous_run / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
 
     run_dir = root_dir / "automation" / "runs" / "US-AUTO-55" / "2026-03-27_11-00-00"
     run_dir.mkdir(parents=True)
@@ -414,6 +417,16 @@ def test_ai_review_story_run_allows_manual_finish_continuation_with_companion_fi
         encoding="utf-8",
     )
     (previous_run / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (previous_run / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, first_head, "--", "services/story_loop.py"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
 
     reviewed_head = add_commit(
         root_dir,
@@ -527,6 +540,122 @@ printf '%s\\n' 'raw-ai-output'
     assert result.returncode == 0, result.stderr
     assert marker_file.exists()
     assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8") == VALID_AI_REVIEW
+
+
+def test_ai_review_story_run_rejects_manual_finish_when_filtered_diff_surface_did_not_repeat(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+    init_git_repo(root_dir)
+
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    scope_file = root_dir / "automation" / "bundles" / "active" / "US-AUTO-70" / "02_file_scope.md"
+    scope_file.parent.mkdir(parents=True, exist_ok=True)
+    scope_file.write_text(
+        "# Scope\n\n"
+        "## Files Allowed To Change\n"
+        "- `services/story_loop.py`\n\n"
+        "## Files Not Allowed To Change\n"
+        "- `backend/**`\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "-f", str(scope_file.relative_to(root_dir))], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "add code-only scope"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    review_artifact_base = current_head(root_dir)
+    first_head = add_commit(root_dir, "services/story_loop.py", "return 'first'\n", "story implementation")
+
+    previous_run = root_dir / "automation" / "runs" / "US-AUTO-70" / "2026-03-27_10-00-00"
+    previous_run.mkdir(parents=True)
+    (previous_run / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- story_id: US-AUTO-70\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (previous_run / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (previous_run / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, first_head, "--", "services/story_loop.py"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+
+    reviewed_head = add_commit(
+        root_dir,
+        "services/story_loop.py",
+        "return 'second'\n",
+        "second implementation rerun",
+    )
+
+    run_dir = root_dir / "automation" / "runs" / "US-AUTO-70" / "2026-03-27_11-00-00"
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- story_id: US-AUTO-70\n"
+        f"- starting_head: {reviewed_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (run_dir / "review_bundle.md").write_text("artifact\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("artifact\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("artifact\n", encoding="utf-8")
+    (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, reviewed_head, "--", "services/story_loop.py"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+
+    add_commit(root_dir, "services/story_loop.py", "return 'manual-finish'\n", "manual finish")
+
+    fake_bin_dir = tmp_path / "bin_manual_finish_reject"
+    fake_bin_dir.mkdir()
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-70"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=root_dir,
+    )
+
+    assert result.returncode != 0
+    assert "does not match current checkout HEAD" in result.stderr
 
 
 def test_ai_review_story_run_rejects_descendant_after_manual_finish_continuation(tmp_path: Path) -> None:

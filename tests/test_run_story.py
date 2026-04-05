@@ -756,6 +756,83 @@ def test_run_story_recomputes_filtered_non_converging_surface_for_code_only_stor
     assert runner_marker.read_text(encoding="utf-8").strip() == "called"
 
 
+def test_run_story_compares_recomputed_filtered_diff_surface_not_just_changed_files(tmp_path: Path) -> None:
+    story_id = "US-AUTO-70"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    scope_file = root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md"
+    scope_file.write_text(
+        "# Scope\n\n"
+        "## Files Allowed To Change\n"
+        "- `services/story_loop.py`\n\n"
+        "## Files Not Allowed To Change\n"
+        "- `backend/**`\n",
+        encoding="utf-8",
+    )
+    run(["git", "add", str(scope_file.relative_to(root_dir))], cwd=root_dir)
+    run(["git", "commit", "-m", "Set code-only scope"], cwd=root_dir)
+
+    review_artifact_base = current_head(root_dir)
+    first_head = add_commit(root_dir, "services/story_loop.py", "return 'first'\n", "first head")
+    second_head = add_commit(root_dir, "services/story_loop.py", "return 'second'\n", "second head")
+
+    previous_run_dir = make_run_dir(root_dir, story_id, "2026-03-27_10-00-00")
+    (previous_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (previous_run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (previous_run_dir / "diff.patch").write_text(
+        run(["git", "diff", review_artifact_base, first_head, "--", "services/story_loop.py"], cwd=root_dir).stdout,
+        encoding="utf-8",
+    )
+
+    latest_run_dir = make_run_dir(root_dir, story_id, "2026-03-27_11-00-00")
+    (latest_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {second_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (latest_run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (latest_run_dir / "diff.patch").write_text(
+        run(["git", "diff", review_artifact_base, second_head, "--", "services/story_loop.py"], cwd=root_dir).stdout,
+        encoding="utf-8",
+    )
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert "latest committed-head rerun did not converge" not in result.stderr
+    assert runner_marker.read_text(encoding="utf-8").strip() == "called"
+
+
 def test_run_story_ignores_stale_filtered_changed_files_artifacts_for_companion_filtered_rerun(
     tmp_path: Path,
 ) -> None:
@@ -984,6 +1061,7 @@ def test_run_story_blocks_non_converging_rerun_and_routes_to_manual_finish(tmp_p
         "tests/test_story_loop.py\n",
         encoding="utf-8",
     )
+    (first_run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
 
     latest_run_dir = root_dir / "automation" / "runs" / story_id / "2026-03-27_11-00-00"
     latest_run_dir.mkdir(parents=True)
@@ -1001,6 +1079,7 @@ def test_run_story_blocks_non_converging_rerun_and_routes_to_manual_finish(tmp_p
         "services/story_loop.py\n",
         encoding="utf-8",
     )
+    (latest_run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
 
     runner_marker = root_dir / "runner_called.txt"
     fake_runner = make_runner(
@@ -1762,6 +1841,7 @@ def test_run_story_ignores_stale_non_converging_rerun_evidence_from_old_head(tmp
         "tests/test_run_story.py\n",
         encoding="utf-8",
     )
+    (previous_run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
 
     latest_run_dir = make_run_dir(root_dir, story_id, "2026-04-01_22-39-02")
     (latest_run_dir / "manifest.md").write_text(

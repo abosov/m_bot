@@ -512,6 +512,19 @@ resolve_run_review_artifact_base() {
   git -C "$ROOT_DIR" rev-parse --verify "${review_artifact_base}^{commit}" 2>/dev/null || return 1
 }
 
+run_can_recompute_review_surface() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  local review_artifact_base run_head
+
+  [[ -f "$manifest_file" ]] || return 1
+  review_artifact_base="$(resolve_run_review_artifact_base "$manifest_file" || true)"
+  run_head="$(run_source_of_truth_head "$run_dir")"
+
+  [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$run_head" =~ ^[0-9a-f]{40}$ ]]
+}
+
 recompute_filtered_changed_files_for_run_to() {
   local story_id="$1"
   local run_dir="$2"
@@ -556,6 +569,21 @@ sorted_effective_changed_files_for_run_to() {
 
   [[ -f "$changed_files_file" ]] || return 1
   sorted_filtered_changed_files_to "$story_id" "$changed_files_file" "$output_file"
+}
+
+effective_diff_patch_for_run_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local output_file="$3"
+  local diff_artifact="$run_dir/diff.patch"
+
+  if story_is_code_only_for_execution_filter "$story_id" && run_manifest_companion_filter_enabled "$run_dir"; then
+    recompute_filtered_diff_patch_for_run_to "$story_id" "$run_dir" "$output_file" || return 1
+    return 0
+  fi
+
+  [[ -f "$diff_artifact" ]] || return 1
+  filter_preflight_ignored_diff "$story_id" < "$diff_artifact" > "$output_file"
 }
 
 recompute_filtered_diff_patch_for_run_to() {
@@ -676,6 +704,10 @@ run_is_convergence_candidate() {
   [[ "$materialization_status" == "applied" || "$materialization_status" == "not_needed" ]] || return 1
   run_has_nonempty_changed_files "$run_dir" || return 1
 
+  if story_is_code_only_for_execution_filter "$STORY_ID" && run_manifest_companion_filter_enabled "$run_dir"; then
+    run_filtered_review_artifacts_match_recomputed_surface "$run_dir" || return 1
+  fi
+
   [[ ! -f "$run_dir/ai_review_result.md" ]] || return 1
   [[ ! -f "$run_dir/review_classification.md" ]] || return 1
   [[ ! -f "$run_dir/review_gate_result.json" ]] || return 1
@@ -743,6 +775,48 @@ changed_files_match() {
   return 1
 }
 
+diff_patch_match() {
+  local story_id="$1"
+  local left_run_dir="$2"
+  local right_run_dir="$3"
+  local left_diff right_diff
+
+  left_diff="$(mktemp)"
+  right_diff="$(mktemp)"
+
+  effective_diff_patch_for_run_to "$story_id" "$left_run_dir" "$left_diff" || {
+    rm -f "$left_diff" "$right_diff"
+    return 1
+  }
+  effective_diff_patch_for_run_to "$story_id" "$right_run_dir" "$right_diff" || {
+    rm -f "$left_diff" "$right_diff"
+    return 1
+  }
+
+  if cmp -s "$left_diff" "$right_diff"; then
+    rm -f "$left_diff" "$right_diff"
+    return 0
+  fi
+
+  rm -f "$left_diff" "$right_diff"
+  return 1
+}
+
+review_surfaces_match() {
+  local story_id="$1"
+  local left_run_dir="$2"
+  local right_run_dir="$3"
+
+  changed_files_match "$story_id" "$left_run_dir" "$right_run_dir" || return 1
+  if ! story_is_code_only_for_execution_filter "$story_id"; then
+    return 0
+  fi
+  if ! run_manifest_companion_filter_enabled "$left_run_dir" && ! run_manifest_companion_filter_enabled "$right_run_dir"; then
+    return 0
+  fi
+  diff_patch_match "$story_id" "$left_run_dir" "$right_run_dir" || return 1
+}
+
 detect_non_converging_rerun() {
   local story_runs_root="$1"
   local previous_run_dir latest_run_dir
@@ -775,7 +849,7 @@ detect_non_converging_rerun() {
     fi
   fi
 
-  changed_files_match \
+  review_surfaces_match \
     "$STORY_ID" \
     "$previous_run_dir" \
     "$latest_run_dir" || return 1
