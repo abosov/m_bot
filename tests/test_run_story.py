@@ -756,6 +756,86 @@ def test_run_story_recomputes_filtered_non_converging_surface_for_code_only_stor
     assert runner_marker.read_text(encoding="utf-8").strip() == "called"
 
 
+def test_run_story_ignores_stale_filtered_changed_files_artifacts_for_companion_filtered_rerun(
+    tmp_path: Path,
+) -> None:
+    story_id = "US-AUTO-70"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    scope_file = root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md"
+    scope_file.write_text(
+        "# Scope\n\n"
+        "## Files Allowed To Change\n"
+        "- `services/story_loop.py`\n"
+        "- `services/story_loop_v2.py`\n\n"
+        "## Files Not Allowed To Change\n"
+        "- `backend/**`\n",
+        encoding="utf-8",
+    )
+    run(["git", "add", str(scope_file.relative_to(root_dir))], cwd=root_dir)
+    run(["git", "commit", "-m", "Set code-only scope"], cwd=root_dir)
+
+    review_artifact_base = current_head(root_dir)
+    first_head = add_commit(root_dir, "services/story_loop.py", "first\n", "first head")
+    second_head = add_commit(root_dir, "services/story_loop_v2.py", "second\n", "second head")
+
+    previous_run_dir = make_run_dir(root_dir, story_id, "2026-03-27_10-00-00")
+    (previous_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (previous_run_dir / "changed_files.txt").write_text(
+        "services/story_loop.py\n"
+        "docs/90_codex/epics/US-AUTO_REGISTRY.md\n",
+        encoding="utf-8",
+    )
+
+    latest_run_dir = make_run_dir(root_dir, story_id, "2026-03-27_11-00-00")
+    (latest_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {second_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (latest_run_dir / "changed_files.txt").write_text(
+        "services/story_loop.py\n"
+        "docs/90_codex/epics/US-AUTO_REGISTRY.md\n",
+        encoding="utf-8",
+    )
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert "latest committed-head rerun did not converge" not in result.stderr
+    assert runner_marker.read_text(encoding="utf-8").strip() == "called"
+
+
 def test_run_story_requires_recomputed_filtered_surface_for_stable_review_skip(tmp_path: Path) -> None:
     story_id = "US-AUTO-70"
     root_dir = tmp_path / "repo"
