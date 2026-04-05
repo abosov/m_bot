@@ -279,6 +279,16 @@ manifest_source_of_truth_head() {
   fi
 }
 
+run_manifest_companion_filter_enabled() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  local companion_filter_mode
+
+  [[ -f "$manifest_file" ]] || return 1
+  companion_filter_mode="$(manifest_value "$manifest_file" "execution_companion_filter_mode")"
+  [[ "$companion_filter_mode" == "enabled" ]]
+}
+
 COMPANION_FILTER_SCOPE_STORY_ID=""
 COMPANION_FILTER_SCOPE_ENABLED="0"
 
@@ -461,6 +471,42 @@ sorted_changed_files_to() {
   mv "$tmp" "$output_file"
 }
 
+recompute_filtered_changed_files_for_run_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local output_file="$3"
+  local manifest_file="$run_dir/manifest.md"
+  local review_artifact_base run_head
+
+  [[ -f "$manifest_file" ]] || return 1
+
+  review_artifact_base="$(resolve_review_artifact_base "$manifest_file" || true)"
+  run_head="$(manifest_source_of_truth_head "$manifest_file")"
+
+  [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$run_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+
+  git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" "$run_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | sed '/^$/d' \
+    | filter_review_fidelity_paths "$story_id" "$output_file"
+}
+
+sorted_effective_changed_files_for_run_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local output_file="$3"
+  local changed_files_file="$run_dir/changed_files.txt"
+
+  if story_is_code_only_for_execution_filter "$story_id" && run_manifest_companion_filter_enabled "$run_dir"; then
+    if recompute_filtered_changed_files_for_run_to "$story_id" "$run_dir" "$output_file"; then
+      return 0
+    fi
+  fi
+
+  [[ -f "$changed_files_file" ]] || return 1
+  sorted_changed_files_to "$story_id" "$changed_files_file" "$output_file"
+}
+
 review_artifact_fidelity_status() {
   local run_dir="$1"
   local manifest_file="$2"
@@ -528,12 +574,13 @@ review_artifact_fidelity_status() {
 
 run_has_nonempty_changed_files() {
   local run_dir="$1"
-  local changed_files_file="$run_dir/changed_files.txt"
   local filtered_changed_files_file
 
-  [[ -f "$changed_files_file" ]] || return 1
   filtered_changed_files_file="$(mktemp)"
-  sorted_changed_files_to "$STORY_ID" "$changed_files_file" "$filtered_changed_files_file"
+  sorted_effective_changed_files_for_run_to "$STORY_ID" "$run_dir" "$filtered_changed_files_file" || {
+    rm -f "$filtered_changed_files_file"
+    return 1
+  }
   if [[ -n "$(sed '/^[[:space:]]*$/d' "$filtered_changed_files_file")" ]]; then
     rm -f "$filtered_changed_files_file"
     return 0
@@ -564,15 +611,21 @@ run_is_convergence_candidate() {
 }
 
 changed_files_match() {
-  local left_file="$1"
-  local right_file="$2"
+  local left_run_dir="$1"
+  local right_run_dir="$2"
   local left_sorted right_sorted
 
   left_sorted="$(mktemp)"
   right_sorted="$(mktemp)"
 
-  sorted_changed_files_to "$STORY_ID" "$left_file" "$left_sorted"
-  sorted_changed_files_to "$STORY_ID" "$right_file" "$right_sorted"
+  sorted_effective_changed_files_for_run_to "$STORY_ID" "$left_run_dir" "$left_sorted" || {
+    rm -f "$left_sorted" "$right_sorted"
+    return 1
+  }
+  sorted_effective_changed_files_for_run_to "$STORY_ID" "$right_run_dir" "$right_sorted" || {
+    rm -f "$left_sorted" "$right_sorted"
+    return 1
+  }
 
   if cmp -s "$left_sorted" "$right_sorted"; then
     rm -f "$left_sorted" "$right_sorted"
@@ -617,8 +670,8 @@ detect_non_converging_rerun_for_run() {
   [[ "$previous_head" != "$latest_head" ]] || return 1
 
   changed_files_match \
-    "$previous_run_dir/changed_files.txt" \
-    "$run_dir/changed_files.txt" || return 1
+    "$previous_run_dir" \
+    "$run_dir" || return 1
 
   printf '%s\n' "$previous_run_dir"
 }

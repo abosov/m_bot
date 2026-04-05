@@ -327,6 +327,16 @@ manifest_source_of_truth_head() {
   fi
 }
 
+run_manifest_companion_filter_enabled() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  local companion_filter_mode
+
+  [[ -f "$manifest_file" ]] || return 1
+  companion_filter_mode="$(manifest_value "$manifest_file" "execution_companion_filter_mode")"
+  [[ "$companion_filter_mode" == "enabled" ]]
+}
+
 head_matches_expected() {
   local expected_head="$1"
   local current_head="$2"
@@ -667,14 +677,51 @@ sorted_changed_files_to() {
   mv "$tmp" "$output_file"
 }
 
-run_has_nonempty_changed_files() {
-  local run_dir="$1"
+recompute_filtered_changed_files_for_run_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local output_file="$3"
+  local manifest_file="$run_dir/manifest.md"
+  local review_artifact_base run_head
+
+  [[ -f "$manifest_file" ]] || return 1
+
+  review_artifact_base="$(resolve_review_artifact_base "$manifest_file" || true)"
+  run_head="$(manifest_source_of_truth_head "$manifest_file")"
+
+  [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$run_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+
+  git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" "$run_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | sed '/^$/d' \
+    | filter_review_fidelity_paths "$story_id" "$output_file"
+}
+
+sorted_effective_changed_files_for_run_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local output_file="$3"
   local changed_files_file="$run_dir/changed_files.txt"
-  local filtered_changed_files_file
+
+  if story_is_code_only_for_execution_filter "$story_id" && run_manifest_companion_filter_enabled "$run_dir"; then
+    if recompute_filtered_changed_files_for_run_to "$story_id" "$run_dir" "$output_file"; then
+      return 0
+    fi
+  fi
 
   [[ -f "$changed_files_file" ]] || return 1
+  sorted_changed_files_to "$story_id" "$changed_files_file" "$output_file"
+}
+
+run_has_nonempty_changed_files() {
+  local run_dir="$1"
+  local filtered_changed_files_file
+
   filtered_changed_files_file="$(mktemp)"
-  sorted_changed_files_to "$STORY_ID" "$changed_files_file" "$filtered_changed_files_file"
+  sorted_effective_changed_files_for_run_to "$STORY_ID" "$run_dir" "$filtered_changed_files_file" || {
+    rm -f "$filtered_changed_files_file"
+    return 1
+  }
   if [[ -n "$(sed '/^[[:space:]]*$/d' "$filtered_changed_files_file")" ]]; then
     rm -f "$filtered_changed_files_file"
     return 0
@@ -738,8 +785,14 @@ detect_non_converging_rerun_for_run() {
 
   current_changed_files_sorted="$(mktemp)"
   previous_changed_files_sorted="$(mktemp)"
-  sorted_changed_files_to "$STORY_ID" "$current_run_dir/changed_files.txt" "$current_changed_files_sorted"
-  sorted_changed_files_to "$STORY_ID" "$previous_run_dir/changed_files.txt" "$previous_changed_files_sorted"
+  sorted_effective_changed_files_for_run_to "$STORY_ID" "$current_run_dir" "$current_changed_files_sorted" || {
+    rm -f "$current_changed_files_sorted" "$previous_changed_files_sorted"
+    return 1
+  }
+  sorted_effective_changed_files_for_run_to "$STORY_ID" "$previous_run_dir" "$previous_changed_files_sorted" || {
+    rm -f "$current_changed_files_sorted" "$previous_changed_files_sorted"
+    return 1
+  }
 
   if cmp -s "$current_changed_files_sorted" "$previous_changed_files_sorted"; then
     rm -f "$current_changed_files_sorted" "$previous_changed_files_sorted"
@@ -824,7 +877,10 @@ find_previous_reject_stagnation_run() {
   current_run_id="$(basename "$current_run_dir")"
 
   current_changed_files_sorted="$(mktemp)"
-  sorted_changed_files_to "$STORY_ID" "$current_changed_files" "$current_changed_files_sorted"
+  sorted_effective_changed_files_for_run_to "$STORY_ID" "$current_run_dir" "$current_changed_files_sorted" || {
+    rm -f "$current_changed_files_sorted"
+    return 1
+  }
   normalized_current_diff="$(mktemp)"
   filter_review_fidelity_diff "$STORY_ID" < "$current_diff" > "$normalized_current_diff"
 
@@ -853,7 +909,10 @@ find_previous_reject_stagnation_run() {
     rm -f "$normalized_candidate_diff"
 
     previous_changed_files_sorted="$(mktemp)"
-    sorted_changed_files_to "$STORY_ID" "$candidate_run_dir/changed_files.txt" "$previous_changed_files_sorted"
+    sorted_effective_changed_files_for_run_to "$STORY_ID" "$candidate_run_dir" "$previous_changed_files_sorted" || {
+      rm -f "$previous_changed_files_sorted"
+      continue
+    }
     if cmp -s "$current_changed_files_sorted" "$previous_changed_files_sorted"; then
       rm -f "$previous_changed_files_sorted" "$current_changed_files_sorted"
       rm -f "$normalized_current_diff"
