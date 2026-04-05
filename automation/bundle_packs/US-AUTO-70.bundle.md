@@ -147,6 +147,7 @@ There must be exactly one authoritative review surface for a story run. Once com
 * tests/test_analyze_story_run.py
 * tests/test_review_story_run.py
 * tests/test_ai_review_story_run.py
+* tests/test_classify_review_story_run.py
 * tests/test_review_gate_story_run.py
 
 ## Files Not Allowed To Change
@@ -210,6 +211,7 @@ Implement stable rerun-preflight and review-baseline recomputation for companion
 * tests/test_analyze_story_run.py
 * tests/test_review_story_run.py
 * tests/test_ai_review_story_run.py
+* tests/test_classify_review_story_run.py
 * tests/test_review_gate_story_run.py
 
 ## Files Not Allowed To Change
