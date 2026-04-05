@@ -67,6 +67,7 @@ CONTEXT_FILES_CSV=""
 CODEX_EXIT=""
 PYTEST_EXIT=""
 CHANGED_FILES=""
+REVIEW_CHANGED_FILES_CONTENT=""
 DIFF_STAT_CONTENT=""
 PYTEST_OUTPUT_CONTENT=""
 LAST_MESSAGE_CONTENT=""
@@ -722,8 +723,7 @@ filter_ignored_execution_diff_paths() {
 DIFF_FILE="$RUN_DIR/diff.patch"
 STAT_FILE="$RUN_DIR/diff.stat"
 NAMEONLY_FILE="$RUN_DIR/changed_files.txt"
-
-
+REVIEW_CHANGED_FILES_FILE="$RUN_DIR/review_changed_files.txt"
 
 TEST_FILE="$RUN_DIR/pytest.txt"
 BUNDLE_FILE="$RUN_DIR/review_bundle.md"
@@ -1187,6 +1187,27 @@ collect_git_artifacts() {
     fi
   } | sed '/^$/d' | LC_ALL=C sort -u > "$NAMEONLY_FILE"
 
+  {
+    if [[ -f "$tracked_names_file" ]]; then
+      while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        if is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
+          continue
+        fi
+        printf '%s\n' "$changed_file"
+      done < "$tracked_names_file"
+    fi
+    if [[ -f "$untracked_names_file" ]]; then
+      while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        if is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
+          continue
+        fi
+        printf '%s\n' "$changed_file"
+      done < "$untracked_names_file"
+    fi
+  } | sed '/^$/d' | LC_ALL=C sort -u > "$REVIEW_CHANGED_FILES_FILE"
+
   append_untracked_artifacts
 }
 
@@ -1294,6 +1315,7 @@ fi
 write_run_meta
 
 CHANGED_FILES="$(cat "$NAMEONLY_FILE" 2>/dev/null || true)"
+REVIEW_CHANGED_FILES_CONTENT="$(cat "$REVIEW_CHANGED_FILES_FILE" 2>/dev/null || true)"
 DIFF_STAT_CONTENT="$(cat "$STAT_FILE" 2>/dev/null || true)"
 PYTEST_OUTPUT_CONTENT="$(cat "$TEST_FILE" 2>/dev/null || true)"
 LAST_MESSAGE_CONTENT="$(cat "$LAST_MESSAGE_FILE" 2>/dev/null || true)"
@@ -1346,6 +1368,7 @@ $(if [[ ${#GENERATED_CONTEXT_FILES[@]} -gt 0 ]]; then
 - diff.patch
 - diff.stat
 - changed_files.txt
+- review_changed_files.txt
 - pytest.txt
 - review_bundle.md
 - chatgpt_review_prompt.md
@@ -1370,7 +1393,12 @@ $CURRENT_HEAD
 ## Review Diff Source
 $REVIEW_DIFF_RANGE (merge-base $REVIEW_ARTIFACT_BASE)
 
-## Changed Files
+## Changed Files (origin/main...HEAD)
+\`\`\`
+$REVIEW_CHANGED_FILES_CONTENT
+\`\`\`
+
+## Scope-Validated Delivery Surface
 \`\`\`
 $CHANGED_FILES
 \`\`\`
@@ -1417,7 +1445,10 @@ Please review:
 Use these artifacts from:
 $RUN_DIR
 
-Changed files:
+Changed files (origin/main...HEAD):
+$REVIEW_CHANGED_FILES_CONTENT
+
+Scope-validated delivery surface:
 $CHANGED_FILES
 
 Diff stat:

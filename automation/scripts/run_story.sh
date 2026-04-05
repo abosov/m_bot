@@ -422,9 +422,9 @@ extract_markdown_section_items() {
       }
     }
 
-    in_section && /^[[:space:]]*-[[:space:]]+/ {
+    in_section && /^[[:space:]]*[-*][[:space:]]+/ {
       item = $0
-      sub(/^[[:space:]]*-[[:space:]]+/, "", item)
+      sub(/^[[:space:]]*[-*][[:space:]]+/, "", item)
       gsub(/`/, "", item)
       print item
     }
@@ -456,6 +456,18 @@ is_execution_companion_artifact_path() {
   local path="$2"
 
   story_is_code_only_for_execution_filter "$story_id" || return 1
+
+  case "$path" in
+    docs/90_codex/epics/US-AUTO_REGISTRY.md)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+is_historical_execution_companion_artifact_path() {
+  local path="$1"
 
   case "$path" in
     docs/90_codex/epics/US-AUTO_REGISTRY.md)
@@ -564,7 +576,13 @@ recompute_filtered_changed_files_for_run_to() {
     | sed '/^$/d' \
     | while IFS= read -r path; do
         [[ -n "$path" ]] || continue
-        if is_preflight_ignored_path "$story_id" "$path"; then
+        if is_story_artifact_path "$story_id" "$path"; then
+          continue
+        fi
+        if run_manifest_companion_filter_enabled "$run_dir" && is_historical_execution_companion_artifact_path "$path"; then
+          continue
+        fi
+        if ! run_manifest_companion_filter_enabled "$run_dir" && is_preflight_ignored_path "$story_id" "$path"; then
           continue
         fi
         printf '%s\n' "$path"
@@ -610,6 +628,7 @@ recompute_filtered_diff_patch_for_run_to() {
   local output_file="$3"
   local manifest_file="$run_dir/manifest.md"
   local review_artifact_base run_head
+  local line file skip
 
   [[ -f "$manifest_file" ]] || return 1
 
@@ -619,8 +638,32 @@ recompute_filtered_diff_patch_for_run_to() {
   [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
   [[ "$run_head" =~ ^[0-9a-f]{40}$ ]] || return 1
 
+  skip=0
   git -C "$ROOT_DIR" diff "$review_artifact_base" "$run_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
-    | filter_preflight_ignored_diff "$story_id" > "$output_file"
+    | while IFS= read -r line; do
+        if [[ "$line" =~ ^diff\ --git\ a/(.+)\ b/(.+)$ ]]; then
+          file="${BASH_REMATCH[1]}"
+          if is_story_artifact_path "$story_id" "$file"; then
+            skip=1
+            continue
+          fi
+          if run_manifest_companion_filter_enabled "$run_dir" && is_historical_execution_companion_artifact_path "$file"; then
+            skip=1
+            continue
+          fi
+          if ! run_manifest_companion_filter_enabled "$run_dir" && is_preflight_ignored_path "$story_id" "$file"; then
+            skip=1
+            continue
+          fi
+          skip=0
+        fi
+
+        if [[ "$skip" == "1" ]]; then
+          continue
+        fi
+
+        printf '%s\n' "$line"
+      done > "$output_file"
 }
 
 recompute_filtered_changed_files_for_head_to() {
@@ -643,7 +686,13 @@ recompute_filtered_changed_files_for_head_to() {
     | sed '/^$/d' \
     | while IFS= read -r path; do
         [[ -n "$path" ]] || continue
-        if is_preflight_ignored_path "$story_id" "$path"; then
+        if is_story_artifact_path "$story_id" "$path"; then
+          continue
+        fi
+        if run_manifest_companion_filter_enabled "$run_dir" && is_historical_execution_companion_artifact_path "$path"; then
+          continue
+        fi
+        if ! run_manifest_companion_filter_enabled "$run_dir" && is_preflight_ignored_path "$story_id" "$path"; then
           continue
         fi
         printf '%s\n' "$path"
@@ -660,6 +709,7 @@ recompute_filtered_diff_patch_for_head_to() {
   local output_file="$4"
   local manifest_file="$run_dir/manifest.md"
   local review_artifact_base
+  local line file skip
 
   [[ -f "$manifest_file" ]] || return 1
   [[ "$target_head" =~ ^[0-9a-f]{40}$ ]] || return 1
@@ -667,8 +717,32 @@ recompute_filtered_diff_patch_for_head_to() {
   review_artifact_base="$(resolve_run_review_artifact_base "$manifest_file" || true)"
   [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
 
+  skip=0
   git -C "$ROOT_DIR" diff "$review_artifact_base" "$target_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
-    | filter_preflight_ignored_diff "$story_id" > "$output_file"
+    | while IFS= read -r line; do
+        if [[ "$line" =~ ^diff\ --git\ a/(.+)\ b/(.+)$ ]]; then
+          file="${BASH_REMATCH[1]}"
+          if is_story_artifact_path "$story_id" "$file"; then
+            skip=1
+            continue
+          fi
+          if run_manifest_companion_filter_enabled "$run_dir" && is_historical_execution_companion_artifact_path "$file"; then
+            skip=1
+            continue
+          fi
+          if ! run_manifest_companion_filter_enabled "$run_dir" && is_preflight_ignored_path "$story_id" "$file"; then
+            skip=1
+            continue
+          fi
+          skip=0
+        fi
+
+        if [[ "$skip" == "1" ]]; then
+          continue
+        fi
+
+        printf '%s\n' "$line"
+      done > "$output_file"
 }
 
 run_effective_review_surface_matches_checkout_head() {
