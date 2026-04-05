@@ -485,16 +485,22 @@ def test_run_codex_task_filters_only_explicit_registry_companion_for_code_only_s
 
     run_dir = latest_run_dir(root_dir)
     changed_files = (run_dir / "changed_files.txt").read_text(encoding="utf-8")
+    review_changed_files = (run_dir / "review_changed_files.txt").read_text(encoding="utf-8")
     diff_patch = (run_dir / "diff.patch").read_text(encoding="utf-8")
     diff_stat = (run_dir / "diff.stat").read_text(encoding="utf-8")
     manifest = (run_dir / "manifest.md").read_text(encoding="utf-8")
     review_bundle = (run_dir / "review_bundle.md").read_text(encoding="utf-8")
+    review_prompt = (run_dir / "chatgpt_review_prompt.md").read_text(encoding="utf-8")
 
     assert changed_files.splitlines() == ["tracked.txt"]
+    assert review_changed_files.splitlines() == ["tracked.txt"]
     assert "diff --git a/tracked.txt b/tracked.txt" in diff_patch
     assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_patch
     assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_stat
     assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in review_bundle
+    assert "Changed Files (filtered delivery surface)" in review_bundle
+    assert "Changed files (filtered delivery surface):" in review_prompt
+    assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in review_prompt
     assert "- changed_files_detected: yes" in manifest
     assert registry_path.read_text(encoding="utf-8") == "# Registry\n\nTracked registry.\n"
 

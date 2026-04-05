@@ -53,6 +53,7 @@ REVIEW_ARTIFACT_BASE=""
 REPOSITORY_MAP_RUNTIME_REL="repository_map_runtime.md"
 REPOSITORY_MAP_INJECTION_STATUS="pending"
 REPOSITORY_MAP_SOURCE_DOCS=""
+REVIEW_CHANGED_FILES_LABEL="origin/main...HEAD"
 
 BRANCH_NAME=""
 CURRENT_HEAD=""
@@ -1211,6 +1212,16 @@ collect_git_artifacts() {
   append_untracked_artifacts
 }
 
+sync_review_changed_files_surface() {
+  if [[ "$EXECUTION_COMPANION_FILTER_MODE" != "enabled" ]]; then
+    REVIEW_CHANGED_FILES_LABEL="origin/main...HEAD"
+    return 0
+  fi
+
+  cp "$NAMEONLY_FILE" "$REVIEW_CHANGED_FILES_FILE"
+  REVIEW_CHANGED_FILES_LABEL="filtered delivery surface"
+}
+
 check_allowed_files() {
   local bundle_dir scope_file script_path changed_file filtered_nameonly_file
   bundle_dir="$ROOT_DIR/automation/bundles/active/$STORY_ID"
@@ -1306,6 +1317,8 @@ write_run_meta
 
 check_allowed_files
 
+sync_review_changed_files_surface
+
 if [[ "$SKIP_PYTEST" == "1" ]]; then
   PYTEST_EXIT="SKIPPED"
   echo "pytest skipped by SKIP_PYTEST=1" > "$TEST_FILE"
@@ -1393,7 +1406,7 @@ $CURRENT_HEAD
 ## Review Diff Source
 $REVIEW_DIFF_RANGE (merge-base $REVIEW_ARTIFACT_BASE)
 
-## Changed Files (origin/main...HEAD)
+## Changed Files ($REVIEW_CHANGED_FILES_LABEL)
 \`\`\`
 $REVIEW_CHANGED_FILES_CONTENT
 \`\`\`
@@ -1445,7 +1458,7 @@ Please review:
 Use these artifacts from:
 $RUN_DIR
 
-Changed files (origin/main...HEAD):
+Changed files ($REVIEW_CHANGED_FILES_LABEL):
 $REVIEW_CHANGED_FILES_CONTENT
 
 Scope-validated delivery surface:
