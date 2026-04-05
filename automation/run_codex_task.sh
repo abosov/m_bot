@@ -43,6 +43,7 @@ WORKTREE_UNTRACKED_LIST_FILE=""
 WORKTREE_COMPANION_TRACKED_LIST_FILE=""
 WORKTREE_COMPANION_UNTRACKED_LIST_FILE=""
 COMPANION_CONTAMINATION_DETECTED="0"
+EXECUTION_COMPANION_FILTER_MODE="disabled"
 
 MATERIALIZATION_STATUS="not_needed"
 MATERIALIZED_TRACKED_COUNT="0"
@@ -119,6 +120,7 @@ repository_map_source_docs=${REPOSITORY_MAP_SOURCE_DOCS:-}
 skip_pytest=${SKIP_PYTEST:-0}
 pytest_target=${PYTEST_TARGET:-}
 codex_model=${CODEX_MODEL:-}
+execution_companion_filter_mode=${EXECUTION_COMPANION_FILTER_MODE:-disabled}
 isolated_run=true
 isolated_worktree_dir=${WORKTREE_DIR:-}
 isolated_worktree_head=${WORKTREE_HEAD:-}
@@ -849,6 +851,13 @@ setup_isolated_worktree() {
   write_run_meta
 }
 
+if story_is_code_only_for_execution_filter "$STORY_ID"; then
+  EXECUTION_COMPANION_FILTER_MODE="enabled"
+else
+  EXECUTION_COMPANION_FILTER_MODE="disabled"
+fi
+write_run_meta
+
 generate_repository_map_runtime "$REPOSITORY_MAP_RUNTIME_FILE" "$STORY_ID"
 REPOSITORY_MAP_INJECTION_STATUS="injected"
 write_run_meta
@@ -1299,6 +1308,7 @@ cat > "$MANIFEST_FILE" <<MANIFEST
 - review_base_ref: $REVIEW_BASE_REF
 - review_diff_range: $REVIEW_DIFF_RANGE
 - review_artifact_base: $REVIEW_ARTIFACT_BASE
+- execution_companion_filter_mode: $EXECUTION_COMPANION_FILTER_MODE
 - run_timestamp_utc: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 - run_dir: $RUN_DIR
 - context_mode: $CONTEXT_MODE

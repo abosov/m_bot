@@ -263,6 +263,7 @@ def test_materialized_primary_checkout_state() -> None:
     assert "- review_base_ref: origin/main" in manifest
     assert "- review_diff_range: origin/main...HEAD" in manifest
     assert "- review_artifact_base:" in manifest
+    assert "- execution_companion_filter_mode: enabled" in manifest
     assert "- changed_files_detected: yes" in manifest
     assert "- repository_map_runtime_file:" in manifest
     assert "- repository_map_injection_status: injected" in manifest
@@ -280,6 +281,7 @@ def test_materialized_primary_checkout_state() -> None:
     assert "isolated_run=true" in meta
     assert "repository_map_runtime_file=" in meta
     assert "repository_map_injection_status=injected" in meta
+    assert "execution_companion_filter_mode=enabled" in meta
     assert "isolated_worktree_dir=" in meta
     assert "isolated_worktree_head=" in meta
     assert "# Repository Map Runtime" in repository_map_runtime

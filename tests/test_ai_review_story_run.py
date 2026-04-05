@@ -372,6 +372,153 @@ exit 0
     assert not marker_file.exists()
 
 
+def test_ai_review_story_run_allows_manual_finish_continuation_with_companion_filtered_baseline(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+    init_git_repo(root_dir)
+
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    scope_file = root_dir / "automation" / "bundles" / "active" / "US-AUTO-70" / "02_file_scope.md"
+    scope_file.parent.mkdir(parents=True, exist_ok=True)
+    scope_file.write_text(
+        "# Scope\n\n"
+        "## Files Allowed To Change\n"
+        "- `services/story_loop.py`\n\n"
+        "## Files Not Allowed To Change\n"
+        "- `backend/**`\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "-f", str(scope_file.relative_to(root_dir))], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "add code-only scope"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    first_head = current_head(root_dir)
+    reviewed_head = add_commit(root_dir, "services/story_loop.py", "implementation\n", "story implementation")
+
+    previous_run = root_dir / "automation" / "runs" / "US-AUTO-70" / "2026-03-27_10-00-00"
+    previous_run.mkdir(parents=True)
+    (previous_run / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- story_id: US-AUTO-70\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n",
+        encoding="utf-8",
+    )
+    (previous_run / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+
+    run_dir = root_dir / "automation" / "runs" / "US-AUTO-70" / "2026-03-27_11-00-00"
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        "- story_id: US-AUTO-70\n"
+        f"- starting_head: {reviewed_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- review_artifact_base: HEAD~1\n",
+        encoding="utf-8",
+    )
+    for artifact_name in [
+        "review_bundle.md",
+        "chatgpt_review_prompt.md",
+        "diff.patch",
+        "changed_files.txt",
+        "pytest.txt",
+    ]:
+        (run_dir / artifact_name).write_text("artifact\n", encoding="utf-8")
+    (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+
+    registry_file = root_dir / "docs" / "90_codex" / "epics" / "US-AUTO_REGISTRY.md"
+    registry_file.parent.mkdir(parents=True, exist_ok=True)
+    registry_file.write_text("# registry\n", encoding="utf-8")
+    (root_dir / "services" / "story_loop.py").write_text("implementation\nmanual finish\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "services/story_loop.py", "docs/90_codex/epics/US-AUTO_REGISTRY.md"],
+        cwd=root_dir,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "manual finish with companion registry update"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", "HEAD~1", "--", "services/story_loop.py"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+
+    fake_bin_dir = tmp_path / "bin_manual_finish_companion"
+    fake_bin_dir.mkdir()
+    marker_file = tmp_path / "codex_invoked_manual_finish_companion.txt"
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '%s\\n' invoked > "{marker_file}"
+cat >/dev/null
+printf '%s\\n' '# AI Review' > "$output"
+printf '%s\\n' '' >> "$output"
+printf '%s\\n' '- Finding A' >> "$output"
+printf '%s\\n' '' >> "$output"
+printf '%s\\n' '# AI Review Result' >> "$output"
+printf '%s\\n' '' >> "$output"
+printf '%s\\n' 'PASS' >> "$output"
+printf '%s\\n' 'raw-ai-output'
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "US-AUTO-70"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=root_dir,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert marker_file.exists()
+    assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8") == VALID_AI_REVIEW
+
+
 def test_ai_review_story_run_rejects_descendant_after_manual_finish_continuation(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     root_dir.mkdir(parents=True, exist_ok=True)

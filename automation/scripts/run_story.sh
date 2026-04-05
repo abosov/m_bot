@@ -360,12 +360,129 @@ run_source_of_truth_head() {
   printf '\n'
 }
 
+COMPANION_FILTER_SCOPE_STORY_ID=""
+COMPANION_FILTER_SCOPE_ENABLED="0"
+
+extract_markdown_section_items() {
+  local file="$1"
+  local heading_kind="$2"
+
+  [[ -f "$file" ]] || return 0
+
+  awk -v heading_kind="$heading_kind" '
+    function is_target_heading(line, kind) {
+      if (kind == "allowed") {
+        return line == "## Files Allowed To Change"
+      }
+      if (kind == "blocked") {
+        return line == "## Files Not Allowed To Change"
+      }
+      return 0
+    }
+
+    BEGIN {
+      in_section = 0
+    }
+
+    /^## / {
+      if (is_target_heading($0, heading_kind)) {
+        in_section = 1
+        next
+      }
+      if (in_section) {
+        exit
+      }
+    }
+
+    in_section && /^[[:space:]]*-[[:space:]]+/ {
+      item = $0
+      sub(/^[[:space:]]*-[[:space:]]+/, "", item)
+      gsub(/`/, "", item)
+      print item
+    }
+  ' "$file"
+}
+
+story_is_code_only_for_execution_filter() {
+  local story_id="$1"
+  local scope_file
+
+  [[ -n "$story_id" ]] || return 1
+
+  if [[ "$COMPANION_FILTER_SCOPE_STORY_ID" != "$story_id" ]]; then
+    COMPANION_FILTER_SCOPE_STORY_ID="$story_id"
+    COMPANION_FILTER_SCOPE_ENABLED="0"
+    scope_file="$ROOT_DIR/automation/bundles/active/$story_id/02_file_scope.md"
+
+    if [[ -f "$scope_file" ]] && ! extract_markdown_section_items "$scope_file" "allowed" \
+      | grep -Eq '(^docs/|\.md$)'; then
+      COMPANION_FILTER_SCOPE_ENABLED="1"
+    fi
+  fi
+
+  [[ "$COMPANION_FILTER_SCOPE_ENABLED" == "1" ]]
+}
+
+is_execution_companion_artifact_path() {
+  local story_id="$1"
+  local path="$2"
+
+  story_is_code_only_for_execution_filter "$story_id" || return 1
+
+  case "$path" in
+    docs/90_codex/epics/US-AUTO_REGISTRY.md)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+is_preflight_ignored_path() {
+  local story_id="$1"
+  local path="$2"
+
+  if is_story_artifact_path "$story_id" "$path"; then
+    return 0
+  fi
+
+  is_execution_companion_artifact_path "$story_id" "$path"
+}
+
+sorted_filtered_changed_files_to() {
+  local story_id="$1"
+  local changed_files_file="$2"
+  local output_file="$3"
+  local tmp
+  local path
+
+  tmp="$(mktemp)"
+
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    if is_preflight_ignored_path "$story_id" "$path"; then
+      continue
+    fi
+    printf '%s\n' "$path"
+  done < "$changed_files_file" | LC_ALL=C sort -u > "$tmp"
+
+  mv "$tmp" "$output_file"
+}
+
 run_has_nonempty_changed_files() {
   local run_dir="$1"
   local changed_files_file="$run_dir/changed_files.txt"
+  local filtered_changed_files_file
 
   [[ -f "$changed_files_file" ]] || return 1
-  [[ -n "$(sed '/^[[:space:]]*$/d' "$changed_files_file")" ]]
+  filtered_changed_files_file="$(mktemp)"
+  sorted_filtered_changed_files_to "$STORY_ID" "$changed_files_file" "$filtered_changed_files_file"
+  if [[ -n "$(sed '/^[[:space:]]*$/d' "$filtered_changed_files_file")" ]]; then
+    rm -f "$filtered_changed_files_file"
+    return 0
+  fi
+  rm -f "$filtered_changed_files_file"
+  return 1
 }
 
 run_has_nonempty_file() {
@@ -448,18 +565,24 @@ run_has_stable_review_surface_evidence() {
 }
 
 changed_files_match() {
-  local left_file="$1"
-  local right_file="$2"
+  local story_id="$1"
+  local left_file="$2"
+  local right_file="$3"
+  local left_sorted right_sorted
 
-  python3 - "$left_file" "$right_file" <<'PY'
-import sys
-from pathlib import Path
+  left_sorted="$(mktemp)"
+  right_sorted="$(mktemp)"
 
-def normalized(path: Path) -> list[str]:
-    return sorted(line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+  sorted_filtered_changed_files_to "$story_id" "$left_file" "$left_sorted"
+  sorted_filtered_changed_files_to "$story_id" "$right_file" "$right_sorted"
 
-raise SystemExit(0 if normalized(Path(sys.argv[1])) == normalized(Path(sys.argv[2])) else 1)
-PY
+  if cmp -s "$left_sorted" "$right_sorted"; then
+    rm -f "$left_sorted" "$right_sorted"
+    return 0
+  fi
+
+  rm -f "$left_sorted" "$right_sorted"
+  return 1
 }
 
 detect_non_converging_rerun() {
@@ -495,6 +618,7 @@ detect_non_converging_rerun() {
   fi
 
   changed_files_match \
+    "$STORY_ID" \
     "$previous_run_dir/changed_files.txt" \
     "$latest_run_dir/changed_files.txt" || return 1
 

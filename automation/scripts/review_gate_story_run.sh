@@ -503,6 +503,95 @@ review_input_artifact_status() {
   printf 'reject\tinvalid_or_missing_merge_recommendation\tReview classification artifact did not contain a valid merge recommendation\n'
 }
 
+COMPANION_FILTER_SCOPE_STORY_ID=""
+COMPANION_FILTER_SCOPE_ENABLED="0"
+
+extract_markdown_section_items() {
+  local file="$1"
+  local heading_kind="$2"
+
+  [[ -f "$file" ]] || return 0
+
+  awk -v heading_kind="$heading_kind" '
+    function is_target_heading(line, kind) {
+      if (kind == "allowed") {
+        return line == "## Files Allowed To Change"
+      }
+      if (kind == "blocked") {
+        return line == "## Files Not Allowed To Change"
+      }
+      return 0
+    }
+
+    BEGIN {
+      in_section = 0
+    }
+
+    /^## / {
+      if (is_target_heading($0, heading_kind)) {
+        in_section = 1
+        next
+      }
+      if (in_section) {
+        exit
+      }
+    }
+
+    in_section && /^[[:space:]]*-[[:space:]]+/ {
+      item = $0
+      sub(/^[[:space:]]*-[[:space:]]+/, "", item)
+      gsub(/`/, "", item)
+      print item
+    }
+  ' "$file"
+}
+
+story_is_code_only_for_execution_filter() {
+  local story_id="$1"
+  local scope_file
+
+  [[ -n "$story_id" ]] || return 1
+
+  if [[ "$COMPANION_FILTER_SCOPE_STORY_ID" != "$story_id" ]]; then
+    COMPANION_FILTER_SCOPE_STORY_ID="$story_id"
+    COMPANION_FILTER_SCOPE_ENABLED="0"
+    scope_file="$ROOT_DIR/automation/bundles/active/$story_id/02_file_scope.md"
+
+    if [[ -f "$scope_file" ]] && ! extract_markdown_section_items "$scope_file" "allowed" \
+      | grep -Eq '(^docs/|\.md$)'; then
+      COMPANION_FILTER_SCOPE_ENABLED="1"
+    fi
+  fi
+
+  [[ "$COMPANION_FILTER_SCOPE_ENABLED" == "1" ]]
+}
+
+is_execution_companion_artifact_path() {
+  local story_id="$1"
+  local path="$2"
+
+  story_is_code_only_for_execution_filter "$story_id" || return 1
+
+  case "$path" in
+    docs/90_codex/epics/US-AUTO_REGISTRY.md)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+is_review_fidelity_ignored_path() {
+  local story_id="$1"
+  local path="$2"
+
+  if is_story_artifact_review_ignored_path "$story_id" "$path"; then
+    return 0
+  fi
+
+  is_execution_companion_artifact_path "$story_id" "$path"
+}
+
 is_story_artifact_review_ignored_path() {
   local story_id="$1"
   local path="$2"
@@ -531,7 +620,7 @@ filter_review_fidelity_paths() {
 
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
-    if is_story_artifact_review_ignored_path "$story_id" "$path"; then
+    if is_review_fidelity_ignored_path "$story_id" "$path"; then
       continue
     fi
     printf '%s\n' "$path"
@@ -548,7 +637,7 @@ filter_review_fidelity_diff() {
   while IFS= read -r line; do
     if [[ "$line" =~ ^diff\ --git\ a/(.+)\ b/(.+)$ ]]; then
       file="${BASH_REMATCH[1]}"
-      if is_story_artifact_review_ignored_path "$story_id" "$file"; then
+      if is_review_fidelity_ignored_path "$story_id" "$file"; then
         skip=1
         continue
       else
@@ -581,9 +670,17 @@ sorted_changed_files_to() {
 run_has_nonempty_changed_files() {
   local run_dir="$1"
   local changed_files_file="$run_dir/changed_files.txt"
+  local filtered_changed_files_file
 
   [[ -f "$changed_files_file" ]] || return 1
-  [[ -n "$(sed '/^[[:space:]]*$/d' "$changed_files_file")" ]]
+  filtered_changed_files_file="$(mktemp)"
+  sorted_changed_files_to "$STORY_ID" "$changed_files_file" "$filtered_changed_files_file"
+  if [[ -n "$(sed '/^[[:space:]]*$/d' "$filtered_changed_files_file")" ]]; then
+    rm -f "$filtered_changed_files_file"
+    return 0
+  fi
+  rm -f "$filtered_changed_files_file"
+  return 1
 }
 
 run_has_non_converging_evidence() {
@@ -722,11 +819,14 @@ find_previous_reject_stagnation_run() {
   local current_run_id
   local candidate_run_dir candidate_gate_result candidate_decision candidate_source candidate_id
   local previous_changed_files_sorted current_changed_files_sorted
+  local normalized_current_diff normalized_candidate_diff
 
   current_run_id="$(basename "$current_run_dir")"
 
   current_changed_files_sorted="$(mktemp)"
   sorted_changed_files_to "$STORY_ID" "$current_changed_files" "$current_changed_files_sorted"
+  normalized_current_diff="$(mktemp)"
+  filter_review_fidelity_diff "$STORY_ID" < "$current_diff" > "$normalized_current_diff"
 
   while IFS= read -r candidate_run_dir; do
     [[ -n "$candidate_run_dir" ]] || continue
@@ -743,14 +843,20 @@ find_previous_reject_stagnation_run() {
     [[ -f "$candidate_run_dir/diff.patch" ]] || continue
     [[ -f "$candidate_run_dir/changed_files.txt" ]] || continue
 
-    if ! cmp -s "$current_diff" "$candidate_run_dir/diff.patch"; then
+    normalized_candidate_diff="$(mktemp)"
+    filter_review_fidelity_diff "$STORY_ID" < "$candidate_run_dir/diff.patch" > "$normalized_candidate_diff"
+
+    if ! cmp -s "$normalized_current_diff" "$normalized_candidate_diff"; then
+      rm -f "$normalized_candidate_diff"
       continue
     fi
+    rm -f "$normalized_candidate_diff"
 
     previous_changed_files_sorted="$(mktemp)"
     sorted_changed_files_to "$STORY_ID" "$candidate_run_dir/changed_files.txt" "$previous_changed_files_sorted"
     if cmp -s "$current_changed_files_sorted" "$previous_changed_files_sorted"; then
       rm -f "$previous_changed_files_sorted" "$current_changed_files_sorted"
+      rm -f "$normalized_current_diff"
       printf '%s\n' "$candidate_run_dir"
       return 0
     fi
@@ -766,7 +872,7 @@ find_previous_reject_stagnation_run() {
       | LC_ALL=C sort -r
   )
 
-  rm -f "$current_changed_files_sorted"
+  rm -f "$current_changed_files_sorted" "$normalized_current_diff"
   return 1
 }
 
