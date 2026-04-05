@@ -562,7 +562,7 @@ sorted_effective_changed_files_for_run_to() {
   local output_file="$3"
   local changed_files_file="$run_dir/changed_files.txt"
 
-  if story_is_code_only_for_execution_filter "$story_id" && run_manifest_companion_filter_enabled "$run_dir"; then
+  if story_is_code_only_for_execution_filter "$story_id" && run_can_recompute_review_surface "$run_dir"; then
     recompute_filtered_changed_files_for_run_to "$story_id" "$run_dir" "$output_file" || return 1
     return 0
   fi
@@ -577,7 +577,7 @@ effective_diff_patch_for_run_to() {
   local output_file="$3"
   local diff_artifact="$run_dir/diff.patch"
 
-  if story_is_code_only_for_execution_filter "$story_id" && run_manifest_companion_filter_enabled "$run_dir"; then
+  if story_is_code_only_for_execution_filter "$story_id" && run_can_recompute_review_surface "$run_dir"; then
     recompute_filtered_diff_patch_for_run_to "$story_id" "$run_dir" "$output_file" || return 1
     return 0
   fi
@@ -603,6 +603,27 @@ recompute_filtered_diff_patch_for_run_to() {
 
   git -C "$ROOT_DIR" diff "$review_artifact_base" "$run_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
     | filter_preflight_ignored_diff "$story_id" > "$output_file"
+}
+
+run_has_nonempty_effective_changed_files() {
+  local story_id="$1"
+  local run_dir="$2"
+  local effective_changed_files
+
+  effective_changed_files="$(mktemp)"
+
+  sorted_effective_changed_files_for_run_to "$story_id" "$run_dir" "$effective_changed_files" || {
+    rm -f "$effective_changed_files"
+    return 1
+  }
+
+  if [[ -s "$effective_changed_files" ]]; then
+    rm -f "$effective_changed_files"
+    return 0
+  fi
+
+  rm -f "$effective_changed_files"
+  return 1
 }
 
 run_filtered_review_artifacts_match_recomputed_surface() {
@@ -811,7 +832,7 @@ review_surfaces_match() {
   if ! story_is_code_only_for_execution_filter "$story_id"; then
     return 0
   fi
-  if ! run_manifest_companion_filter_enabled "$left_run_dir" && ! run_manifest_companion_filter_enabled "$right_run_dir"; then
+  if ! run_can_recompute_review_surface "$left_run_dir" && ! run_can_recompute_review_surface "$right_run_dir"; then
     return 0
   fi
   diff_patch_match "$story_id" "$left_run_dir" "$right_run_dir" || return 1
