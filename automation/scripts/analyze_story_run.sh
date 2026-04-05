@@ -1302,6 +1302,7 @@ summarize_workflow_resume() {
   local ai_review_validation_state ai_review_validation_status ai_review_validation_code ai_review_validation_reason
   local previous_non_converging_run_dir reviewed_head checkout_head manual_finish_continuation_allowed
   local head_contract_state head_contract_code final_head_fidelity_state final_head_fidelity_status final_head_fidelity_code final_head_fidelity_reason
+  local filtered_review_surface_status
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -1332,6 +1333,12 @@ summarize_workflow_resume() {
     final_head_fidelity_status=""
     final_head_fidelity_code=""
     final_head_fidelity_reason=""
+  fi
+  filtered_review_surface_status="valid"
+  if [[ "$manual_finish_continuation_allowed" != "true" ]] && run_manifest_companion_filter_enabled "$run_dir" && [[ "$prereq_status" == "ready" ]]; then
+    if ! run_filtered_review_artifacts_match_recomputed_surface "$run_dir"; then
+      filtered_review_surface_status="invalid"
+    fi
   fi
 
   if [[ -f "$changed_files_file" ]]; then
@@ -1384,6 +1391,12 @@ summarize_workflow_resume() {
     latest_valid_stage="none"
     resume_safety="blocked"
     blocked_reason="missing review prerequisites: ${prereq_status#missing:}"
+    next_command="automation/scripts/run_story.sh $story_id"
+  elif [[ "$filtered_review_surface_status" == "invalid" ]]; then
+    stage="blocked_review_artifact_fidelity"
+    latest_valid_stage="run_artifacts_ready"
+    resume_safety="blocked"
+    blocked_reason="filtered review artifacts are stale or inconsistent with recomputed baseline"
     next_command="automation/scripts/run_story.sh $story_id"
   elif [[ -n "$previous_non_converging_run_dir" && "$manual_finish_continuation_allowed" != "true" ]]; then
     stage="blocked_non_converging_rerun"
@@ -1607,6 +1620,12 @@ final_status_line() {
     final_head_fidelity_code=""
     final_head_fidelity_reason=""
   fi
+  filtered_review_surface_status="valid"
+  if [[ "$manual_finish_continuation_allowed" != "true" ]] && run_manifest_companion_filter_enabled "$run_dir" && [[ "$prereq_status" == "ready" ]]; then
+    if ! run_filtered_review_artifacts_match_recomputed_surface "$run_dir"; then
+      filtered_review_surface_status="invalid"
+    fi
+  fi
 
   if [[ -n "$previous_non_converging_run_dir" && "$head_status" == mismatch:* && "$manual_finish_continuation_allowed" != "true" ]]; then
     expected_head="${head_status#mismatch:}"
@@ -1621,6 +1640,11 @@ final_status_line() {
     current_head="${expected_head#*:}"
     expected_head="${expected_head%%:*}"
     printf 'RUN STATUS: BLOCKED (stale run evidence: manifest HEAD %s != current HEAD %s)\n' "$expected_head" "$current_head"
+    return 0
+  fi
+
+  if [[ "$manual_finish_continuation_allowed" != "true" && "$filtered_review_surface_status" == "invalid" ]]; then
+    printf 'RUN STATUS: BLOCKED (filtered review artifacts are stale or inconsistent with recomputed baseline)\n'
     return 0
   fi
 

@@ -890,6 +890,11 @@ if [[ "$head_validation_status" == "reject" ]]; then
   fail "AI review blocked for '$STORY_ID': $head_validation_reason"
 fi
 
+if [[ "$head_validation_code" != "manual_finish_continuation_valid" ]] && run_manifest_companion_filter_enabled "$LATEST_RUN_DIR"; then
+  run_filtered_review_artifacts_match_recomputed_surface "$LATEST_RUN_DIR" || \
+    fail "AI review blocked for '$STORY_ID': filtered review artifacts are stale or inconsistent with recomputed baseline"
+fi
+
 if [[ "$head_validation_code" == "manual_finish_continuation_valid" ]]; then
   fidelity_state="$(review_artifact_fidelity_status "$LATEST_RUN_DIR" "$MANIFEST_FILE")"
   IFS=$'\t' read -r fidelity_status fidelity_code fidelity_reason <<< "$fidelity_state"
