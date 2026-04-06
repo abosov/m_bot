@@ -183,8 +183,9 @@ Ensure projection is produced once at run stage and consumed by all downstream s
 
 * Fail if workspace dirty
 * Fail if not HEAD aligned
-* Fail if projection artifact missing
 * Fail if recomputation detected
+* Fail if projection artifact is present but invalid, stale, or inconsistent with pinned run artifacts
+* MUST preserve compatibility for older/minimal pinned-run fixtures that do not contain projection artifacts yet
 
 ## Hard Stop Rules
 
@@ -197,16 +198,23 @@ Ensure projection is produced once at run stage and consumed by all downstream s
 * MUST NOT introduce SEMANTIC_COMPANION_FILTER_LIB or any equivalent helper variable in downstream scripts
 * MUST NOT add any external helper dependency for semantic filtering in downstream stages
 
-* Downstream scripts MUST rely only on:
-  - persisted run artifacts
-  - existing in-file filtering logic already present in the script
+* If semantic projection artifacts exist in the pinned run:
+  - downstream scripts MUST validate and consume them
+  - invalid or inconsistent projection artifacts MUST fail closed
+
+* If semantic projection artifacts do not exist in the pinned run:
+  - downstream scripts MUST NOT fail solely because those projection artifacts are absent
+  - downstream scripts MUST fall back to the existing pinned run artifacts already used by the pre-US-AUTO-75 contract
+  - backward compatibility for minimal test fixtures and legacy pinned-run artifacts MUST be preserved
 
 ## Implementation Instructions
 
 1. Generate projection artifact during run stage
 2. Persist it into run directory
-3. Replace all downstream filtering with artifact consumption
-4. Remove all recomputation paths
+3. Update downstream stages so they consume and validate projection artifacts when those artifacts are present
+4. Preserve compatibility for pinned runs and tests that only contain legacy artifacts such as changed_files.txt and diff.patch
+5. Remove all recomputation paths
+6. Do not make projection artifact presence a universal hard requirement for every historical or minimal pinned-run fixture
 
 ## Output
 
@@ -224,8 +232,8 @@ Ensure projection is produced once at run stage and consumed by all downstream s
 
 ## Functional Validation
 
-* Projection artifact exists
-* Downstream uses artifact only
+* When projection artifact is present, downstream validates and uses it
+* When projection artifact is absent, downstream preserves legacy pinned-run behavior without recomputation
 * No recomputation
 
 ## Verification
@@ -235,7 +243,7 @@ Ensure projection is produced once at run stage and consumed by all downstream s
 
 ## Hard Block Conditions
 
-* Missing artifact → REJECT
+* Present-but-invalid projection artifact → REJECT
 * Recomputation → REJECT
 * Scope violation → REJECT
 * HEAD drift → REJECT

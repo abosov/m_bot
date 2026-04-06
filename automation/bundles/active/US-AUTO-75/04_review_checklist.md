@@ -5,8 +5,8 @@
 
 ## Functional Validation
 
-* Projection artifact exists
-* Downstream uses artifact only
+* When projection artifact is present, downstream validates and uses it
+* When projection artifact is absent, downstream preserves legacy pinned-run behavior without recomputation
 * No recomputation
 
 ## Verification
@@ -16,7 +16,7 @@
 
 ## Hard Block Conditions
 
-* Missing artifact → REJECT
+* Present-but-invalid projection artifact → REJECT
 * Recomputation → REJECT
 * Scope violation → REJECT
 * HEAD drift → REJECT
