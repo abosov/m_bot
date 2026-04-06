@@ -42,6 +42,14 @@ Ensure projection is produced once at run stage and consumed by all downstream s
 * MUST NOT rebuild projection from inputs
 * MUST NOT introduce stage-specific behavior
 
+* MUST NOT source or require automation/scripts/lib/semantic_companion_filter.sh in downstream scripts
+* MUST NOT introduce SEMANTIC_COMPANION_FILTER_LIB or any equivalent helper variable in downstream scripts
+* MUST NOT add any external helper dependency for semantic filtering in downstream stages
+
+* Downstream scripts MUST rely only on:
+  - persisted run artifacts
+  - existing in-file filtering logic already present in the script
+
 ## Implementation Instructions
 
 1. Generate projection artifact during run stage
