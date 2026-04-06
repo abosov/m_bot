@@ -648,7 +648,7 @@ path_exists_in_head() {
 }
 
 is_non_runtime_companion_artifact_path() {
-  local path="$2"
+  local path="$1"
 
   case "$path" in
     docs/90_codex/epics/US-AUTO_REGISTRY.md)
@@ -667,7 +667,7 @@ is_execution_diff_ignored_path() {
     return 0
   fi
 
-  is_non_runtime_companion_artifact_path "$story_id" "$path"
+  is_non_runtime_companion_artifact_path "$path"
 }
 
 filter_ignored_execution_diff_paths() {
@@ -929,7 +929,7 @@ isolate_explicit_execution_companion_paths() {
   tmp_file="$(mktemp)"
   while IFS= read -r rel; do
     [[ -n "$rel" ]] || continue
-    if is_non_runtime_companion_artifact_path "$STORY_ID" "$rel"; then
+    if is_non_runtime_companion_artifact_path "$rel"; then
       printf '%s\n' "$rel" >> "$WORKTREE_COMPANION_TRACKED_LIST_FILE"
       COMPANION_CONTAMINATION_DETECTED="1"
       continue
@@ -941,7 +941,7 @@ isolate_explicit_execution_companion_paths() {
   tmp_file="$(mktemp)"
   while IFS= read -r rel; do
     [[ -n "$rel" ]] || continue
-    if is_non_runtime_companion_artifact_path "$STORY_ID" "$rel"; then
+    if is_non_runtime_companion_artifact_path "$rel"; then
       printf '%s\n' "$rel" >> "$WORKTREE_COMPANION_UNTRACKED_LIST_FILE"
       COMPANION_CONTAMINATION_DETECTED="1"
       continue
@@ -1162,7 +1162,7 @@ collect_git_artifacts() {
     if [[ -f "$tracked_names_file" ]]; then
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
-        if is_non_runtime_companion_artifact_path "$STORY_ID" "$changed_file"; then
+        if is_non_runtime_companion_artifact_path "$changed_file"; then
           continue
         fi
         printf '%s\n' "$changed_file"
@@ -1171,7 +1171,7 @@ collect_git_artifacts() {
     if [[ -f "$untracked_names_file" ]]; then
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
-        if is_non_runtime_companion_artifact_path "$STORY_ID" "$changed_file"; then
+        if is_non_runtime_companion_artifact_path "$changed_file"; then
           continue
         fi
         printf '%s\n' "$changed_file"
@@ -1227,8 +1227,8 @@ check_allowed_files() {
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
         if is_committed_same_story_bundle_artifact "$changed_file" \
-          || is_non_runtime_companion_artifact_path "$STORY_ID" "$changed_file"; then
-          if is_non_runtime_companion_artifact_path "$STORY_ID" "$changed_file"; then
+          || is_non_runtime_companion_artifact_path "$changed_file"; then
+          if is_non_runtime_companion_artifact_path "$changed_file"; then
             COMPANION_CONTAMINATION_DETECTED="1"
           fi
           continue
@@ -1240,7 +1240,7 @@ check_allowed_files() {
     if [[ -n "${untracked_names_file:-}" && -f "$untracked_names_file" ]]; then
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
-        if is_non_runtime_companion_artifact_path "$STORY_ID" "$changed_file"; then
+        if is_non_runtime_companion_artifact_path "$changed_file"; then
           COMPANION_CONTAMINATION_DETECTED="1"
           continue
         fi
