@@ -631,9 +631,6 @@ REPOSITORY_MAP_RUNTIME_FILE="$RUN_DIR/repository_map_runtime.md"
 LOG_FILE="$RUN_DIR/codex.log"
 LAST_MESSAGE_FILE="$RUN_DIR/codex_last_message.txt"
 
-COMPANION_FILTER_SCOPE_STORY_ID=""
-COMPANION_FILTER_SCOPE_ENABLED="0"
-
 is_story_artifact_ignored_path() {
   local story_id="$1"
   local path="$2"
@@ -650,34 +647,14 @@ path_exists_in_head() {
   git cat-file -e "HEAD:$rel_path" >/dev/null 2>&1
 }
 
-story_is_code_only_for_execution_filter() {
-  local story_id="$1"
-  local scope_file
-
-  [[ -n "$story_id" && "$story_id" != "ADHOC" ]] || return 1
-
-  if [[ "$COMPANION_FILTER_SCOPE_STORY_ID" != "$story_id" ]]; then
-    COMPANION_FILTER_SCOPE_STORY_ID="$story_id"
-    COMPANION_FILTER_SCOPE_ENABLED="0"
-    scope_file="$ROOT_DIR/automation/bundles/active/$story_id/02_file_scope.md"
-
-    if [[ -f "$scope_file" ]] && ! extract_markdown_section_items "$scope_file" "allowed" \
-      | grep -Eq '(^docs/|\.md$)'; then
-      COMPANION_FILTER_SCOPE_ENABLED="1"
-    fi
-  fi
-
-  [[ "$COMPANION_FILTER_SCOPE_ENABLED" == "1" ]]
-}
-
-is_execution_companion_artifact_path() {
-  local story_id="$1"
-  local path="$2"
-
-  story_is_code_only_for_execution_filter "$story_id" || return 1
+is_non_runtime_companion_artifact_path() {
+  local path="${1#./}"
 
   case "$path" in
     docs/90_codex/epics/US-AUTO_REGISTRY.md)
+      # Exclude only known non-runtime companion artifacts. Everything else,
+      # including automation scripts, tests, and execution-governing docs,
+      # stays in the runtime/review surface.
       return 0
       ;;
   esac
@@ -693,7 +670,7 @@ is_execution_diff_ignored_path() {
     return 0
   fi
 
-  is_execution_companion_artifact_path "$story_id" "$path"
+  is_non_runtime_companion_artifact_path "$path"
 }
 
 filter_ignored_execution_diff_paths() {
@@ -852,11 +829,7 @@ setup_isolated_worktree() {
   write_run_meta
 }
 
-if story_is_code_only_for_execution_filter "$STORY_ID"; then
-  EXECUTION_COMPANION_FILTER_MODE="enabled"
-else
-  EXECUTION_COMPANION_FILTER_MODE="disabled"
-fi
+EXECUTION_COMPANION_FILTER_MODE="enabled"
 write_run_meta
 
 generate_repository_map_runtime "$REPOSITORY_MAP_RUNTIME_FILE" "$STORY_ID"
@@ -959,7 +932,7 @@ isolate_explicit_execution_companion_paths() {
   tmp_file="$(mktemp)"
   while IFS= read -r rel; do
     [[ -n "$rel" ]] || continue
-    if is_execution_companion_artifact_path "$STORY_ID" "$rel"; then
+    if is_non_runtime_companion_artifact_path "$rel"; then
       printf '%s\n' "$rel" >> "$WORKTREE_COMPANION_TRACKED_LIST_FILE"
       COMPANION_CONTAMINATION_DETECTED="1"
       continue
@@ -971,7 +944,7 @@ isolate_explicit_execution_companion_paths() {
   tmp_file="$(mktemp)"
   while IFS= read -r rel; do
     [[ -n "$rel" ]] || continue
-    if is_execution_companion_artifact_path "$STORY_ID" "$rel"; then
+    if is_non_runtime_companion_artifact_path "$rel"; then
       printf '%s\n' "$rel" >> "$WORKTREE_COMPANION_UNTRACKED_LIST_FILE"
       COMPANION_CONTAMINATION_DETECTED="1"
       continue
@@ -1192,7 +1165,7 @@ collect_git_artifacts() {
     if [[ -f "$tracked_names_file" ]]; then
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
-        if is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
+        if is_non_runtime_companion_artifact_path "$changed_file"; then
           continue
         fi
         printf '%s\n' "$changed_file"
@@ -1201,7 +1174,7 @@ collect_git_artifacts() {
     if [[ -f "$untracked_names_file" ]]; then
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
-        if is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
+        if is_non_runtime_companion_artifact_path "$changed_file"; then
           continue
         fi
         printf '%s\n' "$changed_file"
@@ -1213,11 +1186,6 @@ collect_git_artifacts() {
 }
 
 sync_review_changed_files_surface() {
-  if [[ "$EXECUTION_COMPANION_FILTER_MODE" != "enabled" ]]; then
-    REVIEW_CHANGED_FILES_LABEL="origin/main...HEAD"
-    return 0
-  fi
-
   cp "$NAMEONLY_FILE" "$REVIEW_CHANGED_FILES_FILE"
   REVIEW_CHANGED_FILES_LABEL="filtered delivery surface"
 }
@@ -1262,8 +1230,8 @@ check_allowed_files() {
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
         if is_committed_same_story_bundle_artifact "$changed_file" \
-          || is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
-          if is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
+          || is_non_runtime_companion_artifact_path "$changed_file"; then
+          if is_non_runtime_companion_artifact_path "$changed_file"; then
             COMPANION_CONTAMINATION_DETECTED="1"
           fi
           continue
@@ -1275,7 +1243,7 @@ check_allowed_files() {
     if [[ -n "${untracked_names_file:-}" && -f "$untracked_names_file" ]]; then
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
-        if is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
+        if is_non_runtime_companion_artifact_path "$changed_file"; then
           COMPANION_CONTAMINATION_DETECTED="1"
           continue
         fi

@@ -611,6 +611,82 @@ def test_run_story_allows_rerun_when_stable_surface_is_companion_only_for_code_o
     assert runner_marker.read_text(encoding="utf-8").strip() == "called"
 
 
+def test_run_story_blocks_rerun_when_stable_surface_is_unchanged_for_mixed_scope_story(
+    tmp_path: Path,
+) -> None:
+    story_id = "US-AUTO-70"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+
+    scope_file = root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md"
+    scope_file.write_text(
+        "# Scope\n\n"
+        "## Files Allowed To Change\n"
+        "- `services/story_surface.py`\n"
+        "- `docs/release_notes.md`\n\n"
+        "## Files Not Allowed To Change\n"
+        "- `backend/**`\n",
+        encoding="utf-8",
+    )
+    add = run(["git", "add", str(scope_file.relative_to(root_dir))], cwd=root_dir)
+    assert add.returncode == 0, add.stderr
+    commit = run(["git", "commit", "-m", "Set mixed scope"], cwd=root_dir)
+    assert commit.returncode == 0, commit.stderr
+
+    review_artifact_base = current_head(root_dir)
+    reviewed_head = add_commit(root_dir, "services/story_surface.py", "implementation\n", "implementation rerun head")
+    add_commit(root_dir, "docs/90_codex/epics/US-AUTO_REGISTRY.md", "registry\n", "registry companion head")
+    filtered_diff = run(
+        ["git", "diff", review_artifact_base, reviewed_head, "--", "services/story_surface.py"],
+        cwd=root_dir,
+    )
+    assert filtered_diff.returncode == 0, filtered_diff.stderr
+
+    latest_run_dir = make_run_dir(root_dir, story_id, "2026-03-28_10-00-00")
+    (latest_run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {current_head(root_dir)}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (latest_run_dir / "changed_files.txt").write_text(
+        "services/story_surface.py\n",
+        encoding="utf-8",
+    )
+    (latest_run_dir / "run_meta.txt").write_text("run_id=2026-03-28_10-00-00\n", encoding="utf-8")
+    (latest_run_dir / "pytest.txt").write_text("2 passed\n", encoding="utf-8")
+    (latest_run_dir / "diff.patch").write_text(filtered_diff.stdout, encoding="utf-8")
+    (latest_run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (latest_run_dir / "chatgpt_review_prompt.md").write_text("# Review Prompt\n", encoding="utf-8")
+    (latest_run_dir / "ai_review_result.md").write_text("# AI Review\npass\n", encoding="utf-8")
+    (latest_run_dir / "review_classification.md").write_text("pass\n", encoding="utf-8")
+    (latest_run_dir / "review_gate_result.json").write_text('{"status":"pass"}\n', encoding="utf-8")
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "unchanged_effective_review_surface_for_committed_head" in result.stderr
+    assert not runner_marker.exists()
+
+
 def test_run_story_allows_rerun_when_non_converging_signal_is_companion_only_for_code_only_story(
     tmp_path: Path,
 ) -> None:
