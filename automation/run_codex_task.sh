@@ -1287,6 +1287,46 @@ check_allowed_files
 
 sync_review_changed_files_surface
 
+write_semantic_projection_artifact() {
+  local projection_file="$RUN_DIR/semantic_projection.json"
+
+  python3 - <<PY > "$projection_file"
+import json
+import hashlib
+from pathlib import Path
+
+run_dir = Path("$RUN_DIR")
+
+def sha256(p):
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+payload = {
+    "schema_version": 1,
+    "projection_kind": "semantic_companion_filter",
+    "projection_source": "run_stage",
+    "execution_companion_filter_mode": "$EXECUTION_COMPANION_FILTER_MODE",
+    "artifacts": {
+        "changed_files": {
+            "path": "changed_files.txt",
+            "sha256": sha256(run_dir / "changed_files.txt")
+        },
+        "diff_patch": {
+            "path": "diff.patch",
+            "sha256": sha256(run_dir / "diff.patch")
+        },
+        "review_changed_files": {
+            "path": "review_changed_files.txt",
+            "sha256": sha256(run_dir / "review_changed_files.txt")
+        }
+    }
+}
+
+print(json.dumps(payload, indent=2))
+PY
+}
+
+write_semantic_projection_artifact
+
 if [[ "$SKIP_PYTEST" == "1" ]]; then
   PYTEST_EXIT="SKIPPED"
   echo "pytest skipped by SKIP_PYTEST=1" > "$TEST_FILE"
