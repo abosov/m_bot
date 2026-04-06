@@ -572,6 +572,76 @@ def test_run_codex_task_filters_registry_companion_for_mixed_scope_story(
     assert "- execution_companion_filter_mode: enabled" in manifest
 
 
+def test_run_codex_task_keeps_runtime_critical_automation_script_in_filtered_surface(
+    tmp_path: Path,
+) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    scope_file = (
+        root_dir
+        / "automation"
+        / "bundles"
+        / "active"
+        / "US-AUTO-7"
+        / "02_file_scope.md"
+    )
+    scope_file.write_text(
+        """# US-AUTO-7: File Scope
+
+## Files Allowed To Change
+* `tracked.txt`
+* `automation/scripts/runtime_hook.sh`
+* `docs/notes.md`
+
+## Files Not Allowed To Change
+* `backend/**`
+""",
+        encoding="utf-8",
+    )
+    run(["git", "add", "automation/bundles/active/US-AUTO-7/02_file_scope.md"], cwd=root_dir)
+    run(["git", "commit", "-m", "Expand scope with runtime automation script"], cwd=root_dir)
+
+    registry_path = root_dir / "docs" / "90_codex" / "epics" / "US-AUTO_REGISTRY.md"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text("# Registry\n\nTracked registry.\n", encoding="utf-8")
+    run(["git", "add", "docs/90_codex/epics/US-AUTO_REGISTRY.md"], cwd=root_dir)
+    run(["git", "commit", "-m", "Add tracked registry artifact"], cwd=root_dir)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    write_executable(
+        fake_bin_dir / "codex",
+        fake_codex_script(
+            "mkdir -p \"$workdir/automation/scripts\"\n"
+            "printf '%s\\n' '#!/usr/bin/env bash' 'echo runtime hook' > \"$workdir/automation/scripts/runtime_hook.sh\"\n"
+            "printf '%s\\n' 'registry update' >> \"$workdir/docs/90_codex/epics/US-AUTO_REGISTRY.md\""
+        ),
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["SKIP_PYTEST"] = "1"
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    run_dir = latest_run_dir(root_dir)
+    changed_files = (run_dir / "changed_files.txt").read_text(encoding="utf-8")
+    review_changed_files = (run_dir / "review_changed_files.txt").read_text(encoding="utf-8")
+    diff_patch = (run_dir / "diff.patch").read_text(encoding="utf-8")
+
+    assert "automation/scripts/runtime_hook.sh" in changed_files.splitlines()
+    assert "automation/scripts/runtime_hook.sh" in review_changed_files.splitlines()
+    assert "diff --git a/automation/scripts/runtime_hook.sh b/automation/scripts/runtime_hook.sh" in diff_patch
+    assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_patch
+
+
 def test_run_codex_task_fails_closed_when_companion_isolation_leaves_empty_delivery_surface(
     tmp_path: Path,
 ) -> None:

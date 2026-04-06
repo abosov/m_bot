@@ -301,10 +301,13 @@ extract_markdown_section_items() {
 }
 
 is_non_runtime_companion_artifact_path() {
-  local path="$1"
+  local path="${1#./}"
 
   case "$path" in
     docs/90_codex/epics/US-AUTO_REGISTRY.md)
+      # Exclude only known non-runtime companion artifacts. Everything else,
+      # including automation scripts, tests, and execution-governing docs,
+      # stays in the runtime/review surface.
       return 0
       ;;
   esac
