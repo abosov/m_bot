@@ -19,6 +19,7 @@ projection is treated as logic, not as a persisted artifact.
 * Introduce run-stage projection artifact
 * Enforce downstream consumption of this artifact
 * Remove all recomputation paths
+* Update run-stage producer logic where needed so projection is persisted into run artifacts and becomes the only downstream source for review-fidelity consumption
 
 Pipeline layer: run + analyze + review + classify + gate (contract-level)
 

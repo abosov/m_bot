@@ -14,7 +14,7 @@ Ensure projection is produced once at run stage and consumed by all downstream s
 
 ## Files Allowed To Change
 
-* automation/scripts/run_codex_task.sh
+* automation/run_codex_task.sh
 * automation/scripts/lib/semantic_companion_filter.sh
 * automation/scripts/ai_review_story_run.sh
 * automation/scripts/analyze_story_run.sh

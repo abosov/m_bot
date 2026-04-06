@@ -24,6 +24,7 @@ projection is treated as logic, not as a persisted artifact.
 * Introduce run-stage projection artifact
 * Enforce downstream consumption of this artifact
 * Remove all recomputation paths
+* Update run-stage producer logic where needed so projection is persisted into run artifacts and becomes the only downstream source for review-fidelity consumption
 
 Pipeline layer: run + analyze + review + classify + gate (contract-level)
 
@@ -121,7 +122,7 @@ Projection must be:
 
 ## Files Allowed To Change
 
-* automation/scripts/run_codex_task.sh
+* automation/run_codex_task.sh
 * automation/scripts/lib/semantic_companion_filter.sh
 * automation/scripts/ai_review_story_run.sh
 * automation/scripts/analyze_story_run.sh
@@ -164,7 +165,7 @@ Ensure projection is produced once at run stage and consumed by all downstream s
 
 ## Files Allowed To Change
 
-* automation/scripts/run_codex_task.sh
+* automation/run_codex_task.sh
 * automation/scripts/lib/semantic_companion_filter.sh
 * automation/scripts/ai_review_story_run.sh
 * automation/scripts/analyze_story_run.sh
