@@ -144,11 +144,8 @@ is_story_artifact_review_ignored_path() {
   return 1
 }
 
-is_execution_companion_artifact_path() {
-  local run_dir="$1"
+is_non_runtime_companion_artifact_path() {
   local path="$2"
-
-  run_manifest_companion_filter_enabled "$run_dir" || return 1
 
   case "$path" in
     docs/90_codex/epics/US-AUTO_REGISTRY.md)
@@ -168,7 +165,8 @@ is_review_fidelity_ignored_path() {
     return 0
   fi
 
-  is_execution_companion_artifact_path "$run_dir" "$path"
+  run_manifest_companion_filter_enabled "$run_dir" || return 1
+  is_non_runtime_companion_artifact_path "$run_dir" "$path"
 }
 
 filter_review_fidelity_paths() {

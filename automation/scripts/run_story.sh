@@ -387,8 +387,6 @@ run_manifest_companion_filter_enabled() {
   [[ "$companion_filter_mode" == "enabled" ]]
 }
 
-COMPANION_FILTER_SCOPE_STORY_ID=""
-COMPANION_FILTER_SCOPE_ENABLED="0"
 DETECTED_STABLE_REVIEW_SURFACE_RUN_DIR=""
 
 extract_markdown_section_items() {
@@ -431,42 +429,7 @@ extract_markdown_section_items() {
   ' "$file"
 }
 
-story_is_code_only_for_execution_filter() {
-  local story_id="$1"
-  local scope_file
-
-  [[ -n "$story_id" ]] || return 1
-
-  if [[ "$COMPANION_FILTER_SCOPE_STORY_ID" != "$story_id" ]]; then
-    COMPANION_FILTER_SCOPE_STORY_ID="$story_id"
-    COMPANION_FILTER_SCOPE_ENABLED="0"
-    scope_file="$ROOT_DIR/automation/bundles/active/$story_id/02_file_scope.md"
-
-    if [[ -f "$scope_file" ]] && ! extract_markdown_section_items "$scope_file" "allowed" \
-      | grep -Eq '(^docs/|\.md$)'; then
-      COMPANION_FILTER_SCOPE_ENABLED="1"
-    fi
-  fi
-
-  [[ "$COMPANION_FILTER_SCOPE_ENABLED" == "1" ]]
-}
-
-is_execution_companion_artifact_path() {
-  local story_id="$1"
-  local path="$2"
-
-  story_is_code_only_for_execution_filter "$story_id" || return 1
-
-  case "$path" in
-    docs/90_codex/epics/US-AUTO_REGISTRY.md)
-      return 0
-      ;;
-  esac
-
-  return 1
-}
-
-is_historical_execution_companion_artifact_path() {
+is_non_runtime_companion_artifact_path() {
   local path="$1"
 
   case "$path" in
@@ -486,7 +449,7 @@ is_preflight_ignored_path() {
     return 0
   fi
 
-  is_execution_companion_artifact_path "$story_id" "$path"
+  is_non_runtime_companion_artifact_path "$path"
 }
 
 filter_preflight_ignored_diff() {
@@ -579,7 +542,7 @@ recompute_filtered_changed_files_for_run_to() {
         if is_story_artifact_path "$story_id" "$path"; then
           continue
         fi
-        if run_manifest_companion_filter_enabled "$run_dir" && is_historical_execution_companion_artifact_path "$path"; then
+        if run_manifest_companion_filter_enabled "$run_dir" && is_non_runtime_companion_artifact_path "$path"; then
           continue
         fi
         if ! run_manifest_companion_filter_enabled "$run_dir" && is_preflight_ignored_path "$story_id" "$path"; then
@@ -647,7 +610,7 @@ recompute_filtered_diff_patch_for_run_to() {
             skip=1
             continue
           fi
-          if run_manifest_companion_filter_enabled "$run_dir" && is_historical_execution_companion_artifact_path "$file"; then
+          if run_manifest_companion_filter_enabled "$run_dir" && is_non_runtime_companion_artifact_path "$file"; then
             skip=1
             continue
           fi
@@ -689,7 +652,7 @@ recompute_filtered_changed_files_for_head_to() {
         if is_story_artifact_path "$story_id" "$path"; then
           continue
         fi
-        if run_manifest_companion_filter_enabled "$run_dir" && is_historical_execution_companion_artifact_path "$path"; then
+        if run_manifest_companion_filter_enabled "$run_dir" && is_non_runtime_companion_artifact_path "$path"; then
           continue
         fi
         if ! run_manifest_companion_filter_enabled "$run_dir" && is_preflight_ignored_path "$story_id" "$path"; then
@@ -726,7 +689,7 @@ recompute_filtered_diff_patch_for_head_to() {
             skip=1
             continue
           fi
-          if run_manifest_companion_filter_enabled "$run_dir" && is_historical_execution_companion_artifact_path "$file"; then
+          if run_manifest_companion_filter_enabled "$run_dir" && is_non_runtime_companion_artifact_path "$file"; then
             skip=1
             continue
           fi
@@ -946,7 +909,7 @@ run_is_convergence_candidate() {
   [[ "$materialization_status" == "applied" || "$materialization_status" == "not_needed" ]] || return 1
   run_has_nonempty_changed_files "$run_dir" || return 1
 
-  if story_is_code_only_for_execution_filter "$STORY_ID" && run_manifest_companion_filter_enabled "$run_dir"; then
+  if run_manifest_companion_filter_enabled "$run_dir"; then
     run_filtered_review_artifacts_match_recomputed_surface "$run_dir" || return 1
   fi
 
