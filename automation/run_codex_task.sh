@@ -1186,8 +1186,7 @@ collect_git_artifacts() {
 }
 
 sync_review_changed_files_surface() {
-  cp "$NAMEONLY_FILE" "$REVIEW_CHANGED_FILES_FILE"
-  REVIEW_CHANGED_FILES_LABEL="filtered delivery surface"
+  :
 }
 
 check_allowed_files() {
@@ -1285,8 +1284,6 @@ write_run_meta
 
 check_allowed_files
 
-sync_review_changed_files_surface
-
 write_semantic_projection_artifact() {
   local projection_file="$RUN_DIR/semantic_projection.json"
 
@@ -1324,8 +1321,6 @@ payload = {
 print(json.dumps(payload, indent=2))
 PY
 }
-
-write_semantic_projection_artifact
 
 if [[ "$SKIP_PYTEST" == "1" ]]; then
   PYTEST_EXIT="SKIPPED"
