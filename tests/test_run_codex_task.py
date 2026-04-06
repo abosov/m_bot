@@ -101,16 +101,16 @@ def setup_story_repo(tmp_path: Path) -> tuple[Path, Path]:
         """# US-AUTO-7: File Scope
 
 ## Files Allowed To Change
-- `tracked.txt`
-- `generated/from_worktree.txt`
-- `reports/materialized.txt`
-- `tests/test_materialized_state.py`
+* `tracked.txt`
+* `generated/from_worktree.txt`
+* `reports/materialized.txt`
+* `tests/test_materialized_state.py`
 
 ## Files Not Allowed To Change
-- `backend/**`
+* `backend/**`
 
 ## Scope Notes
-- Minimal test scope for run_codex_task integration tests.
+* Minimal test scope for run_codex_task integration tests.
 """,
         encoding="utf-8",
     )
@@ -263,6 +263,7 @@ def test_materialized_primary_checkout_state() -> None:
     assert "- review_base_ref: origin/main" in manifest
     assert "- review_diff_range: origin/main...HEAD" in manifest
     assert "- review_artifact_base:" in manifest
+    assert "- execution_companion_filter_mode: enabled" in manifest
     assert "- changed_files_detected: yes" in manifest
     assert "- repository_map_runtime_file:" in manifest
     assert "- repository_map_injection_status: injected" in manifest
@@ -280,6 +281,7 @@ def test_materialized_primary_checkout_state() -> None:
     assert "isolated_run=true" in meta
     assert "repository_map_runtime_file=" in meta
     assert "repository_map_injection_status=injected" in meta
+    assert "execution_companion_filter_mode=enabled" in meta
     assert "isolated_worktree_dir=" in meta
     assert "isolated_worktree_head=" in meta
     assert "# Repository Map Runtime" in repository_map_runtime
@@ -483,16 +485,22 @@ def test_run_codex_task_filters_only_explicit_registry_companion_for_code_only_s
 
     run_dir = latest_run_dir(root_dir)
     changed_files = (run_dir / "changed_files.txt").read_text(encoding="utf-8")
+    review_changed_files = (run_dir / "review_changed_files.txt").read_text(encoding="utf-8")
     diff_patch = (run_dir / "diff.patch").read_text(encoding="utf-8")
     diff_stat = (run_dir / "diff.stat").read_text(encoding="utf-8")
     manifest = (run_dir / "manifest.md").read_text(encoding="utf-8")
     review_bundle = (run_dir / "review_bundle.md").read_text(encoding="utf-8")
+    review_prompt = (run_dir / "chatgpt_review_prompt.md").read_text(encoding="utf-8")
 
     assert changed_files.splitlines() == ["tracked.txt"]
+    assert review_changed_files.splitlines() == ["tracked.txt"]
     assert "diff --git a/tracked.txt b/tracked.txt" in diff_patch
     assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_patch
     assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_stat
     assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in review_bundle
+    assert "Changed Files (filtered delivery surface)" in review_bundle
+    assert "Changed files (filtered delivery surface):" in review_prompt
+    assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in review_prompt
     assert "- changed_files_detected: yes" in manifest
     assert registry_path.read_text(encoding="utf-8") == "# Registry\n\nTracked registry.\n"
 

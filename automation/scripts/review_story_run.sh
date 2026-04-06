@@ -90,6 +90,235 @@ manifest_value() {
   sed -n -E "s/^-[[:space:]]+${key}:[[:space:]]*(.*)$/\\1/p" "$manifest_file" | head -n 1
 }
 
+run_manifest_companion_filter_enabled() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  local companion_filter_mode
+
+  [[ -f "$manifest_file" ]] || return 1
+  companion_filter_mode="$(manifest_value "$manifest_file" "execution_companion_filter_mode")"
+  [[ "$companion_filter_mode" == "enabled" ]]
+}
+
+resolve_review_artifact_base() {
+  local manifest_file="$1"
+  local review_artifact_base
+
+  review_artifact_base="$(manifest_value "$manifest_file" "review_artifact_base")"
+  if [[ -z "$review_artifact_base" ]]; then
+    return 1
+  fi
+
+  git -C "$ROOT_DIR" rev-parse --verify "${review_artifact_base}^{commit}" 2>/dev/null || return 1
+}
+
+manifest_source_of_truth_head() {
+  local manifest_file="$1"
+  local starting_head isolated_worktree_head
+
+  isolated_worktree_head="$(manifest_value "$manifest_file" "isolated_worktree_head")"
+  if [[ "$isolated_worktree_head" =~ ^[0-9a-f]{40}$ ]]; then
+    printf '%s\n' "$isolated_worktree_head"
+    return 0
+  fi
+
+  starting_head="$(manifest_value "$manifest_file" "starting_head")"
+  if [[ -n "$starting_head" ]]; then
+    printf '%s\n' "$starting_head"
+    return 0
+  fi
+
+  if [[ -n "$isolated_worktree_head" ]]; then
+    printf '%s\n' "$isolated_worktree_head"
+  fi
+}
+
+is_story_artifact_review_ignored_path() {
+  local story_id="$1"
+  local path="$2"
+
+  [[ "$path" == "automation/bundle_packs/$story_id.bundle.md" ]] && return 0
+  [[ "$path" == "automation/bundles/active/$story_id" ]] && return 0
+  [[ "$path" == automation/bundles/active/$story_id/* ]] && return 0
+
+  return 1
+}
+
+is_execution_companion_artifact_path() {
+  local run_dir="$1"
+  local path="$2"
+
+  run_manifest_companion_filter_enabled "$run_dir" || return 1
+
+  case "$path" in
+    docs/90_codex/epics/US-AUTO_REGISTRY.md)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+is_review_fidelity_ignored_path() {
+  local story_id="$1"
+  local run_dir="$2"
+  local path="$3"
+
+  if is_story_artifact_review_ignored_path "$story_id" "$path"; then
+    return 0
+  fi
+
+  is_execution_companion_artifact_path "$run_dir" "$path"
+}
+
+filter_review_fidelity_paths() {
+  local story_id="$1"
+  local run_dir="$2"
+  local output_file="$3"
+  local tmp
+
+  tmp="$(mktemp)"
+
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    if is_review_fidelity_ignored_path "$story_id" "$run_dir" "$path"; then
+      continue
+    fi
+    printf '%s\n' "$path"
+  done | LC_ALL=C sort -u > "$tmp"
+
+  mv "$tmp" "$output_file"
+}
+
+filter_review_fidelity_diff() {
+  local story_id="$1"
+  local run_dir="$2"
+  local line file
+  local skip=0
+
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^diff\ --git\ a/(.+)\ b/(.+)$ ]]; then
+      file="${BASH_REMATCH[1]}"
+      if is_review_fidelity_ignored_path "$story_id" "$run_dir" "$file"; then
+        skip=1
+        continue
+      fi
+      skip=0
+    fi
+
+    if [[ "$skip" == "1" ]]; then
+      continue
+    fi
+
+    printf '%s\n' "$line"
+  done
+}
+
+sorted_changed_files_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local changed_files_file="$3"
+  local output_file="$4"
+  local tmp
+
+  tmp="$(mktemp)"
+
+  sed '/^$/d' "$changed_files_file" \
+    | filter_review_fidelity_paths "$story_id" "$run_dir" "$tmp"
+
+  mv "$tmp" "$output_file"
+}
+
+recompute_filtered_changed_files_for_run_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local output_file="$3"
+  local manifest_file="$run_dir/manifest.md"
+  local review_artifact_base run_head tmp
+
+  [[ -f "$manifest_file" ]] || return 1
+
+  review_artifact_base="$(resolve_review_artifact_base "$manifest_file" || true)"
+  run_head="$(manifest_source_of_truth_head "$manifest_file")"
+
+  [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$run_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+
+  tmp="$(mktemp)"
+
+  git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" "$run_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | sed '/^$/d' \
+    | while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        if is_review_fidelity_ignored_path "$story_id" "$run_dir" "$path"; then
+          continue
+        fi
+        printf '%s\n' "$path"
+      done \
+    | LC_ALL=C sort -u > "$tmp"
+
+  mv "$tmp" "$output_file"
+}
+
+recompute_filtered_diff_patch_for_run_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local output_file="$3"
+  local manifest_file="$run_dir/manifest.md"
+  local review_artifact_base run_head
+
+  [[ -f "$manifest_file" ]] || return 1
+
+  review_artifact_base="$(resolve_review_artifact_base "$manifest_file" || true)"
+  run_head="$(manifest_source_of_truth_head "$manifest_file")"
+
+  [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$run_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+
+  git -C "$ROOT_DIR" diff "$review_artifact_base" "$run_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | filter_review_fidelity_diff "$story_id" "$run_dir" > "$output_file"
+}
+
+run_filtered_review_artifacts_match_recomputed_surface() {
+  local story_id="$1"
+  local run_dir="$2"
+  local changed_files_artifact="$run_dir/changed_files.txt"
+  local diff_artifact="$run_dir/diff.patch"
+  local expected_changed_files normalized_changed_files expected_diff normalized_diff
+
+  [[ -f "$changed_files_artifact" ]] || return 1
+  [[ -f "$diff_artifact" ]] || return 1
+
+  expected_changed_files="$(mktemp)"
+  normalized_changed_files="$(mktemp)"
+  expected_diff="$(mktemp)"
+  normalized_diff="$(mktemp)"
+
+  if ! recompute_filtered_changed_files_for_run_to "$story_id" "$run_dir" "$expected_changed_files"; then
+    rm -f "$expected_changed_files" "$normalized_changed_files" "$expected_diff" "$normalized_diff"
+    return 1
+  fi
+  sorted_changed_files_to "$story_id" "$run_dir" "$changed_files_artifact" "$normalized_changed_files"
+
+  if ! recompute_filtered_diff_patch_for_run_to "$story_id" "$run_dir" "$expected_diff"; then
+    rm -f "$expected_changed_files" "$normalized_changed_files" "$expected_diff" "$normalized_diff"
+    return 1
+  fi
+  filter_review_fidelity_diff "$story_id" "$run_dir" < "$diff_artifact" > "$normalized_diff"
+
+  if ! cmp -s "$expected_changed_files" "$normalized_changed_files"; then
+    rm -f "$expected_changed_files" "$normalized_changed_files" "$expected_diff" "$normalized_diff"
+    return 1
+  fi
+
+  if ! cmp -s "$expected_diff" "$normalized_diff"; then
+    rm -f "$expected_changed_files" "$normalized_changed_files" "$expected_diff" "$normalized_diff"
+    return 1
+  fi
+
+  rm -f "$expected_changed_files" "$normalized_changed_files" "$expected_diff" "$normalized_diff"
+}
+
 resolve_target_run_dir() {
   local story_runs_root="$1"
   local run_dir_override="$2"
@@ -165,6 +394,11 @@ if (( ${#missing_artifacts[@]} > 0 )); then
     printf ' - %s\n' "${missing_artifacts[@]}"
   } >&2
   exit 1
+fi
+
+if run_manifest_companion_filter_enabled "$LATEST_RUN_DIR"; then
+  run_filtered_review_artifacts_match_recomputed_surface "$STORY_ID" "$LATEST_RUN_DIR" || \
+    fail "review blocked for '$STORY_ID': filtered review artifacts are stale or inconsistent with recomputed baseline"
 fi
 
 printf 'Review summary\n'

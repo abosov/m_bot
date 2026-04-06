@@ -327,6 +327,16 @@ manifest_source_of_truth_head() {
   fi
 }
 
+run_manifest_companion_filter_enabled() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  local companion_filter_mode
+
+  [[ -f "$manifest_file" ]] || return 1
+  companion_filter_mode="$(manifest_value "$manifest_file" "execution_companion_filter_mode")"
+  [[ "$companion_filter_mode" == "enabled" ]]
+}
+
 head_matches_expected() {
   local expected_head="$1"
   local current_head="$2"
@@ -409,7 +419,7 @@ review_artifact_fidelity_status() {
   normalized_artifact_diff_file="$(mktemp)"
 
   if ! git -C "$ROOT_DIR" diff "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
-      | filter_review_fidelity_diff "$STORY_ID" > "$expected_diff_file"; then
+      | filter_review_fidelity_diff "$STORY_ID" "$run_dir" > "$expected_diff_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
     printf 'reject\treview_diff_generation_failed\tunable to regenerate authoritative diff from review_artifact_base %s\n' "$review_artifact_base"
     return 0
@@ -417,7 +427,7 @@ review_artifact_fidelity_status() {
 
   git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
     | sed '/^$/d' \
-    | filter_review_fidelity_paths "$STORY_ID" "$expected_changed_files_file"
+    | filter_review_fidelity_paths "$STORY_ID" "$run_dir" "$expected_changed_files_file"
 
   if [[ $? -ne 0 ]]; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
@@ -425,13 +435,13 @@ review_artifact_fidelity_status() {
     return 0
   fi
   
-  if ! filter_review_fidelity_diff "$STORY_ID" < "$diff_artifact" > "$normalized_artifact_diff_file"; then
+  if ! filter_review_fidelity_diff "$STORY_ID" "$run_dir" < "$diff_artifact" > "$normalized_artifact_diff_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
     printf 'reject\treview_diff_artifact_invalid\treview artifact diff.patch could not be normalized for fidelity comparison; rerun automation/scripts/run_story.sh %s\n' "$STORY_ID"
     return 0
   fi
 
-  sorted_changed_files_to "$STORY_ID" "$changed_files_artifact" "$artifact_changed_files_file"
+  sorted_changed_files_to "$STORY_ID" "$run_dir" "$changed_files_artifact" "$artifact_changed_files_file"
 
   if ! cmp -s "$artifact_changed_files_file" "$expected_changed_files_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
@@ -503,35 +513,95 @@ review_input_artifact_status() {
   printf 'reject\tinvalid_or_missing_merge_recommendation\tReview classification artifact did not contain a valid merge recommendation\n'
 }
 
+extract_markdown_section_items() {
+  local file="$1"
+  local heading_kind="$2"
+
+  [[ -f "$file" ]] || return 0
+
+  awk -v heading_kind="$heading_kind" '
+    function is_target_heading(line, kind) {
+      if (kind == "allowed") {
+        return line == "## Files Allowed To Change"
+      }
+      if (kind == "blocked") {
+        return line == "## Files Not Allowed To Change"
+      }
+      return 0
+    }
+
+    BEGIN {
+      in_section = 0
+    }
+
+    /^## / {
+      if (is_target_heading($0, heading_kind)) {
+        in_section = 1
+        next
+      }
+      if (in_section) {
+        exit
+      }
+    }
+
+    in_section && /^[[:space:]]*[-*][[:space:]]+/ {
+      item = $0
+      sub(/^[[:space:]]*[-*][[:space:]]+/, "", item)
+      gsub(/`/, "", item)
+      print item
+    }
+  ' "$file"
+}
+
+is_execution_companion_artifact_path() {
+  local run_dir="$1"
+  local path="$2"
+
+  run_manifest_companion_filter_enabled "$run_dir" || return 1
+
+  case "$path" in
+    docs/90_codex/epics/US-AUTO_REGISTRY.md)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+is_review_fidelity_ignored_path() {
+  local story_id="$1"
+  local run_dir="$2"
+  local path="$3"
+
+  if is_story_artifact_review_ignored_path "$story_id" "$path"; then
+    return 0
+  fi
+
+  is_execution_companion_artifact_path "$run_dir" "$path"
+}
+
 is_story_artifact_review_ignored_path() {
   local story_id="$1"
   local path="$2"
 
-  # bundle pack
   [[ "$path" == "automation/bundle_packs/$story_id.bundle.md" ]] && return 0
-
-  # active bundle directory (both dir and nested files)
-  if [[ "$path" == "automation/bundles/active/$story_id" ]]; then
-    return 0
-  fi
-
-  if [[ "$path" == automation/bundles/active/$story_id/* ]]; then
-    return 0
-  fi
+  [[ "$path" == "automation/bundles/active/$story_id" ]] && return 0
+  [[ "$path" == automation/bundles/active/$story_id/* ]] && return 0
 
   return 1
 }
 
 filter_review_fidelity_paths() {
   local story_id="$1"
-  local output_file="$2"
-
+  local run_dir="$2"
+  local output_file="$3"
   local tmp
+
   tmp="$(mktemp)"
 
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
-    if is_story_artifact_review_ignored_path "$story_id" "$path"; then
+    if is_review_fidelity_ignored_path "$story_id" "$run_dir" "$path"; then
       continue
     fi
     printf '%s\n' "$path"
@@ -542,13 +612,14 @@ filter_review_fidelity_paths() {
 
 filter_review_fidelity_diff() {
   local story_id="$1"
-  local line
+  local run_dir="$2"
+  local line file
   local skip=0
 
   while IFS= read -r line; do
     if [[ "$line" =~ ^diff\ --git\ a/(.+)\ b/(.+)$ ]]; then
       file="${BASH_REMATCH[1]}"
-      if is_story_artifact_review_ignored_path "$story_id" "$file"; then
+      if is_review_fidelity_ignored_path "$story_id" "$run_dir" "$file"; then
         skip=1
         continue
       else
@@ -566,24 +637,114 @@ filter_review_fidelity_diff() {
 
 sorted_changed_files_to() {
   local story_id="$1"
-  local changed_files_file="$2"
-  local output_file="$3"
-
+  local run_dir="$2"
+  local changed_files_file="$3"
+  local output_file="$4"
   local tmp
+
   tmp="$(mktemp)"
 
   sed '/^$/d' "$changed_files_file" \
-    | filter_review_fidelity_paths "$story_id" "$tmp"
+    | filter_review_fidelity_paths "$story_id" "$run_dir" "$tmp"
 
   mv "$tmp" "$output_file"
 }
 
-run_has_nonempty_changed_files() {
-  local run_dir="$1"
+recompute_filtered_changed_files_for_run_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local output_file="$3"
+  local manifest_file="$run_dir/manifest.md"
+  local review_artifact_base run_head tmp
+
+  [[ -f "$manifest_file" ]] || return 1
+
+  review_artifact_base="$(resolve_review_artifact_base "$manifest_file" || true)"
+  run_head="$(manifest_source_of_truth_head "$manifest_file")"
+
+  [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$run_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+
+  tmp="$(mktemp)"
+
+  git -C "$ROOT_DIR" diff --name-only "$review_artifact_base" "$run_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | sed '/^$/d' \
+    | while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        if is_review_fidelity_ignored_path "$story_id" "$run_dir" "$path"; then
+          continue
+        fi
+        printf '%s\n' "$path"
+      done \
+    | LC_ALL=C sort -u > "$tmp"
+
+  mv "$tmp" "$output_file"
+}
+
+sorted_effective_changed_files_for_run_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local output_file="$3"
   local changed_files_file="$run_dir/changed_files.txt"
 
+  if run_manifest_companion_filter_enabled "$run_dir"; then
+    recompute_filtered_changed_files_for_run_to "$story_id" "$run_dir" "$output_file" || return 1
+    return 0
+  fi
+
   [[ -f "$changed_files_file" ]] || return 1
-  [[ -n "$(sed '/^[[:space:]]*$/d' "$changed_files_file")" ]]
+  sorted_changed_files_to "$story_id" "$run_dir" "$changed_files_file" "$output_file"
+}
+
+recompute_filtered_diff_patch_for_run_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local output_file="$3"
+  local manifest_file="$run_dir/manifest.md"
+  local review_artifact_base run_head
+
+  [[ -f "$manifest_file" ]] || return 1
+
+  review_artifact_base="$(resolve_review_artifact_base "$manifest_file" || true)"
+  run_head="$(manifest_source_of_truth_head "$manifest_file")"
+
+  [[ "$review_artifact_base" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$run_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+
+  git -C "$ROOT_DIR" diff "$review_artifact_base" "$run_head" -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" \
+    | filter_review_fidelity_diff "$story_id" "$run_dir" > "$output_file"
+}
+
+effective_diff_patch_for_run_to() {
+  local story_id="$1"
+  local run_dir="$2"
+  local output_file="$3"
+  local diff_artifact="$run_dir/diff.patch"
+
+  if run_manifest_companion_filter_enabled "$run_dir"; then
+    recompute_filtered_diff_patch_for_run_to "$story_id" "$run_dir" "$output_file" || return 1
+    return 0
+  fi
+
+  [[ -f "$diff_artifact" ]] || return 1
+  filter_review_fidelity_diff "$story_id" "$run_dir" < "$diff_artifact" > "$output_file"
+}
+
+run_has_nonempty_changed_files() {
+  local run_dir="$1"
+  local filtered_changed_files_file
+
+  filtered_changed_files_file="$(mktemp)"
+  sorted_effective_changed_files_for_run_to "$STORY_ID" "$run_dir" "$filtered_changed_files_file" || {
+    rm -f "$filtered_changed_files_file"
+    return 1
+  }
+  if [[ -n "$(sed '/^[[:space:]]*$/d' "$filtered_changed_files_file")" ]]; then
+    rm -f "$filtered_changed_files_file"
+    return 0
+  fi
+  rm -f "$filtered_changed_files_file"
+  return 1
 }
 
 run_has_non_converging_evidence() {
@@ -625,6 +786,7 @@ detect_non_converging_rerun_for_run() {
   local current_run_dir="$2"
   local previous_run_dir previous_head latest_head
   local current_changed_files_sorted previous_changed_files_sorted
+  local current_diff previous_diff
 
   previous_run_dir="$(resolve_previous_run_dir "$story_runs_root" "$current_run_dir" || true)"
   [[ -n "$previous_run_dir" ]] || return 1
@@ -641,17 +803,40 @@ detect_non_converging_rerun_for_run() {
 
   current_changed_files_sorted="$(mktemp)"
   previous_changed_files_sorted="$(mktemp)"
-  sorted_changed_files_to "$STORY_ID" "$current_run_dir/changed_files.txt" "$current_changed_files_sorted"
-  sorted_changed_files_to "$STORY_ID" "$previous_run_dir/changed_files.txt" "$previous_changed_files_sorted"
+  current_diff="$(mktemp)"
+  previous_diff="$(mktemp)"
+  sorted_effective_changed_files_for_run_to "$STORY_ID" "$current_run_dir" "$current_changed_files_sorted" || {
+    rm -f "$current_changed_files_sorted" "$previous_changed_files_sorted" "$current_diff" "$previous_diff"
+    return 1
+  }
+  sorted_effective_changed_files_for_run_to "$STORY_ID" "$previous_run_dir" "$previous_changed_files_sorted" || {
+    rm -f "$current_changed_files_sorted" "$previous_changed_files_sorted" "$current_diff" "$previous_diff"
+    return 1
+  }
 
-  if cmp -s "$current_changed_files_sorted" "$previous_changed_files_sorted"; then
-    rm -f "$current_changed_files_sorted" "$previous_changed_files_sorted"
-    printf '%s\n' "$previous_run_dir"
-    return 0
+  cmp -s "$current_changed_files_sorted" "$previous_changed_files_sorted" || {
+    rm -f "$current_changed_files_sorted" "$previous_changed_files_sorted" "$current_diff" "$previous_diff"
+    return 1
+  }
+
+  if run_manifest_companion_filter_enabled "$current_run_dir" || run_manifest_companion_filter_enabled "$previous_run_dir"; then
+    effective_diff_patch_for_run_to "$STORY_ID" "$current_run_dir" "$current_diff" || {
+      rm -f "$current_changed_files_sorted" "$previous_changed_files_sorted" "$current_diff" "$previous_diff"
+      return 1
+    }
+    effective_diff_patch_for_run_to "$STORY_ID" "$previous_run_dir" "$previous_diff" || {
+      rm -f "$current_changed_files_sorted" "$previous_changed_files_sorted" "$current_diff" "$previous_diff"
+      return 1
+    }
+    cmp -s "$current_diff" "$previous_diff" || {
+      rm -f "$current_changed_files_sorted" "$previous_changed_files_sorted" "$current_diff" "$previous_diff"
+      return 1
+    }
   fi
 
-  rm -f "$current_changed_files_sorted" "$previous_changed_files_sorted"
-  return 1
+  rm -f "$current_changed_files_sorted" "$previous_changed_files_sorted" "$current_diff" "$previous_diff"
+  printf '%s\n' "$previous_run_dir"
+  return 0
 }
 
 strict_manual_finish_continuation_allowed() {
@@ -722,11 +907,20 @@ find_previous_reject_stagnation_run() {
   local current_run_id
   local candidate_run_dir candidate_gate_result candidate_decision candidate_source candidate_id
   local previous_changed_files_sorted current_changed_files_sorted
+  local normalized_current_diff normalized_candidate_diff
 
   current_run_id="$(basename "$current_run_dir")"
 
   current_changed_files_sorted="$(mktemp)"
-  sorted_changed_files_to "$STORY_ID" "$current_changed_files" "$current_changed_files_sorted"
+  sorted_effective_changed_files_for_run_to "$STORY_ID" "$current_run_dir" "$current_changed_files_sorted" || {
+    rm -f "$current_changed_files_sorted"
+    return 1
+  }
+  normalized_current_diff="$(mktemp)"
+  effective_diff_patch_for_run_to "$STORY_ID" "$current_run_dir" "$normalized_current_diff" || {
+    rm -f "$current_changed_files_sorted" "$normalized_current_diff"
+    return 1
+  }
 
   while IFS= read -r candidate_run_dir; do
     [[ -n "$candidate_run_dir" ]] || continue
@@ -743,14 +937,26 @@ find_previous_reject_stagnation_run() {
     [[ -f "$candidate_run_dir/diff.patch" ]] || continue
     [[ -f "$candidate_run_dir/changed_files.txt" ]] || continue
 
-    if ! cmp -s "$current_diff" "$candidate_run_dir/diff.patch"; then
+    normalized_candidate_diff="$(mktemp)"
+    effective_diff_patch_for_run_to "$STORY_ID" "$candidate_run_dir" "$normalized_candidate_diff" || {
+      rm -f "$normalized_candidate_diff"
+      continue
+    }
+
+    if ! cmp -s "$normalized_current_diff" "$normalized_candidate_diff"; then
+      rm -f "$normalized_candidate_diff"
       continue
     fi
+    rm -f "$normalized_candidate_diff"
 
     previous_changed_files_sorted="$(mktemp)"
-    sorted_changed_files_to "$STORY_ID" "$candidate_run_dir/changed_files.txt" "$previous_changed_files_sorted"
+    sorted_effective_changed_files_for_run_to "$STORY_ID" "$candidate_run_dir" "$previous_changed_files_sorted" || {
+      rm -f "$previous_changed_files_sorted"
+      continue
+    }
     if cmp -s "$current_changed_files_sorted" "$previous_changed_files_sorted"; then
       rm -f "$previous_changed_files_sorted" "$current_changed_files_sorted"
+      rm -f "$normalized_current_diff"
       printf '%s\n' "$candidate_run_dir"
       return 0
     fi
@@ -766,7 +972,7 @@ find_previous_reject_stagnation_run() {
       | LC_ALL=C sort -r
   )
 
-  rm -f "$current_changed_files_sorted"
+  rm -f "$current_changed_files_sorted" "$normalized_current_diff"
   return 1
 }
 

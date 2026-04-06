@@ -1964,6 +1964,330 @@ def test_analyze_story_run_allows_normal_run_artifacts_when_changed_files_do_not
     assert "RUN STATUS: INCOMPLETE (review artifacts not generated yet)" in result.stdout
 
 
+def test_analyze_story_run_ignores_companion_only_non_converging_signal_for_code_only_story(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    first_head = current_head(root_dir)
+    (root_dir / "services").mkdir(parents=True, exist_ok=True)
+    (root_dir / "services" / "story_loop.py").write_text("second\n", encoding="utf-8")
+    subprocess.run(["git", "add", "services/story_loop.py"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "second head"], cwd=root_dir, check=True, capture_output=True, text=True)
+    second_head = current_head(root_dir)
+
+    scope_file = root_dir / "automation" / "bundles" / "active" / "US-AUTO-70" / "02_file_scope.md"
+    scope_file.parent.mkdir(parents=True, exist_ok=True)
+    scope_file.write_text(
+        "# Scope\n\n"
+        "## Files Allowed To Change\n"
+        "- `services/story_loop.py`\n\n"
+        "## Files Not Allowed To Change\n"
+        "- `backend/**`\n",
+        encoding="utf-8",
+    )
+
+    previous_run = make_run_dir(root_dir, "US-AUTO-70", "2026-03-27_10-00-00")
+    (previous_run / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n",
+        encoding="utf-8",
+    )
+    (previous_run / "changed_files.txt").write_text(
+        "docs/90_codex/epics/US-AUTO_REGISTRY.md\n",
+        encoding="utf-8",
+    )
+    (previous_run / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (previous_run / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (previous_run / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (previous_run / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-70", "2026-03-27_11-00-00")
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {second_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text(
+        "docs/90_codex/epics/US-AUTO_REGISTRY.md\n",
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+
+    result = run_script(root_dir, "US-AUTO-70", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "blocked_non_converging_rerun" not in result.stdout
+
+
+def test_analyze_story_run_recomputes_filtered_non_converging_surface_for_code_only_story(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    scope_file = root_dir / "automation" / "bundles" / "active" / "US-AUTO-70" / "02_file_scope.md"
+    scope_file.parent.mkdir(parents=True, exist_ok=True)
+    scope_file.write_text(
+        "# Scope\n\n"
+        "## Files Allowed To Change\n"
+        "- `services/story_loop.py`\n\n"
+        "## Files Not Allowed To Change\n"
+        "- `backend/**`\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", str(scope_file.relative_to(root_dir))], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "scope"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    review_artifact_base = current_head(root_dir)
+    (root_dir / "services").mkdir(parents=True, exist_ok=True)
+    (root_dir / "services" / "story_a.py").write_text("a\n", encoding="utf-8")
+    subprocess.run(["git", "add", "services/story_a.py"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "first head"], cwd=root_dir, check=True, capture_output=True, text=True)
+    first_head = current_head(root_dir)
+
+    (root_dir / "services" / "story_b.py").write_text("b\n", encoding="utf-8")
+    subprocess.run(["git", "add", "services/story_b.py"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "second head"], cwd=root_dir, check=True, capture_output=True, text=True)
+    second_head = current_head(root_dir)
+
+    previous_run = make_run_dir(root_dir, "US-AUTO-70", "2026-03-27_10-00-00")
+    (previous_run / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (previous_run / "changed_files.txt").write_text("services/story_a.py\n", encoding="utf-8")
+    (previous_run / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (previous_run / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (previous_run / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (previous_run / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-70", "2026-03-27_11-00-00")
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {second_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text("diff --git a/x b/x\n", encoding="utf-8")
+
+    result = run_script(root_dir, "US-AUTO-70", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "blocked_non_converging_rerun" not in result.stdout
+
+
+def test_analyze_story_run_uses_recomputed_filtered_diff_surface_for_non_converging_detection(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    scope_file = root_dir / "automation" / "bundles" / "active" / "US-AUTO-70" / "02_file_scope.md"
+    scope_file.parent.mkdir(parents=True, exist_ok=True)
+    scope_file.write_text(
+        "# Scope\n\n"
+        "## Files Allowed To Change\n"
+        "- `services/story_loop.py`\n\n"
+        "## Files Not Allowed To Change\n"
+        "- `backend/**`\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", str(scope_file.relative_to(root_dir))], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "scope"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    review_artifact_base = current_head(root_dir)
+    (root_dir / "services").mkdir(parents=True, exist_ok=True)
+    (root_dir / "services" / "story_loop.py").write_text("return 'first'\n", encoding="utf-8")
+    subprocess.run(["git", "add", "services/story_loop.py"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "first head"], cwd=root_dir, check=True, capture_output=True, text=True)
+    first_head = current_head(root_dir)
+
+    (root_dir / "services" / "story_loop.py").write_text("return 'second'\n", encoding="utf-8")
+    subprocess.run(["git", "add", "services/story_loop.py"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "second head"], cwd=root_dir, check=True, capture_output=True, text=True)
+    second_head = current_head(root_dir)
+
+    previous_run = make_run_dir(root_dir, "US-AUTO-70", "2026-03-27_10-00-00")
+    (previous_run / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {first_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (previous_run / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (previous_run / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (previous_run / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (previous_run / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (previous_run / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, first_head, "--", "services/story_loop.py"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-70", "2026-03-27_11-00-00")
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {second_head}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, second_head, "--", "services/story_loop.py"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+
+    result = run_script(root_dir, "US-AUTO-70", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "blocked_non_converging_rerun" not in result.stdout
+
+
+def test_analyze_story_run_blocks_companion_filtered_stale_review_surface(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    tracked = root_dir / "tracked.txt"
+    tracked.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    scope_file = root_dir / "automation" / "bundles" / "active" / "US-AUTO-70" / "02_file_scope.md"
+    scope_file.parent.mkdir(parents=True, exist_ok=True)
+    scope_file.write_text(
+        "# Scope\n\n"
+        "## Files Allowed To Change\n"
+        "- `services/story_loop.py`\n\n"
+        "## Files Not Allowed To Change\n"
+        "- `backend/**`\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", str(scope_file.relative_to(root_dir))], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "scope"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    review_artifact_base = current_head(root_dir)
+    (root_dir / "services").mkdir(parents=True, exist_ok=True)
+    (root_dir / "services" / "story_loop.py").write_text("impl\n", encoding="utf-8")
+    (root_dir / "docs" / "90_codex" / "epics").mkdir(parents=True, exist_ok=True)
+    (root_dir / "docs" / "90_codex" / "epics" / "US-AUTO_REGISTRY.md").write_text("registry\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "services/story_loop.py", "docs/90_codex/epics/US-AUTO_REGISTRY.md"],
+        cwd=root_dir,
+        check=True,
+    )
+    subprocess.run(["git", "commit", "-m", "impl + companion"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    run_dir = make_run_dir(root_dir, "US-AUTO-70", "2026-04-06_12-00-00")
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- starting_head: {current_head(root_dir)}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text("services/wrong.py\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text("diff --git a/services/wrong.py b/services/wrong.py\n", encoding="utf-8")
+
+    result = run_script(root_dir, "US-AUTO-70", run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Current stage: blocked_review_artifact_fidelity" in result.stdout
+    assert "RUN STATUS: BLOCKED (filtered review artifacts are stale or inconsistent with recomputed baseline)" in result.stdout
+
+
 def test_analyze_story_run_reports_accept_as_is_as_terminal_blocked(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     root_dir.mkdir(parents=True, exist_ok=True)

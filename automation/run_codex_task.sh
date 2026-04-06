@@ -43,6 +43,7 @@ WORKTREE_UNTRACKED_LIST_FILE=""
 WORKTREE_COMPANION_TRACKED_LIST_FILE=""
 WORKTREE_COMPANION_UNTRACKED_LIST_FILE=""
 COMPANION_CONTAMINATION_DETECTED="0"
+EXECUTION_COMPANION_FILTER_MODE="disabled"
 
 MATERIALIZATION_STATUS="not_needed"
 MATERIALIZED_TRACKED_COUNT="0"
@@ -52,6 +53,7 @@ REVIEW_ARTIFACT_BASE=""
 REPOSITORY_MAP_RUNTIME_REL="repository_map_runtime.md"
 REPOSITORY_MAP_INJECTION_STATUS="pending"
 REPOSITORY_MAP_SOURCE_DOCS=""
+REVIEW_CHANGED_FILES_LABEL="origin/main...HEAD"
 
 BRANCH_NAME=""
 CURRENT_HEAD=""
@@ -66,6 +68,7 @@ CONTEXT_FILES_CSV=""
 CODEX_EXIT=""
 PYTEST_EXIT=""
 CHANGED_FILES=""
+REVIEW_CHANGED_FILES_CONTENT=""
 DIFF_STAT_CONTENT=""
 PYTEST_OUTPUT_CONTENT=""
 LAST_MESSAGE_CONTENT=""
@@ -119,6 +122,7 @@ repository_map_source_docs=${REPOSITORY_MAP_SOURCE_DOCS:-}
 skip_pytest=${SKIP_PYTEST:-0}
 pytest_target=${PYTEST_TARGET:-}
 codex_model=${CODEX_MODEL:-}
+execution_companion_filter_mode=${EXECUTION_COMPANION_FILTER_MODE:-disabled}
 isolated_run=true
 isolated_worktree_dir=${WORKTREE_DIR:-}
 isolated_worktree_head=${WORKTREE_HEAD:-}
@@ -267,9 +271,9 @@ extract_markdown_section_items() {
       }
     }
 
-    in_section && /^[[:space:]]*-[[:space:]]+/ {
+    in_section && /^[[:space:]]*[-*][[:space:]]+/ {
       item = $0
-      sub(/^[[:space:]]*-[[:space:]]+/, "", item)
+      sub(/^[[:space:]]*[-*][[:space:]]+/, "", item)
       gsub(/`/, "", item)
       print item
     }
@@ -720,8 +724,7 @@ filter_ignored_execution_diff_paths() {
 DIFF_FILE="$RUN_DIR/diff.patch"
 STAT_FILE="$RUN_DIR/diff.stat"
 NAMEONLY_FILE="$RUN_DIR/changed_files.txt"
-
-
+REVIEW_CHANGED_FILES_FILE="$RUN_DIR/review_changed_files.txt"
 
 TEST_FILE="$RUN_DIR/pytest.txt"
 BUNDLE_FILE="$RUN_DIR/review_bundle.md"
@@ -848,6 +851,13 @@ setup_isolated_worktree() {
   WORKTREE_CREATED="1"
   write_run_meta
 }
+
+if story_is_code_only_for_execution_filter "$STORY_ID"; then
+  EXECUTION_COMPANION_FILTER_MODE="enabled"
+else
+  EXECUTION_COMPANION_FILTER_MODE="disabled"
+fi
+write_run_meta
 
 generate_repository_map_runtime "$REPOSITORY_MAP_RUNTIME_FILE" "$STORY_ID"
 REPOSITORY_MAP_INJECTION_STATUS="injected"
@@ -1178,7 +1188,38 @@ collect_git_artifacts() {
     fi
   } | sed '/^$/d' | LC_ALL=C sort -u > "$NAMEONLY_FILE"
 
+  {
+    if [[ -f "$tracked_names_file" ]]; then
+      while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        if is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
+          continue
+        fi
+        printf '%s\n' "$changed_file"
+      done < "$tracked_names_file"
+    fi
+    if [[ -f "$untracked_names_file" ]]; then
+      while IFS= read -r changed_file; do
+        [[ -n "$changed_file" ]] || continue
+        if is_execution_companion_artifact_path "$STORY_ID" "$changed_file"; then
+          continue
+        fi
+        printf '%s\n' "$changed_file"
+      done < "$untracked_names_file"
+    fi
+  } | sed '/^$/d' | LC_ALL=C sort -u > "$REVIEW_CHANGED_FILES_FILE"
+
   append_untracked_artifacts
+}
+
+sync_review_changed_files_surface() {
+  if [[ "$EXECUTION_COMPANION_FILTER_MODE" != "enabled" ]]; then
+    REVIEW_CHANGED_FILES_LABEL="origin/main...HEAD"
+    return 0
+  fi
+
+  cp "$NAMEONLY_FILE" "$REVIEW_CHANGED_FILES_FILE"
+  REVIEW_CHANGED_FILES_LABEL="filtered delivery surface"
 }
 
 check_allowed_files() {
@@ -1276,6 +1317,8 @@ write_run_meta
 
 check_allowed_files
 
+sync_review_changed_files_surface
+
 if [[ "$SKIP_PYTEST" == "1" ]]; then
   PYTEST_EXIT="SKIPPED"
   echo "pytest skipped by SKIP_PYTEST=1" > "$TEST_FILE"
@@ -1285,6 +1328,7 @@ fi
 write_run_meta
 
 CHANGED_FILES="$(cat "$NAMEONLY_FILE" 2>/dev/null || true)"
+REVIEW_CHANGED_FILES_CONTENT="$(cat "$REVIEW_CHANGED_FILES_FILE" 2>/dev/null || true)"
 DIFF_STAT_CONTENT="$(cat "$STAT_FILE" 2>/dev/null || true)"
 PYTEST_OUTPUT_CONTENT="$(cat "$TEST_FILE" 2>/dev/null || true)"
 LAST_MESSAGE_CONTENT="$(cat "$LAST_MESSAGE_FILE" 2>/dev/null || true)"
@@ -1299,6 +1343,7 @@ cat > "$MANIFEST_FILE" <<MANIFEST
 - review_base_ref: $REVIEW_BASE_REF
 - review_diff_range: $REVIEW_DIFF_RANGE
 - review_artifact_base: $REVIEW_ARTIFACT_BASE
+- execution_companion_filter_mode: $EXECUTION_COMPANION_FILTER_MODE
 - run_timestamp_utc: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 - run_dir: $RUN_DIR
 - context_mode: $CONTEXT_MODE
@@ -1336,6 +1381,7 @@ $(if [[ ${#GENERATED_CONTEXT_FILES[@]} -gt 0 ]]; then
 - diff.patch
 - diff.stat
 - changed_files.txt
+- review_changed_files.txt
 - pytest.txt
 - review_bundle.md
 - chatgpt_review_prompt.md
@@ -1360,7 +1406,12 @@ $CURRENT_HEAD
 ## Review Diff Source
 $REVIEW_DIFF_RANGE (merge-base $REVIEW_ARTIFACT_BASE)
 
-## Changed Files
+## Changed Files ($REVIEW_CHANGED_FILES_LABEL)
+\`\`\`
+$REVIEW_CHANGED_FILES_CONTENT
+\`\`\`
+
+## Scope-Validated Delivery Surface
 \`\`\`
 $CHANGED_FILES
 \`\`\`
@@ -1407,7 +1458,10 @@ Please review:
 Use these artifacts from:
 $RUN_DIR
 
-Changed files:
+Changed files ($REVIEW_CHANGED_FILES_LABEL):
+$REVIEW_CHANGED_FILES_CONTENT
+
+Scope-validated delivery surface:
 $CHANGED_FILES
 
 Diff stat:
