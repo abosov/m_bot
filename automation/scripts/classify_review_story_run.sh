@@ -504,6 +504,88 @@ effective_diff_patch_for_run_to() {
 
 run_filtered_review_artifacts_match_recomputed_surface() {
   local run_dir="$1"
+  local projection_file="$run_dir/semantic_projection.json"
+
+  if [[ -f "$projection_file" ]]; then
+    python3 - "$run_dir" <<'PY'
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+run_dir = Path(sys.argv[1])
+projection_path = run_dir / "semantic_projection.json"
+manifest_path = run_dir / "manifest.md"
+
+if not projection_path.exists() or not manifest_path.exists():
+    sys.exit(1)
+
+def no_dupes(pairs):
+    data = {}
+    for key, value in pairs:
+        if key in data:
+            raise ValueError(f"duplicate key: {key}")
+        data[key] = value
+    return data
+
+try:
+    payload = json.loads(projection_path.read_text(encoding="utf-8"), object_pairs_hook=no_dupes)
+except Exception:
+    sys.exit(1)
+
+if not isinstance(payload, dict):
+    sys.exit(1)
+
+if payload.get("schema_version") != 1:
+    sys.exit(1)
+if payload.get("projection_kind") != "semantic_companion_filter":
+    sys.exit(1)
+if payload.get("projection_source") != "run_stage":
+    sys.exit(1)
+
+manifest_text = manifest_path.read_text(encoding="utf-8")
+
+def manifest_value(key: str) -> str:
+    m = re.search(rf"^-\s+{re.escape(key)}:\s*(.*)$", manifest_text, re.MULTILINE)
+    return m.group(1).strip() if m else ""
+
+manifest_mode = manifest_value("execution_companion_filter_mode")
+payload_mode = payload.get("execution_companion_filter_mode")
+if manifest_mode and payload_mode != manifest_mode:
+    sys.exit(1)
+
+artifacts = payload.get("artifacts")
+if not isinstance(artifacts, dict):
+    sys.exit(1)
+
+expected = {
+    "changed_files": "changed_files.txt",
+    "diff_patch": "diff.patch",
+    "review_changed_files": "review_changed_files.txt",
+}
+
+for key, expected_name in expected.items():
+    entry = artifacts.get(key)
+    if not isinstance(entry, dict):
+        sys.exit(1)
+    if entry.get("path") != expected_name:
+        sys.exit(1)
+    sha = entry.get("sha256")
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
+        sys.exit(1)
+
+    artifact_path = run_dir / expected_name
+    if not artifact_path.exists():
+        sys.exit(1)
+
+    actual_sha = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    if actual_sha != sha:
+        sys.exit(1)
+PY
+    return $?
+  fi
+
   local changed_files_artifact="$run_dir/changed_files.txt"
   local diff_artifact="$run_dir/diff.patch"
   local expected_changed_files normalized_changed_files expected_diff normalized_diff
