@@ -38,6 +38,7 @@ REVIEW_PROMPT_FILE=""
 META_FILE=""
 CHECK_ALLOWED_FILES_SCRIPT=""
 FALLBACK_CHECK_ALLOWED_FILES_SCRIPT=""
+SEMANTIC_PROJECTION_FILE=""
 WORKTREE_TRACKED_LIST_FILE=""
 WORKTREE_UNTRACKED_LIST_FILE=""
 WORKTREE_COMPANION_TRACKED_LIST_FILE=""
@@ -707,6 +708,7 @@ TEST_FILE="$RUN_DIR/pytest.txt"
 BUNDLE_FILE="$RUN_DIR/review_bundle.md"
 REVIEW_PROMPT_FILE="$RUN_DIR/chatgpt_review_prompt.md"
 META_FILE="$RUN_DIR/run_meta.txt"
+SEMANTIC_PROJECTION_FILE="$RUN_DIR/semantic_projection.json"
 CHECK_ALLOWED_FILES_SCRIPT="$ROOT_DIR/automation/scripts/check_allowed_files.sh"
 FALLBACK_CHECK_ALLOWED_FILES_SCRIPT="$RUNNER_DIR/scripts/check_allowed_files.sh"
 WORKTREE_TRACKED_LIST_FILE="$RUN_DIR/.worktree_tracked.txt"
@@ -1189,6 +1191,45 @@ sync_review_changed_files_surface() {
   :
 }
 
+write_semantic_projection_artifact() {
+  [[ -n "${SEMANTIC_PROJECTION_FILE:-}" ]] || return 0
+
+  python3 - <<PY > "$SEMANTIC_PROJECTION_FILE"
+import hashlib
+import json
+from pathlib import Path
+
+run_dir = Path(r"$RUN_DIR")
+
+def sha256_file(name: str) -> str:
+    path = run_dir / name
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+payload = {
+    "schema_version": 1,
+    "projection_kind": "semantic_companion_filter",
+    "projection_source": "run_stage",
+    "execution_companion_filter_mode": "$EXECUTION_COMPANION_FILTER_MODE",
+    "artifacts": {
+        "changed_files": {
+            "path": "changed_files.txt",
+            "sha256": sha256_file("changed_files.txt"),
+        },
+        "diff_patch": {
+            "path": "diff.patch",
+            "sha256": sha256_file("diff.patch"),
+        },
+        "review_changed_files": {
+            "path": "review_changed_files.txt",
+            "sha256": sha256_file("review_changed_files.txt"),
+        },
+    },
+}
+
+print(json.dumps(payload, indent=2))
+PY
+}
+
 check_allowed_files() {
   local bundle_dir scope_file script_path changed_file filtered_nameonly_file
   bundle_dir="$ROOT_DIR/automation/bundles/active/$STORY_ID"
@@ -1284,43 +1325,7 @@ write_run_meta
 
 check_allowed_files
 
-write_semantic_projection_artifact() {
-  local projection_file="$RUN_DIR/semantic_projection.json"
-
-  python3 - <<PY > "$projection_file"
-import json
-import hashlib
-from pathlib import Path
-
-run_dir = Path("$RUN_DIR")
-
-def sha256(p):
-    return hashlib.sha256(p.read_bytes()).hexdigest()
-
-payload = {
-    "schema_version": 1,
-    "projection_kind": "semantic_companion_filter",
-    "projection_source": "run_stage",
-    "execution_companion_filter_mode": "$EXECUTION_COMPANION_FILTER_MODE",
-    "artifacts": {
-        "changed_files": {
-            "path": "changed_files.txt",
-            "sha256": sha256(run_dir / "changed_files.txt")
-        },
-        "diff_patch": {
-            "path": "diff.patch",
-            "sha256": sha256(run_dir / "diff.patch")
-        },
-        "review_changed_files": {
-            "path": "review_changed_files.txt",
-            "sha256": sha256(run_dir / "review_changed_files.txt")
-        }
-    }
-}
-
-print(json.dumps(payload, indent=2))
-PY
-}
+write_semantic_projection_artifact
 
 if [[ "$SKIP_PYTEST" == "1" ]]; then
   PYTEST_EXIT="SKIPPED"
@@ -1385,6 +1390,7 @@ $(if [[ ${#GENERATED_CONTEXT_FILES[@]} -gt 0 ]]; then
 - diff.stat
 - changed_files.txt
 - review_changed_files.txt
+- semantic_projection.json
 - pytest.txt
 - review_bundle.md
 - chatgpt_review_prompt.md
