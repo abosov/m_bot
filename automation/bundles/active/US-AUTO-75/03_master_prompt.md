@@ -56,6 +56,29 @@ Ensure projection is produced once at run stage and consumed by all downstream s
   - downstream scripts MUST fall back to the existing pinned run artifacts already used by the pre-US-AUTO-75 contract
   - backward compatibility for minimal test fixtures and legacy pinned-run artifacts MUST be preserved
 
+## Critical Implementation Constraint
+
+For downstream consumers (`ai_review_story_run.sh`, `classify_review_story_run.sh`, `analyze_story_run.sh`, `review_story_run.sh`, `review_gate_story_run.sh`):
+
+- DO NOT delete `recompute_filtered_changed_files_for_run_to`
+- DO NOT delete `recompute_filtered_diff_patch_for_run_to`
+- DO NOT delete `review_artifact_fidelity_status`
+- DO NOT replace `run_filtered_review_artifacts_match_recomputed_surface()` with an existence-only or status-only semantic projection check
+- DO NOT broaden the story into a full semantic-projection-only rewrite of downstream consumers
+
+Required behavior:
+
+- `semantic_projection.json` is a preferred validation fast-path when present and valid
+- existing recompute/manual-finish/stale-surface logic must remain available as fallback
+- manual-finish continuation proof and stale review surface detection must preserve current test contracts
+- projection integration must be additive and compatibility-preserving, not a rewrite of downstream fidelity semantics
+
+In other words:
+- add projection-aware validation
+- preserve legacy recompute-based proof paths
+- preserve stale surface rejection behavior
+- preserve manual-finish continuation behavior
+
 ## Implementation Instructions
 
 1. Generate projection artifact during run stage
@@ -64,6 +87,9 @@ Ensure projection is produced once at run stage and consumed by all downstream s
 4. Preserve compatibility for pinned runs and tests that only contain legacy artifacts such as changed_files.txt and diff.patch
 5. Remove all recomputation paths
 6. Do not make projection artifact presence a universal hard requirement for every historical or minimal pinned-run fixture
+7. Do not remove or weaken downstream recompute-based fidelity helpers that are still used by manual-finish and stale-surface contracts
+8. Projection integration must be minimal, additive, and test-contract-preserving
+9. If a downstream file is already locally correct, do not refactor it further
 
 ## Output
 
