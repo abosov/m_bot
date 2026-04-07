@@ -1190,7 +1190,12 @@ collect_git_artifacts() {
 }
 
 sync_review_changed_files_surface() {
-  :
+  if ! cmp -s "$REVIEW_CHANGED_FILES_FILE" "$NAMEONLY_FILE"; then
+    REVIEW_CHANGED_FILES_LABEL="filtered delivery surface"
+    return 0
+  fi
+
+  REVIEW_CHANGED_FILES_LABEL="filtered delivery surface"
 }
 
 write_semantic_projection_artifact() {
@@ -1326,7 +1331,7 @@ collect_git_artifacts
 write_run_meta
 
 check_allowed_files
-
+sync_review_changed_files_surface
 write_semantic_projection_artifact
 
 if [[ "$SKIP_PYTEST" == "1" ]]; then
