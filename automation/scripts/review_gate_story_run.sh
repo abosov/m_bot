@@ -1327,35 +1327,24 @@ if [[ -n "$decision_source" ]]; then
   fail "review gate rejected merge for '$STORY_ID' ($reason)"
 fi
 
+fidelity_decision=""
+fidelity_source=""
+fidelity_reason=""
+
 projection_state="$(read_semantic_projection_artifact_state "$LATEST_RUN_DIR")"
 IFS=$'\t' read -r projection_status projection_code projection_reason <<< "$projection_state"
 
 if [[ "$projection_status" == "invalid" ]]; then
-  write_gate_result \
-    "$GATE_RESULT_FILE" \
-    "$STORY_ID" \
-    "$RUN_ID" \
-    "$LATEST_RUN_DIR" \
-    "$AI_REVIEW_FILE" \
-    "$CLASSIFICATION_FILE" \
-    "$reviewed_head" \
-    "$checkout_head" \
-    "$manifest_reviewed_head" \
-    "$review_head_mode" \
-    "reject" \
-    "$projection_code" \
-    "failed" \
-    "$projection_reason"
-
-  update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
-  append_review_ledger_events "reject" "$projection_code" "failed" "$projection_reason"
-  maybe_write_escalation_result "$LATEST_RUN_DIR" "reject" "$projection_code"
-
-  printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
-  printf 'Final decision: reject\n'
-  printf 'Run analysis command: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$LATEST_RUN_DIR" "$STORY_ID"
-
-  fail "review gate rejected merge for '$STORY_ID' ($projection_reason)"
+  fidelity_decision="reject"
+  fidelity_source="$projection_code"
+  fidelity_reason="$projection_reason"
+elif [[ "$projection_status" == "valid" ]]; then
+  fidelity_decision="ok"
+  fidelity_source="semantic_projection_valid"
+  fidelity_reason="artifact fidelity verified via semantic projection"
+else
+  fidelity_status="$(review_artifact_fidelity_status "$LATEST_RUN_DIR" "$MANIFEST_FILE")"
+  IFS=$'\t' read -r fidelity_decision fidelity_source fidelity_reason <<< "$fidelity_status"
 fi
 
 if [[ "$fidelity_decision" == "reject" ]]; then
