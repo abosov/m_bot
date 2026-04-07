@@ -1167,7 +1167,8 @@ collect_git_artifacts() {
     if [[ -f "$tracked_names_file" ]]; then
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
-        if is_non_runtime_companion_artifact_path "$changed_file"; then
+        if is_committed_same_story_bundle_artifact "$changed_file" \
+          || is_non_runtime_companion_artifact_path "$changed_file"; then
           continue
         fi
         printf '%s\n' "$changed_file"
@@ -1176,7 +1177,8 @@ collect_git_artifacts() {
     if [[ -f "$untracked_names_file" ]]; then
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
-        if is_non_runtime_companion_artifact_path "$changed_file"; then
+        if is_story_artifact_ignored_path "$STORY_ID" "$changed_file" \
+          || is_non_runtime_companion_artifact_path "$changed_file"; then
           continue
         fi
         printf '%s\n' "$changed_file"
