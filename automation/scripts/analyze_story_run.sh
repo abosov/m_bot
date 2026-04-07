@@ -782,6 +782,19 @@ sorted_effective_changed_files_for_run_to() {
   local run_dir="$2"
   local output_file="$3"
   local changed_files_file="$run_dir/changed_files.txt"
+  local projection_state projection_status review_changed_files_file
+
+  projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
+  IFS=$'\t' read -r projection_status _ <<< "$projection_state"
+  if [[ "$projection_status" == "valid" ]]; then
+    review_changed_files_file="$run_dir/review_changed_files.txt"
+    [[ -f "$review_changed_files_file" ]] || return 1
+    sorted_changed_files_to "$story_id" "$run_dir" "$review_changed_files_file" "$output_file"
+    return 0
+  fi
+  if [[ "$projection_status" == "invalid" ]]; then
+    return 1
+  fi
 
   if run_manifest_companion_filter_enabled "$run_dir"; then
     recompute_filtered_changed_files_for_run_to "$story_id" "$run_dir" "$output_file" || return 1
@@ -811,11 +824,130 @@ recompute_filtered_diff_patch_for_run_to() {
     | filter_review_fidelity_diff "$story_id" "$run_dir" > "$output_file"
 }
 
+read_semantic_projection_artifact_state() {
+  local run_dir="$1"
+
+  python3 - "$run_dir" <<'PY'
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+run_dir = Path(sys.argv[1])
+projection_path = run_dir / "semantic_projection.json"
+manifest_path = run_dir / "manifest.md"
+
+if not projection_path.exists():
+    print("missing\tsemantic_projection_missing\tprojection artifact not present")
+    sys.exit(0)
+
+if not manifest_path.exists():
+    print("invalid\tsemantic_projection_manifest_missing\trequired file not found: manifest.md")
+    sys.exit(0)
+
+def no_dupes(pairs):
+    data = {}
+    for key, value in pairs:
+        if key in data:
+            raise ValueError(f"duplicate key: {key}")
+        data[key] = value
+    return data
+
+def manifest_value(text: str, key: str) -> str:
+    match = re.search(rf"^-\s+{re.escape(key)}:\s*(.*)$", text, re.MULTILINE)
+    return match.group(1).strip() if match else ""
+
+try:
+    payload = json.loads(projection_path.read_text(encoding="utf-8"), object_pairs_hook=no_dupes)
+except Exception as exc:
+    print(f"invalid\tsemantic_projection_invalid_json\tsemantic projection artifact is not valid JSON: {exc}")
+    sys.exit(0)
+
+if not isinstance(payload, dict):
+    print("invalid\tsemantic_projection_invalid_payload\tsemantic projection artifact must contain a JSON object")
+    sys.exit(0)
+
+if payload.get("schema_version") != 1:
+    print("invalid\tsemantic_projection_invalid_payload\tinvalid schema_version")
+    sys.exit(0)
+if payload.get("projection_kind") != "semantic_companion_filter":
+    print("invalid\tsemantic_projection_invalid_payload\tinvalid projection_kind")
+    sys.exit(0)
+if payload.get("projection_source") != "run_stage":
+    print("invalid\tsemantic_projection_invalid_payload\tinvalid projection_source")
+    sys.exit(0)
+
+manifest_text = manifest_path.read_text(encoding="utf-8")
+manifest_head = manifest_value(manifest_text, "isolated_worktree_head") or manifest_value(manifest_text, "starting_head")
+
+expected_manifest_values = {
+    "story_id": manifest_value(manifest_text, "story_id"),
+    "review_artifact_base": manifest_value(manifest_text, "review_artifact_base"),
+    "source_of_truth_head": manifest_head,
+    "execution_companion_filter_mode": manifest_value(manifest_text, "execution_companion_filter_mode"),
+}
+
+for key, expected_value in expected_manifest_values.items():
+    if expected_value and payload.get(key) != expected_value:
+        print(f"invalid\tsemantic_projection_manifest_mismatch\t{key} mismatch")
+        sys.exit(0)
+
+expected = {
+    "changed_files": "changed_files.txt",
+    "diff_patch": "diff.patch",
+    "review_changed_files": "review_changed_files.txt",
+}
+
+artifacts = payload.get("artifacts")
+if not isinstance(artifacts, dict):
+    print("invalid\tsemantic_projection_artifacts_missing\tmissing artifacts block")
+    sys.exit(0)
+
+for key, expected_name in expected.items():
+    entry = artifacts.get(key)
+    if not isinstance(entry, dict):
+        print(f"invalid\tsemantic_projection_missing_entry\tmissing artifact entry: {key}")
+        sys.exit(0)
+    if entry.get("path") != expected_name:
+        print(f"invalid\tsemantic_projection_path_mismatch\t{key} path mismatch")
+        sys.exit(0)
+    sha = entry.get("sha256")
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
+        print(f"invalid\tsemantic_projection_hash_invalid\tinvalid sha for {key}")
+        sys.exit(0)
+
+    artifact_path = run_dir / expected_name
+    if not artifact_path.exists():
+        print(f"invalid\tsemantic_projection_artifact_missing\tmissing file {expected_name}")
+        sys.exit(0)
+
+    actual_sha = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    if actual_sha != sha:
+        print(f"invalid\tsemantic_projection_hash_mismatch\tsha mismatch for {expected_name}")
+        sys.exit(0)
+
+print("valid\tsemantic_projection_valid\tvalidated")
+PY
+}
+
 effective_diff_patch_for_run_to() {
   local story_id="$1"
   local run_dir="$2"
   local output_file="$3"
   local diff_artifact="$run_dir/diff.patch"
+  local projection_state projection_status
+
+  projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
+  IFS=$'\t' read -r projection_status _ <<< "$projection_state"
+  if [[ "$projection_status" == "valid" ]]; then
+    [[ -f "$diff_artifact" ]] || return 1
+    filter_review_fidelity_diff "$story_id" "$run_dir" < "$diff_artifact" > "$output_file"
+    return 0
+  fi
+  if [[ "$projection_status" == "invalid" ]]; then
+    return 1
+  fi
 
   if run_manifest_companion_filter_enabled "$run_dir"; then
     recompute_filtered_diff_patch_for_run_to "$story_id" "$run_dir" "$output_file" || return 1
@@ -828,9 +960,19 @@ effective_diff_patch_for_run_to() {
 
 run_filtered_review_artifacts_match_recomputed_surface() {
   local run_dir="$1"
+  local projection_state projection_status
   local changed_files_artifact="$run_dir/changed_files.txt"
   local diff_artifact="$run_dir/diff.patch"
   local expected_changed_files normalized_changed_files expected_diff normalized_diff
+
+  projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
+  IFS=$'\t' read -r projection_status _ <<< "$projection_state"
+  if [[ "$projection_status" == "valid" ]]; then
+    return 0
+  fi
+  if [[ "$projection_status" == "invalid" ]]; then
+    return 1
+  fi
 
   [[ -f "$changed_files_artifact" ]] || return 1
   [[ -f "$diff_artifact" ]] || return 1
@@ -870,9 +1012,21 @@ review_artifact_fidelity_status() {
   local manifest_file="$2"
   local diff_artifact changed_files_artifact review_artifact_base
   local expected_diff_file expected_changed_files_file artifact_changed_files_file normalized_artifact_diff_file
+  local projection_state projection_status projection_code projection_reason
 
   diff_artifact="$run_dir/diff.patch"
   changed_files_artifact="$run_dir/changed_files.txt"
+
+  projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
+  IFS=$'\t' read -r projection_status projection_code projection_reason <<< "$projection_state"
+  if [[ "$projection_status" == "invalid" ]]; then
+    printf 'reject\t%s\t%s\n' "$projection_code" "$projection_reason"
+    return 0
+  fi
+  if [[ "$projection_status" == "valid" ]]; then
+    printf 'ok\tsemantic_projection_valid\tartifact fidelity verified via semantic projection\n'
+    return 0
+  fi
 
   if [[ ! -f "$diff_artifact" ]]; then
     printf 'reject\treview_diff_artifact_missing\trequired file not found: %s\n' "$diff_artifact"

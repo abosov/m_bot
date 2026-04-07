@@ -1216,6 +1216,9 @@ payload = {
     "schema_version": 1,
     "projection_kind": "semantic_companion_filter",
     "projection_source": "run_stage",
+    "story_id": "$STORY_ID",
+    "review_artifact_base": "$REVIEW_ARTIFACT_BASE",
+    "source_of_truth_head": "$WORKTREE_HEAD",
     "execution_companion_filter_mode": "$EXECUTION_COMPANION_FILTER_MODE",
     "artifacts": {
         "changed_files": {

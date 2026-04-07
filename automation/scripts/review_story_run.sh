@@ -280,12 +280,10 @@ recompute_filtered_diff_patch_for_run_to() {
     | filter_review_fidelity_diff "$story_id" "$run_dir" > "$output_file"
 }
 
-run_filtered_review_artifacts_match_recomputed_surface() {
-  local run_dir="$2"
-  local projection_file="$run_dir/semantic_projection.json"
+read_semantic_projection_artifact_state() {
+  local run_dir="$1"
 
-  if [[ -f "$projection_file" ]]; then
-    python3 - "$run_dir" <<'PY'
+  python3 - "$run_dir" <<'PY'
 import hashlib
 import json
 import re
@@ -296,8 +294,13 @@ run_dir = Path(sys.argv[1])
 projection_path = run_dir / "semantic_projection.json"
 manifest_path = run_dir / "manifest.md"
 
-if not projection_path.exists() or not manifest_path.exists():
-    sys.exit(1)
+if not projection_path.exists():
+    print("missing\tsemantic_projection_missing\tprojection artifact not present")
+    sys.exit(0)
+
+if not manifest_path.exists():
+    print("invalid\tsemantic_projection_manifest_missing\trequired file not found: manifest.md")
+    sys.exit(0)
 
 def no_dupes(pairs):
     data = {}
@@ -307,35 +310,44 @@ def no_dupes(pairs):
         data[key] = value
     return data
 
+def manifest_value(text: str, key: str) -> str:
+    match = re.search(rf"^-\s+{re.escape(key)}:\s*(.*)$", text, re.MULTILINE)
+    return match.group(1).strip() if match else ""
+
 try:
     payload = json.loads(projection_path.read_text(encoding="utf-8"), object_pairs_hook=no_dupes)
-except Exception:
-    sys.exit(1)
+except Exception as exc:
+    print(f"invalid\tsemantic_projection_invalid_json\tsemantic projection artifact is not valid JSON: {exc}")
+    sys.exit(0)
 
 if not isinstance(payload, dict):
-    sys.exit(1)
+    print("invalid\tsemantic_projection_invalid_payload\tsemantic projection artifact must contain a JSON object")
+    sys.exit(0)
 
 if payload.get("schema_version") != 1:
-    sys.exit(1)
+    print("invalid\tsemantic_projection_invalid_payload\tinvalid schema_version")
+    sys.exit(0)
 if payload.get("projection_kind") != "semantic_companion_filter":
-    sys.exit(1)
+    print("invalid\tsemantic_projection_invalid_payload\tinvalid projection_kind")
+    sys.exit(0)
 if payload.get("projection_source") != "run_stage":
-    sys.exit(1)
+    print("invalid\tsemantic_projection_invalid_payload\tinvalid projection_source")
+    sys.exit(0)
 
 manifest_text = manifest_path.read_text(encoding="utf-8")
+manifest_head = manifest_value(manifest_text, "isolated_worktree_head") or manifest_value(manifest_text, "starting_head")
 
-def manifest_value(key: str) -> str:
-    m = re.search(rf"^-\s+{re.escape(key)}:\s*(.*)$", manifest_text, re.MULTILINE)
-    return m.group(1).strip() if m else ""
+expected_manifest_values = {
+    "story_id": manifest_value(manifest_text, "story_id"),
+    "review_artifact_base": manifest_value(manifest_text, "review_artifact_base"),
+    "source_of_truth_head": manifest_head,
+    "execution_companion_filter_mode": manifest_value(manifest_text, "execution_companion_filter_mode"),
+}
 
-manifest_mode = manifest_value("execution_companion_filter_mode")
-payload_mode = payload.get("execution_companion_filter_mode")
-if manifest_mode and payload_mode != manifest_mode:
-    sys.exit(1)
-
-artifacts = payload.get("artifacts")
-if not isinstance(artifacts, dict):
-    sys.exit(1)
+for key, expected_value in expected_manifest_values.items():
+    if expected_value and payload.get(key) != expected_value:
+        print(f"invalid\tsemantic_projection_manifest_mismatch\t{key} mismatch")
+        sys.exit(0)
 
 expected = {
     "changed_files": "changed_files.txt",
@@ -343,25 +355,49 @@ expected = {
     "review_changed_files": "review_changed_files.txt",
 }
 
+artifacts = payload.get("artifacts")
+if not isinstance(artifacts, dict):
+    print("invalid\tsemantic_projection_artifacts_missing\tmissing artifacts block")
+    sys.exit(0)
+
 for key, expected_name in expected.items():
     entry = artifacts.get(key)
     if not isinstance(entry, dict):
-        sys.exit(1)
+        print(f"invalid\tsemantic_projection_missing_entry\tmissing artifact entry: {key}")
+        sys.exit(0)
     if entry.get("path") != expected_name:
-        sys.exit(1)
+        print(f"invalid\tsemantic_projection_path_mismatch\t{key} path mismatch")
+        sys.exit(0)
     sha = entry.get("sha256")
     if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
-        sys.exit(1)
+        print(f"invalid\tsemantic_projection_hash_invalid\tinvalid sha for {key}")
+        sys.exit(0)
 
     artifact_path = run_dir / expected_name
     if not artifact_path.exists():
-        sys.exit(1)
+        print(f"invalid\tsemantic_projection_artifact_missing\tmissing file {expected_name}")
+        sys.exit(0)
 
     actual_sha = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
     if actual_sha != sha:
-        sys.exit(1)
+        print(f"invalid\tsemantic_projection_hash_mismatch\tsha mismatch for {expected_name}")
+        sys.exit(0)
+
+print("valid\tsemantic_projection_valid\tvalidated")
 PY
-    return $?
+}
+
+run_filtered_review_artifacts_match_recomputed_surface() {
+  local run_dir="$2"
+  local projection_state projection_status
+
+  projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
+  IFS=$'\t' read -r projection_status _ <<< "$projection_state"
+  if [[ "$projection_status" == "valid" ]]; then
+    return 0
+  fi
+  if [[ "$projection_status" == "invalid" ]]; then
+    return 1
   fi
 
   # fallback (старое поведение)
