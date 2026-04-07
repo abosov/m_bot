@@ -510,8 +510,21 @@ from pathlib import Path
 run_dir = Path(sys.argv[1])
 projection_path = run_dir / "semantic_projection.json"
 manifest_path = run_dir / "manifest.md"
+manifest_text = ""
+manifest_expects_projection = False
+
+if manifest_path.exists():
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    manifest_expects_projection = bool(
+        re.search(r"^-\s+semantic_projection\.json\s*$", manifest_text, re.MULTILINE)
+    )
 
 if not projection_path.exists():
+    if manifest_expects_projection:
+        print(
+            "invalid\tsemantic_projection_missing_expected\tsemantic projection artifact is required by the pinned run manifest but is missing"
+        )
+        sys.exit(0)
     print("missing\tsemantic_projection_missing\tprojection artifact not present")
     sys.exit(0)
 
@@ -551,7 +564,6 @@ if payload.get("projection_source") != "run_stage":
     print("invalid\tsemantic_projection_invalid_payload\tinvalid projection_source")
     sys.exit(0)
 
-manifest_text = manifest_path.read_text(encoding="utf-8")
 manifest_head = manifest_value(manifest_text, "isolated_worktree_head") or manifest_value(manifest_text, "starting_head")
 
 expected_manifest_values = {
