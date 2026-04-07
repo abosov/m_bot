@@ -209,6 +209,90 @@ print("valid\tai_review_valid\tvalidated")
 PY
 }
 
+read_semantic_projection_artifact_state() {
+  local run_dir="$1"
+
+  python3 - "$run_dir" <<'PY'
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+run_dir = Path(sys.argv[1])
+projection_path = run_dir / "semantic_projection.json"
+manifest_path = run_dir / "manifest.md"
+
+if not projection_path.exists():
+    print("missing\tsemantic_projection_missing\tprojection artifact not present")
+    sys.exit(0)
+
+if not manifest_path.exists():
+    print("invalid\tsemantic_projection_manifest_missing\trequired file not found: manifest.md")
+    sys.exit(0)
+
+def no_dupes(pairs):
+    data = {}
+    for key, value in pairs:
+        if key in data:
+            raise ValueError(f"duplicate key: {key}")
+        data[key] = value
+    return data
+
+try:
+    payload = json.loads(projection_path.read_text(encoding="utf-8"), object_pairs_hook=no_dupes)
+except Exception as exc:
+    print(f"invalid\tsemantic_projection_invalid_json\tsemantic projection artifact is not valid JSON: {exc}")
+    sys.exit(0)
+
+if not isinstance(payload, dict):
+    print("invalid\tsemantic_projection_invalid_payload\tsemantic projection artifact must contain a JSON object")
+    sys.exit(0)
+
+if payload.get("schema_version") != 1:
+    print("invalid\tsemantic_projection_invalid_payload\tinvalid schema_version")
+    sys.exit(0)
+
+expected = {
+    "changed_files": "changed_files.txt",
+    "diff_patch": "diff.patch",
+    "review_changed_files": "review_changed_files.txt",
+}
+
+artifacts = payload.get("artifacts")
+if not isinstance(artifacts, dict):
+    print("invalid\tsemantic_projection_artifacts_missing\tmissing artifacts block")
+    sys.exit(0)
+
+for key, expected_name in expected.items():
+    entry = artifacts.get(key)
+    if not isinstance(entry, dict):
+        print(f"invalid\tsemantic_projection_missing_entry\tmissing artifact entry: {key}")
+        sys.exit(0)
+
+    if entry.get("path") != expected_name:
+        print(f"invalid\tsemantic_projection_path_mismatch\t{key} path mismatch")
+        sys.exit(0)
+
+    sha = entry.get("sha256")
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
+        print(f"invalid\tsemantic_projection_hash_invalid\tinvalid sha for {key}")
+        sys.exit(0)
+
+    artifact_path = run_dir / expected_name
+    if not artifact_path.exists():
+        print(f"invalid\tsemantic_projection_artifact_missing\tmissing file {expected_name}")
+        sys.exit(0)
+
+    actual = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    if actual != sha:
+        print(f"invalid\tsemantic_projection_hash_mismatch\tsha mismatch for {expected_name}")
+        sys.exit(0)
+
+print("valid\tsemantic_projection_valid\tvalidated")
+PY
+}
+
 validate_story_id() {
   local story_id="$1"
   [[ "$story_id" =~ ^US-[A-Z0-9]+(-[A-Z0-9]+)*$ ]] || \
@@ -1243,8 +1327,36 @@ if [[ -n "$decision_source" ]]; then
   fail "review gate rejected merge for '$STORY_ID' ($reason)"
 fi
 
-fidelity_status="$(review_artifact_fidelity_status "$LATEST_RUN_DIR" "$MANIFEST_FILE")"
-IFS=$'\t' read -r fidelity_decision fidelity_source fidelity_reason <<< "$fidelity_status"
+projection_state="$(read_semantic_projection_artifact_state "$LATEST_RUN_DIR")"
+IFS=$'\t' read -r projection_status projection_code projection_reason <<< "$projection_state"
+
+if [[ "$projection_status" == "invalid" ]]; then
+  write_gate_result \
+    "$GATE_RESULT_FILE" \
+    "$STORY_ID" \
+    "$RUN_ID" \
+    "$LATEST_RUN_DIR" \
+    "$AI_REVIEW_FILE" \
+    "$CLASSIFICATION_FILE" \
+    "$reviewed_head" \
+    "$checkout_head" \
+    "$manifest_reviewed_head" \
+    "$review_head_mode" \
+    "reject" \
+    "$projection_code" \
+    "failed" \
+    "$projection_reason"
+
+  update_manifest_gate_artifacts "$MANIFEST_FILE" "$LATEST_RUN_DIR"
+  append_review_ledger_events "reject" "$projection_code" "failed" "$projection_reason"
+  maybe_write_escalation_result "$LATEST_RUN_DIR" "reject" "$projection_code"
+
+  printf 'Review gate result written: %s\n' "$GATE_RESULT_FILE"
+  printf 'Final decision: reject\n'
+  printf 'Run analysis command: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$LATEST_RUN_DIR" "$STORY_ID"
+
+  fail "review gate rejected merge for '$STORY_ID' ($projection_reason)"
+fi
 
 if [[ "$fidelity_decision" == "reject" ]]; then
   write_gate_result \
