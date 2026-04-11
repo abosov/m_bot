@@ -285,8 +285,23 @@ expected_manifest_values = {
     "execution_companion_filter_mode": manifest_value("execution_companion_filter_mode"),
 }
 
+def heads_match(expected: str, actual: str) -> bool:
+    if not expected or not actual:
+        return False
+    if expected == actual:
+        return True
+    return bool(re.fullmatch(r"[0-9a-f]{7,39}", expected) and actual.startswith(expected))
+
 for key, expected_value in expected_manifest_values.items():
-    if expected_value and payload.get(key) != expected_value:
+    if not expected_value:
+        continue
+    actual_value = payload.get(key)
+    if key == "source_of_truth_head":
+        if not isinstance(actual_value, str) or not heads_match(expected_value, actual_value):
+            print(f"invalid\tsemantic_projection_manifest_mismatch\t{key} mismatch")
+            sys.exit(0)
+        continue
+    if actual_value != expected_value:
         print(f"invalid\tsemantic_projection_manifest_mismatch\t{key} mismatch")
         sys.exit(0)
 
@@ -531,7 +546,7 @@ review_artifact_fidelity_status() {
   if [[ "$projection_status" == "valid" ]]; then
     reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
     checkout_head="$(current_checkout_head)"
-    if [[ -n "$reviewed_head" && -n "$checkout_head" && "$reviewed_head" == "$checkout_head" ]]; then
+    if [[ -n "$reviewed_head" && -n "$checkout_head" ]] && head_matches_expected "$reviewed_head" "$checkout_head"; then
       printf 'ok\tsemantic_projection_valid\tartifact fidelity verified via semantic projection\n'
       return 0
     fi
