@@ -666,20 +666,16 @@ run_filtered_review_artifacts_match_recomputed_surface() {
   local projection_state projection_status
   local manifest_file="$run_dir/manifest.md"
   local reviewed_head checkout_head
-
-  projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
-  IFS=$'\t' read -r projection_status _ <<< "$projection_state"
-  if [[ "$projection_status" == "valid" ]]; then
-    changed_files_artifact="$review_changed_files_artifact"
-  fi
-  if [[ "$projection_status" == "invalid" ]]; then
-    return 1
-  fi
-
   local changed_files_artifact="$run_dir/changed_files.txt"
   local review_changed_files_artifact="$run_dir/review_changed_files.txt"
   local diff_artifact="$run_dir/diff.patch"
   local expected_changed_files normalized_changed_files expected_diff normalized_diff
+
+  projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
+  IFS=$'\t' read -r projection_status _ <<< "$projection_state"
+  if [[ "$projection_status" == "invalid" ]]; then
+    return 1
+  fi
 
   if [[ "$projection_status" == "valid" ]]; then
     changed_files_artifact="$review_changed_files_artifact"
