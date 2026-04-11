@@ -513,7 +513,7 @@ review_artifact_fidelity_status() {
   local run_dir="$1"
   local manifest_file="$2"
   local diff_artifact changed_files_artifact
-  local review_artifact_base
+  local review_artifact_base reviewed_head checkout_head
   local expected_diff_file expected_changed_files_file artifact_changed_files_file normalized_artifact_diff_file
   local projection_state projection_status projection_code projection_reason
 
@@ -527,8 +527,12 @@ review_artifact_fidelity_status() {
     return 0
   fi
   if [[ "$projection_status" == "valid" ]]; then
-    printf 'ok\tsemantic_projection_valid\tartifact fidelity verified via semantic projection\n'
-    return 0
+    reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
+    checkout_head="$(current_checkout_head)"
+    if [[ -n "$reviewed_head" && -n "$checkout_head" && "$reviewed_head" == "$checkout_head" ]]; then
+      printf 'ok\tsemantic_projection_valid\tartifact fidelity verified via semantic projection\n'
+      return 0
+    fi
   fi
 
   if [[ ! -f "$diff_artifact" ]]; then
@@ -1405,21 +1409,8 @@ fidelity_decision=""
 fidelity_source=""
 fidelity_reason=""
 
-projection_state="$(read_semantic_projection_artifact_state "$LATEST_RUN_DIR")"
-IFS=$'\t' read -r projection_status projection_code projection_reason <<< "$projection_state"
-
-if [[ "$projection_status" == "invalid" ]]; then
-  fidelity_decision="reject"
-  fidelity_source="$projection_code"
-  fidelity_reason="$projection_reason"
-elif [[ "$projection_status" == "valid" ]]; then
-  fidelity_decision="ok"
-  fidelity_source="semantic_projection_valid"
-  fidelity_reason="artifact fidelity verified via semantic projection"
-else
-  fidelity_status="$(review_artifact_fidelity_status "$LATEST_RUN_DIR" "$MANIFEST_FILE")"
-  IFS=$'\t' read -r fidelity_decision fidelity_source fidelity_reason <<< "$fidelity_status"
-fi
+fidelity_status="$(review_artifact_fidelity_status "$LATEST_RUN_DIR" "$MANIFEST_FILE")"
+IFS=$'\t' read -r fidelity_decision fidelity_source fidelity_reason <<< "$fidelity_status"
 
 if [[ "$fidelity_decision" == "reject" ]]; then
   write_gate_result \

@@ -1022,7 +1022,7 @@ run_filtered_review_artifacts_match_recomputed_surface() {
 review_artifact_fidelity_status() {
   local run_dir="$1"
   local manifest_file="$2"
-  local diff_artifact changed_files_artifact review_artifact_base
+  local diff_artifact changed_files_artifact review_artifact_base reviewed_head checkout_head
   local expected_diff_file expected_changed_files_file artifact_changed_files_file normalized_artifact_diff_file
   local projection_state projection_status projection_code projection_reason
 
@@ -1036,8 +1036,12 @@ review_artifact_fidelity_status() {
     return 0
   fi
   if [[ "$projection_status" == "valid" ]]; then
-    printf 'ok\tsemantic_projection_valid\tartifact fidelity verified via semantic projection\n'
-    return 0
+    reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
+    checkout_head="$(current_checkout_head)"
+    if [[ -n "$reviewed_head" && -n "$checkout_head" && "$reviewed_head" == "$checkout_head" ]]; then
+      printf 'ok\tsemantic_projection_valid\tartifact fidelity verified via semantic projection\n'
+      return 0
+    fi
   fi
 
   if [[ ! -f "$diff_artifact" ]]; then
