@@ -998,11 +998,6 @@ run_filtered_review_artifacts_match_recomputed_surface() {
   projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
   IFS=$'\t' read -r projection_status _ <<< "$projection_state"
   if [[ "$projection_status" == "valid" ]]; then
-    reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
-    checkout_head="$(current_checkout_head)"
-    if [[ -n "$reviewed_head" && -n "$checkout_head" ]] && head_matches_expected "$reviewed_head" "$checkout_head"; then
-      return 0
-    fi
     changed_files_artifact="$review_changed_files_artifact"
   fi
   if [[ "$projection_status" == "invalid" ]]; then
