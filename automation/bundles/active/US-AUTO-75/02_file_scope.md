@@ -2,7 +2,6 @@
 ## Files Allowed To Change
 
 * automation/run_codex_task.sh
-* automation/scripts/lib/semantic_companion_filter.sh
 * automation/scripts/ai_review_story_run.sh
 * automation/scripts/analyze_story_run.sh
 * automation/scripts/classify_review_story_run.sh
@@ -15,15 +14,18 @@
 * automation/bundles/**
 * automation/bundle_packs/**
 * unrelated scripts
+* unrelated tests
 
 ## Expected New Files
 
-* run artifact file (e.g. semantic_projection.json)
+* pinned run artifact: `semantic_projection.json`
 
 ## Scope Notes
 
-* MUST introduce persisted projection artifact
-* MUST remove recomputation paths
+* Producer changes must be narrowly limited to projection emission and preservation of separate review vs delivery surfaces
+* Downstream changes must be additive and compatibility-preserving
+* `automation/scripts/lib/semantic_companion_filter.sh` is out of scope unless a failing test proves it is the minimal root cause
+* Do not broaden producer changes into generic scope/rollback behavior rewrites
 
 ---
 

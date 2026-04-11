@@ -1,47 +1,45 @@
 Story Bundle Pack
 Story-ID: US-AUTO-75
-Version: 1
+Version: 2
 
 === FILE: 00_story.md ===
 
 ## Story ID and Title
 
-US-AUTO-75 — Enforce run-artifact-based review-fidelity projection contract for semantic companion filtering
+US-AUTO-75 — Additive review-fidelity projection contract for semantic companion filtering
 
 ## Objective
 
-Define and enforce a strict contract where semantic filtering projection is produced once during run stage and consumed as a persisted artifact by all downstream stages, eliminating recomputation drift and ensuring deterministic review fidelity.
+Introduce a producer-owned `semantic_projection.json` artifact and integrate it into downstream review-fidelity validation as a preferred fast-path, while preserving existing recompute-based fallback behavior, manual-finish continuation proof, stale review surface detection, committed-HEAD review contracts, rollback behavior, and scope-validation behavior.
 
 ## Background
 
-US-AUTO-74 centralized semantic companion filtering logic. However, pipeline still fails with `blocked_review_artifact_fidelity` due to implicit recomputation of projection in downstream stages.
+US-AUTO-74 established centralized semantic companion filtering semantics, but downstream review consumers still relied on recomputation-heavy fidelity checks. That made the pipeline vulnerable to drift between producer and consumers.
 
-Root cause:
-projection is treated as logic, not as a persisted artifact.
+However, the required fix is narrower than a rewrite:
+the pipeline must not be converted into a projection-only model.
+Instead, projection must be integrated as an additive validation layer.
 
 ## Scope
 
-* Introduce run-stage projection artifact
-* Enforce downstream consumption of this artifact
-* Remove all recomputation paths
-* Update run-stage producer logic where needed so projection is persisted into run artifacts and becomes the only downstream source for review-fidelity consumption
+* Producer-side projection artifact emission in `automation/run_codex_task.sh`
+* Additive projection-aware validation in downstream review consumers
+* Preservation of existing recompute/manual-finish/stale-surface fallback contracts
+* Preservation of existing producer-side scope guard, out-of-scope rejection, rollback, and signal-handling contracts
 
-Pipeline layer: run + analyze + review + classify + gate (contract-level)
+Pipeline layer: run + analyze + review + classify + gate
 
-Type: contract-level
-
-Fail-closed behavior:
-
-* Missing projection artifact → BLOCK
-* Recomputed projection → BLOCK
-* Mismatch between stages → BLOCK
+Type: contract-level, compatibility-preserving
 
 ## Non-goals
 
-* Do not change classification logic
-* Do not modify manual-finish
-* Do not change operator UX
-* Do not expand filtering semantics
+* Do not rewrite downstream consumers into projection-only mode
+* Do not remove existing recompute-based proof paths
+* Do not weaken stale review surface detection
+* Do not weaken manual-finish continuation validation
+* Do not broaden semantic filtering semantics
+* Do not refactor unrelated producer logic
+* Do not change unrelated operator UX or review classification behavior
 
 ## Dependencies
 
@@ -49,33 +47,52 @@ Fail-closed behavior:
 
 ## Source of Truth
 
-* semantic_companion_filter.sh
-* run-stage generated projection artifact
+* Producer-emitted pinned run artifacts:
+  * `changed_files.txt`
+  * `diff.patch`
+  * `review_changed_files.txt`
+  * `semantic_projection.json`
+* Existing committed-HEAD/manual-finish review contracts already enforced by tests
 
 ## Current Code Reality
 
-* Helper is centralized
-* Projection is recomputed in multiple stages
-* Leads to non-converging runs
+* Producer can compute delivery and review surfaces
+* Downstream review consumers have established recompute/manual-finish fidelity behavior
+* Broad rewrite attempts cause regressions in:
+  * stale review surface detection
+  * manual-finish continuation
+  * producer scope/rollback contracts
+  * review gate fidelity behavior
 
 ## Target Outcome
 
-* Projection produced exactly once during run
-* All stages consume identical artifact
-* No recomputation
-* Deterministic convergence
+* Producer emits `semantic_projection.json`
+* Downstream consumers may validate and trust that artifact when present and valid
+* Legacy/minimal pinned runs without projection remain supported
+* Existing recompute/manual-finish/stale-surface behavior remains intact as fallback
+* Producer scope validation, rollback, and signal-handling behavior remain unchanged except where strictly needed for projection emission
 
 ## Acceptance Criteria
 
-* No `blocked_review_artifact_fidelity`
-* No recomputation of projection
-* Projection artifact exists and is reused
-* All tests pass
+* `automation/run_codex_task.sh` emits `semantic_projection.json`
+* Projection artifact records sha256 for:
+  * `changed_files.txt`
+  * `diff.patch`
+  * `review_changed_files.txt`
+* Downstream consumers prefer projection validation when present and valid
+* Legacy pinned runs without projection still work
+* Existing stale review surface rejection tests still pass
+* Existing manual-finish continuation tests still pass
+* Existing review gate fidelity tests still pass
+* Existing producer scope-guard / rollback / signal-handling tests still pass
+* Full `run_story.sh US-AUTO-75` reaches success boundary
+* Committed-head review chain completes without fidelity regressions
 
 ## Acceptance Notes
 
-* Projection must be treated as immutable run artifact
-* Contract must be fail-closed
+* This story is additive, not a rewrite
+* Projection is a preferred fast-path, not a universal replacement for downstream fidelity logic
+* Existing contracts must be preserved unless an explicit failing test proves that a narrower change is impossible
 
 ---
 
@@ -83,38 +100,55 @@ Fail-closed behavior:
 
 ## Source of Truth
 
-* semantic_companion_filter.sh
-* run artifact: semantic_projection.json (or equivalent)
+* `automation/run_codex_task.sh`
+* Existing downstream review contracts in:
+  * `automation/scripts/ai_review_story_run.sh`
+  * `automation/scripts/analyze_story_run.sh`
+  * `automation/scripts/classify_review_story_run.sh`
+  * `automation/scripts/review_gate_story_run.sh`
+  * `automation/scripts/review_story_run.sh`
+* Pinned run artifacts:
+  * `changed_files.txt`
+  * `diff.patch`
+  * `review_changed_files.txt`
+  * `semantic_projection.json`
 
 ## Current Code Reality
 
-* Projection is implicit
-* Stages recompute filtering independently
+* Producer and consumers already have meaningful fidelity/recompute/manual-finish logic
+* Codex tends to over-simplify this class of task into a projection-only rewrite
+* That broad rewrite breaks existing contracts and cascades into many tests
 
 ## Architectural Intent
 
 Shift from:
 
-logic-based projection
+recompute-only downstream fidelity validation
 
 to:
 
-artifact-based projection
+projection-aware preferred validation with legacy fallback preserved
+
+This is not:
+projection-only downstream rewrite
 
 ## Risks
 
-* Hidden recomputation paths
-* Tests expecting old behavior
-* Partial adoption across stages
+* Deleting recompute helpers that are still required by fallback/manual-finish paths
+* Replacing stale-surface logic with mere projection-presence checks
+* Broad producer rewrites that break scope guard / rollback / signal handling
+* Modifying `semantic_companion_filter.sh` without a minimal failing-test justification
+* Treating missing projection as universal failure for legacy/minimal pinned-run fixtures
 
 ## Acceptance Notes
 
 Projection must be:
 
-* produced once
-* persisted
-* immutable
-* consumed, not recomputed
+* producer-owned
+* persisted into pinned run artifacts
+* validated against pinned run artifacts
+* preferred when present and valid
+* optional for backward compatibility when absent from legacy/minimal pinned runs
 
 ---
 
@@ -123,7 +157,6 @@ Projection must be:
 ## Files Allowed To Change
 
 * automation/run_codex_task.sh
-* automation/scripts/lib/semantic_companion_filter.sh
 * automation/scripts/ai_review_story_run.sh
 * automation/scripts/analyze_story_run.sh
 * automation/scripts/classify_review_story_run.sh
@@ -136,15 +169,18 @@ Projection must be:
 * automation/bundles/**
 * automation/bundle_packs/**
 * unrelated scripts
+* unrelated tests
 
 ## Expected New Files
 
-* run artifact file (e.g. semantic_projection.json)
+* pinned run artifact: `semantic_projection.json`
 
 ## Scope Notes
 
-* MUST introduce persisted projection artifact
-* MUST remove recomputation paths
+* Producer changes must be narrowly limited to projection emission and preservation of separate review vs delivery surfaces
+* Downstream changes must be additive and compatibility-preserving
+* `automation/scripts/lib/semantic_companion_filter.sh` is out of scope unless a failing test proves it is the minimal root cause
+* Do not broaden producer changes into generic scope/rollback behavior rewrites
 
 ---
 
@@ -152,21 +188,20 @@ Projection must be:
 
 ## Role
 
-You are implementing a contract-level fix enforcing artifact-based projection in the Codex pipeline.
+You are implementing a contract-level, compatibility-preserving fix for review-fidelity projection in the Codex pipeline.
 
 ## Goal
 
-Ensure projection is produced once at run stage and consumed by all downstream stages without recomputation.
+Emit a producer-owned `semantic_projection.json` artifact during run stage and integrate it into downstream review-fidelity validation as a preferred fast-path, without rewriting downstream consumers or weakening existing recompute/manual-finish/stale-surface/rollback/scope contracts.
 
 ## Source of Truth
 
-* semantic_companion_filter.sh
-* projection artifact generated at run stage
+* pinned run artifacts produced by `automation/run_codex_task.sh`
+* existing committed-HEAD/manual-finish/stale-surface fidelity behavior already covered by tests
 
 ## Files Allowed To Change
 
 * automation/run_codex_task.sh
-* automation/scripts/lib/semantic_companion_filter.sh
 * automation/scripts/ai_review_story_run.sh
 * automation/scripts/analyze_story_run.sh
 * automation/scripts/classify_review_story_run.sh
@@ -178,75 +213,116 @@ Ensure projection is produced once at run stage and consumed by all downstream s
 * docs/**
 * bundle files
 * unrelated scripts
+* unrelated tests
+* `automation/scripts/lib/semantic_companion_filter.sh` unless a failing test proves that library itself is the minimal root cause
 
 ## Execution Gate
 
 * Fail if workspace dirty
 * Fail if not HEAD aligned
-* Fail if recomputation detected
+* Fail if scope guard would be weakened
+* Fail if rollback or signal-handling contracts would be weakened
 * Fail if projection artifact is present but invalid, stale, or inconsistent with pinned run artifacts
-* MUST preserve compatibility for older/minimal pinned-run fixtures that do not contain projection artifacts yet
+* Preserve compatibility for older/minimal pinned-run fixtures that do not contain projection artifacts yet
 
 ## Hard Stop Rules
 
-* MUST NOT recompute projection
-* MUST NOT call filtering logic in downstream stages
-* MUST NOT rebuild projection from inputs
-* MUST NOT introduce stage-specific behavior
-
-* MUST NOT source or require automation/scripts/lib/semantic_companion_filter.sh in downstream scripts
-* MUST NOT introduce SEMANTIC_COMPANION_FILTER_LIB or any equivalent helper variable in downstream scripts
-* MUST NOT add any external helper dependency for semantic filtering in downstream stages
-
-* If semantic projection artifacts exist in the pinned run:
-  - downstream scripts MUST validate and consume them
-  - invalid or inconsistent projection artifacts MUST fail closed
-
-* If semantic projection artifacts do not exist in the pinned run:
-  - downstream scripts MUST NOT fail solely because those projection artifacts are absent
-  - downstream scripts MUST fall back to the existing pinned run artifacts already used by the pre-US-AUTO-75 contract
-  - backward compatibility for minimal test fixtures and legacy pinned-run artifacts MUST be preserved
+* MUST NOT rewrite downstream consumers into projection-only mode
+* MUST NOT delete recompute/manual-finish/stale-surface helper paths that are still needed by fallback contracts
+* MUST NOT replace fidelity logic with projection existence-only or status-only checks
+* MUST NOT broaden changes in `automation/run_codex_task.sh` beyond the exact producer work needed for projection emission and surface preservation
+* MUST NOT weaken:
+  * out-of-scope docs rejection
+  * mixed companion + real out-of-scope rejection
+  * no-companion review surface behavior
+  * SIGTERM failure handling
+  * rollback failure surfacing
+  * generic file-scope validation
+* MUST NOT source or require `automation/scripts/lib/semantic_companion_filter.sh` in downstream scripts
+* MUST NOT introduce new downstream dependency on producer-only helper paths
+* MUST NOT make projection artifact presence a universal hard requirement for every historical or minimal pinned-run fixture
 
 ## Critical Implementation Constraint
 
 For downstream consumers (`ai_review_story_run.sh`, `classify_review_story_run.sh`, `analyze_story_run.sh`, `review_story_run.sh`, `review_gate_story_run.sh`):
 
-- DO NOT delete `recompute_filtered_changed_files_for_run_to`
-- DO NOT delete `recompute_filtered_diff_patch_for_run_to`
-- DO NOT delete `review_artifact_fidelity_status`
-- DO NOT replace `run_filtered_review_artifacts_match_recomputed_surface()` with an existence-only or status-only semantic projection check
-- DO NOT broaden the story into a full semantic-projection-only rewrite of downstream consumers
+* DO NOT delete:
+  * `recompute_filtered_changed_files_for_run_to`
+  * `recompute_filtered_diff_patch_for_run_to`
+  * `review_artifact_fidelity_status`
+  * other existing helper paths that are still used by manual-finish/stale-surface fallback contracts
+* DO NOT replace `run_filtered_review_artifacts_match_recomputed_surface()` with an existence-only or status-only semantic projection check
+* DO NOT broaden this story into a semantic-projection-only rewrite of downstream consumers
 
-Required behavior:
+Required downstream behavior:
 
-- `semantic_projection.json` is a preferred validation fast-path when present and valid
-- existing recompute/manual-finish/stale-surface logic must remain available as fallback
-- manual-finish continuation proof and stale review surface detection must preserve current test contracts
-- projection integration must be additive and compatibility-preserving, not a rewrite of downstream fidelity semantics
+* If `semantic_projection.json` is present and valid:
+  * use it as a preferred validation fast-path
+* If `semantic_projection.json` is absent:
+  * preserve legacy pinned-run behavior
+* If `semantic_projection.json` is invalid:
+  * fail closed
+* manual-finish continuation proof must continue to work
+* stale review surface detection must continue to work
+* committed-HEAD review contracts must continue to work
 
 In other words:
-- add projection-aware validation
-- preserve legacy recompute-based proof paths
-- preserve stale surface rejection behavior
-- preserve manual-finish continuation behavior
+
+* add projection-aware validation
+* preserve legacy recompute-based proof paths
+* preserve stale surface rejection behavior
+* preserve manual-finish continuation behavior
+* preserve review gate fidelity behavior
+
+## Producer Constraint
+
+For `automation/run_codex_task.sh`:
+
+Allowed producer changes are limited to:
+
+* emit `semantic_projection.json`
+* record sha256 for:
+  * `changed_files.txt`
+  * `diff.patch`
+  * `review_changed_files.txt`
+* preserve separate delivery vs review surfaces
+* preserve same-story artifact filtering
+* preserve non-runtime companion filtering
+* preserve existing scope validation contracts
+* preserve rollback and signal-handling contracts
+
+Forbidden producer changes:
+
+* do not weaken out-of-scope rejection logic
+* do not weaken mixed companion + real out-of-scope rejection logic
+* do not weaken no-companion review surface behavior
+* do not weaken rollback behavior
+* do not weaken SIGTERM behavior
+* do not broaden into generic materialization/rollback rewrite
 
 ## Implementation Instructions
 
-1. Generate projection artifact during run stage
-2. Persist it into run directory
-3. Update downstream stages so they consume and validate projection artifacts when those artifacts are present
-4. Preserve compatibility for pinned runs and tests that only contain legacy artifacts such as changed_files.txt and diff.patch
-5. Remove all recomputation paths
-6. Do not make projection artifact presence a universal hard requirement for every historical or minimal pinned-run fixture
-7. Do not remove or weaken downstream recompute-based fidelity helpers that are still used by manual-finish and stale-surface contracts
-8. Projection integration must be minimal, additive, and test-contract-preserving
+1. Emit `semantic_projection.json` during run stage
+2. Persist it into pinned run artifacts
+3. Record enough metadata to validate the projection artifact against:
+   * `changed_files.txt`
+   * `diff.patch`
+   * `review_changed_files.txt`
+4. Update downstream consumers so they prefer projection validation when projection is present and valid
+5. Preserve compatibility for pinned runs and tests that contain only legacy artifacts such as `changed_files.txt` and `diff.patch`
+6. Preserve recompute/manual-finish/stale-surface fallback paths
+7. Keep downstream integration minimal, additive, and test-contract-preserving
+8. Keep producer integration narrow and guard-contract-preserving
 9. If a downstream file is already locally correct, do not refactor it further
+10. If a producer or downstream change is not required by a failing test or this story’s exact contract, do not make that change
 
 ## Output
 
-* Projection artifact produced at run stage
-* Downstream strictly consumes artifact
+* Producer emits `semantic_projection.json`
+* Downstream validates and prefers projection when available
+* Legacy fallback remains intact
 * Deterministic behavior across stages
+* Existing producer guard/rollback contracts remain intact
 
 ---
 
@@ -255,28 +331,36 @@ In other words:
 ## Scope Validation
 
 * Only allowed files modified
+* `semantic_companion_filter.sh` unchanged unless a minimal failing-test justification exists
 
 ## Functional Validation
 
-* When projection artifact is present, downstream validates and uses it
-* When projection artifact is absent, downstream preserves legacy pinned-run behavior without recomputation
-* No recomputation
+* Producer emits `semantic_projection.json`
+* Projection hashes match pinned run artifacts
+* When projection is present and valid, downstream uses it as a preferred validation fast-path
+* When projection is absent, downstream preserves legacy pinned-run behavior
+* Existing recompute/manual-finish/stale-surface behavior remains intact
+* Existing producer scope/rollback/signal-handling behavior remains intact
 
 ## Verification
 
 * committed-head rerun converges
 * no fidelity drift
+* no rollback/scope regression
+* no stale-surface/manual-finish regression
 
 ## Hard Block Conditions
 
-* Present-but-invalid projection artifact → REJECT
-* Recomputation → REJECT
+* Invalid projection artifact → REJECT
+* Recomputation-only rewrite of downstream → REJECT
+* Producer guard/rollback regression → REJECT
 * Scope violation → REJECT
 * HEAD drift → REJECT
 
 ## Regression Validation
 
-* All tests pass
+* All targeted tests pass
+* Full `run_story.sh US-AUTO-75` reaches success boundary
 
 ## Final Decision
 
@@ -288,11 +372,12 @@ In other words:
 
 ## Follow-Up Prompt Queue
 
-* None (contract-level closure)
+* Consider a future governance story to codify “contract-sensitive downstream stories must be additive, not rewrite-oriented”
 
 ## Iteration Notes
 
-* Resolves projection contract gap from US-AUTO-74
+* US-AUTO-75 must remain additive and compatibility-preserving
+* Projection integration must not become a broad downstream rewrite
 * STOP-SPLITTING boundary reached
 
 ---
@@ -311,3 +396,4 @@ In other words:
 * Do not reuse old run
 * Review only after committed-head rerun
 * Gate only on pinned artifacts
+* If successful materialization leaves a dirty workspace, commit the materialized implementation changes before running review-stage commands
