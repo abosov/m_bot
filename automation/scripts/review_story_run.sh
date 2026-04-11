@@ -82,6 +82,14 @@ canonicalize_path() {
   python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$path"
 }
 
+current_checkout_head() {
+  if ! git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+
+  git -C "$ROOT_DIR" rev-parse --verify HEAD 2>/dev/null || true
+}
+
 manifest_value() {
   local manifest_file="$1"
   local key="$2"
@@ -400,23 +408,29 @@ PY
 }
 
 run_filtered_review_artifacts_match_recomputed_surface() {
+  local story_id="$1"
   local run_dir="$2"
   local projection_state projection_status
+  local manifest_file="$run_dir/manifest.md"
+  local reviewed_head checkout_head
+  local changed_files_artifact="$run_dir/changed_files.txt"
+  local review_changed_files_artifact="$run_dir/review_changed_files.txt"
+  local diff_artifact="$run_dir/diff.patch"
+  local expected_changed_files normalized_changed_files expected_diff normalized_diff
 
   projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
   IFS=$'\t' read -r projection_status _ <<< "$projection_state"
   if [[ "$projection_status" == "valid" ]]; then
-    return 0
+    reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
+    checkout_head="$(current_checkout_head)"
+    if [[ -n "$reviewed_head" && -n "$checkout_head" && "$reviewed_head" == "$checkout_head" ]]; then
+      return 0
+    fi
+    changed_files_artifact="$review_changed_files_artifact"
   fi
   if [[ "$projection_status" == "invalid" ]]; then
     return 1
   fi
-
-  # fallback (старое поведение)
-  local story_id="$1"
-  local changed_files_artifact="$run_dir/changed_files.txt"
-  local diff_artifact="$run_dir/diff.patch"
-  local expected_changed_files normalized_changed_files expected_diff normalized_diff
 
   [[ -f "$changed_files_artifact" ]] || return 1
   [[ -f "$diff_artifact" ]] || return 1

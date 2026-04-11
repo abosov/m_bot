@@ -973,14 +973,22 @@ effective_diff_patch_for_run_to() {
 run_filtered_review_artifacts_match_recomputed_surface() {
   local run_dir="$1"
   local projection_state projection_status
+  local manifest_file="$run_dir/manifest.md"
+  local reviewed_head checkout_head
   local changed_files_artifact="$run_dir/changed_files.txt"
+  local review_changed_files_artifact="$run_dir/review_changed_files.txt"
   local diff_artifact="$run_dir/diff.patch"
   local expected_changed_files normalized_changed_files expected_diff normalized_diff
 
   projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
   IFS=$'\t' read -r projection_status _ <<< "$projection_state"
   if [[ "$projection_status" == "valid" ]]; then
-    return 0
+    reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
+    checkout_head="$(current_checkout_head)"
+    if [[ -n "$reviewed_head" && -n "$checkout_head" && "$reviewed_head" == "$checkout_head" ]]; then
+      return 0
+    fi
+    changed_files_artifact="$review_changed_files_artifact"
   fi
   if [[ "$projection_status" == "invalid" ]]; then
     return 1
@@ -1022,12 +1030,14 @@ run_filtered_review_artifacts_match_recomputed_surface() {
 review_artifact_fidelity_status() {
   local run_dir="$1"
   local manifest_file="$2"
-  local diff_artifact changed_files_artifact review_artifact_base reviewed_head checkout_head
+  local diff_artifact changed_files_artifact review_changed_files_artifact review_artifact_base reviewed_head checkout_head
+  local changed_files_artifact_name
   local expected_diff_file expected_changed_files_file artifact_changed_files_file normalized_artifact_diff_file
   local projection_state projection_status projection_code projection_reason
 
   diff_artifact="$run_dir/diff.patch"
   changed_files_artifact="$run_dir/changed_files.txt"
+  review_changed_files_artifact="$run_dir/review_changed_files.txt"
 
   projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
   IFS=$'\t' read -r projection_status projection_code projection_reason <<< "$projection_state"
@@ -1042,7 +1052,10 @@ review_artifact_fidelity_status() {
       printf 'ok\tsemantic_projection_valid\tartifact fidelity verified via semantic projection\n'
       return 0
     fi
+    changed_files_artifact="$review_changed_files_artifact"
   fi
+
+  changed_files_artifact_name="$(basename "$changed_files_artifact")"
 
   if [[ ! -f "$diff_artifact" ]]; then
     printf 'reject\treview_diff_artifact_missing\trequired file not found: %s\n' "$diff_artifact"
@@ -1091,7 +1104,7 @@ review_artifact_fidelity_status() {
 
   if ! cmp -s "$artifact_changed_files_file" "$expected_changed_files_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
-    printf 'reject\treview_changed_files_mismatch\treview artifact changed_files.txt does not prove final-HEAD compliance for this manual-finish continuation\n'
+    printf 'reject\treview_changed_files_mismatch\treview artifact %s does not prove final-HEAD compliance for this manual-finish continuation\n' "$changed_files_artifact_name"
     return 0
   fi
 

@@ -512,13 +512,15 @@ resolve_review_artifact_base() {
 review_artifact_fidelity_status() {
   local run_dir="$1"
   local manifest_file="$2"
-  local diff_artifact changed_files_artifact
+  local diff_artifact changed_files_artifact review_changed_files_artifact
+  local changed_files_artifact_name
   local review_artifact_base reviewed_head checkout_head
   local expected_diff_file expected_changed_files_file artifact_changed_files_file normalized_artifact_diff_file
   local projection_state projection_status projection_code projection_reason
 
   diff_artifact="$run_dir/diff.patch"
   changed_files_artifact="$run_dir/changed_files.txt"
+  review_changed_files_artifact="$run_dir/review_changed_files.txt"
 
   projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
   IFS=$'\t' read -r projection_status projection_code projection_reason <<< "$projection_state"
@@ -533,7 +535,10 @@ review_artifact_fidelity_status() {
       printf 'ok\tsemantic_projection_valid\tartifact fidelity verified via semantic projection\n'
       return 0
     fi
+    changed_files_artifact="$review_changed_files_artifact"
   fi
+
+  changed_files_artifact_name="$(basename "$changed_files_artifact")"
 
   if [[ ! -f "$diff_artifact" ]]; then
     printf 'reject\treview_diff_artifact_missing\trequired file not found: %s\n' "$diff_artifact"
@@ -582,7 +587,7 @@ review_artifact_fidelity_status() {
 
   if ! cmp -s "$artifact_changed_files_file" "$expected_changed_files_file"; then
     rm -f "$expected_diff_file" "$expected_changed_files_file" "$artifact_changed_files_file" "$normalized_artifact_diff_file"
-    printf 'reject\treview_changed_files_mismatch\treview artifact changed_files.txt is stale or inconsistent with current HEAD diff; rerun automation/scripts/run_story.sh %s\n' "$STORY_ID"
+    printf 'reject\treview_changed_files_mismatch\treview artifact %s is stale or inconsistent with current HEAD diff; rerun automation/scripts/run_story.sh %s\n' "$changed_files_artifact_name" "$STORY_ID"
     return 0
   fi
 
