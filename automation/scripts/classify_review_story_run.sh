@@ -1096,7 +1096,14 @@ if [[ "$head_validation_status" == "reject" ]]; then
   fail "review classification blocked for '$STORY_ID': $head_validation_reason"
 fi
 
-if [[ "$head_validation_code" != "manual_finish_continuation_valid" ]] && run_manifest_companion_filter_enabled "$LATEST_RUN_DIR"; then
+projection_state="$(read_semantic_projection_artifact_state "$LATEST_RUN_DIR")"
+IFS=$'\t' read -r projection_status projection_code projection_reason <<< "$projection_state"
+if [[ "$projection_status" == "invalid" ]]; then
+  clear_classification_artifacts "$LATEST_RUN_DIR"
+  fail "review classification blocked for '$STORY_ID': $projection_reason ($projection_code)"
+fi
+
+if [[ "$head_validation_code" != "manual_finish_continuation_valid" ]] && { [[ "$projection_status" == "valid" ]] || run_manifest_companion_filter_enabled "$LATEST_RUN_DIR"; }; then
   if ! run_filtered_review_artifacts_match_recomputed_surface "$LATEST_RUN_DIR"; then
     clear_classification_artifacts "$LATEST_RUN_DIR"
     fail "review classification blocked for '$STORY_ID': filtered review artifacts are stale or inconsistent with recomputed baseline"

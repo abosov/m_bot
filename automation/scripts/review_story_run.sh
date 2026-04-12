@@ -567,7 +567,13 @@ if (( ${#missing_artifacts[@]} > 0 )); then
   exit 1
 fi
 
-if run_manifest_companion_filter_enabled "$LATEST_RUN_DIR"; then
+projection_state="$(read_semantic_projection_artifact_state "$LATEST_RUN_DIR")"
+IFS=$'\t' read -r projection_status projection_code projection_reason <<< "$projection_state"
+if [[ "$projection_status" == "invalid" ]]; then
+  fail "review blocked for '$STORY_ID': $projection_reason ($projection_code)"
+fi
+
+if [[ "$projection_status" == "valid" ]] || run_manifest_companion_filter_enabled "$LATEST_RUN_DIR"; then
   run_filtered_review_artifacts_match_recomputed_surface "$STORY_ID" "$LATEST_RUN_DIR" || \
     fail "review blocked for '$STORY_ID': filtered review artifacts are stale or inconsistent with recomputed baseline"
 fi

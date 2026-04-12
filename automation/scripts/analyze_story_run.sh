@@ -1490,7 +1490,8 @@ summarize_workflow_resume() {
   local ai_review_validation_state ai_review_validation_status ai_review_validation_code ai_review_validation_reason
   local previous_non_converging_run_dir reviewed_head checkout_head manual_finish_continuation_allowed
   local head_contract_state head_contract_code final_head_fidelity_state final_head_fidelity_status final_head_fidelity_code final_head_fidelity_reason
-  local filtered_review_surface_status
+  local filtered_review_surface_status filtered_review_surface_code filtered_review_surface_reason
+  local projection_state projection_status projection_code projection_reason
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -1523,9 +1524,20 @@ summarize_workflow_resume() {
     final_head_fidelity_reason=""
   fi
   filtered_review_surface_status="valid"
-  if [[ "$manual_finish_continuation_allowed" != "true" ]] && run_manifest_companion_filter_enabled "$run_dir" && [[ "$prereq_status" == "ready" ]]; then
+  filtered_review_surface_code=""
+  filtered_review_surface_reason=""
+  projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
+  IFS=$'\t' read -r projection_status projection_code projection_reason <<<"$projection_state"
+  if [[ "$projection_status" == "invalid" ]]; then
+    filtered_review_surface_status="invalid"
+    filtered_review_surface_code="$projection_code"
+    filtered_review_surface_reason="$projection_reason"
+  elif [[ "$manual_finish_continuation_allowed" != "true" && "$prereq_status" == "ready" ]] \
+    && { [[ "$projection_status" == "valid" ]] || run_manifest_companion_filter_enabled "$run_dir"; }; then
     if ! run_filtered_review_artifacts_match_recomputed_surface "$run_dir"; then
       filtered_review_surface_status="invalid"
+      filtered_review_surface_code="review_surface_mismatch"
+      filtered_review_surface_reason="filtered review artifacts are stale or inconsistent with recomputed baseline"
     fi
   fi
 
@@ -1584,7 +1596,7 @@ summarize_workflow_resume() {
     stage="blocked_review_artifact_fidelity"
     latest_valid_stage="run_artifacts_ready"
     resume_safety="blocked"
-    blocked_reason="filtered review artifacts are stale or inconsistent with recomputed baseline"
+    blocked_reason="${filtered_review_surface_reason:-filtered review artifacts are stale or inconsistent with recomputed baseline}"
     next_command="automation/scripts/run_story.sh $story_id"
   elif [[ -n "$previous_non_converging_run_dir" && "$manual_finish_continuation_allowed" != "true" ]]; then
     stage="blocked_non_converging_rerun"
@@ -1778,6 +1790,8 @@ final_status_line() {
   local ai_review_validation_state ai_review_validation_status ai_review_validation_code ai_review_validation_reason
   local previous_non_converging_run_dir reviewed_head checkout_head manual_finish_continuation_allowed
   local head_contract_state head_contract_code final_head_fidelity_state final_head_fidelity_status final_head_fidelity_code final_head_fidelity_reason
+  local filtered_review_surface_status filtered_review_surface_code filtered_review_surface_reason
+  local projection_state projection_status projection_code projection_reason
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -1809,9 +1823,20 @@ final_status_line() {
     final_head_fidelity_reason=""
   fi
   filtered_review_surface_status="valid"
-  if [[ "$manual_finish_continuation_allowed" != "true" ]] && run_manifest_companion_filter_enabled "$run_dir" && [[ "$prereq_status" == "ready" ]]; then
+  filtered_review_surface_code=""
+  filtered_review_surface_reason=""
+  projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
+  IFS=$'\t' read -r projection_status projection_code projection_reason <<<"$projection_state"
+  if [[ "$projection_status" == "invalid" ]]; then
+    filtered_review_surface_status="invalid"
+    filtered_review_surface_code="$projection_code"
+    filtered_review_surface_reason="$projection_reason"
+  elif [[ "$manual_finish_continuation_allowed" != "true" && "$prereq_status" == "ready" ]] \
+    && { [[ "$projection_status" == "valid" ]] || run_manifest_companion_filter_enabled "$run_dir"; }; then
     if ! run_filtered_review_artifacts_match_recomputed_surface "$run_dir"; then
       filtered_review_surface_status="invalid"
+      filtered_review_surface_code="review_surface_mismatch"
+      filtered_review_surface_reason="filtered review artifacts are stale or inconsistent with recomputed baseline"
     fi
   fi
 
@@ -1832,7 +1857,7 @@ final_status_line() {
   fi
 
   if [[ "$manual_finish_continuation_allowed" != "true" && "$filtered_review_surface_status" == "invalid" ]]; then
-    printf 'RUN STATUS: BLOCKED (filtered review artifacts are stale or inconsistent with recomputed baseline)\n'
+    printf 'RUN STATUS: BLOCKED (%s)\n' "${filtered_review_surface_reason:-filtered review artifacts are stale or inconsistent with recomputed baseline}"
     return 0
   fi
 
