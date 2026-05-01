@@ -37,6 +37,45 @@ def add_commit(root_dir: Path, relative_path: str, content: str, message: str) -
     subprocess.run(["git", "commit", "-m", message], cwd=root_dir, check=True, capture_output=True, text=True)
     return current_head(root_dir)
 
+def make_run_dir(base_dir: Path, story_id: str, run_id: str) -> Path:
+    run_dir = base_dir / "automation" / "runs" / story_id / run_id
+    run_dir.mkdir(parents=True)
+    return run_dir
+
+def write_required_review_artifacts(
+    run_dir: Path,
+    root_dir: Path,
+    *,
+    review_artifact_base: str | None = None,
+) -> None:
+    artifact_base = review_artifact_base or current_head(root_dir)
+
+    diff_patch = subprocess.run(
+        ["git", "diff", artifact_base, "--", ".", ":(exclude)automation/story_change_ledger.jsonl"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    changed_files_output = subprocess.run(
+        ["git", "diff", "--name-only", artifact_base, "--", ".", ":(exclude)automation/story_change_ledger.jsonl"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    changed_files = sorted({line for line in changed_files_output.splitlines() if line.strip()})
+
+    (run_dir / "review_bundle.md").write_text("review_bundle.md\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("chatgpt_review_prompt.md\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(diff_patch, encoding="utf-8")
+    (run_dir / "changed_files.txt").write_text(
+        "\n".join(changed_files) + ("\n" if changed_files else ""),
+        encoding="utf-8",
+    )
+    (run_dir / "pytest.txt").write_text("pytest.txt\n", encoding="utf-8")
 
 def test_ai_review_story_run_exists() -> None:
     assert SCRIPT_PATH.exists()
@@ -1286,3 +1325,69 @@ printf '%s\\n' '- Finding without required result section'
     assert result.returncode != 0
     assert "ai_review_normalization_failed" in result.stderr
     assert not (run_dir / "ai_review_result.md").exists()
+
+def test_ai_review_rejects_invalid_projection(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+    init_git_repo(root_dir)
+
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    story_id = "US-AUTO-75"
+    run_dir = make_run_dir(root_dir, story_id, "ai-invalid-projection")
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "impl.txt", "implementation\n", "add implementation")
+    source_head = current_head(root_dir)
+
+    write_required_review_artifacts(
+        run_dir,
+        root_dir,
+        review_artifact_base=review_artifact_base,
+    )
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- story_id: {story_id}\n"
+        f"- starting_head: {source_head}\n"
+        f"- review_artifact_base: {review_artifact_base}\n"
+        "- execution_companion_filter_mode: enabled\n",
+        encoding="utf-8",
+    )
+
+    (run_dir / "semantic_projection.json").write_text("{invalid\n", encoding="utf-8")
+
+    fake_bin_dir = tmp_path / "bin_invalid_projection"
+    fake_bin_dir.mkdir()
+    marker_file = tmp_path / "codex_invoked_invalid_projection.txt"
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' invoked > "{marker_file}"
+exit 0
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), story_id],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=root_dir,
+    )
+
+    assert result.returncode != 0
+    assert "semantic projection" in result.stderr.lower()
+    assert not marker_file.exists()

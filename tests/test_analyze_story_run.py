@@ -2785,3 +2785,56 @@ def test_analyze_story_run_reports_review_stage_allowed_only_on_committed_head_r
     assert "Review-stage: allowed; this committed-head rerun completed the required review sequence for the pinned run" in result.stdout
     assert "Rerun gate: no additional run_story rerun is needed before review/classify/gate on committed HEAD" in result.stdout
     assert "RUN STATUS: READY TO RUN GATE (pinned artifacts ready; classification approve)" in result.stdout
+
+def test_analyze_rejects_invalid_semantic_projection(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    story_id = "US-AUTO-75"
+    run_dir = make_run_dir(root_dir, story_id, "analyze-invalid-projection")
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "impl.txt", "implementation\n", "add implementation")
+    source_head = current_head(root_dir)
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- story_id: {story_id}\n"
+        f"- starting_head: {source_head}\n"
+        f"- review_artifact_base: {review_artifact_base}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text("impl.txt\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, "--", "impl.txt"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+    (run_dir / "semantic_projection.json").write_text("{invalid\n", encoding="utf-8")
+
+    result = run_script(root_dir, story_id, run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "semantic projection" in result.stdout.lower()
+    assert "blocked" in result.stdout.lower()

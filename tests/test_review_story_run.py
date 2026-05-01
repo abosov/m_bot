@@ -55,6 +55,14 @@ def setup_git_repo(root_dir: Path) -> None:
         text=True,
     )
 
+def current_head(root_dir: Path) -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
 def write_artifacts(run_dir: Path, *, include_manifest: bool = True) -> None:
     artifact_names = [
@@ -472,3 +480,75 @@ def test_review_story_run_accepts_companion_filtered_review_surface_for_mixed_sc
     assert result.returncode == 0, result.stderr
     assert "Review safety: SAFE" in result.stdout
     assert "filtered review artifacts are stale or inconsistent with recomputed baseline" not in result.stderr
+
+def test_review_rejects_invalid_projection(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+
+    story_id = "US-AUTO-75"
+    run_dir = make_run_dir(root_dir, story_id, "review-invalid-projection")
+
+    review_artifact_base = current_head(root_dir)
+
+    impl_file = root_dir / "impl.txt"
+    impl_file.write_text("implementation\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "impl.txt"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add implementation"],
+        cwd=root_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    source_head = current_head(root_dir)
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- story_id: {story_id}\n"
+        f"- starting_head: {source_head}\n"
+        f"- review_artifact_base: {review_artifact_base}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n",
+        encoding="utf-8",
+    )
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "changed_files.txt").write_text("impl.txt\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, "--", "impl.txt"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+    (run_dir / "semantic_projection.json").write_text("{invalid\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), story_id],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=root_dir,
+    )
+
+    assert result.returncode != 0
+    assert "semantic projection" in result.stderr.lower()
