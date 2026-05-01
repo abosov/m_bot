@@ -507,7 +507,12 @@ def test_run_codex_task_writes_semantic_projection_for_filtered_delivery_surface
     assert changed_files == review_changed_files
     assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_patch
 
+    review_bundle = (run_dir / "review_bundle.md").read_text(encoding="utf-8")
+    review_prompt = (run_dir / "chatgpt_review_prompt.md").read_text(encoding="utf-8")
+
     assert "- semantic_projection.json" in manifest
+    assert "Changed Files (review surface)" in review_bundle
+    assert "Changed files (review surface):" in review_prompt
 
     assert projection["schema_version"] == 1
     assert projection["projection_kind"] == "semantic_companion_filter"
