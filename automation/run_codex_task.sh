@@ -1191,11 +1191,11 @@ collect_git_artifacts() {
 
 sync_review_changed_files_surface() {
   if ! cmp -s "$REVIEW_CHANGED_FILES_FILE" "$NAMEONLY_FILE"; then
-    REVIEW_CHANGED_FILES_LABEL="filtered delivery surface"
+    REVIEW_CHANGED_FILES_LABEL="review surface"
     return 0
   fi
 
-  REVIEW_CHANGED_FILES_LABEL="filtered delivery surface"
+  REVIEW_CHANGED_FILES_LABEL="review surface"
 }
 
 write_semantic_projection_artifact() {

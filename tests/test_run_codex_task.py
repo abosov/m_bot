@@ -579,8 +579,8 @@ def test_run_codex_task_filters_only_explicit_registry_companion_for_code_only_s
     assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_patch
     assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_stat
     assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in review_bundle
-    assert "Changed Files (filtered delivery surface)" in review_bundle
-    assert "Changed files (filtered delivery surface):" in review_prompt
+    assert "Changed Files (review surface)" in review_bundle
+    assert "Changed files (review surface):" in review_prompt
     assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in review_prompt
     assert "- changed_files_detected: yes" in manifest
     assert registry_path.read_text(encoding="utf-8") == "# Registry\n\nTracked registry.\n"
