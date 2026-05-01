@@ -38,6 +38,7 @@ REVIEW_PROMPT_FILE=""
 META_FILE=""
 CHECK_ALLOWED_FILES_SCRIPT=""
 FALLBACK_CHECK_ALLOWED_FILES_SCRIPT=""
+SEMANTIC_PROJECTION_FILE=""
 WORKTREE_TRACKED_LIST_FILE=""
 WORKTREE_UNTRACKED_LIST_FILE=""
 WORKTREE_COMPANION_TRACKED_LIST_FILE=""
@@ -707,6 +708,7 @@ TEST_FILE="$RUN_DIR/pytest.txt"
 BUNDLE_FILE="$RUN_DIR/review_bundle.md"
 REVIEW_PROMPT_FILE="$RUN_DIR/chatgpt_review_prompt.md"
 META_FILE="$RUN_DIR/run_meta.txt"
+SEMANTIC_PROJECTION_FILE="$RUN_DIR/semantic_projection.json"
 CHECK_ALLOWED_FILES_SCRIPT="$ROOT_DIR/automation/scripts/check_allowed_files.sh"
 FALLBACK_CHECK_ALLOWED_FILES_SCRIPT="$RUNNER_DIR/scripts/check_allowed_files.sh"
 WORKTREE_TRACKED_LIST_FILE="$RUN_DIR/.worktree_tracked.txt"
@@ -1165,7 +1167,8 @@ collect_git_artifacts() {
     if [[ -f "$tracked_names_file" ]]; then
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
-        if is_non_runtime_companion_artifact_path "$changed_file"; then
+        if is_committed_same_story_bundle_artifact "$changed_file" \
+          || is_non_runtime_companion_artifact_path "$changed_file"; then
           continue
         fi
         printf '%s\n' "$changed_file"
@@ -1174,7 +1177,8 @@ collect_git_artifacts() {
     if [[ -f "$untracked_names_file" ]]; then
       while IFS= read -r changed_file; do
         [[ -n "$changed_file" ]] || continue
-        if is_non_runtime_companion_artifact_path "$changed_file"; then
+        if is_story_artifact_ignored_path "$STORY_ID" "$changed_file" \
+          || is_non_runtime_companion_artifact_path "$changed_file"; then
           continue
         fi
         printf '%s\n' "$changed_file"
@@ -1186,8 +1190,54 @@ collect_git_artifacts() {
 }
 
 sync_review_changed_files_surface() {
-  cp "$NAMEONLY_FILE" "$REVIEW_CHANGED_FILES_FILE"
-  REVIEW_CHANGED_FILES_LABEL="filtered delivery surface"
+  if ! cmp -s "$REVIEW_CHANGED_FILES_FILE" "$NAMEONLY_FILE"; then
+    REVIEW_CHANGED_FILES_LABEL="review surface"
+    return 0
+  fi
+
+  REVIEW_CHANGED_FILES_LABEL="review surface"
+}
+
+write_semantic_projection_artifact() {
+  [[ -n "${SEMANTIC_PROJECTION_FILE:-}" ]] || return 0
+
+  python3 - <<PY > "$SEMANTIC_PROJECTION_FILE"
+import hashlib
+import json
+from pathlib import Path
+
+run_dir = Path(r"$RUN_DIR")
+
+def sha256_file(name: str) -> str:
+    path = run_dir / name
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+payload = {
+    "schema_version": 1,
+    "projection_kind": "semantic_companion_filter",
+    "projection_source": "run_stage",
+    "story_id": "$STORY_ID",
+    "review_artifact_base": "$REVIEW_ARTIFACT_BASE",
+    "source_of_truth_head": "$WORKTREE_HEAD",
+    "execution_companion_filter_mode": "$EXECUTION_COMPANION_FILTER_MODE",
+    "artifacts": {
+        "changed_files": {
+            "path": "changed_files.txt",
+            "sha256": sha256_file("changed_files.txt"),
+        },
+        "diff_patch": {
+            "path": "diff.patch",
+            "sha256": sha256_file("diff.patch"),
+        },
+        "review_changed_files": {
+            "path": "review_changed_files.txt",
+            "sha256": sha256_file("review_changed_files.txt"),
+        },
+    },
+}
+
+print(json.dumps(payload, indent=2))
+PY
 }
 
 check_allowed_files() {
@@ -1284,8 +1334,8 @@ collect_git_artifacts
 write_run_meta
 
 check_allowed_files
-
 sync_review_changed_files_surface
+write_semantic_projection_artifact
 
 if [[ "$SKIP_PYTEST" == "1" ]]; then
   PYTEST_EXIT="SKIPPED"
@@ -1350,6 +1400,7 @@ $(if [[ ${#GENERATED_CONTEXT_FILES[@]} -gt 0 ]]; then
 - diff.stat
 - changed_files.txt
 - review_changed_files.txt
+- semantic_projection.json
 - pytest.txt
 - review_bundle.md
 - chatgpt_review_prompt.md
