@@ -19,6 +19,8 @@
 * docs/**
 * automation/bundles/**
 * automation/bundle_packs/**
+* automation/bundles/active/US-AUTO-75/**
+* docs/90_codex/epics/US-AUTO_REGISTRY.md
 * unrelated scripts
 * unrelated tests
 
