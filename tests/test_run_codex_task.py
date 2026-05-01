@@ -1,4 +1,6 @@
 from pathlib import Path
+import hashlib
+import json
 import os
 import shutil
 import signal
@@ -447,6 +449,85 @@ def test_run_codex_task_ignores_committed_same_story_bundle_artifacts_during_sco
     assert changed_files.splitlines() == ["tracked.txt"]
     assert "automation/bundle_packs/US-AUTO-7.bundle.md" not in changed_files
 
+def test_run_codex_task_writes_semantic_projection_for_filtered_delivery_surface(
+    tmp_path: Path,
+) -> None:
+    root_dir, prompt_file = setup_story_repo(tmp_path)
+
+    registry_path = root_dir / "docs" / "90_codex" / "epics" / "US-AUTO_REGISTRY.md"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text("# Registry\n\nTracked registry.\n", encoding="utf-8")
+    run(["git", "add", "docs/90_codex/epics/US-AUTO_REGISTRY.md"], cwd=root_dir)
+    run(["git", "commit", "-m", "Add tracked registry artifact"], cwd=root_dir)
+
+    bundle_pack = root_dir / "automation" / "bundle_packs" / "US-AUTO-7.bundle.md"
+    bundle_pack.parent.mkdir(parents=True, exist_ok=True)
+    bundle_pack.write_text("# Bundle Pack\n\nCommitted canonical artifact.\n", encoding="utf-8")
+    run(["git", "add", "automation/bundle_packs/US-AUTO-7.bundle.md"], cwd=root_dir)
+    run(["git", "commit", "-m", "Add canonical bundle artifact"], cwd=root_dir)
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    write_executable(
+        fake_bin_dir / "codex",
+        fake_codex_script(
+            "printf '%s\\n' 'codex isolated edit' >> \"$workdir/tracked.txt\"\n"
+            "printf '%s\\n' 'registry update' >> \"$workdir/docs/90_codex/epics/US-AUTO_REGISTRY.md\""
+        ),
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["SKIP_PYTEST"] = "1"
+
+    result = run(
+        ["bash", str(SCRIPT_PATH), str(prompt_file)],
+        cwd=root_dir,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    run_dir = latest_run_dir(root_dir)
+    changed_files_path = run_dir / "changed_files.txt"
+    review_changed_files_path = run_dir / "review_changed_files.txt"
+    diff_patch_path = run_dir / "diff.patch"
+    projection_path = run_dir / "semantic_projection.json"
+
+    changed_files = changed_files_path.read_text(encoding="utf-8")
+    review_changed_files = review_changed_files_path.read_text(encoding="utf-8")
+    diff_patch = diff_patch_path.read_text(encoding="utf-8")
+    manifest = (run_dir / "manifest.md").read_text(encoding="utf-8")
+    projection = json.loads(projection_path.read_text(encoding="utf-8"))
+
+    assert projection_path.exists()
+    assert changed_files.splitlines() == ["tracked.txt"]
+    assert review_changed_files.splitlines() == ["tracked.txt"]
+    assert changed_files == review_changed_files
+    assert "docs/90_codex/epics/US-AUTO_REGISTRY.md" not in diff_patch
+
+    assert "- semantic_projection.json" in manifest
+
+    assert projection["schema_version"] == 1
+    assert projection["projection_kind"] == "semantic_companion_filter"
+    assert projection["projection_source"] == "run_stage"
+    assert projection["story_id"] == "US-AUTO-7"
+    assert projection["execution_companion_filter_mode"] == "enabled"
+    assert projection["review_artifact_base"]
+
+    assert projection["artifacts"]["changed_files"]["path"] == "changed_files.txt"
+    assert projection["artifacts"]["changed_files"]["sha256"] == hashlib.sha256(
+        changed_files_path.read_bytes()
+    ).hexdigest()
+    assert projection["artifacts"]["diff_patch"]["path"] == "diff.patch"
+    assert projection["artifacts"]["diff_patch"]["sha256"] == hashlib.sha256(
+        diff_patch_path.read_bytes()
+    ).hexdigest()
+    assert projection["artifacts"]["review_changed_files"]["path"] == "review_changed_files.txt"
+    assert projection["artifacts"]["review_changed_files"]["sha256"] == hashlib.sha256(
+        review_changed_files_path.read_bytes()
+    ).hexdigest()
 
 def test_run_codex_task_filters_only_explicit_registry_companion_for_code_only_story(
     tmp_path: Path,
