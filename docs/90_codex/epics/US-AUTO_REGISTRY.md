@@ -179,6 +179,7 @@ Violation of this separation (e.g., editing active bundle directly or duplicatin
 - Attempted implementation of US-AUTO-74 confirmed that centralizing semantic companion-filter logic is not sufficient by itself: downstream review-fidelity consumers still need an explicit artifact-consumption contract.
 - US-AUTO-75 established that projection-based review fidelity must be introduced as an additive layer, not as a rewrite of downstream recompute/manual-finish/stale-surface contracts.
 - US-AUTO-75 also exposed a classifier scope-semantics limitation: governance/story artifacts explicitly approved through bundle scope can still be misclassified as out-of-scope delivery files.
+- US-AUTO-75/PR #266 also confirmed a broader operator-UX gap: the pipeline is now highly fail-closed and correct, but operators still need a simpler decision model for rerun, review-stage continuation, classification rejects, escalation choices, and follow-up creation.
 - For contract-sensitive downstream stories, bundle instructions must explicitly forbid broad rewrites and preserve existing fallback and producer guard behavior unless a failing test proves a narrower change is impossible.
 
 
@@ -219,20 +220,21 @@ Follow-up:
 
 ### Next Recommended Story
 1. US-AUTO-76 — classifier scope semantics for governance story artifacts
-2. US-AUTO-31 — mandatory analyze gate before rerun or next phase
-3. US-AUTO-58 — stage-loop cap and forced escalation threshold
-4. US-AUTO-61 — workflow telemetry registry for run stages, blockers, manual interventions, and timings
-5. US-AUTO-62 — manual workflow event logging and automation-opportunity tagging
-6. US-AUTO-63 — periodic workflow analytics and optimization reporting
-7. US-AUTO-60 — lightweight review-evidence refresh without full rerun
-8. US-AUTO-30 — safe review-artifact reuse eligibility
-9. US-AUTO-29 — deterministic story-scoped verification strategy
-10. US-AUTO-64 — fact-only research artifact for story execution
-11. US-AUTO-68 — structured failure packet for follow-up and retry decisions
-12. US-AUTO-67 — intent restatement and plan acknowledgement before code edits
-13. US-AUTO-65 — explicit design-complete gate before implementation run
-14. US-AUTO-66 — phase-scoped implementation runs for multi-step stories
-15. US-AUTO-59 — failure-summary and operator decision UX
+2. US-AUTO-77 — operator workflow simplification and decision model
+3. US-AUTO-31 — mandatory analyze gate before rerun or next phase
+4. US-AUTO-58 — stage-loop cap and forced escalation threshold
+5. US-AUTO-61 — workflow telemetry registry for run stages, blockers, manual interventions, and timings
+6. US-AUTO-62 — manual workflow event logging and automation-opportunity tagging
+7. US-AUTO-63 — periodic workflow analytics and optimization reporting
+8. US-AUTO-60 — lightweight review-evidence refresh without full rerun
+9. US-AUTO-30 — safe review-artifact reuse eligibility
+10. US-AUTO-29 — deterministic story-scoped verification strategy
+11. US-AUTO-64 — fact-only research artifact for story execution
+12. US-AUTO-68 — structured failure packet for follow-up and retry decisions
+13. US-AUTO-67 — intent restatement and plan acknowledgement before code edits
+14. US-AUTO-65 — explicit design-complete gate before implementation run
+15. US-AUTO-66 — phase-scoped implementation runs for multi-step stories
+16. US-AUTO-59 — failure-summary and operator decision UX
 
 ---
 
@@ -283,8 +285,9 @@ Follow-up:
 | US-AUTO-72 | Explicit companion isolation | Filter execution companion artifacts and enforce non-empty delivery surface | enforcement | Implemented | P1 | None | US-AUTO-69 split | automation/bundles/active/US-AUTO-72/ | Completed and merged |
 | US-AUTO-73 | Refine companion-filter semantics for mixed-scope stories | Replace crude "code-only vs mixed-scope" heuristic with path-semantics-based classification of companion artifacts so supporting docs do not invalidate companion-filter validation | governance | Implemented | P1 | None | Follow-up from US-AUTO-70 review conflict | automation/bundles/active/US-AUTO-73/ | Merged in PR #264. Semantic non-runtime companion classification now drives execution and review-surface filtering across run/analyze/review/classify/gate flows. A follow-up centralization/refactoring opportunity remains tracked separately as US-AUTO-74. |
 | US-AUTO-74 | Centralize semantic companion-filter contract | Centralize non-runtime companion classification into one shared source of truth for producer and downstream consumers | follow-up | Blocked | P1 | Do not resume until US-AUTO-75 lands and proves additive projection-aware downstream consumption | Follow-up from US-AUTO-73 | N/A | Attempted implementation proved non-atomic: centralization alone did not converge because downstream review-fidelity consumption semantics remained implicit. Return condition: resume only if post-US-AUTO-75 cleanup still requires a narrow centralization-only pass. |
-| US-AUTO-75 | Additive review-fidelity projection contract for semantic companion filtering | Introduce producer-owned `semantic_projection.json` and integrate it as a preferred downstream validation fast-path without rewriting recompute/manual-finish/stale-surface fallback contracts | follow-up | In Review | P1 | Merge PR #266 if CI remains green and no maintainer objections | Follow-up from blocked US-AUTO-74 line | automation/bundle_packs/US-AUTO-75.bundle.md | Implementation complete in PR #266. Latest pinned run `automation/runs/US-AUTO-75/2026-05-01_21-39-15` passed `1106 passed`. Automated classifier still rejects governance/story artifacts as out-of-scope despite explicit scope approval; treat as follow-up classifier semantics issue, not a runtime blocker for US-AUTO-75. |
-| US-AUTO-76 | Classifier scope semantics for governance story artifacts | Teach review classification/gate semantics that explicitly scope-approved story governance artifacts are allowed delivery context when materialized through the bundle workflow | follow-up | Planned | P1 | Draft bundle after US-AUTO-75 is merged | Follow-up from US-AUTO-75 classifier false reject | N/A | Covers `automation/bundle_packs/<story>.bundle.md`, `automation/bundles/active/<story>/**`, and `docs/90_codex/epics/US-AUTO_REGISTRY.md` when intentionally changed through the approved story workflow. Prevents false MERGE BLOCKER classification for governance artifacts. |
+| US-AUTO-75 | Additive review-fidelity projection contract for semantic companion filtering | Introduce producer-owned `semantic_projection.json` and integrate it as a preferred downstream validation fast-path without rewriting recompute/manual-finish/stale-surface fallback contracts | follow-up | Implemented | P1 | None | Follow-up from blocked US-AUTO-74 line | automation/bundle_packs/US-AUTO-75.bundle.md | Merged in PR #266. Latest pinned run `automation/runs/US-AUTO-75/2026-05-01_21-39-15` passed `1106 passed`. Automated classifier rejected governance/story artifacts as out-of-scope despite explicit scope approval; US-AUTO-76 tracks that classifier semantics follow-up. |
+| US-AUTO-76 | Classifier scope semantics for governance story artifacts | Teach review classification/gate semantics that explicitly scope-approved story governance artifacts are allowed delivery context when materialized through the bundle workflow | follow-up | Planned | P1 | Draft bundle | Follow-up from US-AUTO-75 classifier false reject | N/A | Covers `automation/bundle_packs/<story>.bundle.md`, `automation/bundles/active/<story>/**`, and `docs/90_codex/epics/US-AUTO_REGISTRY.md` when intentionally changed through the approved story workflow. Prevents false MERGE BLOCKER classification for governance artifacts. |
+| US-AUTO-77 | Operator workflow simplification and decision model | Add an operator workflow layer that reduces cognitive and operational complexity without weakening committed-HEAD, pinned-run, rerun, review, classify, or gate safety invariants | follow-up | Planned | P1 | Draft bundle after US-AUTO-76 is resolved or explicitly parked | Follow-up from US-AUTO-75/PR #266 operator friction | N/A | Scope should include `docs/90_codex/US_AUTO_OPERATOR_GUIDE.md`, clear rerun rules, review/classification reject decision model, escalation usage, anti-patterns, improved analyze operator decision output, and optionally `automation/scripts/next_step.sh`. Goal: operator follows `run_story -> analyze -> next recommended command -> decision path`, instead of manually reasoning over raw artifacts. |
 | US-AUTO-29 | Deterministic story-scoped verification strategy | Select the minimal required verification scope for the current story/run instead of always paying full validation cost | follow-up | Planned | P2 | Draft bundle | Re-scoped from original US-AUTO-29 | N/A | Formerly “targeted test strategy”; now broader but still deterministic and story-scoped |
 | US-AUTO-30 | Safe review-artifact reuse eligibility | Reuse review-stage artifacts only when the review surface is provably unchanged | follow-up | Planned | P2 | Draft bundle | Re-scoped from original US-AUTO-30 | N/A | Distinct from already-implemented deterministic gate reuse in US-AUTO-45 |
 | US-AUTO-31 | Mandatory analyze gate before rerun or next phase | Make `analyze_story_run.sh` an explicit decision gate before rerun, review continuation, or phase advance | follow-up | Planned | P1 | Draft bundle | Re-scoped from original US-AUTO-31 | N/A | Replaces vague checkpoint language with explicit decision-gate semantics |
