@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 import os
 import subprocess
@@ -176,6 +177,51 @@ def write_pinned_review_artifacts(run_dir: Path, *, recommendation: str | None =
             f"MERGE RECOMMENDATION: {recommendation}\n",
             encoding="utf-8",
         )
+
+
+def write_semantic_projection(
+    run_dir: Path,
+    *,
+    story_id: str,
+    review_artifact_base: str,
+    source_of_truth_head: str,
+    execution_companion_filter_mode: str = "enabled",
+    review_changed_files_content: str | None = None,
+) -> None:
+    if review_changed_files_content is not None:
+        (run_dir / "review_changed_files.txt").write_text(
+            review_changed_files_content,
+            encoding="utf-8",
+        )
+
+    payload = {
+        "schema_version": 1,
+        "projection_kind": "semantic_companion_filter",
+        "projection_source": "run_stage",
+        "story_id": story_id,
+        "review_artifact_base": review_artifact_base,
+        "source_of_truth_head": source_of_truth_head,
+        "execution_companion_filter_mode": execution_companion_filter_mode,
+        "artifacts": {
+            "changed_files": {
+                "path": "changed_files.txt",
+                "sha256": hashlib.sha256((run_dir / "changed_files.txt").read_bytes()).hexdigest(),
+            },
+            "diff_patch": {
+                "path": "diff.patch",
+                "sha256": hashlib.sha256((run_dir / "diff.patch").read_bytes()).hexdigest(),
+            },
+            "review_changed_files": {
+                "path": "review_changed_files.txt",
+                "sha256": hashlib.sha256((run_dir / "review_changed_files.txt").read_bytes()).hexdigest(),
+            },
+        },
+    }
+
+    (run_dir / "semantic_projection.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_review_gate_story_run_exists() -> None:
@@ -1820,3 +1866,203 @@ def test_review_gate_rejects_ancestor_run_based_manual_finish_continuation(tmp_p
     assert gate_result["manifest_reviewed_head"] == reviewed_head
     assert gate_result["review_head_mode"] == "pinned_run_manifest"
     assert gate_result["decision_source"] == "review_head_mismatch"
+
+def test_review_gate_accepts_valid_semantic_projection(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-75"
+    run_dir = make_run_dir(root_dir, story_id, "2026-05-01_15-15-27")
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "impl.txt", "implementation\n", "add implementation")
+    source_head = current_head(root_dir)
+
+    write_required_review_artifacts(run_dir, root_dir, review_artifact_base=review_artifact_base)
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        starting_head=source_head,
+        review_artifact_base=review_artifact_base,
+    )
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+    write_semantic_projection(
+        run_dir,
+        story_id=story_id,
+        review_artifact_base=review_artifact_base,
+        source_of_truth_head=source_head,
+        review_changed_files_content="impl.txt\n",
+    )
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode == 0, result.stderr
+    assert "Final decision: approve" in result.stdout
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision": "approve"' in gate_result
+
+
+def test_review_gate_rejects_manifest_required_missing_semantic_projection(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-75"
+    run_dir = make_run_dir(root_dir, story_id, "missing-projection")
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "impl.txt", "implementation\n", "add implementation")
+    source_head = current_head(root_dir)
+
+    write_required_review_artifacts(run_dir, root_dir, review_artifact_base=review_artifact_base)
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        starting_head=source_head,
+        review_artifact_base=review_artifact_base,
+    )
+    with (run_dir / "manifest.md").open("a", encoding="utf-8") as f:
+        f.write("- semantic_projection.json\n")
+
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "semantic_projection_missing_expected"' in gate_result
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "semantic_projection_missing_expected"' in gate_result
+
+
+def test_review_gate_rejects_invalid_semantic_projection_json(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-75"
+    run_dir = make_run_dir(root_dir, story_id, "invalid-json")
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "impl.txt", "implementation\n", "add implementation")
+    source_head = current_head(root_dir)
+
+    write_required_review_artifacts(run_dir, root_dir, review_artifact_base=review_artifact_base)
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        starting_head=source_head,
+        review_artifact_base=review_artifact_base,
+    )
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+    (run_dir / "semantic_projection.json").write_text("{not-json\n", encoding="utf-8")
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "semantic_projection_invalid_json"' in gate_result
+
+
+def test_review_gate_rejects_semantic_projection_hash_mismatch(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-75"
+    run_dir = make_run_dir(root_dir, story_id, "hash-mismatch")
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "impl.txt", "implementation\n", "add implementation")
+    source_head = current_head(root_dir)
+
+    write_required_review_artifacts(run_dir, root_dir, review_artifact_base=review_artifact_base)
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        starting_head=source_head,
+        review_artifact_base=review_artifact_base,
+    )
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+    write_semantic_projection(
+        run_dir,
+        story_id=story_id,
+        review_artifact_base=review_artifact_base,
+        source_of_truth_head=source_head,
+        review_changed_files_content="impl.txt\n",
+    )
+    (run_dir / "review_changed_files.txt").write_text("tampered.txt\n", encoding="utf-8")
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "semantic_projection_hash_mismatch"' in gate_result
+
+
+def test_review_gate_rejects_semantic_projection_manifest_metadata_mismatch(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-75"
+    run_dir = make_run_dir(root_dir, story_id, "metadata-mismatch")
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "impl.txt", "implementation\n", "add implementation")
+    source_head = current_head(root_dir)
+
+    write_required_review_artifacts(run_dir, root_dir, review_artifact_base=review_artifact_base)
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        starting_head=source_head,
+        review_artifact_base=review_artifact_base,
+    )
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+    write_semantic_projection(
+        run_dir,
+        story_id="US-AUTO-999",
+        review_artifact_base=review_artifact_base,
+        source_of_truth_head=source_head,
+        review_changed_files_content="impl.txt\n",
+    )
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "semantic_projection_manifest_mismatch"' in gate_result
+
+
+def test_review_gate_valid_semantic_projection_uses_review_changed_files_over_legacy_changed_files(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-75"
+    run_dir = make_run_dir(root_dir, story_id, "projection-fast-path")
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "impl.txt", "implementation\n", "add implementation")
+    source_head = current_head(root_dir)
+
+    write_required_review_artifacts(run_dir, root_dir, review_artifact_base=review_artifact_base)
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        starting_head=source_head,
+        review_artifact_base=review_artifact_base,
+    )
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+
+    (run_dir / "changed_files.txt").write_text("legacy-stale.txt\n", encoding="utf-8")
+    write_semantic_projection(
+        run_dir,
+        story_id=story_id,
+        review_artifact_base=review_artifact_base,
+        source_of_truth_head=source_head,
+        review_changed_files_content="impl.txt\n",
+    )
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode == 0, result.stderr
+    assert "Final decision: approve" in result.stdout
