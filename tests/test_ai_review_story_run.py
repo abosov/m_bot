@@ -1,3 +1,5 @@
+import hashlib
+import json
 from pathlib import Path
 import os
 import subprocess
@@ -76,6 +78,39 @@ def write_required_review_artifacts(
         encoding="utf-8",
     )
     (run_dir / "pytest.txt").write_text("pytest.txt\n", encoding="utf-8")
+
+
+def write_semantic_projection(
+    run_dir: Path,
+    *,
+    story_id: str,
+    review_artifact_base: str,
+    source_of_truth_head: str,
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "projection_kind": "semantic_companion_filter",
+        "projection_source": "run_stage",
+        "story_id": story_id,
+        "review_artifact_base": review_artifact_base,
+        "source_of_truth_head": source_of_truth_head,
+        "execution_companion_filter_mode": "enabled",
+        "artifacts": {
+            "changed_files": {
+                "path": "changed_files.txt",
+                "sha256": hashlib.sha256((run_dir / "changed_files.txt").read_bytes()).hexdigest(),
+            },
+            "diff_patch": {
+                "path": "diff.patch",
+                "sha256": hashlib.sha256((run_dir / "diff.patch").read_bytes()).hexdigest(),
+            },
+            "review_changed_files": {
+                "path": "review_changed_files.txt",
+                "sha256": hashlib.sha256((run_dir / "review_changed_files.txt").read_bytes()).hexdigest(),
+            },
+        },
+    }
+    (run_dir / "semantic_projection.json").write_text(json.dumps(payload), encoding="utf-8")
 
 def test_ai_review_story_run_exists() -> None:
     assert SCRIPT_PATH.exists()
@@ -1391,3 +1426,91 @@ exit 0
     assert result.returncode != 0
     assert "semantic projection" in result.stderr.lower()
     assert not marker_file.exists()
+
+
+def test_ai_review_accepts_valid_projection_with_stale_legacy_changed_files(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+    init_git_repo(root_dir)
+
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    story_id = "US-AUTO-75"
+    run_dir = make_run_dir(root_dir, story_id, "ai-valid-projection")
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "impl.txt", "implementation\n", "add implementation")
+    source_head = current_head(root_dir)
+
+    write_required_review_artifacts(run_dir, root_dir, review_artifact_base=review_artifact_base)
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- story_id: {story_id}\n"
+        f"- starting_head: {source_head}\n"
+        f"- review_artifact_base: {review_artifact_base}\n"
+        "- execution_companion_filter_mode: enabled\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text("legacy-stale.txt\n", encoding="utf-8")
+    (run_dir / "review_changed_files.txt").write_text("impl.txt\n", encoding="utf-8")
+    write_semantic_projection(
+        run_dir,
+        story_id=story_id,
+        review_artifact_base=review_artifact_base,
+        source_of_truth_head=source_head,
+    )
+
+    fake_bin_dir = tmp_path / "bin_valid_projection"
+    fake_bin_dir.mkdir()
+    marker_file = tmp_path / "codex_invoked_valid_projection.txt"
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '%s\\n' invoked > "{marker_file}"
+cat >/dev/null
+printf '%s\\n' '# AI Review' > "$output"
+printf '%s\\n' '' >> "$output"
+printf '%s\\n' '- Finding A' >> "$output"
+printf '%s\\n' '' >> "$output"
+printf '%s\\n' '# AI Review Result' >> "$output"
+printf '%s\\n' '' >> "$output"
+printf '%s\\n' 'PASS' >> "$output"
+printf '%s\\n' 'raw-ai-output'
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), story_id],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=root_dir,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert marker_file.exists()
+    assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8") == VALID_AI_REVIEW

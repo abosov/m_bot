@@ -1,3 +1,5 @@
+import hashlib
+import json
 from pathlib import Path
 import os
 import subprocess
@@ -52,6 +54,39 @@ def add_commit(root_dir: Path, relative_path: str, content: str, message: str) -
     subprocess.run(["git", "add", relative_path], cwd=root_dir, check=True)
     subprocess.run(["git", "commit", "-m", message], cwd=root_dir, check=True, capture_output=True, text=True)
     return current_head(root_dir)
+
+
+def write_semantic_projection(
+    run_dir: Path,
+    *,
+    story_id: str,
+    review_artifact_base: str,
+    source_of_truth_head: str,
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "projection_kind": "semantic_companion_filter",
+        "projection_source": "run_stage",
+        "story_id": story_id,
+        "review_artifact_base": review_artifact_base,
+        "source_of_truth_head": source_of_truth_head,
+        "execution_companion_filter_mode": "enabled",
+        "artifacts": {
+            "changed_files": {
+                "path": "changed_files.txt",
+                "sha256": hashlib.sha256((run_dir / "changed_files.txt").read_bytes()).hexdigest(),
+            },
+            "diff_patch": {
+                "path": "diff.patch",
+                "sha256": hashlib.sha256((run_dir / "diff.patch").read_bytes()).hexdigest(),
+            },
+            "review_changed_files": {
+                "path": "review_changed_files.txt",
+                "sha256": hashlib.sha256((run_dir / "review_changed_files.txt").read_bytes()).hexdigest(),
+            },
+        },
+    }
+    (run_dir / "semantic_projection.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def test_analyze_story_run_exists() -> None:
@@ -2838,3 +2873,68 @@ def test_analyze_rejects_invalid_semantic_projection(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "semantic projection" in result.stdout.lower()
     assert "blocked" in result.stdout.lower()
+
+
+def test_analyze_accepts_valid_projection_with_stale_legacy_changed_files(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    story_id = "US-AUTO-75"
+    run_dir = make_run_dir(root_dir, story_id, "analyze-valid-projection")
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "impl.txt", "implementation\n", "add implementation")
+    source_head = current_head(root_dir)
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- story_id: {story_id}\n"
+        f"- starting_head: {source_head}\n"
+        f"- review_artifact_base: {review_artifact_base}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n",
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text("legacy-stale.txt\n", encoding="utf-8")
+    (run_dir / "review_changed_files.txt").write_text("impl.txt\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("4 passed\n", encoding="utf-8")
+    (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, "--", "impl.txt"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+    (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
+    (run_dir / "review_classification.md").write_text(
+        "# Review Classification\n\nMERGE RECOMMENDATION: approve\n",
+        encoding="utf-8",
+    )
+    write_semantic_projection(
+        run_dir,
+        story_id=story_id,
+        review_artifact_base=review_artifact_base,
+        source_of_truth_head=source_head,
+    )
+
+    result = run_script(root_dir, story_id, run_dir=run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "RUN STATUS: READY TO RUN GATE (pinned artifacts ready; classification approve)" in result.stdout
+    assert "filtered review artifacts are stale or inconsistent with recomputed baseline" not in result.stdout

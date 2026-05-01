@@ -1,3 +1,5 @@
+import hashlib
+import json
 from pathlib import Path
 import os
 import subprocess
@@ -34,6 +36,39 @@ def add_commit(root_dir: Path, relative_path: str, content: str, message: str) -
     subprocess.run(["git", "add", relative_path], cwd=root_dir, check=True)
     subprocess.run(["git", "commit", "-m", message], cwd=root_dir, check=True, capture_output=True, text=True)
     return current_head(root_dir)
+
+
+def write_semantic_projection(
+    run_dir: Path,
+    *,
+    story_id: str,
+    review_artifact_base: str,
+    source_of_truth_head: str,
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "projection_kind": "semantic_companion_filter",
+        "projection_source": "run_stage",
+        "story_id": story_id,
+        "review_artifact_base": review_artifact_base,
+        "source_of_truth_head": source_of_truth_head,
+        "execution_companion_filter_mode": "enabled",
+        "artifacts": {
+            "changed_files": {
+                "path": "changed_files.txt",
+                "sha256": hashlib.sha256((run_dir / "changed_files.txt").read_bytes()).hexdigest(),
+            },
+            "diff_patch": {
+                "path": "diff.patch",
+                "sha256": hashlib.sha256((run_dir / "diff.patch").read_bytes()).hexdigest(),
+            },
+            "review_changed_files": {
+                "path": "review_changed_files.txt",
+                "sha256": hashlib.sha256((run_dir / "review_changed_files.txt").read_bytes()).hexdigest(),
+            },
+        },
+    }
+    (run_dir / "semantic_projection.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def test_classify_review_story_run_fails_closed_on_missing_normalized_ai_review_with_raw_output(
@@ -424,6 +459,112 @@ exit 0
     assert not marker_file.exists()
     assert not (run_dir / "review_classification.md").exists()
     assert not (run_dir / "review_classification_raw_output.txt").exists()
+
+
+def test_classify_accepts_valid_projection_with_stale_legacy_changed_files(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+    init_git_repo(root_dir)
+
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    rules_file = root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text("# Rules\n", encoding="utf-8")
+    subprocess.run(["git", "add", str(rules_file.relative_to(root_dir))], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "add classification rules"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    story_id = "US-AUTO-75"
+    run_dir = root_dir / "automation" / "runs" / story_id / "classify-valid-projection"
+    run_dir.mkdir(parents=True)
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "impl.txt", "implementation\n", "add implementation")
+    source_head = current_head(root_dir)
+
+    diff_patch = subprocess.run(
+        ["git", "diff", review_artifact_base, "--", ".", ":(exclude)automation/story_change_ledger.jsonl"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- story_id: {story_id}\n"
+        f"- starting_head: {source_head}\n"
+        f"- review_artifact_base: {review_artifact_base}\n"
+        "- execution_companion_filter_mode: enabled\n",
+        encoding="utf-8",
+    )
+    (run_dir / "review_bundle.md").write_text("review_bundle.md\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("chatgpt_review_prompt.md\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(diff_patch, encoding="utf-8")
+    (run_dir / "changed_files.txt").write_text("legacy-stale.txt\n", encoding="utf-8")
+    (run_dir / "review_changed_files.txt").write_text("impl.txt\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("pytest.txt\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(
+        "# AI Review\n\nLooks good.\n\n# AI Review Result\n\nApproved.\n",
+        encoding="utf-8",
+    )
+    write_semantic_projection(
+        run_dir,
+        story_id=story_id,
+        review_artifact_base=review_artifact_base,
+        source_of_truth_head=source_head,
+    )
+
+    fake_bin_dir = tmp_path / "bin_valid_projection"
+    fake_bin_dir.mkdir()
+    marker_file = tmp_path / "codex_invoked_valid_projection.txt"
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '%s\\n' invoked > "{marker_file}"
+cat >/dev/null
+printf '%s\\n' '# Review Classification' > "$output"
+printf '%s\\n' '' >> "$output"
+printf '%s\\n' 'MERGE RECOMMENDATION: approve' >> "$output"
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+    env["CLASSIFICATION_RULES_FILE"] = str(rules_file)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), story_id],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=root_dir,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert marker_file.exists()
+    assert "Merge recommendation: approve" in result.stdout
 
 
 def test_classify_review_story_run_fails_closed_on_invalid_normalized_ai_review_artifact(
