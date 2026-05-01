@@ -7,6 +7,7 @@
 * automation/scripts/classify_review_story_run.sh
 * automation/scripts/review_gate_story_run.sh
 * automation/scripts/review_story_run.sh
+* tests/test_run_codex_task.py
 * tests/test_review_gate_story_run.py
 * tests/test_ai_review_story_run.py
 * tests/test_analyze_story_run.py
