@@ -44,6 +44,8 @@ Analyze reports:
 - an operator decision section;
 - the final run status line.
 
+If multiple raw status lines appear to point in different directions, follow the single `Required next action` from the operator decision block. Do not infer a different next step from a later-stage artifact alone.
+
 ## Correct analyze_story_run.sh command contract
 
 `analyze_story_run.sh` receives the run directory through `AUTOMATION_RUN_DIR`.
@@ -75,6 +77,7 @@ Use it as the single next-action summary:
 - `Why` explains the blocker or readiness condition.
 
 If the operator decision conflicts with an operator guess, the decision block wins.
+If `Next recommended command` and a blocker both appear, the blocker still wins unless `Required next action` explicitly tells you to run that command now.
 
 ## Dirty tree handling
 
@@ -137,6 +140,7 @@ When analyze says review-stage is allowed:
 - rerun analyze after each review-stage step if you want a refreshed decision summary.
 
 Review-stage is allowed only on a clean committed HEAD or on the exact validated manual-finish continuation path.
+Review-stage is still blocked if the tree is dirty, the pinned run is stale, or final-HEAD compliance is not yet proven for a manual-finish continuation.
 
 ## AI review, classification, and review gate path
 
@@ -169,6 +173,7 @@ Story closed requires:
 5. Registry updated or explicitly confirmed not required.
 
 Do not start the next story until this closure gate is complete.
+`next_step.sh` remains a follow-up, not the closure authority for this story.
 
 ## Anti-patterns
 
@@ -201,6 +206,13 @@ Manual-finish continuation:
 # analyze says blocked_non_converging_rerun
 # finish manually, commit, then analyze the same pinned run again
 AUTOMATION_RUN_DIR=automation/runs/US-AUTO-77/2026-05-02_12-00-00 automation/scripts/analyze_story_run.sh US-AUTO-77
+```
+
+Post-merge closeout reminder:
+
+```text
+PR merged != story closed
+story closed = merge + branch cleanup + local main update + registry check/closeout
 ```
 
 Wrong analyze invocation:

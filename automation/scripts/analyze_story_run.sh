@@ -1436,6 +1436,30 @@ run_story_command() {
   printf 'automation/scripts/run_story.sh %q\n' "$story_id"
 }
 
+review_stage_next_command_for_latest_valid_stage() {
+  local story_id="$1"
+  local run_dir="$2"
+  local latest_valid_stage="$3"
+
+  case "$latest_valid_stage" in
+    run_artifacts_ready)
+      resume_next_command "ai_review_story_run.sh" "$story_id" "$run_dir"
+      ;;
+    ai_review_completed)
+      resume_next_command "classify_review_story_run.sh" "$story_id" "$run_dir"
+      ;;
+    classification_approved)
+      resume_next_command "review_gate_story_run.sh" "$story_id" "$run_dir"
+      ;;
+    review_gate_passed)
+      printf 'none\n'
+      ;;
+    *)
+      printf 'none\n'
+      ;;
+  esac
+}
+
 print_operator_decision() {
   local story_id="$1"
   local run_dir="$2"
@@ -1557,6 +1581,25 @@ print_operator_decision() {
       why="${blocked_reason:-analyze cannot verify the run against the current checkout HEAD}"
       ;;
   esac
+
+  if [[ "$stage" == "blocked_review_artifact_fidelity" && "$manual_finish_continuation_allowed" != "true" ]]; then
+    case "$latest_valid_stage" in
+      run_artifacts_ready|ai_review_completed|classification_approved)
+        local review_stage_command
+        review_stage_command="$(review_stage_next_command_for_latest_valid_stage "$story_id" "$run_dir" "$latest_valid_stage")"
+        required_action="Run: $review_stage_command"
+        allowed_actions="Continue review-stage on the pinned committed-HEAD run; re-run analyze after the review-stage step."
+        forbidden_actions="Another run_story rerun before a new committed change; passing RUN_DIR as a second positional argument; proceeding with a dirty tree."
+        why="Review-stage is allowed for latest valid stage $latest_valid_stage, and rerun gate says no additional run_story rerun is needed."
+        ;;
+      review_gate_passed)
+        required_action="Proceed to merge review on the current committed HEAD. Story closure still requires PR merge, branch cleanup, local main update, and registry check."
+        allowed_actions="Merge review on the clean committed HEAD; re-run analyze if you need to confirm the same pinned run again."
+        forbidden_actions="Another run_story rerun before a new committed change; marking the story closed before PR merge, cleanup, main update, and registry closeout."
+        why="Review gate already passed for the latest valid stage; rerun gate says no additional run_story rerun is needed."
+        ;;
+    esac
+  fi
 
   if [[ "$manual_finish_continuation_allowed" == "true" && "$stage" != "manual_finish_ready_for_review" && "$stage" != "blocked_manual_finish_final_head_unproven" && "$stage" != "review_gate_passed" ]]; then
     forbidden_actions="$forbidden_actions Another run_story rerun before the manual-finish continuation is completed."

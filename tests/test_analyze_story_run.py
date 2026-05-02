@@ -578,6 +578,8 @@ def test_analyze_story_run_rejects_run_dir_as_second_positional_argument() -> No
 
     assert result.returncode != 0
     assert "AUTOMATION_RUN_DIR=automation/runs/STORY_ID/RUN_DIR automation/scripts/analyze_story_run.sh STORY_ID" in result.stderr
+    assert "Pass STORY_ID as the only positional argument." in result.stderr
+    assert "Pass the run directory through AUTOMATION_RUN_DIR when you need a pinned run." in result.stderr
     assert "Do not pass RUN_DIR as a second positional argument." in result.stderr
 
 
@@ -1870,6 +1872,12 @@ def test_analyze_story_run_blocks_resume_when_evidence_is_stale(tmp_path: Path) 
     assert "Resume safety: blocked" in result.stdout
     assert "Next recommended command: none" in result.stdout
     assert "Blocked reason: manifest HEAD" in result.stdout
+    assert "OPERATOR DECISION" in result.stdout
+    assert "Required next action: Re-run run_story from the current committed HEAD, then analyze the new run with AUTOMATION_RUN_DIR." in result.stdout
+    assert "Allowed actions: A fresh committed-HEAD rerun; re-running analyze on the new pinned run." in result.stdout
+    assert "Forbidden actions: Review, classify, gate, or merge review using stale run artifacts." in result.stdout
+    assert "Why: manifest HEAD" in result.stdout
+    assert "RUN STATUS: BLOCKED (stale run evidence:" in result.stdout
     assert current_head in result.stdout
 
 
@@ -2344,6 +2352,12 @@ def test_analyze_story_run_blocks_companion_filtered_stale_review_surface(tmp_pa
 
     assert result.returncode == 0, result.stderr
     assert "Current stage: blocked_review_artifact_fidelity" in result.stdout
+    assert "Review-stage: allowed; this committed-head rerun completed the required review sequence for the pinned run" in result.stdout
+    assert "Rerun gate: no additional run_story rerun is needed before review/classify/gate on committed HEAD" in result.stdout
+    assert "Required next action: Run: AUTOMATION_RUN_DIR=" in result.stdout
+    assert "automation/scripts/ai_review_story_run.sh" in result.stdout
+    assert "Forbidden actions: Another run_story rerun before a new committed change; passing RUN_DIR as a second positional argument; proceeding with a dirty tree." in result.stdout
+    assert "Why: Review-stage is allowed for latest valid stage run_artifacts_ready, and rerun gate says no additional run_story rerun is needed." in result.stdout
     assert "RUN STATUS: BLOCKED (filtered review artifacts are stale or inconsistent with recomputed baseline)" in result.stdout
 
 
