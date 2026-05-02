@@ -704,15 +704,70 @@ extract_markdown_section_items() {
   ' "$file"
 }
 
+story_scope_file() {
+  local story_id="$1"
+  printf '%s\n' "$ROOT_DIR/automation/bundles/active/$story_id/02_file_scope.md"
+}
+
+scope_item_matches_path() {
+  local item="${1#./}"
+  local path="${2#./}"
+  local prefix
+
+  [[ -n "$item" ]] || return 1
+  [[ "$item" == "$path" ]] && return 0
+
+  if [[ "$item" == *"/**" ]]; then
+    prefix="${item%/**}"
+    [[ "$path" == "$prefix" ]] && return 0
+    [[ "$path" == "$prefix/"* ]] && return 0
+  fi
+
+  return 1
+}
+
+is_path_explicitly_scope_approved() {
+  local story_id="$1"
+  local path="${2#./}"
+  local scope_file item
+
+  scope_file="$(story_scope_file "$story_id")"
+  [[ -f "$scope_file" ]] || return 1
+
+  while IFS= read -r item; do
+    [[ -n "$item" ]] || continue
+    if scope_item_matches_path "$item" "$path"; then
+      return 0
+    fi
+  done < <(extract_markdown_section_items "$scope_file" "allowed")
+
+  return 1
+}
+
+is_scope_approved_story_governance_artifact_path() {
+  local story_id="$1"
+  local path="${2#./}"
+
+  case "$path" in
+    "automation/bundle_packs/$story_id.bundle.md"|\
+    "automation/bundles/active/$story_id"|\
+    automation/bundles/active/$story_id/*|\
+    "docs/90_codex/epics/US-AUTO_REGISTRY.md")
+      is_path_explicitly_scope_approved "$story_id" "$path"
+      return $?
+      ;;
+  esac
+
+  return 1
+}
+
 is_non_runtime_companion_artifact_path() {
   local path="${1#./}"
 
   case "$path" in
-    docs/90_codex/epics/US-AUTO_REGISTRY.md)
-      # Exclude only known non-runtime companion artifacts. Everything else,
-      # including automation scripts, tests, and execution-governing docs,
-      # stays in the runtime/review surface.
-      return 0
+    *)
+      # Keep companion filtering fail-closed. Story governance artifacts are
+      # handled separately and only when scope-approved.
       ;;
   esac
 
@@ -736,11 +791,7 @@ is_story_artifact_review_ignored_path() {
   local story_id="$1"
   local path="$2"
 
-  [[ "$path" == "automation/bundle_packs/$story_id.bundle.md" ]] && return 0
-  [[ "$path" == "automation/bundles/active/$story_id" ]] && return 0
-  [[ "$path" == automation/bundles/active/$story_id/* ]] && return 0
-
-  return 1
+  is_scope_approved_story_governance_artifact_path "$story_id" "$path"
 }
 
 filter_review_fidelity_paths() {
