@@ -54,6 +54,19 @@ def add_commit(root_dir: Path, relative_path: str, content: str, message: str) -
     subprocess.run(["git", "commit", "-m", message], check=True, cwd=root_dir, capture_output=True, text=True)
     return current_head(root_dir)
 
+def write_scope_file(root_dir: Path, story_id: str, allowed_paths: list[str]) -> Path:
+    scope_file = root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md"
+    scope_file.parent.mkdir(parents=True, exist_ok=True)
+    scope_file.write_text(
+        "# Scope\n\n"
+        "## Files Allowed To Change\n"
+        + "".join(f"- `{path}`\n" for path in allowed_paths)
+        + "\n## Files Not Allowed To Change\n"
+        "- `backend/**`\n",
+        encoding="utf-8",
+    )
+    return scope_file
+
 def write_manifest(
     run_dir: Path,
     root_dir: Path,
@@ -684,13 +697,16 @@ def test_review_gate_story_run_ignores_committed_story_artifacts_in_fidelity_che
     run_dir = make_run_dir(root_dir, story_id, "2026-03-28_20-27-28")
 
     (root_dir / "automation" / "bundle_packs").mkdir(parents=True, exist_ok=True)
-    (root_dir / "automation" / "bundles" / "active" / story_id).mkdir(parents=True, exist_ok=True)
-
     (root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md").write_text(
         "# bundle\n", encoding="utf-8"
     )
-    (root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md").write_text(
-        "# scope\n", encoding="utf-8"
+    write_scope_file(
+        root_dir,
+        story_id,
+        [
+            f"automation/bundle_packs/{story_id}.bundle.md",
+            f"automation/bundles/active/{story_id}/**",
+        ],
     )
     (root_dir / "automation" / "bundles" / "active" / story_id / "03_master_prompt.md").write_text(
         "# prompt\n", encoding="utf-8"
@@ -823,15 +839,13 @@ def test_review_gate_story_run_ignores_companion_registry_diff_for_code_only_sto
     story_id = "US-AUTO-70"
     run_dir = make_run_dir(root_dir, story_id, "2026-04-01_12-00-00-companion-filtered")
 
-    scope_file = root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md"
-    scope_file.parent.mkdir(parents=True, exist_ok=True)
-    scope_file.write_text(
-        "# Scope\n\n"
-        "## Files Allowed To Change\n"
-        "- `services/story_loop.py`\n\n"
-        "## Files Not Allowed To Change\n"
-        "- `backend/**`\n",
-        encoding="utf-8",
+    scope_file = write_scope_file(
+        root_dir,
+        story_id,
+        [
+            "services/story_loop.py",
+            "docs/90_codex/epics/US-AUTO_REGISTRY.md",
+        ],
     )
     subprocess.run(
         ["git", "add", str(scope_file.relative_to(root_dir))],
@@ -908,16 +922,14 @@ def test_review_gate_story_run_ignores_companion_registry_diff_for_mixed_scope_s
     story_id = "US-AUTO-70"
     run_dir = make_run_dir(root_dir, story_id, "2026-04-01_12-00-00-mixed-scope")
 
-    scope_file = root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md"
-    scope_file.parent.mkdir(parents=True, exist_ok=True)
-    scope_file.write_text(
-        "# Scope\n\n"
-        "## Files Allowed To Change\n"
-        "- `services/story_loop.py`\n"
-        "- `docs/release_notes.md`\n\n"
-        "## Files Not Allowed To Change\n"
-        "- `backend/**`\n",
-        encoding="utf-8",
+    scope_file = write_scope_file(
+        root_dir,
+        story_id,
+        [
+            "services/story_loop.py",
+            "docs/release_notes.md",
+            "docs/90_codex/epics/US-AUTO_REGISTRY.md",
+        ],
     )
     subprocess.run(
         ["git", "add", str(scope_file.relative_to(root_dir))],
@@ -986,6 +998,62 @@ def test_review_gate_story_run_ignores_companion_registry_diff_for_mixed_scope_s
     assert '"decision_source": "review_classification"' in gate_result
 
 
+def test_review_gate_story_run_rejects_filtered_registry_without_explicit_scope_approval(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-76"
+    run_dir = make_run_dir(root_dir, story_id, "2026-04-07_12-00-00-registry-not-approved")
+
+    scope_file = write_scope_file(root_dir, story_id, ["services/story_loop.py"])
+    subprocess.run(
+        ["git", "add", str(scope_file.relative_to(root_dir))],
+        check=True,
+        cwd=root_dir,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add scope without registry"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "services/story_loop.py", "implementation\n", "impl")
+    add_commit(root_dir, "docs/90_codex/epics/US-AUTO_REGISTRY.md", "# registry\n", "registry")
+
+    (run_dir / "review_bundle.md").write_text("review_bundle.md\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("chatgpt_review_prompt.md\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, "--", "services/story_loop.py"],
+            check=True,
+            cwd=root_dir,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("pytest.txt\n", encoding="utf-8")
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        review_artifact_base=review_artifact_base,
+    )
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    assert "changed_files.txt is stale or inconsistent" in result.stderr
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "review_changed_files_mismatch"' in gate_result
+
+
 def test_review_gate_story_run_allows_manual_finish_continuation_with_companion_filtered_baseline(
     tmp_path: Path,
 ) -> None:
@@ -994,15 +1062,13 @@ def test_review_gate_story_run_allows_manual_finish_continuation_with_companion_
     story_id = "US-AUTO-70"
     run_dir = make_run_dir(root_dir, story_id, "2026-04-01_12-00-01-manual-finish-companion")
 
-    scope_file = root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md"
-    scope_file.parent.mkdir(parents=True, exist_ok=True)
-    scope_file.write_text(
-        "# Scope\n\n"
-        "## Files Allowed To Change\n"
-        "- `services/story_loop.py`\n\n"
-        "## Files Not Allowed To Change\n"
-        "- `backend/**`\n",
-        encoding="utf-8",
+    scope_file = write_scope_file(
+        root_dir,
+        story_id,
+        [
+            "services/story_loop.py",
+            "docs/90_codex/epics/US-AUTO_REGISTRY.md",
+        ],
     )
     subprocess.run(
         ["git", "add", str(scope_file.relative_to(root_dir))],
@@ -1362,9 +1428,14 @@ def test_review_gate_story_run_accepts_committed_rerun_diff_with_same_story_bund
     bundle_file = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
     bundle_file.parent.mkdir(parents=True, exist_ok=True)
     bundle_file.write_text("# committed bundle artifact\n", encoding="utf-8")
-    active_story_file = root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md"
-    active_story_file.parent.mkdir(parents=True, exist_ok=True)
-    active_story_file.write_text("# committed active story scope\n", encoding="utf-8")
+    active_story_file = write_scope_file(
+        root_dir,
+        story_id,
+        [
+            f"automation/bundle_packs/{story_id}.bundle.md",
+            f"automation/bundles/active/{story_id}/**",
+        ],
+    )
     impl_file = root_dir / "services" / "story_loop.py"
     impl_file.parent.mkdir(parents=True, exist_ok=True)
     impl_file.write_text("def run_story_loop():\n    return 'ok'\n", encoding="utf-8")
@@ -1435,6 +1506,133 @@ def test_review_gate_story_run_accepts_committed_rerun_diff_with_same_story_bund
     assert '"decision_source": "review_classification"' in gate_result
 
 
+def test_review_gate_story_run_rejects_filtered_wrong_story_bundle_pack(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-76"
+    run_dir = make_run_dir(root_dir, story_id, "2026-04-07_12-00-01-wrong-story-bundle")
+
+    scope_file = write_scope_file(
+        root_dir,
+        story_id,
+        [
+            "services/story_loop.py",
+            f"automation/bundle_packs/{story_id}.bundle.md",
+            f"automation/bundles/active/{story_id}/**",
+        ],
+    )
+    subprocess.run(
+        ["git", "add", str(scope_file.relative_to(root_dir))],
+        check=True,
+        cwd=root_dir,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add same-story governance scope"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "automation/bundle_packs/US-AUTO-77.bundle.md", "# other bundle\n", "wrong story bundle")
+    add_commit(root_dir, "services/story_loop.py", "implementation\n", "impl")
+
+    (run_dir / "review_bundle.md").write_text("review_bundle.md\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("chatgpt_review_prompt.md\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, "--", "services/story_loop.py"],
+            check=True,
+            cwd=root_dir,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("pytest.txt\n", encoding="utf-8")
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        review_artifact_base=review_artifact_base,
+    )
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    assert "changed_files.txt is stale or inconsistent" in result.stderr
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "review_changed_files_mismatch"' in gate_result
+
+
+def test_review_gate_story_run_requires_exact_registry_scope_approval(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-76"
+    run_dir = make_run_dir(root_dir, story_id, "2026-04-07_12-00-02-registry-wildcard-scope")
+
+    scope_file = write_scope_file(
+        root_dir,
+        story_id,
+        [
+            "services/story_loop.py",
+            "docs/90_codex/**",
+        ],
+    )
+    subprocess.run(
+        ["git", "add", str(scope_file.relative_to(root_dir))],
+        check=True,
+        cwd=root_dir,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add broad docs scope without exact registry"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "services/story_loop.py", "implementation\n", "impl")
+    add_commit(root_dir, "docs/90_codex/epics/US-AUTO_REGISTRY.md", "# registry\n", "registry")
+
+    (run_dir / "review_bundle.md").write_text("review_bundle.md\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("chatgpt_review_prompt.md\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, "--", "services/story_loop.py"],
+            check=True,
+            cwd=root_dir,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("pytest.txt\n", encoding="utf-8")
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        review_artifact_base=review_artifact_base,
+    )
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    assert "changed_files.txt is stale or inconsistent" in result.stderr
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "review_changed_files_mismatch"' in gate_result
+
+
 def test_review_gate_story_run_rejects_true_diff_mismatch_with_same_story_bundle_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -1447,9 +1645,14 @@ def test_review_gate_story_run_rejects_true_diff_mismatch_with_same_story_bundle
     bundle_file = root_dir / "automation" / "bundle_packs" / f"{story_id}.bundle.md"
     bundle_file.parent.mkdir(parents=True, exist_ok=True)
     bundle_file.write_text("# committed bundle artifact\n", encoding="utf-8")
-    active_story_file = root_dir / "automation" / "bundles" / "active" / story_id / "02_file_scope.md"
-    active_story_file.parent.mkdir(parents=True, exist_ok=True)
-    active_story_file.write_text("# committed active story scope\n", encoding="utf-8")
+    active_story_file = write_scope_file(
+        root_dir,
+        story_id,
+        [
+            f"automation/bundle_packs/{story_id}.bundle.md",
+            f"automation/bundles/active/{story_id}/**",
+        ],
+    )
     impl_file = root_dir / "services" / "story_loop.py"
     impl_file.parent.mkdir(parents=True, exist_ok=True)
     impl_file.write_text("def run_story_loop():\n    return 'ok'\n", encoding="utf-8")

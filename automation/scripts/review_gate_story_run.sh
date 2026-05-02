@@ -704,15 +704,100 @@ extract_markdown_section_items() {
   ' "$file"
 }
 
+story_scope_file() {
+  local story_id="$1"
+  printf '%s\n' "$ROOT_DIR/automation/bundles/active/$story_id/02_file_scope.md"
+}
+
+scope_item_matches_path() {
+  local item="${1#./}"
+  local path="${2#./}"
+  local prefix
+
+  [[ -n "$item" ]] || return 1
+  [[ "$item" == "$path" ]] && return 0
+
+  if [[ "$item" == *"/**" ]]; then
+    prefix="${item%/**}"
+    [[ "$path" == "$prefix" ]] && return 0
+    [[ "$path" == "$prefix/"* ]] && return 0
+  fi
+
+  return 1
+}
+
+is_path_explicitly_scope_approved() {
+  local story_id="$1"
+  local path="${2#./}"
+  local scope_file item
+
+  scope_file="$(story_scope_file "$story_id")"
+  [[ -f "$scope_file" ]] || return 1
+
+  while IFS= read -r item; do
+    [[ -n "$item" ]] || continue
+    if scope_item_matches_path "$item" "$path"; then
+      return 0
+    fi
+  done < <(extract_markdown_section_items "$scope_file" "allowed")
+
+  return 1
+}
+
+scope_contains_exact_item() {
+  local story_id="$1"
+  local expected_item="${2#./}"
+  local scope_file item
+
+  scope_file="$(story_scope_file "$story_id")"
+  [[ -f "$scope_file" ]] || return 1
+
+  while IFS= read -r item; do
+    [[ -n "$item" ]] || continue
+    item="${item#./}"
+    if [[ "$item" == "$expected_item" ]]; then
+      return 0
+    fi
+  done < <(extract_markdown_section_items "$scope_file" "allowed")
+
+  return 1
+}
+
+is_scope_approved_story_governance_artifact_path() {
+  local story_id="$1"
+  local path="${2#./}"
+  local bundle_pack_path="automation/bundle_packs/$story_id.bundle.md"
+  local active_bundle_root="automation/bundles/active/$story_id"
+  local registry_path="docs/90_codex/epics/US-AUTO_REGISTRY.md"
+
+  if [[ "$path" == "$bundle_pack_path" ]]; then
+    scope_contains_exact_item "$story_id" "$bundle_pack_path"
+    return $?
+  fi
+
+  if [[ "$path" == "$active_bundle_root" || "$path" == "$active_bundle_root/"* ]]; then
+    if scope_contains_exact_item "$story_id" "$path"; then
+      return 0
+    fi
+    scope_contains_exact_item "$story_id" "$active_bundle_root/**"
+    return $?
+  fi
+
+  if [[ "$path" == "$registry_path" ]]; then
+    scope_contains_exact_item "$story_id" "$registry_path"
+    return $?
+  fi
+
+  return 1
+}
+
 is_non_runtime_companion_artifact_path() {
   local path="${1#./}"
 
   case "$path" in
-    docs/90_codex/epics/US-AUTO_REGISTRY.md)
-      # Exclude only known non-runtime companion artifacts. Everything else,
-      # including automation scripts, tests, and execution-governing docs,
-      # stays in the runtime/review surface.
-      return 0
+    *)
+      # Keep companion filtering fail-closed. Story governance artifacts are
+      # handled separately and only when scope-approved.
       ;;
   esac
 
@@ -736,11 +821,7 @@ is_story_artifact_review_ignored_path() {
   local story_id="$1"
   local path="$2"
 
-  [[ "$path" == "automation/bundle_packs/$story_id.bundle.md" ]] && return 0
-  [[ "$path" == "automation/bundles/active/$story_id" ]] && return 0
-  [[ "$path" == automation/bundles/active/$story_id/* ]] && return 0
-
-  return 1
+  is_scope_approved_story_governance_artifact_path "$story_id" "$path"
 }
 
 filter_review_fidelity_paths() {
