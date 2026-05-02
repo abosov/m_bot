@@ -1152,6 +1152,92 @@ MERGE RECOMMENDATION: $merge_recommendation
 EOF
 }
 
+validate_refresh_review_evidence_contract() {
+  local run_dir="$1"
+  local manifest_file="$2"
+  local story_id="$3"
+  local manifest_refresh_mode
+  local metadata_file
+
+  manifest_refresh_mode="$(manifest_value "$manifest_file" "refresh_mode" || true)"
+  metadata_file="$run_dir/refresh_review_evidence.json"
+
+  if [[ "$manifest_refresh_mode" != "no_codex_review_evidence_refresh" && ! -f "$metadata_file" ]]; then
+    return 0
+  fi
+
+  if [[ "$manifest_refresh_mode" != "no_codex_review_evidence_refresh" ]]; then
+    echo "invalid refresh review evidence metadata: metadata exists but manifest refresh_mode is not no_codex_review_evidence_refresh" >&2
+    return 1
+  fi
+
+  if [[ ! -f "$metadata_file" ]]; then
+    echo "invalid refresh review evidence metadata: metadata is required for no-Codex refresh run: $metadata_file" >&2
+    return 1
+  fi
+
+  local current_head
+  current_head="$(git -C "$ROOT_DIR" rev-parse --verify HEAD)"
+
+  python3 - "$metadata_file" "$story_id" "$current_head" <<'PYINNER'
+import json
+import sys
+from pathlib import Path
+
+metadata_path = Path(sys.argv[1])
+expected_story_id = sys.argv[2]
+expected_head = sys.argv[3]
+
+try:
+    def no_dupes(pairs):
+        data = {}
+        for key, value in pairs:
+            if key in data:
+                raise ValueError(f"duplicate key: {key}")
+            data[key] = value
+        return data
+
+    data = json.loads(
+        metadata_path.read_text(encoding="utf-8"),
+        object_pairs_hook=no_dupes,
+    )
+except Exception as exc:
+    raise SystemExit(f"invalid refresh review evidence metadata: {exc}")
+
+checks = [
+    (data.get("story_id") == expected_story_id, "story_id mismatch"),
+    (data.get("refresh_mode") == "no_codex_review_evidence_refresh", "refresh_mode mismatch"),
+    (data.get("codex_invoked") is False, "codex_invoked must be false"),
+    (data.get("current_head") == expected_head, "current_head mismatch"),
+    (isinstance(data.get("generated_at"), str) and bool(data.get("generated_at").strip()), "generated_at is required"),
+    (isinstance(data.get("evidence_paths"), dict), "evidence_paths object is required"),
+]
+
+for ok, message in checks:
+    if not ok:
+        raise SystemExit(f"invalid refresh review evidence metadata: {message}")
+
+evidence_paths = data.get("evidence_paths", {})
+serialized_paths = "\n".join(str(value) for value in evidence_paths.values())
+
+required_artifacts = [
+    "manifest.md",
+    "changed_files.txt",
+    "diff.patch",
+    "review_bundle.md",
+    "chatgpt_review_prompt.md",
+    "pytest.txt",
+    "refresh_review_evidence.json",
+]
+
+for artifact_name in required_artifacts:
+    if artifact_name not in serialized_paths:
+        raise SystemExit(
+            f"invalid refresh review evidence metadata: evidence_paths missing {artifact_name}"
+        )
+PYINNER
+}
+
 [[ $# -eq 1 ]] || usage
 
 require_cmd "$CODEX_BIN"
@@ -1177,6 +1263,11 @@ if [[ "$head_validation_status" == "reject" ]]; then
   fail "review classification blocked for '$STORY_ID': $head_validation_reason"
 fi
 
+if ! validate_refresh_review_evidence_contract "$LATEST_RUN_DIR" "$MANIFEST_FILE" "$STORY_ID"; then
+  clear_classification_artifacts "$LATEST_RUN_DIR"
+  fail "review classification blocked for '$STORY_ID': invalid refresh review evidence metadata"
+fi
+
 projection_state="$(read_semantic_projection_artifact_state "$LATEST_RUN_DIR")"
 IFS=$'\t' read -r projection_status projection_code projection_reason <<< "$projection_state"
 if [[ "$projection_status" == "invalid" ]]; then
@@ -1184,7 +1275,8 @@ if [[ "$projection_status" == "invalid" ]]; then
   fail "review classification blocked for '$STORY_ID': $projection_reason ($projection_code)"
 fi
 
-if [[ "$head_validation_code" != "manual_finish_continuation_valid" ]] && { [[ "$projection_status" == "valid" ]] || run_manifest_companion_filter_enabled "$LATEST_RUN_DIR"; }; then
+manifest_refresh_mode="$(manifest_value "$MANIFEST_FILE" "refresh_mode" || true)"
+if [[ "$head_validation_code" != "manual_finish_continuation_valid" ]] && { [[ "$manifest_refresh_mode" == "no_codex_review_evidence_refresh" ]] || [[ "$projection_status" == "valid" ]] || run_manifest_companion_filter_enabled "$LATEST_RUN_DIR"; }; then
   if ! run_filtered_review_artifacts_match_recomputed_surface "$LATEST_RUN_DIR"; then
     clear_classification_artifacts "$LATEST_RUN_DIR"
     fail "review classification blocked for '$STORY_ID': filtered review artifacts are stale or inconsistent with recomputed baseline"

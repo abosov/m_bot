@@ -1514,3 +1514,258 @@ printf '%s\\n' 'raw-ai-output'
     assert result.returncode == 0, result.stderr
     assert marker_file.exists()
     assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8") == VALID_AI_REVIEW
+
+
+def test_ai_review_story_run_rejects_invalid_refresh_review_evidence_metadata(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+    init_git_repo(root_dir)
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    base_head = current_head(root_dir)
+    reviewed_head = add_commit(root_dir, "services/refresh.py", "x = 1\n", "implementation")
+
+    story_id = "US-AUTO-60"
+    run_dir = make_run_dir(root_dir, story_id, "refresh-invalid-metadata")
+    (run_dir / "manifest.md").write_text(
+        "# Review Evidence Refresh Manifest\n\n"
+        f"- story_id: {story_id}\n"
+        f"- starting_head: {reviewed_head}\n"
+        f"- review_artifact_base: {base_head}\n"
+        "- materialization_status: not_needed\n"
+        "- changed_files_detected: yes\n"
+        "- refresh_mode: no_codex_review_evidence_refresh\n"
+        "- codex_invoked: false\n",
+        encoding="utf-8",
+    )
+    write_required_review_artifacts(run_dir, root_dir, review_artifact_base=base_head)
+    (run_dir / "refresh_review_evidence.json").write_text(
+        json.dumps(
+            {
+                "story_id": story_id,
+                "refresh_mode": "no_codex_review_evidence_refresh",
+                "codex_invoked": False,
+                "current_head": "wrong-head",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "ai_review_result.md").write_text(
+        "# AI Review\n\nStale pass.\n\n# AI Review Result\n\nPASS\n",
+        encoding="utf-8",
+    )
+    (run_dir / "ai_review_raw_output.txt").write_text("stale raw output\n", encoding="utf-8")
+
+    fake_bin_dir = tmp_path / "bin_refresh_invalid"
+    fake_bin_dir.mkdir()
+    marker_file = tmp_path / "codex_invoked_refresh_invalid.txt"
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        f"#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' invoked > \"{marker_file}\"\nexit 0\n",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), story_id],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=root_dir,
+    )
+
+    assert result.returncode != 0
+    assert "invalid refresh review evidence metadata" in result.stderr
+    assert not marker_file.exists()
+    assert not (run_dir / "ai_review_result.md").exists()
+    assert not (run_dir / "ai_review_raw_output.txt").exists()
+
+
+def test_ai_review_story_run_accepts_valid_refresh_review_evidence_metadata(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+    init_git_repo(root_dir)
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    base_head = current_head(root_dir)
+    reviewed_head = add_commit(root_dir, "services/refresh.py", "x = 1\n", "implementation")
+
+    story_id = "US-AUTO-60"
+    run_dir = make_run_dir(root_dir, story_id, "refresh-valid-metadata")
+    (run_dir / "manifest.md").write_text(
+        "# Review Evidence Refresh Manifest\n\n"
+        f"- story_id: {story_id}\n"
+        f"- starting_head: {reviewed_head}\n"
+        f"- review_artifact_base: {base_head}\n"
+        "- materialization_status: not_needed\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- refresh_mode: no_codex_review_evidence_refresh\n"
+        "- codex_invoked: false\n",
+        encoding="utf-8",
+    )
+    write_required_review_artifacts(run_dir, root_dir, review_artifact_base=base_head)
+    (run_dir / "refresh_review_evidence.json").write_text(
+        json.dumps(
+            {
+                "story_id": story_id,
+                "refresh_mode": "no_codex_review_evidence_refresh",
+                "codex_invoked": False,
+                "current_head": reviewed_head,
+                "generated_at": "2026-05-03T00:00:00+00:00",
+                "evidence_paths": {
+                    "manifest": "manifest.md",
+                    "changed_files": "changed_files.txt",
+                    "diff_patch": "diff.patch",
+                    "review_bundle": "review_bundle.md",
+                    "chatgpt_review_prompt": "chatgpt_review_prompt.md",
+                    "pytest": "pytest.txt",
+                    "refresh_review_evidence": "refresh_review_evidence.json",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    fake_bin_dir = tmp_path / "bin_refresh_valid"
+    fake_bin_dir.mkdir()
+    marker_file = tmp_path / "codex_invoked_refresh_valid.txt"
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '%s\n' invoked > "{marker_file}"
+cat >/dev/null
+printf '%s\n' '# AI Review' > "$output"
+printf '%s\n' '' >> "$output"
+printf '%s\n' '- Valid refresh evidence path reviewed.' >> "$output"
+printf '%s\n' '' >> "$output"
+printf '%s\n' '# AI Review Result' >> "$output"
+printf '%s\n' '' >> "$output"
+printf '%s\n' 'PASS' >> "$output"
+printf '%s\n' 'raw-ai-output'
+""",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), story_id],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=root_dir,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert marker_file.exists()
+    assert (run_dir / "ai_review_result.md").read_text(encoding="utf-8") == (
+        "# AI Review\n\n"
+        "- Valid refresh evidence path reviewed.\n\n"
+        "# AI Review Result\n\n"
+        "PASS\n"
+    )
+
+
+def test_ai_review_story_run_rejects_reduced_refresh_review_evidence_metadata(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+    init_git_repo(root_dir)
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    base_head = current_head(root_dir)
+    reviewed_head = add_commit(root_dir, "services/refresh.py", "x = 1\n", "implementation")
+
+    story_id = "US-AUTO-60"
+    run_dir = make_run_dir(root_dir, story_id, "refresh-reduced-metadata")
+    (run_dir / "manifest.md").write_text(
+        "# Review Evidence Refresh Manifest\n\n"
+        f"- story_id: {story_id}\n"
+        f"- starting_head: {reviewed_head}\n"
+        f"- review_artifact_base: {base_head}\n"
+        "- materialization_status: not_needed\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- refresh_mode: no_codex_review_evidence_refresh\n"
+        "- codex_invoked: false\n",
+        encoding="utf-8",
+    )
+    write_required_review_artifacts(run_dir, root_dir, review_artifact_base=base_head)
+    (run_dir / "refresh_review_evidence.json").write_text(
+        json.dumps(
+            {
+                "story_id": story_id,
+                "refresh_mode": "no_codex_review_evidence_refresh",
+                "codex_invoked": False,
+                "current_head": reviewed_head,
+                "generated_at": "2026-05-03T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "ai_review_result.md").write_text(
+        "# AI Review\n\nStale pass.\n\n# AI Review Result\n\nPASS\n",
+        encoding="utf-8",
+    )
+
+    fake_bin_dir = tmp_path / "bin_refresh_reduced"
+    fake_bin_dir.mkdir()
+    marker_file = tmp_path / "codex_invoked_refresh_reduced.txt"
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(
+        f"#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' invoked > \"{marker_file}\"\nexit 0\n",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), story_id],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=root_dir,
+    )
+
+    assert result.returncode != 0
+    assert "evidence_paths object is required" in result.stderr
+    assert not marker_file.exists()
+    assert not (run_dir / "ai_review_result.md").exists()
