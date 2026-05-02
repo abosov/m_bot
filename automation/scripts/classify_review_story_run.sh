@@ -340,19 +340,49 @@ is_path_explicitly_scope_approved() {
   return 1
 }
 
+scope_contains_exact_item() {
+  local story_id="$1"
+  local expected_item="${2#./}"
+  local scope_file item
+
+  scope_file="$(story_scope_file "$story_id")"
+  [[ -f "$scope_file" ]] || return 1
+
+  while IFS= read -r item; do
+    [[ -n "$item" ]] || continue
+    item="${item#./}"
+    if [[ "$item" == "$expected_item" ]]; then
+      return 0
+    fi
+  done < <(extract_markdown_section_items "$scope_file" "allowed")
+
+  return 1
+}
+
 is_scope_approved_story_governance_artifact_path() {
   local story_id="$1"
   local path="${2#./}"
+  local bundle_pack_path="automation/bundle_packs/$story_id.bundle.md"
+  local active_bundle_root="automation/bundles/active/$story_id"
+  local registry_path="docs/90_codex/epics/US-AUTO_REGISTRY.md"
 
-  case "$path" in
-    "automation/bundle_packs/$story_id.bundle.md"|\
-    "automation/bundles/active/$story_id"|\
-    automation/bundles/active/$story_id/*|\
-    "docs/90_codex/epics/US-AUTO_REGISTRY.md")
-      is_path_explicitly_scope_approved "$story_id" "$path"
-      return $?
-      ;;
-  esac
+  if [[ "$path" == "$bundle_pack_path" ]]; then
+    scope_contains_exact_item "$story_id" "$bundle_pack_path"
+    return $?
+  fi
+
+  if [[ "$path" == "$active_bundle_root" || "$path" == "$active_bundle_root/"* ]]; then
+    if scope_contains_exact_item "$story_id" "$path"; then
+      return 0
+    fi
+    scope_contains_exact_item "$story_id" "$active_bundle_root/**"
+    return $?
+  fi
+
+  if [[ "$path" == "$registry_path" ]]; then
+    scope_contains_exact_item "$story_id" "$registry_path"
+    return $?
+  fi
 
   return 1
 }

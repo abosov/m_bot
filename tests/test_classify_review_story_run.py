@@ -1024,6 +1024,96 @@ def test_classify_review_story_run_rejects_filtered_wrong_story_bundle_pack(
     assert not marker_file.exists()
 
 
+def test_classify_review_story_run_requires_exact_registry_scope_approval(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+    init_git_repo(root_dir)
+
+    (root_dir / ".gitignore").write_text("automation/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init ignore automation"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    story_id = "US-AUTO-76"
+    scope_file = write_scope_file(
+        root_dir,
+        story_id,
+        [
+            "services/story_loop.py",
+            "docs/90_codex/**",
+        ],
+    )
+    subprocess.run(["git", "add", "-f", str(scope_file.relative_to(root_dir))], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "scope"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    rules_file = root_dir / "docs" / "90_codex" / "REVIEW_CLASSIFICATION_RULES.md"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text("# Rules\n", encoding="utf-8")
+    subprocess.run(["git", "add", str(rules_file.relative_to(root_dir))], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "rules"], cwd=root_dir, check=True, capture_output=True, text=True)
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "services/story_loop.py", "implementation\n", "impl")
+    add_commit(root_dir, "docs/90_codex/epics/US-AUTO_REGISTRY.md", "# registry\n", "registry")
+
+    run_dir = root_dir / "automation" / "runs" / story_id / "2026-04-06_13-10-00"
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.md").write_text(
+        "# Codex Run Manifest\n\n"
+        f"- story_id: {story_id}\n"
+        f"- starting_head: {current_head(root_dir)}\n"
+        "- codex_exit_code: 0\n"
+        "- materialization_status: applied\n"
+        "- pytest_exit_code: 0\n"
+        "- changed_files_detected: yes\n"
+        "- execution_companion_filter_mode: enabled\n"
+        f"- review_artifact_base: {review_artifact_base}\n",
+        encoding="utf-8",
+    )
+    (run_dir / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, "--", "services/story_loop.py"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (run_dir / "ai_review_result.md").write_text(
+        "# AI Review\n\nOK\n\n# AI Review Result\n\nPASS\n",
+        encoding="utf-8",
+    )
+
+    fake_bin_dir = tmp_path / "bin_registry_wildcard_scope"
+    fake_bin_dir.mkdir()
+    marker_file = tmp_path / "codex_called_registry_wildcard_scope.txt"
+    fake_codex = fake_bin_dir / "codex"
+    fake_codex.write_text(f"#!/usr/bin/env bash\nprintf '%s\\n' called > \"{marker_file}\"\n", encoding="utf-8")
+    fake_codex.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNS_ROOT"] = str(root_dir / "automation" / "runs")
+    env["AUTOMATION_RUN_DIR"] = str(run_dir)
+    env["CLASSIFICATION_RULES_FILE"] = str(rules_file)
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), story_id],
+        cwd=root_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "filtered review artifacts are stale or inconsistent with recomputed baseline" in result.stderr
+    assert not marker_file.exists()
+
+
 def test_classify_review_story_run_rejects_manual_finish_when_filtered_diff_surface_did_not_repeat(
     tmp_path: Path,
 ) -> None:

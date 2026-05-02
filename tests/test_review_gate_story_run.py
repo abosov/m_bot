@@ -1570,6 +1570,69 @@ def test_review_gate_story_run_rejects_filtered_wrong_story_bundle_pack(
     assert '"decision_source": "review_changed_files_mismatch"' in gate_result
 
 
+def test_review_gate_story_run_requires_exact_registry_scope_approval(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "repo"
+    setup_git_repo(root_dir)
+    story_id = "US-AUTO-76"
+    run_dir = make_run_dir(root_dir, story_id, "2026-04-07_12-00-02-registry-wildcard-scope")
+
+    scope_file = write_scope_file(
+        root_dir,
+        story_id,
+        [
+            "services/story_loop.py",
+            "docs/90_codex/**",
+        ],
+    )
+    subprocess.run(
+        ["git", "add", str(scope_file.relative_to(root_dir))],
+        check=True,
+        cwd=root_dir,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add broad docs scope without exact registry"],
+        check=True,
+        cwd=root_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    review_artifact_base = current_head(root_dir)
+    add_commit(root_dir, "services/story_loop.py", "implementation\n", "impl")
+    add_commit(root_dir, "docs/90_codex/epics/US-AUTO_REGISTRY.md", "# registry\n", "registry")
+
+    (run_dir / "review_bundle.md").write_text("review_bundle.md\n", encoding="utf-8")
+    (run_dir / "chatgpt_review_prompt.md").write_text("chatgpt_review_prompt.md\n", encoding="utf-8")
+    (run_dir / "diff.patch").write_text(
+        subprocess.run(
+            ["git", "diff", review_artifact_base, "--", "services/story_loop.py"],
+            check=True,
+            cwd=root_dir,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+    (run_dir / "changed_files.txt").write_text("services/story_loop.py\n", encoding="utf-8")
+    (run_dir / "pytest.txt").write_text("pytest.txt\n", encoding="utf-8")
+    write_manifest(
+        run_dir,
+        root_dir,
+        story_id,
+        review_artifact_base=review_artifact_base,
+    )
+    write_pinned_review_artifacts(run_dir, recommendation="approve")
+
+    result = run_review_gate(root_dir, story_id, env={"AUTOMATION_RUN_DIR": str(run_dir)})
+
+    assert result.returncode != 0
+    assert "changed_files.txt is stale or inconsistent" in result.stderr
+    gate_result = (run_dir / "review_gate_result.json").read_text(encoding="utf-8")
+    assert '"decision_source": "review_changed_files_mismatch"' in gate_result
+
+
 def test_review_gate_story_run_rejects_true_diff_mismatch_with_same_story_bundle_artifacts(
     tmp_path: Path,
 ) -> None:
