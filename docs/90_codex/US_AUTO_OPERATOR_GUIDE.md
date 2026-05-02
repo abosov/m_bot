@@ -45,6 +45,7 @@ Analyze reports:
 - the final run status line.
 
 If multiple raw status lines appear to point in different directions, follow the single `Required next action` from the operator decision block. Do not infer a different next step from a later-stage artifact alone.
+Any new commit after a pinned run invalidates the normal review path for that run unless analyze explicitly confirms the exact manual-finish continuation path.
 
 ## Correct analyze_story_run.sh command contract
 
@@ -78,6 +79,7 @@ Use it as the single next-action summary:
 
 If the operator decision conflicts with an operator guess, the decision block wins.
 If `Next recommended command` and a blocker both appear, the blocker still wins unless `Required next action` explicitly tells you to run that command now.
+`next_step.sh` is not the decision authority for this story. Treat it as a follow-up idea, not as permission to override analyze.
 
 ## Dirty tree handling
 
@@ -127,9 +129,10 @@ Safe sequence:
 2. Finish the story manually in the workspace.
 3. Commit the manual finish.
 4. Re-run analyze on the same pinned run.
-5. Continue review only if analyze validates the manual-finish continuation and final-HEAD compliance.
+5. If analyze reports `blocked_manual_finish_final_head_unproven`, refresh the pinned review artifacts and analyze again on the same run.
+6. Continue review only if analyze validates the manual-finish continuation and final-HEAD compliance.
 
-Do not rerun `run_story.sh` between steps 1 and 5.
+Do not rerun `run_story.sh` between steps 1 and 6.
 
 ## Review-stage path
 
@@ -159,6 +162,7 @@ AUTOMATION_RUN_DIR=automation/runs/<STORY_ID>/<RUN_DIR> automation/scripts/revie
 ```
 
 Do not skip directly to a later stage when analyze says the current stage artifact is missing or invalid.
+If classification rejects or the review gate rejects, do not continue as if approval exists. Fix the implementation and rerun from committed HEAD, or use the existing escalation workflow if analyze tells you escalation is required.
 
 ## Post-merge registry closure gate
 
@@ -219,4 +223,11 @@ Wrong analyze invocation:
 
 ```bash
 automation/scripts/analyze_story_run.sh US-AUTO-77 automation/runs/US-AUTO-77/2026-05-02_12-00-00
+```
+
+Wrong post-merge assumption:
+
+```text
+PR merged
+therefore story closed
 ```

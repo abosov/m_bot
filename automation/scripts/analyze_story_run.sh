@@ -1568,7 +1568,7 @@ print_operator_decision() {
     forbidden_actions="$forbidden_actions Another run_story rerun before the manual-finish continuation is completed."
   fi
 
-  printf 'OPERATOR DECISION\n'
+  printf 'OPERATOR DECISION:\n'
   printf 'Current state: %s\n' "$current_state"
   printf 'Required next action: %s\n' "$required_action"
   printf 'Allowed actions: %s\n' "$allowed_actions"

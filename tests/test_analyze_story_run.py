@@ -240,12 +240,17 @@ def test_analyze_story_run_blocks_merge_ready_status_when_gate_approved_but_work
     result = run_script(root_dir, "US-AUTO-19", run_dir=run_dir)
 
     assert result.returncode == 0, result.stderr
+    assert "OPERATOR DECISION:" in result.stdout
     assert (
         "Review-stage: blocked; commit or discard workspace-only changes first because "
         "review/classify/gate operate on committed HEAD only"
     ) in result.stdout
     assert "Rerun gate: wait; review-stage stays blocked until commit/discard restores a clean committed HEAD" in result.stdout
     assert "Required next action: Commit or discard workspace-only changes, then re-run analyze with the same AUTOMATION_RUN_DIR." in result.stdout
+    assert (
+        "Forbidden actions: Review, AI review, classification, gate, or merge review while the tree is dirty; "
+        "re-running run_story for this blocker."
+    ) in result.stdout
     assert "Gate: present (approve/passed via review_classification)" in result.stdout
     assert "RUN STATUS: READY FOR MERGE REVIEW" not in result.stdout
     assert (
@@ -2354,7 +2359,8 @@ def test_analyze_story_run_blocks_companion_filtered_stale_review_surface(tmp_pa
     assert "Current stage: blocked_review_artifact_fidelity" in result.stdout
     assert "Review-stage: allowed; this committed-head rerun completed the required review sequence for the pinned run" in result.stdout
     assert "Rerun gate: no additional run_story rerun is needed before review/classify/gate on committed HEAD" in result.stdout
-    assert "OPERATOR DECISION" in result.stdout
+    assert "OPERATOR DECISION:" in result.stdout
+    assert "Current state: Stage blocked_review_artifact_fidelity" in result.stdout
     assert "Required next action: Do not continue review-stage from this pinned run. Re-run run_story from the current committed HEAD, then analyze the new run with AUTOMATION_RUN_DIR." in result.stdout
     assert "Allowed actions: A fresh committed-HEAD run_story; re-running analyze on the new pinned run." in result.stdout
     assert "Forbidden actions: AI review, classification, gate, or merge review using this fidelity-blocked pinned run; passing RUN_DIR as a second positional argument." in result.stdout
@@ -2582,6 +2588,16 @@ def test_analyze_story_run_allows_exact_manual_finish_continuation_for_non_conve
     assert "Current stage: manual_finish_ready_for_review" in result.stdout
     assert "Latest valid stage: manual_finish_ready_for_review" in result.stdout
     assert "Resume safety: safe" in result.stdout
+    assert "OPERATOR DECISION:" in result.stdout
+    assert "Required next action: Run: AUTOMATION_RUN_DIR=" in result.stdout
+    assert (
+        "Allowed actions: Continue review from the committed manual-finish HEAD with the pinned run; "
+        "re-run analyze after each review-stage step."
+    ) in result.stdout
+    assert (
+        "Forbidden actions: Another run_story rerun; restarting from the old pre-manual-finish path; "
+        "passing RUN_DIR as a second positional argument."
+    ) in result.stdout
     assert (
         f"Evidence HEAD Consistency: manual-finish continuation (manifest {second_head} -> final reviewed HEAD {third_head})"
         in result.stdout
@@ -2669,9 +2685,14 @@ def test_analyze_story_run_blocks_manual_finish_review_until_final_head_complian
     assert result.returncode == 0, result.stderr
     assert "Current stage: blocked_manual_finish_final_head_unproven" in result.stdout
     assert "Resume safety: blocked" in result.stdout
+    assert "OPERATOR DECISION:" in result.stdout
     assert "final-HEAD compliance is not proven" in result.stdout
     assert "review_changed_files_mismatch" in result.stdout
     assert "Required next action: Update the pinned review artifacts so they prove final-HEAD compliance for the committed manual-finish continuation, then re-run analyze." in result.stdout
+    assert (
+        "Allowed actions: Refreshing pinned review artifacts for the committed manual-finish HEAD; "
+        "re-running analyze afterward."
+    ) in result.stdout
     assert "Forbidden actions: Another run_story rerun; continuing review/gate before final-HEAD compliance is proven." in result.stdout
     assert "Manual finish evidence pending:" in result.stdout
     assert "RUN STATUS: BLOCKED (manual-finish continuation allowed but final-HEAD compliance is not proven:" in result.stdout
