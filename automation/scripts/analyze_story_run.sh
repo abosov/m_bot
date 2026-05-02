@@ -20,11 +20,15 @@ fail() {
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  automation/scripts/analyze_story_run.sh STORY_ID
+  AUTOMATION_RUN_DIR=automation/runs/STORY_ID/RUN_DIR automation/scripts/analyze_story_run.sh STORY_ID
 
 Example:
-  automation/scripts/analyze_story_run.sh US-AUTO-19
   AUTOMATION_RUN_DIR=automation/runs/US-AUTO-19/2026-03-16_11-00-00 automation/scripts/analyze_story_run.sh US-AUTO-19
+
+Notes:
+  - Pass STORY_ID as the only positional argument.
+  - Pass the run directory through AUTOMATION_RUN_DIR when you need a pinned run.
+  - Do not pass RUN_DIR as a second positional argument.
 EOF
   exit 1
 }
@@ -1432,6 +1436,140 @@ run_story_command() {
   printf 'automation/scripts/run_story.sh %q\n' "$story_id"
 }
 
+print_operator_decision() {
+  local story_id="$1"
+  local run_dir="$2"
+  local stage="$3"
+  local latest_valid_stage="$4"
+  local resume_safety="$5"
+  local next_command="$6"
+  local blocked_reason="$7"
+  local manual_finish_continuation_allowed="$8"
+  local current_state required_action allowed_actions forbidden_actions why
+
+  current_state="Stage $stage (latest valid: $latest_valid_stage; resume safety: $resume_safety)"
+  required_action="Re-run analyze with the same AUTOMATION_RUN_DIR after the blocker is resolved."
+  allowed_actions="Use the pinned run only through AUTOMATION_RUN_DIR; re-run analyze after any manual state change."
+  forbidden_actions="Passing RUN_DIR as a second positional argument; skipping committed-HEAD, dirty-tree, rerun, review, classify, or gate checks."
+  why="${blocked_reason:-follow the pinned run state reported above}"
+
+  case "$stage" in
+    run_artifacts_ready)
+      required_action="Run: $next_command"
+      allowed_actions="AI review on the pinned run; re-run analyze afterward for a fresh decision."
+      forbidden_actions="Re-running run_story without a new committed change; passing RUN_DIR as a second positional argument."
+      why="Run artifacts are ready and review prerequisites are present."
+      ;;
+    ai_review_completed)
+      required_action="Run: $next_command"
+      allowed_actions="Classification on the pinned run; re-run analyze afterward for a fresh decision."
+      forbidden_actions="Running the gate before classification; passing RUN_DIR as a second positional argument."
+      why="AI review is present and valid, and no valid classification exists yet."
+      ;;
+    classification_approved)
+      required_action="Run: $next_command"
+      allowed_actions="Review gate on the pinned run; re-run analyze afterward for a fresh decision."
+      forbidden_actions="Editing files before gate; re-running run_story without a new committed change; passing RUN_DIR as a second positional argument."
+      why="Classification is approve, prerequisites are ready, and the committed-HEAD review path is available."
+      ;;
+    review_gate_passed)
+      required_action="Proceed to merge review on the current committed HEAD. Story closure still requires PR merge, branch cleanup, local main update, and registry check."
+      allowed_actions="Merge review on the clean committed HEAD; re-run analyze if you need to confirm the same pinned run again."
+      forbidden_actions="Marking the story closed before PR merge, cleanup, main update, and registry closeout; passing RUN_DIR as a second positional argument."
+      why="The review gate passed and analyze did not find a remaining evidence or dirty-tree blocker."
+      ;;
+    blocked_dirty_working_tree)
+      required_action="Commit or discard workspace-only changes, then re-run analyze with the same AUTOMATION_RUN_DIR."
+      allowed_actions="Cleaning the working tree; re-running analyze once committed HEAD is clean again."
+      forbidden_actions="Review, AI review, classification, gate, or merge review while the tree is dirty; re-running run_story for this blocker."
+      why="${blocked_reason:-dirty workspace-only changes block committed-HEAD review actions}"
+      ;;
+    blocked_non_converging_rerun)
+      required_action="Finish the story manually in the workspace, commit the result, then re-run analyze. Do not rerun run_story first."
+      allowed_actions="Manual finish work; committing the manual finish; re-running analyze on the same pinned run."
+      forbidden_actions="Another run_story rerun; review/classify/gate before the manual finish is committed."
+      why="${blocked_reason:-a committed-head rerun repeated the prior review surface, so manual finish is the only safe continuation}"
+      ;;
+    blocked_manual_finish_final_head_unproven)
+      required_action="Update the pinned review artifacts so they prove final-HEAD compliance for the committed manual-finish continuation, then re-run analyze."
+      allowed_actions="Refreshing pinned review artifacts for the committed manual-finish HEAD; re-running analyze afterward."
+      forbidden_actions="Another run_story rerun; continuing review/gate before final-HEAD compliance is proven."
+      why="${blocked_reason:-manual-finish continuation is allowed, but the pinned artifacts do not yet prove final-HEAD compliance}"
+      ;;
+    manual_finish_ready_for_review)
+      required_action="Run: $next_command"
+      allowed_actions="Continue review from the committed manual-finish HEAD with the pinned run; re-run analyze after each review-stage step."
+      forbidden_actions="Another run_story rerun; restarting from the old pre-manual-finish path; passing RUN_DIR as a second positional argument."
+      why="Manual finish is committed and analyze validated the exact continuation path."
+      ;;
+    blocked_stale_run_evidence)
+      required_action="Re-run run_story from the current committed HEAD, then analyze the new run with AUTOMATION_RUN_DIR."
+      allowed_actions="A fresh committed-HEAD rerun; re-running analyze on the new pinned run."
+      forbidden_actions="Review, classify, gate, or merge review using stale run artifacts."
+      why="${blocked_reason:-the pinned run manifest HEAD no longer matches the current checkout HEAD}"
+      ;;
+    blocked_codex_failed|blocked_materialization_failed|blocked_pytest_failed|blocked_no_changed_files|blocked_review_prerequisites_missing|blocked_review_artifact_fidelity)
+      required_action="Run: $(run_story_command "$story_id")"
+      allowed_actions="A fresh run_story from committed HEAD; re-running analyze on the new pinned run."
+      forbidden_actions="Proceeding to review-stage from incomplete or invalid run artifacts."
+      why="${blocked_reason:-the current run artifacts are incomplete or invalid for review-stage}"
+      ;;
+    blocked_ai_review_normalization_failed|blocked_ai_review_invalid|blocked_classification_invalid)
+      required_action="Run: $next_command"
+      allowed_actions="Regenerating the current review-stage artifact on the pinned run; re-running analyze afterward."
+      forbidden_actions="Skipping to a later review-stage command while the current artifact is invalid."
+      why="${blocked_reason:-the current pinned review-stage artifact is invalid and must be regenerated}"
+      ;;
+    blocked_classification_rejected)
+      required_action="Inspect the review findings and decide whether to fix the implementation and rerun, or handle the reject through the existing escalation workflow."
+      allowed_actions="Reviewing findings; a follow-up implementation rerun if fixes are needed; escalation if the reject must be resolved explicitly."
+      forbidden_actions="Running the gate or merge review as if classification approved."
+      why="${blocked_reason:-classification returned reject}"
+      ;;
+    blocked_review_gate_rejected)
+      required_action="Inspect gate/classification findings and resolve them before any merge review."
+      allowed_actions="Applying fixes and rerunning from committed HEAD; using the existing escalation path if required by the gate outcome."
+      forbidden_actions="Merge review or story closure from a rejected gate result."
+      why="${blocked_reason:-the review gate did not approve this pinned run}"
+      ;;
+    blocked_escalation_required)
+      required_action="Resolve the escalation first: $next_command"
+      allowed_actions="A single explicit escalation resolution for the pinned run."
+      forbidden_actions="Continuing normal review-stage commands before the escalation is resolved."
+      why="${blocked_reason:-repeated reject stagnation requires an explicit operator resolution}"
+      ;;
+    escalation_force_followup_resolved)
+      required_action="Run: $next_command"
+      allowed_actions="Starting the required follow-up implementation run."
+      forbidden_actions="Treating the current rejected run as approved."
+      why="Escalation was resolved as force-followup."
+      ;;
+    escalation_accepted_as_is|escalation_aborted)
+      required_action="No further automation step is allowed from this pinned run."
+      allowed_actions="Stop and handle the story according to the recorded escalation resolution."
+      forbidden_actions="Continuing review-stage automation from this run as if it were approved."
+      why="${blocked_reason:-the escalation resolution made this run terminal}"
+      ;;
+    blocked_manifest_head_missing|blocked_checkout_head_unavailable)
+      required_action="Restore committed-HEAD evidence verification, then re-run analyze before any review-stage action."
+      allowed_actions="Repairing the repository/checkout state; re-running analyze once HEAD can be verified again."
+      forbidden_actions="Review, classify, gate, or merge review without verified committed-HEAD evidence."
+      why="${blocked_reason:-analyze cannot verify the run against the current checkout HEAD}"
+      ;;
+  esac
+
+  if [[ "$manual_finish_continuation_allowed" == "true" && "$stage" != "manual_finish_ready_for_review" && "$stage" != "blocked_manual_finish_final_head_unproven" && "$stage" != "review_gate_passed" ]]; then
+    forbidden_actions="$forbidden_actions Another run_story rerun before the manual-finish continuation is completed."
+  fi
+
+  printf 'OPERATOR DECISION\n'
+  printf 'Current state: %s\n' "$current_state"
+  printf 'Required next action: %s\n' "$required_action"
+  printf 'Allowed actions: %s\n' "$allowed_actions"
+  printf 'Forbidden actions: %s\n' "$forbidden_actions"
+  printf 'Why: %s\n' "$why"
+}
+
 print_stage_gate_guidance() {
   local stage="$1"
   local latest_valid_stage="$2"
@@ -1766,6 +1904,15 @@ summarize_workflow_resume() {
     printf 'Blocked reason: %s\n' "$blocked_reason"
   fi
   print_stage_gate_guidance "$stage" "$latest_valid_stage" "$manual_finish_continuation_allowed"
+  print_operator_decision \
+    "$story_id" \
+    "$run_dir" \
+    "$stage" \
+    "$latest_valid_stage" \
+    "$resume_safety" \
+    "$next_command" \
+    "$blocked_reason" \
+    "$manual_finish_continuation_allowed"
   if [[ "$stage" == "blocked_non_converging_rerun" ]]; then
     printf 'Manual finish: inspect workspace-only changes, finish the story manually, commit the result to HEAD, then continue review on committed HEAD without rerunning automation/scripts/run_story.sh\n'
   elif [[ "$stage" == "blocked_manual_finish_final_head_unproven" ]]; then

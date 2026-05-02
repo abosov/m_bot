@@ -245,6 +245,7 @@ def test_analyze_story_run_blocks_merge_ready_status_when_gate_approved_but_work
         "review/classify/gate operate on committed HEAD only"
     ) in result.stdout
     assert "Rerun gate: wait; review-stage stays blocked until commit/discard restores a clean committed HEAD" in result.stdout
+    assert "Required next action: Commit or discard workspace-only changes, then re-run analyze with the same AUTOMATION_RUN_DIR." in result.stdout
     assert "Gate: present (approve/passed via review_classification)" in result.stdout
     assert "RUN STATUS: READY FOR MERGE REVIEW" not in result.stdout
     assert (
@@ -560,6 +561,24 @@ def test_analyze_story_run_fails_when_story_root_is_missing(tmp_path: Path) -> N
 
     assert result.returncode != 0
     assert "story run root not found for 'US-AUTO-19'" in result.stderr
+
+
+def test_analyze_story_run_rejects_run_dir_as_second_positional_argument() -> None:
+    result = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT_PATH),
+            "US-AUTO-19",
+            "automation/runs/US-AUTO-19/2026-03-16_11-00-00",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "AUTOMATION_RUN_DIR=automation/runs/STORY_ID/RUN_DIR automation/scripts/analyze_story_run.sh STORY_ID" in result.stderr
+    assert "Do not pass RUN_DIR as a second positional argument." in result.stderr
 
 
 def test_analyze_story_run_rejects_parent_dir_escape_in_run_override(tmp_path: Path) -> None:
@@ -1313,6 +1332,9 @@ def test_analyze_story_run_reports_resume_stage_and_next_command_for_classificat
     assert "AUTOMATION_RUN_DIR=" in result.stdout
     assert str(run_dir) in result.stdout
     assert "automation/scripts/classify_review_story_run.sh US-AUTO-19" in result.stdout
+    assert "OPERATOR DECISION" in result.stdout
+    assert "Required next action: Run: AUTOMATION_RUN_DIR=" in result.stdout
+    assert "Forbidden actions: Running the gate before classification; passing RUN_DIR as a second positional argument." in result.stdout
 
 
 def test_analyze_story_run_reports_resume_next_gate_command_when_classification_approved(tmp_path: Path) -> None:
@@ -1927,6 +1949,8 @@ def test_analyze_story_run_reports_non_converging_rerun_manual_finish_boundary(t
     assert "Next recommended command: none" in result.stdout
     assert "Review-stage: blocked; manual finish must be committed before review-stage is allowed again" in result.stdout
     assert "Rerun gate: forbidden; manual-finish continuation is active until manual finish is complete" in result.stdout
+    assert "Required next action: Finish the story manually in the workspace, commit the result, then re-run analyze. Do not rerun run_story first." in result.stdout
+    assert "Forbidden actions: Another run_story rerun; review/classify/gate before the manual finish is committed." in result.stdout
     assert "manual finish required" in result.stdout
     assert "Manual finish: inspect workspace-only changes" in result.stdout
     assert "RUN STATUS: BLOCKED (non-converging rerun; manual finish required)" in result.stdout
@@ -2632,6 +2656,8 @@ def test_analyze_story_run_blocks_manual_finish_review_until_final_head_complian
     assert "Resume safety: blocked" in result.stdout
     assert "final-HEAD compliance is not proven" in result.stdout
     assert "review_changed_files_mismatch" in result.stdout
+    assert "Required next action: Update the pinned review artifacts so they prove final-HEAD compliance for the committed manual-finish continuation, then re-run analyze." in result.stdout
+    assert "Forbidden actions: Another run_story rerun; continuing review/gate before final-HEAD compliance is proven." in result.stdout
     assert "Manual finish evidence pending:" in result.stdout
     assert "RUN STATUS: BLOCKED (manual-finish continuation allowed but final-HEAD compliance is not proven:" in result.stdout
 
@@ -2766,6 +2792,8 @@ def test_analyze_story_run_marks_gate_approved_manual_finish_continuation_ready_
         f"Evidence HEAD Consistency: manual-finish continuation (manifest {second_head} -> final reviewed HEAD {third_head})"
         in result.stdout
     )
+    assert "Required next action: Proceed to merge review on the current committed HEAD. Story closure still requires PR merge, branch cleanup, local main update, and registry check." in result.stdout
+    assert "Forbidden actions: Marking the story closed before PR merge, cleanup, main update, and registry closeout; passing RUN_DIR as a second positional argument." in result.stdout
     assert "RUN STATUS: READY FOR MERGE REVIEW (gate approve)" in result.stdout
     assert "RUN STATUS: BLOCKED (stale run evidence:" not in result.stdout
     assert "manual-finish continuation allowed but final-HEAD compliance is not proven" not in result.stdout
