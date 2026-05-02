@@ -2354,10 +2354,11 @@ def test_analyze_story_run_blocks_companion_filtered_stale_review_surface(tmp_pa
     assert "Current stage: blocked_review_artifact_fidelity" in result.stdout
     assert "Review-stage: allowed; this committed-head rerun completed the required review sequence for the pinned run" in result.stdout
     assert "Rerun gate: no additional run_story rerun is needed before review/classify/gate on committed HEAD" in result.stdout
-    assert "Required next action: Run: AUTOMATION_RUN_DIR=" in result.stdout
-    assert "automation/scripts/ai_review_story_run.sh" in result.stdout
-    assert "Forbidden actions: Another run_story rerun before a new committed change; passing RUN_DIR as a second positional argument; proceeding with a dirty tree." in result.stdout
-    assert "Why: Review-stage is allowed for latest valid stage run_artifacts_ready, and rerun gate says no additional run_story rerun is needed." in result.stdout
+    assert "OPERATOR DECISION" in result.stdout
+    assert "Required next action: Do not continue review-stage from this pinned run. Re-run run_story from the current committed HEAD, then analyze the new run with AUTOMATION_RUN_DIR." in result.stdout
+    assert "Allowed actions: A fresh committed-HEAD run_story; re-running analyze on the new pinned run." in result.stdout
+    assert "Forbidden actions: AI review, classification, gate, or merge review using this fidelity-blocked pinned run; passing RUN_DIR as a second positional argument." in result.stdout
+    assert "Why: filtered review artifacts are stale or inconsistent with recomputed baseline" in result.stdout
     assert "RUN STATUS: BLOCKED (filtered review artifacts are stale or inconsistent with recomputed baseline)" in result.stdout
 
 
