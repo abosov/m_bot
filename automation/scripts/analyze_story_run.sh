@@ -6,6 +6,7 @@ ROOT_DIR="${AUTOMATION_ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
 RUN_DIR_OVERRIDE="${AUTOMATION_RUN_DIR:-}"
 STORY_ID=""
+STAGE_LOOP_CAP_THRESHOLD="${STAGE_LOOP_CAP_THRESHOLD:-3}"
 EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
 EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC=":(exclude)$EPHEMERAL_LEDGER_PATH"
 
@@ -695,6 +696,93 @@ detect_non_converging_rerun_for_run() {
     "$run_dir" || return 1
 
   printf '%s\n' "$previous_run_dir"
+}
+
+run_has_gate_approved() {
+  local run_dir="$1"
+  local gate_result_file="$run_dir/review_gate_result.json"
+  local gate_decision gate_status
+
+  [[ -f "$gate_result_file" ]] || return 1
+  gate_decision="$(json_value "$gate_result_file" "decision")"
+  gate_status="$(json_value "$gate_result_file" "status")"
+  [[ "$gate_decision" == "approve" && "$gate_status" == "passed" ]]
+}
+
+run_has_terminal_escalation_resolution() {
+  local run_dir="$1"
+  local escalation_file="$run_dir/escalation_result.json"
+  local escalation_state escalation_valid escalation_required escalation_status resolution_action
+
+  [[ -f "$escalation_file" ]] || return 1
+  escalation_state="$(read_escalation_artifact_state "$escalation_file")"
+  IFS=$'\x1f' read -r escalation_valid escalation_required escalation_status _ _ resolution_action <<<"$escalation_state"
+  [[ "$escalation_valid" == "true" ]] || return 1
+  [[ "$escalation_required" == "true" ]] || return 1
+  [[ "$escalation_status" == "resolved" ]] || return 1
+  [[ "$resolution_action" == "accept-as-is" || "$resolution_action" == "abort" || "$resolution_action" == "force-followup" ]]
+}
+
+run_participates_in_stage_loop() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  local reviewed_head
+
+  [[ -f "$manifest_file" ]] || return 1
+  reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
+  [[ -n "$reviewed_head" ]] || return 1
+
+  run_has_gate_approved "$run_dir" && return 1
+  run_has_terminal_escalation_resolution "$run_dir" && return 1
+
+  if [[ -f "$run_dir/review_gate_result.json" ]] || [[ -f "$run_dir/review_classification.md" ]] || [[ -f "$run_dir/ai_review_result.md" ]]; then
+    return 0
+  fi
+
+  if [[ -n "$(manifest_value "$manifest_file" "refresh_mode" || true)" ]]; then
+    return 0
+  fi
+
+  [[ "$(manifest_value "$manifest_file" "changed_files_detected" || true)" == "yes" ]]
+}
+
+detect_same_head_stage_loop_cap_for_run() {
+  local story_runs_root="$1"
+  local current_run_dir="$2"
+  local current_stage="$3"
+  local current_manifest="$current_run_dir/manifest.md"
+  local current_head current_run_id candidate_run_dir candidate_run_id candidate_head
+  local count=0 run_ids=()
+
+  case "$current_stage" in
+    run_artifacts_ready|ai_review_completed|classification_approved|blocked_classification_rejected|blocked_review_gate_rejected|blocked_review_artifact_fidelity|blocked_refresh_metadata_invalid)
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  [[ -f "$current_manifest" ]] || return 1
+  current_head="$(manifest_source_of_truth_head "$current_manifest")"
+  [[ -n "$current_head" ]] || return 1
+  current_run_id="$(basename "$current_run_dir")"
+
+  while IFS= read -r candidate_run_dir; do
+    [[ -n "$candidate_run_dir" ]] || continue
+    candidate_run_id="$(basename "$candidate_run_dir")"
+    [[ "$candidate_run_id" > "$current_run_id" ]] && continue
+
+    candidate_head="$(manifest_source_of_truth_head "$candidate_run_dir/manifest.md")"
+    [[ -n "$candidate_head" ]] || continue
+    [[ "$candidate_head" == "$current_head" ]] || continue
+    run_participates_in_stage_loop "$candidate_run_dir" || continue
+
+    count=$((count + 1))
+    run_ids+=("$candidate_run_id")
+  done < <(list_story_run_dirs "$story_runs_root")
+
+  (( count >= STAGE_LOOP_CAP_THRESHOLD )) || return 1
+  printf '%s\x1f%s\x1f%s\n' "$count" "$current_head" "${run_ids[*]}"
 }
 
 strict_manual_finish_continuation_allowed() {
@@ -1546,6 +1634,9 @@ print_operator_decision() {
   local next_command="$6"
   local blocked_reason="$7"
   local manual_finish_continuation_allowed="$8"
+  local loop_cap_status="${9:-false}"
+  local loop_cap_decision="${10:-}"
+  local loop_cap_runs="${11:-}"
   local current_state required_action allowed_actions forbidden_actions why
 
   current_state="Stage $stage (latest valid: $latest_valid_stage; resume safety: $resume_safety)"
@@ -1590,6 +1681,18 @@ print_operator_decision() {
       allowed_actions="Manual finish work; committing the manual finish; re-running analyze on the same pinned run."
       forbidden_actions="Another run_story rerun; review/classify/gate before the manual finish is committed."
       why="${blocked_reason:-a committed-head rerun repeated the prior review surface, so manual finish is the only safe continuation}"
+      ;;
+    blocked_stage_loop_cap_safety)
+      required_action="Stop blind continuation. Fix only the explicit safety/source-of-truth blocker, commit the narrow fix, then re-run analyze."
+      allowed_actions="One narrow safety/source-of-truth fix; re-running analyze; using no-Codex refresh only if implementation is already accepted, the tree is clean, and only review evidence must be refreshed."
+      forbidden_actions="Another blind run_story rerun; another blind refresh; non-safety polish; broad refactor; bypassing committed-HEAD review contracts."
+      why="${blocked_reason:-the same reviewed HEAD has churned through repeated pinned runs and only a narrow safety/source-of-truth fix is still allowed}"
+      ;;
+    blocked_stage_loop_cap_escalation)
+      required_action="Stop automatic continuation and make an explicit operator decision: narrow safety fix only if proven, otherwise follow-up, escalation, or abort."
+      allowed_actions="Escalation for repeated evidence/fidelity churn; follow-up for non-safety polish or broad refactor; operator override only where existing policy explicitly allows it."
+      forbidden_actions="Another blind run_story rerun; another blind refresh; treating classification/gate reject as cleared without an explicit decision."
+      why="${blocked_reason:-the same reviewed HEAD has repeated non-converging review churn and must be resolved explicitly instead of by another blind continuation}"
       ;;
     blocked_manual_finish_final_head_unproven)
       required_action="Update the pinned review artifacts so they prove final-HEAD compliance for the committed manual-finish continuation, then re-run analyze."
@@ -1681,6 +1784,13 @@ print_operator_decision() {
   printf 'Allowed actions: %s\n' "$allowed_actions"
   printf 'Forbidden actions: %s\n' "$forbidden_actions"
   printf 'Why: %s\n' "$why"
+  if [[ "$loop_cap_status" == "true" ]]; then
+    printf 'LOOP CAP: REACHED\n'
+    printf 'REQUIRED DECISION: %s\n' "$loop_cap_decision"
+    if [[ -n "$loop_cap_runs" ]]; then
+      printf 'Loop cap runs: %s\n' "$loop_cap_runs"
+    fi
+  fi
 }
 
 print_stage_gate_guidance() {
@@ -1697,6 +1807,16 @@ print_stage_gate_guidance() {
     blocked_non_converging_rerun)
       printf 'Review-stage: blocked; manual finish must be committed before review-stage is allowed again\n'
       printf 'Rerun gate: forbidden; manual-finish continuation is active until manual finish is complete\n'
+      return 0
+      ;;
+    blocked_stage_loop_cap_safety)
+      printf 'Review-stage: blocked; only a narrow safety/source-of-truth fix may continue this loop-capped path\n'
+      printf 'Rerun gate: forbidden; do not blind-rerun run_story or refresh until the explicit blocker is fixed and recommitted\n'
+      return 0
+      ;;
+    blocked_stage_loop_cap_escalation)
+      printf 'Review-stage: blocked; repeated stage churn requires an explicit operator decision before any further continuation\n'
+      printf 'Rerun gate: forbidden; do not blind-rerun run_story or refresh from this loop-capped state\n'
       return 0
       ;;
     blocked_manual_finish_final_head_unproven)
@@ -1744,8 +1864,7 @@ summarize_workflow_resume() {
   local filtered_review_surface_status filtered_review_surface_code filtered_review_surface_reason
   local projection_state projection_status projection_code projection_reason
   local refresh_metadata_state refresh_metadata_status refresh_metadata_code refresh_metadata_reason
-  local refresh_metadata_state refresh_metadata_status refresh_metadata_code refresh_metadata_reason
-  local refresh_metadata_state refresh_metadata_status refresh_metadata_code refresh_metadata_reason
+  local loop_cap_state loop_cap_count loop_cap_head loop_cap_runs loop_cap_status loop_cap_decision
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -1783,10 +1902,6 @@ summarize_workflow_resume() {
   projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
   IFS=$'\t' read -r projection_status projection_code projection_reason <<<"$projection_state"
   refresh_metadata_state="$(read_refresh_evidence_metadata_state "$run_dir" "$STORY_ID")"
-  IFS=$'\t' read -r refresh_metadata_status refresh_metadata_code refresh_metadata_reason <<<"$refresh_metadata_state"
-  refresh_metadata_state="$(read_refresh_evidence_metadata_state "$run_dir" "$STORY_ID")"
-  IFS=$'\t' read -r refresh_metadata_status refresh_metadata_code refresh_metadata_reason <<<"$refresh_metadata_state"
-  refresh_metadata_state="$(read_refresh_evidence_metadata_state "$run_dir" "$story_id")"
   IFS=$'\t' read -r refresh_metadata_status refresh_metadata_code refresh_metadata_reason <<<"$refresh_metadata_state"
   if [[ "$projection_status" == "invalid" ]]; then
     filtered_review_surface_status="invalid"
@@ -2024,6 +2139,34 @@ summarize_workflow_resume() {
     fi
   fi
 
+  loop_cap_status="false"
+  loop_cap_decision=""
+  loop_cap_runs=""
+  if [[ "$stage" == "blocked_non_converging_rerun" ]]; then
+    loop_cap_status="true"
+    loop_cap_decision="manual_finish"
+    loop_cap_runs="$(basename "$previous_non_converging_run_dir") $(basename "$run_dir")"
+  fi
+  if loop_cap_state="$(detect_same_head_stage_loop_cap_for_run "$STORY_RUNS_ROOT" "$run_dir" "$stage" || true)" && [[ -n "$loop_cap_state" ]]; then
+    IFS=$'\x1f' read -r loop_cap_count loop_cap_head loop_cap_runs <<<"$loop_cap_state"
+    loop_cap_status="true"
+    next_command="none"
+    resume_safety="blocked"
+    if [[ "$stage" == "blocked_refresh_metadata_invalid" || "$stage" == "blocked_review_artifact_fidelity" ]]; then
+      stage="blocked_stage_loop_cap_safety"
+      latest_valid_stage="run_artifacts_ready"
+      loop_cap_decision="narrow_safety_fix"
+      blocked_reason="stage-loop cap reached after $loop_cap_count same-HEAD pinned runs for reviewed HEAD $loop_cap_head; fix only the explicit safety/source-of-truth blocker before continuing"
+    else
+      stage="blocked_stage_loop_cap_escalation"
+      if [[ "$latest_valid_stage" == "none" ]]; then
+        latest_valid_stage="run_artifacts_ready"
+      fi
+      loop_cap_decision="operator_escalation"
+      blocked_reason="stage-loop cap reached after $loop_cap_count same-HEAD pinned runs for reviewed HEAD $loop_cap_head; repeated refresh/review/classify churn must resolve through explicit escalation or follow-up"
+    fi
+  fi
+
   printf 'Current stage: %s\n' "$stage"
   printf 'Latest valid stage: %s\n' "$latest_valid_stage"
   printf 'Resume safety: %s\n' "$resume_safety"
@@ -2045,13 +2188,20 @@ summarize_workflow_resume() {
     "$resume_safety" \
     "$next_command" \
     "$blocked_reason" \
-    "$manual_finish_continuation_allowed"
+    "$manual_finish_continuation_allowed" \
+    "$loop_cap_status" \
+    "$loop_cap_decision" \
+    "$loop_cap_runs"
   if [[ "$stage" == "blocked_non_converging_rerun" ]]; then
     printf 'Manual finish: inspect workspace-only changes, finish the story manually, commit the result to HEAD, then continue review on committed HEAD without rerunning automation/scripts/run_story.sh\n'
   elif [[ "$stage" == "blocked_manual_finish_final_head_unproven" ]]; then
     printf 'Manual finish evidence pending: update the pinned review artifacts so they prove final-HEAD compliance for the committed manual-finish continuation before continuing review\n'
   elif [[ "$stage" == "manual_finish_ready_for_review" ]]; then
     printf 'Manual finish complete: committed HEAD moved past the run manifest after a non-converging rerun; continue review on the committed HEAD using the pinned run artifacts\n'
+  elif [[ "$stage" == "blocked_stage_loop_cap_safety" ]]; then
+    printf 'Loop cap guidance: one narrow safety/source-of-truth fix is allowed; after commit, use no-Codex refresh only if implementation is already accepted and only review evidence needs refresh\n'
+  elif [[ "$stage" == "blocked_stage_loop_cap_escalation" ]]; then
+    printf 'Loop cap guidance: route non-safety polish to follow-up or escalation instead of another blind run_story/refresh cycle\n'
   fi
 }
 
@@ -2135,6 +2285,16 @@ final_status_line() {
     current_head="${expected_head#*:}"
     expected_head="${expected_head%%:*}"
     printf 'RUN STATUS: BLOCKED (stale run evidence: manifest HEAD %s != current HEAD %s)\n' "$expected_head" "$current_head"
+    return 0
+  fi
+
+  loop_cap_state="$(detect_same_head_stage_loop_cap_for_run "$STORY_RUNS_ROOT" "$run_dir" "run_artifacts_ready" || true)"
+  if [[ -n "$loop_cap_state" ]]; then
+    if [[ "$filtered_review_surface_status" == "invalid" || "$refresh_metadata_status" == "invalid" ]]; then
+      printf 'RUN STATUS: NARROW FIX REQUIRED (loop cap reached)\n'
+    else
+      printf 'RUN STATUS: ESCALATION REQUIRED (loop cap reached)\n'
+    fi
     return 0
   fi
 
