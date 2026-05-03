@@ -10,6 +10,80 @@ This guide is the operator-facing workflow contract for the US-AUTO story pipeli
 4. Follow the single operator decision from analyze.
 5. Continue through AI review, classification, review gate, merge review, PR merge, cleanup, local `main` update, and registry closeout.
 
+
+## Full story pipeline
+
+The current US-AUTO story pipeline is:
+
+    pre-story gate
+    → bundle pack
+    → materialize
+    → commit story artifacts
+    → run
+    → analyze
+    → optional refresh evidence
+    → ai_review
+    → classify
+    → gate
+    → PR
+    → merge
+    → cleanup
+    → registry closeout
+    → story closed
+
+`optional refresh evidence` means the accepted-implementation freeze path from US-AUTO-60: refresh current-HEAD review evidence without rerunning Codex when the implementation is already accepted and only the review surface is stale or missing.
+
+This pipeline preserves the existing committed-HEAD, pinned-run, refresh-run, review, classify, and gate safety invariants. It also preserves the existing closure rule: PR merged is not story closed.
+
+The pipeline may become more automated over time, but automation must not weaken the stage boundaries. Any future orchestrator must treat analyze output as the decision authority before rerun, refresh, review continuation, classification, gate, escalation, follow-up, or phase advance.
+
+## Deterministic vs decision-dependent steps
+
+Some next steps are deterministic. If analyze or a future machine-readable decision artifact proves the next action is safe and does not require interpretation, automation may execute it without asking the operator first.
+
+Examples of deterministic steps include:
+
+- running analyze immediately after a successful `run_story.sh`;
+- running AI review when analyze says review-stage is allowed and AI review is missing;
+- running classification when AI review is valid and classification is missing;
+- running review gate when classification approves and gate is missing;
+- refreshing review evidence when the accepted implementation is frozen and the refresh path can prove current committed HEAD review evidence without invoking Codex.
+
+Other steps are decision-dependent. Automation must stop and print a compact operator/AI decision packet when the next action depends on judgment, risk, reject interpretation, escalation, follow-up choice, or any other branch decision.
+
+Examples of decision-dependent stops include:
+
+- classification reject;
+- review gate reject;
+- repeated run/rerun/refresh/review/classify loops;
+- non-safety polish or preference requests after accepted implementation;
+- ambiguous dirty-tree state;
+- stale run evidence that cannot be proven through the explicit refresh/manual-finish continuation path;
+- any situation where rerun, refresh, follow-up, escalation, or abort are all plausible options.
+
+A compact decision packet should stay small and should include:
+
+    story_id
+    current_state
+    required_next_action
+    allowed_actions
+    forbidden_actions
+    why
+    suggested_command
+
+## Rerun vs refresh vs follow-up policy
+
+Materially changed implementation requires a fresh `run_story.sh` so the reviewed diff is regenerated through the normal Codex/run pipeline.
+
+Accepted implementation with stale or missing review evidence may use no-Codex review-evidence refresh. In that case, do not invoke Codex merely to refresh evidence if `refresh_review_evidence.sh` can prove the current review surface safely.
+
+Explicit safety blockers may receive a narrow manual fix. The fix must be small, targeted, committed, and followed by the appropriate analyze/refresh/review continuation.
+
+Non-safety polish, preference, broad refactoring, unclear scope, or other non-safety improvement requests after accepted implementation should become escalation or follow-up work rather than more implementation polishing. Do not keep polishing implementation through repeated amend/refresh/review loops, and do not invoke Codex again merely to refresh stale review evidence on an already accepted implementation.
+
+Never proceed to gate when classification rejects. Never run review-stage commands with workspace-only changes. Never treat a merged PR as story closure until cleanup, local main update, and registry closeout are complete.
+
+
 ## Pre-story gate
 
 Before starting a story:
