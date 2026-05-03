@@ -721,15 +721,86 @@ classification_or_gate_reject_is_safety_driven() {
   local classification_file="$run_dir/review_classification.md"
   local gate_file="$run_dir/review_gate_result.json"
 
-  if [[ -f "$classification_file" ]]; then
-    grep -Eiq 'MERGE BLOCKER|safety|source-of-truth|source of truth|security|stale|fidelity|regression|contract' "$classification_file" && return 0
-  fi
+  python3 - "$classification_file" "$gate_file" <<'PYSAFETY'
+import re
+import sys
+from pathlib import Path
 
-  if [[ -f "$gate_file" ]]; then
-    grep -Eiq 'MERGE BLOCKER|safety|source-of-truth|source of truth|security|stale|fidelity|regression|contract' "$gate_file" && return 0
-  fi
+paths = [Path(p) for p in sys.argv[1:] if p]
 
-  return 1
+positive_terms = re.compile(
+    r"\b("
+    r"MERGE BLOCKER|source[- ]of[- ]truth|security|stale|fidelity|regression|"
+    r"contract|safety[- ]driven|must[- ]fix|required fixes before merge"
+    r")\b",
+    re.IGNORECASE,
+)
+negative_safety = re.compile(
+    r"\b("
+    r"no safety issue|not a safety issue|non[- ]safety|not safety[- ]driven|"
+    r"no source[- ]of[- ]truth blocker|not a source[- ]of[- ]truth blocker"
+    r")\b",
+    re.IGNORECASE,
+)
+
+def relevant_lines(text: str) -> list[str]:
+    lines = text.splitlines()
+    selected: list[str] = []
+    in_merge_blocker = False
+    in_required_fixes = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        if re.search(r"`?MERGE BLOCKER`?", stripped, re.IGNORECASE):
+            in_merge_blocker = True
+            in_required_fixes = False
+            selected.append(stripped)
+            continue
+
+        if re.search(r"required fixes before merge", stripped, re.IGNORECASE):
+            in_required_fixes = True
+            in_merge_blocker = False
+            selected.append(stripped)
+            continue
+
+        if re.search(r"`?(MINOR IMPROVEMENT|FOLLOW-UP STORY)`?", stripped, re.IGNORECASE):
+            in_merge_blocker = False
+            in_required_fixes = False
+            continue
+
+        if re.match(r"^#+\s+", stripped) and not re.search(
+            r"findings|classification|review gate|required fixes", stripped, re.IGNORECASE
+        ):
+            in_merge_blocker = False
+            in_required_fixes = False
+
+        if in_merge_blocker or in_required_fixes:
+            selected.append(stripped)
+
+    return selected
+
+for path in paths:
+    if not path.exists():
+        continue
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        continue
+
+    haystack = "\n".join(relevant_lines(text))
+    if not haystack:
+        continue
+
+    # Explicit negative safety phrasing must not authorize narrow_safety_fix.
+    if negative_safety.search(haystack):
+        continue
+
+    if positive_terms.search(haystack):
+        raise SystemExit(0)
+
+raise SystemExit(1)
+PYSAFETY
 }
 
 stage_loop_cap_requires_narrow_safety_fix() {
