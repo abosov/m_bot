@@ -83,6 +83,34 @@ Non-safety polish, preference, broad refactoring, unclear scope, or other non-sa
 
 Never proceed to gate when classification rejects. Never run review-stage commands with workspace-only changes. Never treat a merged PR as story closure until cleanup, local main update, and registry closeout are complete.
 
+## Stage-loop cap policy
+
+US-AUTO-58 adds a bounded stop for repeated stage churn.
+
+The default cap is 3 same-HEAD participating runs unless `STAGE_LOOP_CAP_THRESHOLD` is explicitly overridden for controlled testing.
+
+If analyze prints:
+
+- `LOOP CAP: REACHED`
+- `REQUIRED DECISION: ...`
+
+then normal blind continuation is over for that pinned path.
+
+Interpret the required decision strictly:
+
+- `manual_finish`: the committed-head rerun repeated the same review surface; finish manually, commit, and continue only through the validated manual-finish path.
+- `narrow_safety_fix`: only an explicit safety/source-of-truth blocker may be fixed. Keep the fix narrow, commit it, and use no-Codex refresh only when implementation is already accepted, the tree is clean, and only review evidence must be refreshed.
+- `operator_escalation`: stop blind `run_story.sh` and blind refresh loops. Route non-safety polish or broad refactor to follow-up, escalation, abort, or an existing explicit override path.
+
+When the loop cap is reached:
+
+- do not run another blind `run_story.sh`;
+- do not run another blind `refresh_review_evidence.sh`;
+- do not treat classification reject or gate reject as cleared;
+- do re-run analyze after the explicit decision has been executed and committed.
+
+`run_story.sh` and `refresh_review_evidence.sh` now enforce this same-HEAD cap directly and send the operator back to pinned `analyze_story_run.sh` output instead of creating another blind loop iteration.
+
 
 ## Pre-story gate
 
