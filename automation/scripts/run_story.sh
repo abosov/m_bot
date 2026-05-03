@@ -12,6 +12,8 @@ EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
 EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC=":(exclude)$EPHEMERAL_LEDGER_PATH"
 # shellcheck source=automation/scripts/story_change_ledger.sh
 source "$SCRIPT_DIR/story_change_ledger.sh"
+# shellcheck source=automation/scripts/story_stage_loop.sh
+source "$SCRIPT_DIR/story_stage_loop.sh"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -289,6 +291,7 @@ run_preflight_stage() {
   echo "[INFO] Preflight: classifying dirty paths for $story_id" >&2
   ensure_story_artifacts_committed "$story_id"
   enforce_escalation_resolution "$story_id"
+  enforce_same_head_stage_loop_cap "$story_id" "$story_runs_root"
   if [[ -d "$story_runs_root" ]]; then
     DETECTED_STABLE_REVIEW_SURFACE_RUN_DIR=""
     if detect_stable_review_surface_rerun "$story_runs_root" && [[ -n "$DETECTED_STABLE_REVIEW_SURFACE_RUN_DIR" ]]; then
@@ -1132,6 +1135,50 @@ fail_stable_review_surface_rerun() {
     echo " - Do not rerun automation/scripts/run_story.sh again unless you first commit a change that alters the review surface."
   } >&2
   exit 1
+}
+
+fail_same_head_stage_loop_cap() {
+  local story_id="$1"
+  local latest_run_dir="$2"
+  local loop_cap_count="$3"
+  local loop_cap_head="$4"
+
+  {
+    echo "ERROR: run blocked for '$story_id' because the same-HEAD stage loop cap is already reached"
+    echo "LOOP CAP: REACHED"
+    printf 'Pinned evidence: %s\n' "$latest_run_dir"
+    printf 'Reviewed HEAD: %s\n' "$loop_cap_head"
+    printf 'Repeated same-HEAD runs: %s\n' "$loop_cap_count"
+    echo "Stage gate:"
+    echo " - Review-stage: use analyze output as the decision authority before any further rerun or refresh."
+    echo " - Rerun gate: forbidden until the explicit REQUIRED DECISION from analyze has been executed and committed."
+    echo "Operator handoff:"
+    printf ' - Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    echo " - Do not blind-rerun automation/scripts/run_story.sh on this unchanged HEAD."
+    echo " - Do not blind-run automation/scripts/refresh_review_evidence.sh on this unchanged HEAD."
+  } >&2
+  exit 1
+}
+
+enforce_same_head_stage_loop_cap() {
+  local story_id="$1"
+  local story_runs_root="$2"
+  local current_head loop_cap_state loop_cap_count loop_cap_head loop_cap_runs latest_run_id latest_run_dir
+
+  [[ -d "$story_runs_root" ]] || return 0
+  current_head="$(git -C "$ROOT_DIR" rev-parse --verify HEAD 2>/dev/null || true)"
+  [[ "$current_head" =~ ^[0-9a-f]{40}$ ]] || return 0
+
+  loop_cap_state="$(story_stage_loop_detect_same_head_cap_for_head "$story_runs_root" "$current_head" || true)"
+  [[ -n "$loop_cap_state" ]] || return 0
+
+  IFS=$'\x1f' read -r loop_cap_count loop_cap_head loop_cap_runs <<<"$loop_cap_state"
+  latest_run_id="${loop_cap_runs##* }"
+  [[ -n "$latest_run_id" ]] || return 0
+  latest_run_dir="$story_runs_root/$latest_run_id"
+  [[ -d "$latest_run_dir" ]] || return 0
+
+  fail_same_head_stage_loop_cap "$story_id" "$latest_run_dir" "$loop_cap_count" "$loop_cap_head"
 }
 
 enforce_escalation_resolution() {

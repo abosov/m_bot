@@ -7,6 +7,8 @@ RUNS_ROOT="${AUTOMATION_RUNS_ROOT:-$ROOT_DIR/automation/runs}"
 EPHEMERAL_LEDGER_PATH="automation/story_change_ledger.jsonl"
 EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC=":(exclude)$EPHEMERAL_LEDGER_PATH"
 REFRESH_MODE="no_codex_review_evidence_refresh"
+# shellcheck source=automation/scripts/story_stage_loop.sh
+source "$SCRIPT_DIR/story_stage_loop.sh"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -31,6 +33,46 @@ working_tree_dirty() {
   local status_output
   status_output="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal -- . "$EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC" 2>/dev/null || true)"
   [[ -n "$status_output" ]]
+}
+
+fail_same_head_stage_loop_cap() {
+  local story_id="$1"
+  local latest_run_dir="$2"
+  local loop_cap_count="$3"
+  local loop_cap_head="$4"
+
+  {
+    echo "ERROR: refresh blocked for '$story_id' because the same-HEAD stage loop cap is already reached"
+    echo "LOOP CAP: REACHED"
+    printf 'Pinned evidence: %s\n' "$latest_run_dir"
+    printf 'Reviewed HEAD: %s\n' "$loop_cap_head"
+    printf 'Repeated same-HEAD runs: %s\n' "$loop_cap_count"
+    printf 'Inspect latest decision: AUTOMATION_RUN_DIR=%q automation/scripts/analyze_story_run.sh %q\n' "$latest_run_dir" "$story_id"
+    echo "Do not blind-run automation/scripts/refresh_review_evidence.sh again on this unchanged HEAD."
+    echo "Do not blind-run automation/scripts/run_story.sh again on this unchanged HEAD."
+  } >&2
+  exit 1
+}
+
+enforce_same_head_stage_loop_cap() {
+  local story_id="$1"
+  local story_runs_root="$2"
+  local current_head loop_cap_state loop_cap_count loop_cap_head loop_cap_runs latest_run_id latest_run_dir
+
+  [[ -d "$story_runs_root" ]] || return 0
+  current_head="$(git -C "$ROOT_DIR" rev-parse --verify HEAD 2>/dev/null || true)"
+  [[ "$current_head" =~ ^[0-9a-f]{40}$ ]] || return 0
+
+  loop_cap_state="$(story_stage_loop_detect_same_head_cap_for_head "$story_runs_root" "$current_head" || true)"
+  [[ -n "$loop_cap_state" ]] || return 0
+
+  IFS=$'\x1f' read -r loop_cap_count loop_cap_head loop_cap_runs <<<"$loop_cap_state"
+  latest_run_id="${loop_cap_runs##* }"
+  [[ -n "$latest_run_id" ]] || return 0
+  latest_run_dir="$story_runs_root/$latest_run_id"
+  [[ -d "$latest_run_dir" ]] || return 0
+
+  fail_same_head_stage_loop_cap "$story_id" "$latest_run_dir" "$loop_cap_count" "$loop_cap_head"
 }
 
 resolve_review_base_ref() {
@@ -66,6 +108,7 @@ fi
 BUNDLE_DIR="$ROOT_DIR/automation/bundles/active/$STORY_ID"
 [[ -d "$BUNDLE_DIR" ]] || fail "active story bundle not found: $BUNDLE_DIR"
 [[ -f "$BUNDLE_DIR/02_file_scope.md" ]] || fail "story scope file not found: $BUNDLE_DIR/02_file_scope.md"
+enforce_same_head_stage_loop_cap "$STORY_ID" "$RUNS_ROOT/$STORY_ID"
 
 CURRENT_HEAD="$(git -C "$ROOT_DIR" rev-parse --verify HEAD)"
 REVIEW_BASE_REF="$(resolve_review_base_ref)"

@@ -87,6 +87,8 @@ Never proceed to gate when classification rejects. Never run review-stage comman
 
 US-AUTO-58 adds a bounded stop for repeated stage churn.
 
+The default cap is 3 same-HEAD participating runs unless `STAGE_LOOP_CAP_THRESHOLD` is explicitly overridden for controlled testing.
+
 If analyze prints:
 
 - `LOOP CAP: REACHED`
@@ -106,6 +108,8 @@ When the loop cap is reached:
 - do not run another blind `refresh_review_evidence.sh`;
 - do not treat classification reject or gate reject as cleared;
 - do re-run analyze after the explicit decision has been executed and committed.
+
+`run_story.sh` and `refresh_review_evidence.sh` now enforce this same-HEAD cap directly and send the operator back to pinned `analyze_story_run.sh` output instead of creating another blind loop iteration.
 
 
 ## Pre-story gate

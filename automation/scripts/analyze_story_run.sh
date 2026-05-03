@@ -12,6 +12,8 @@ EPHEMERAL_LEDGER_EXCLUDE_PATHSPEC=":(exclude)$EPHEMERAL_LEDGER_PATH"
 
 # shellcheck source=automation/scripts/merge_recommendation_contract.sh
 source "$SCRIPT_DIR/merge_recommendation_contract.sh"
+# shellcheck source=automation/scripts/story_stage_loop.sh
+source "$SCRIPT_DIR/story_stage_loop.sh"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -699,90 +701,19 @@ detect_non_converging_rerun_for_run() {
 }
 
 run_has_gate_approved() {
-  local run_dir="$1"
-  local gate_result_file="$run_dir/review_gate_result.json"
-  local gate_decision gate_status
-
-  [[ -f "$gate_result_file" ]] || return 1
-  gate_decision="$(json_value "$gate_result_file" "decision")"
-  gate_status="$(json_value "$gate_result_file" "status")"
-  [[ "$gate_decision" == "approve" && "$gate_status" == "passed" ]]
+  story_stage_loop_run_has_gate_approved "$1"
 }
 
 run_has_terminal_escalation_resolution() {
-  local run_dir="$1"
-  local escalation_file="$run_dir/escalation_result.json"
-  local escalation_state escalation_valid escalation_required escalation_status resolution_action
-
-  [[ -f "$escalation_file" ]] || return 1
-  escalation_state="$(read_escalation_artifact_state "$escalation_file")"
-  IFS=$'\x1f' read -r escalation_valid escalation_required escalation_status _ _ resolution_action <<<"$escalation_state"
-  [[ "$escalation_valid" == "true" ]] || return 1
-  [[ "$escalation_required" == "true" ]] || return 1
-  [[ "$escalation_status" == "resolved" ]] || return 1
-  [[ "$resolution_action" == "accept-as-is" || "$resolution_action" == "abort" || "$resolution_action" == "force-followup" ]]
+  story_stage_loop_run_has_terminal_escalation_resolution "$1"
 }
 
 run_participates_in_stage_loop() {
-  local run_dir="$1"
-  local manifest_file="$run_dir/manifest.md"
-  local reviewed_head
-
-  [[ -f "$manifest_file" ]] || return 1
-  reviewed_head="$(manifest_source_of_truth_head "$manifest_file")"
-  [[ -n "$reviewed_head" ]] || return 1
-
-  run_has_gate_approved "$run_dir" && return 1
-  run_has_terminal_escalation_resolution "$run_dir" && return 1
-
-  if [[ -f "$run_dir/review_gate_result.json" ]] || [[ -f "$run_dir/review_classification.md" ]] || [[ -f "$run_dir/ai_review_result.md" ]]; then
-    return 0
-  fi
-
-  if [[ -n "$(manifest_value "$manifest_file" "refresh_mode" || true)" ]]; then
-    return 0
-  fi
-
-  [[ "$(manifest_value "$manifest_file" "changed_files_detected" || true)" == "yes" ]]
+  story_stage_loop_run_participates "$1"
 }
 
 detect_same_head_stage_loop_cap_for_run() {
-  local story_runs_root="$1"
-  local current_run_dir="$2"
-  local current_stage="$3"
-  local current_manifest="$current_run_dir/manifest.md"
-  local current_head current_run_id candidate_run_dir candidate_run_id candidate_head
-  local count=0 run_ids=()
-
-  case "$current_stage" in
-    run_artifacts_ready|ai_review_completed|classification_approved|blocked_classification_rejected|blocked_review_gate_rejected|blocked_review_artifact_fidelity|blocked_refresh_metadata_invalid)
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-
-  [[ -f "$current_manifest" ]] || return 1
-  current_head="$(manifest_source_of_truth_head "$current_manifest")"
-  [[ -n "$current_head" ]] || return 1
-  current_run_id="$(basename "$current_run_dir")"
-
-  while IFS= read -r candidate_run_dir; do
-    [[ -n "$candidate_run_dir" ]] || continue
-    candidate_run_id="$(basename "$candidate_run_dir")"
-    [[ "$candidate_run_id" > "$current_run_id" ]] && continue
-
-    candidate_head="$(manifest_source_of_truth_head "$candidate_run_dir/manifest.md")"
-    [[ -n "$candidate_head" ]] || continue
-    [[ "$candidate_head" == "$current_head" ]] || continue
-    run_participates_in_stage_loop "$candidate_run_dir" || continue
-
-    count=$((count + 1))
-    run_ids+=("$candidate_run_id")
-  done < <(list_story_run_dirs "$story_runs_root")
-
-  (( count >= STAGE_LOOP_CAP_THRESHOLD )) || return 1
-  printf '%s\x1f%s\x1f%s\n' "$count" "$current_head" "${run_ids[*]}"
+  story_stage_loop_detect_same_head_cap_for_run "$1" "$2" "$3"
 }
 
 strict_manual_finish_continuation_allowed() {

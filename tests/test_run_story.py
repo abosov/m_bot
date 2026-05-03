@@ -1399,6 +1399,63 @@ def test_run_story_allows_fresh_rerun_after_manual_finish_commit_on_newer_head(t
     assert runner_marker.read_text(encoding="utf-8").strip() == "called"
 
 
+def test_run_story_blocks_same_head_stage_loop_cap_and_routes_to_analyze(tmp_path: Path) -> None:
+    story_id = "US-AUTO-58"
+    root_dir = tmp_path / "repo"
+    setup_repo(root_dir, story_id)
+    head = current_head(root_dir)
+
+    for run_id in [
+        "2026-05-02_12-00-00_refresh",
+        "2026-05-02_12-10-00_refresh",
+        "2026-05-02_12-20-00_refresh",
+    ]:
+        run_dir = make_run_dir(root_dir, story_id, run_id)
+        (run_dir / "manifest.md").write_text(
+            "# Refresh Manifest\n\n"
+            f"- story_id: {story_id}\n"
+            f"- starting_head: {head}\n"
+            f"- isolated_worktree_head: {head}\n"
+            "- review_artifact_base: HEAD\n"
+            "- changed_files_detected: yes\n"
+            "- pytest_exit_code: 0\n"
+            "- refresh_mode: no_codex_review_evidence_refresh\n",
+            encoding="utf-8",
+        )
+        (run_dir / "changed_files.txt").write_text("README.md\n", encoding="utf-8")
+        (run_dir / "diff.patch").write_text("diff --git a/README.md b/README.md\n", encoding="utf-8")
+        (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+        (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+        (run_dir / "pytest.txt").write_text("refresh-only\n", encoding="utf-8")
+        (run_dir / "ai_review_result.md").write_text("# AI Review\n\nFinding\n\n# AI Review Result\n\nPASS\n", encoding="utf-8")
+        (run_dir / "review_classification.md").write_text(
+            "# Review Classification\n\nMERGE RECOMMENDATION: reject\n",
+            encoding="utf-8",
+        )
+
+    runner_marker = root_dir / "runner_called.txt"
+    fake_runner = make_runner(
+        tmp_path,
+        "fake_runner_loop_cap.sh",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' called > {str(runner_marker)!r}\n",
+    )
+
+    env = os.environ.copy()
+    env["AUTOMATION_ROOT_DIR"] = str(root_dir)
+    env["AUTOMATION_RUNNER"] = str(fake_runner)
+
+    result = run(["bash", str(SCRIPT_PATH), story_id], cwd=root_dir, env=env)
+
+    assert result.returncode != 0
+    assert "same-HEAD stage loop cap is already reached" in result.stderr
+    assert "LOOP CAP: REACHED" in result.stderr
+    assert "analyze_story_run.sh" in result.stderr
+    assert "Do not blind-rerun automation/scripts/run_story.sh on this unchanged HEAD." in result.stderr
+    assert not runner_marker.exists()
+
+
 def test_run_story_blocks_when_latest_run_has_pending_escalation(tmp_path: Path) -> None:
     story_id = "US-AUTO-37"
     root_dir = tmp_path / "repo"

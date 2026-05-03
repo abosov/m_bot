@@ -217,3 +217,47 @@ def test_refreshed_evidence_becomes_stale_after_new_commit(tmp_path: Path) -> No
     )
     assert analyze_result.returncode == 0, analyze_result.stderr
     assert "Current stage: blocked_stale_run_evidence" in analyze_result.stdout
+
+
+def test_refresh_review_evidence_blocks_same_head_stage_loop_cap(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    init_repo(root_dir)
+    story_id = "US-AUTO-58"
+    write_story_bundle(root_dir, story_id)
+    head = current_head(root_dir)
+
+    for run_id in [
+        "2026-05-02_12-00-00_refresh",
+        "2026-05-02_12-10-00_refresh",
+        "2026-05-02_12-20-00_refresh",
+    ]:
+        run_dir = root_dir / "automation" / "runs" / story_id / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "manifest.md").write_text(
+            "# Refresh Manifest\n\n"
+            f"- story_id: {story_id}\n"
+            f"- starting_head: {head}\n"
+            f"- isolated_worktree_head: {head}\n"
+            "- review_artifact_base: HEAD\n"
+            "- changed_files_detected: yes\n"
+            "- pytest_exit_code: 0\n"
+            "- refresh_mode: no_codex_review_evidence_refresh\n",
+            encoding="utf-8",
+        )
+        (run_dir / "changed_files.txt").write_text("README.md\n", encoding="utf-8")
+        (run_dir / "diff.patch").write_text("diff --git a/README.md b/README.md\n", encoding="utf-8")
+        (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+        (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+        (run_dir / "pytest.txt").write_text("refresh-only\n", encoding="utf-8")
+        (run_dir / "ai_review_result.md").write_text("# AI Review\n\nFinding\n\n# AI Review Result\n\nPASS\n", encoding="utf-8")
+        (run_dir / "review_classification.md").write_text(
+            "# Review Classification\n\nMERGE RECOMMENDATION: reject\n",
+            encoding="utf-8",
+        )
+
+    result = run_refresh(root_dir, story_id)
+
+    assert result.returncode != 0
+    assert "same-HEAD stage loop cap is already reached" in result.stderr
+    assert "LOOP CAP: REACHED" in result.stderr
+    assert "analyze_story_run.sh" in result.stderr
