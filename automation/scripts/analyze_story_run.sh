@@ -126,6 +126,107 @@ json_bool_value() {
   sed -n -E "s/.*\"${key}\"[[:space:]]*:[[:space:]]*(true|false).*/\\1/p" "$json_file" | head -n 1
 }
 
+read_refresh_evidence_metadata_state() {
+  local run_dir="$1"
+  local story_id="$2"
+  local manifest_file="$run_dir/manifest.md"
+  local metadata_file="$run_dir/refresh_review_evidence.json"
+  local refresh_mode
+
+  refresh_mode="$(manifest_value "$manifest_file" "refresh_mode")"
+  if [[ -z "$refresh_mode" ]]; then
+    printf 'not_refresh\t-\t-\n'
+    return 0
+  fi
+
+  [[ -f "$metadata_file" ]] || {
+    printf 'invalid\trefresh_metadata_missing\trefresh run metadata file is missing\n'
+    return 0
+  }
+
+  python3 - "$metadata_file" "$story_id" "$refresh_mode" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+expected_story_id = sys.argv[2]
+expected_mode = sys.argv[3]
+
+try:
+    def no_dupes(pairs):
+        data = {}
+        for key, value in pairs:
+            if key in data:
+                raise ValueError(f"duplicate key: {key}")
+            data[key] = value
+        return data
+
+    payload = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_dupes)
+except Exception as exc:
+    print(f"invalid\trefresh_metadata_invalid_json\tinvalid refresh metadata JSON: {exc}")
+    sys.exit(0)
+
+if not isinstance(payload, dict):
+    print("invalid\trefresh_metadata_invalid_payload\trefresh metadata must be a JSON object")
+    sys.exit(0)
+
+if payload.get("story_id") != expected_story_id:
+    print("invalid\trefresh_story_mismatch\trefresh metadata story_id does not match requested story")
+    sys.exit(0)
+
+if payload.get("refresh_mode") != expected_mode:
+    print("invalid\trefresh_mode_mismatch\trefresh metadata refresh_mode does not match manifest refresh_mode")
+    sys.exit(0)
+
+if payload.get("codex_invoked") is not False:
+    print("invalid\trefresh_codex_invocation_invalid\trefresh metadata must record codex_invoked=false")
+    sys.exit(0)
+
+current_head = payload.get("current_head")
+if not isinstance(current_head, str) or not re.fullmatch(r"[0-9a-f]{40}", current_head):
+    print("invalid\trefresh_head_invalid\trefresh metadata current_head must be a full commit SHA")
+    sys.exit(0)
+
+if not isinstance(payload.get("generated_at"), str) or not payload["generated_at"].strip():
+    print("invalid\trefresh_generated_at_missing\trefresh metadata generated_at is required")
+    sys.exit(0)
+
+evidence_paths = payload.get("evidence_paths")
+if not isinstance(evidence_paths, dict):
+    print("invalid\trefresh_evidence_paths_missing\trefresh metadata evidence_paths is required")
+    sys.exit(0)
+
+for key in ("run_dir", "changed_files", "diff_patch", "manifest"):
+    value = evidence_paths.get(key)
+    if not isinstance(value, str) or not value.strip():
+        print(f"invalid\trefresh_evidence_path_missing\trefresh metadata evidence_paths.{key} is required")
+        sys.exit(0)
+
+serialized_paths = "\n".join(str(value) for value in evidence_paths.values())
+required_artifacts = [
+    "manifest.md",
+    "changed_files.txt",
+    "diff.patch",
+    "review_bundle.md",
+    "chatgpt_review_prompt.md",
+    "pytest.txt",
+    "refresh_review_evidence.json",
+]
+
+for artifact_name in required_artifacts:
+    if artifact_name not in serialized_paths:
+        print(
+            "invalid\trefresh_evidence_path_missing\t"
+            f"refresh metadata evidence_paths missing {artifact_name}"
+        )
+        sys.exit(0)
+
+print("valid\trefresh_metadata_valid\tvalidated")
+PY
+}
+
 read_ai_review_artifact_state() {
   local review_file="$1"
   local raw_output_file="${2:-}"
@@ -1508,6 +1609,12 @@ print_operator_decision() {
       forbidden_actions="Review, classify, gate, or merge review using stale run artifacts."
       why="${blocked_reason:-the pinned run manifest HEAD no longer matches the current checkout HEAD}"
       ;;
+    blocked_refresh_metadata_invalid)
+      required_action="Re-run automation/scripts/refresh_review_evidence.sh $story_id from a clean non-main branch, then analyze the new pinned run."
+      allowed_actions="Refreshing no-Codex review evidence for the current committed HEAD."
+      forbidden_actions="Review, AI review, classification, gate, or merge review using refresh evidence with missing or invalid metadata."
+      why="${blocked_reason:-refresh evidence metadata is invalid}"
+      ;;
     blocked_codex_failed|blocked_materialization_failed|blocked_pytest_failed|blocked_no_changed_files|blocked_review_prerequisites_missing)
       required_action="Run: $(run_story_command "$story_id")"
       allowed_actions="A fresh run_story from committed HEAD; re-running analyze on the new pinned run."
@@ -1636,6 +1743,9 @@ summarize_workflow_resume() {
   local head_contract_state head_contract_code final_head_fidelity_state final_head_fidelity_status final_head_fidelity_code final_head_fidelity_reason
   local filtered_review_surface_status filtered_review_surface_code filtered_review_surface_reason
   local projection_state projection_status projection_code projection_reason
+  local refresh_metadata_state refresh_metadata_status refresh_metadata_code refresh_metadata_reason
+  local refresh_metadata_state refresh_metadata_status refresh_metadata_code refresh_metadata_reason
+  local refresh_metadata_state refresh_metadata_status refresh_metadata_code refresh_metadata_reason
 
   gate_decision="$(json_value "$gate_result_file" "decision")"
   gate_status="$(json_value "$gate_result_file" "status")"
@@ -1672,6 +1782,12 @@ summarize_workflow_resume() {
   filtered_review_surface_reason=""
   projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
   IFS=$'\t' read -r projection_status projection_code projection_reason <<<"$projection_state"
+  refresh_metadata_state="$(read_refresh_evidence_metadata_state "$run_dir" "$STORY_ID")"
+  IFS=$'\t' read -r refresh_metadata_status refresh_metadata_code refresh_metadata_reason <<<"$refresh_metadata_state"
+  refresh_metadata_state="$(read_refresh_evidence_metadata_state "$run_dir" "$STORY_ID")"
+  IFS=$'\t' read -r refresh_metadata_status refresh_metadata_code refresh_metadata_reason <<<"$refresh_metadata_state"
+  refresh_metadata_state="$(read_refresh_evidence_metadata_state "$run_dir" "$story_id")"
+  IFS=$'\t' read -r refresh_metadata_status refresh_metadata_code refresh_metadata_reason <<<"$refresh_metadata_state"
   if [[ "$projection_status" == "invalid" ]]; then
     filtered_review_surface_status="invalid"
     filtered_review_surface_code="$projection_code"
@@ -1705,6 +1821,12 @@ summarize_workflow_resume() {
     latest_valid_stage="none"
     resume_safety="blocked"
     blocked_reason="manifest HEAD $expected_head does not match checkout HEAD $current_head"
+    next_command="none"
+  elif [[ "$refresh_metadata_status" == "invalid" ]]; then
+    stage="blocked_refresh_metadata_invalid"
+    latest_valid_stage="none"
+    resume_safety="blocked"
+    blocked_reason="${refresh_metadata_reason:-refresh metadata invalid} ($refresh_metadata_code)"
     next_command="none"
   elif [[ -n "$codex_exit_code" && "$codex_exit_code" != "0" ]]; then
     stage="blocked_codex_failed"
@@ -1909,6 +2031,11 @@ summarize_workflow_resume() {
   if [[ -n "$blocked_reason" ]]; then
     printf 'Blocked reason: %s\n' "$blocked_reason"
   fi
+  if [[ "$refresh_metadata_status" == "valid" ]]; then
+    printf 'Refresh evidence: valid (no-Codex refresh metadata verified)\n'
+  elif [[ "$refresh_metadata_status" == "invalid" ]]; then
+    printf 'Refresh evidence: invalid (%s)\n' "$refresh_metadata_code"
+  fi
   print_stage_gate_guidance "$stage" "$latest_valid_stage" "$manual_finish_continuation_allowed"
   print_operator_decision \
     "$story_id" \
@@ -1980,6 +2107,8 @@ final_status_line() {
   filtered_review_surface_reason=""
   projection_state="$(read_semantic_projection_artifact_state "$run_dir")"
   IFS=$'\t' read -r projection_status projection_code projection_reason <<<"$projection_state"
+  refresh_metadata_state="$(read_refresh_evidence_metadata_state "$run_dir" "$STORY_ID")"
+  IFS=$'\t' read -r refresh_metadata_status refresh_metadata_code refresh_metadata_reason <<<"$refresh_metadata_state"
   if [[ "$projection_status" == "invalid" ]]; then
     filtered_review_surface_status="invalid"
     filtered_review_surface_code="$projection_code"
@@ -2011,6 +2140,11 @@ final_status_line() {
 
   if [[ "$manual_finish_continuation_allowed" != "true" && "$filtered_review_surface_status" == "invalid" ]]; then
     printf 'RUN STATUS: BLOCKED (%s)\n' "${filtered_review_surface_reason:-filtered review artifacts are stale or inconsistent with recomputed baseline}"
+    return 0
+  fi
+
+  if [[ "$refresh_metadata_status" == "invalid" ]]; then
+    printf 'RUN STATUS: BLOCKED (invalid refresh evidence metadata: %s)\n' "${refresh_metadata_code:-unknown}"
     return 0
   fi
 
@@ -2208,6 +2342,7 @@ for artifact_name in \
   review_bundle.md \
   chatgpt_review_prompt.md \
   diff.patch \
+  refresh_review_evidence.json \
   ai_review_raw_output.txt \
   ai_review_result.md \
   review_classification.md \
@@ -2227,6 +2362,7 @@ printf 'Branch: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "branc
 printf 'Starting HEAD: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "starting_head" || true)")"
 printf 'Review Base: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "review_base_ref" || true)")"
 printf 'Evidence HEAD Consistency: %s\n' "$(format_head_consistency_status "$MANIFEST_FILE")"
+printf 'Refresh mode: %s\n' "$(display_value "$(manifest_value "$MANIFEST_FILE" "refresh_mode" || true)")"
 printf '\n'
 
 printf 'Manifest Metadata\n'

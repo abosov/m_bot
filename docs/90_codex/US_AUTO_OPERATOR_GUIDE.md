@@ -119,6 +119,32 @@ Do not rerun `run_story.sh` when analyze shows one of these states:
 
 If analyze says rerun is forbidden, follow the pinned-run continuation path instead.
 
+## Implementation freeze / refresh path (US-AUTO-60)
+
+Use this path only when implementation is already accepted on the current committed HEAD and you need fresh review evidence without rerunning Codex implementation.
+
+Run:
+
+```bash
+AUTOMATION_REFRESH_PYTEST_CMD="python3 -m pytest <story-scoped-tests>" automation/scripts/refresh_review_evidence.sh <STORY_ID>
+AUTOMATION_RUN_DIR=automation/runs/<STORY_ID>/<REFRESH_RUN_DIR> automation/scripts/analyze_story_run.sh <STORY_ID>
+```
+
+Required preconditions:
+
+- branch is not `main`;
+- working tree is clean;
+- active story bundle exists for `<STORY_ID>`.
+
+Forbidden uses:
+
+- replacing normal implementation work (`run_story.sh` remains the implementation path);
+- running refresh on `main`;
+- running refresh with a dirty tree;
+- reusing refreshed evidence after any new commit (it becomes stale and must be refreshed again).
+
+Refresh does not close the story. Review-stage still requires clean tree + valid pinned evidence and the usual AI review, classification, and review gate sequence.
+
 ## Manual-finish continuation
 
 Manual finish exists only for the explicit non-converging rerun path.
