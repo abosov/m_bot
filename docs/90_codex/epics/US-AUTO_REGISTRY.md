@@ -98,8 +98,8 @@ Violation of this separation (e.g., editing active bundle directly or duplicatin
 - A new contract-level follow-up need was confirmed during US-AUTO-73: semantic companion filtering initially remained duplicated across producer and downstream review consumers.
 - Attempted centralization in US-AUTO-74 proved non-atomic: centralization alone did not converge because downstream review-fidelity consumption semantics were still implicit.
 - US-AUTO-76 is implemented and merged in PR #270; classifier/review-gate semantics now allow explicitly scope-approved active-story governance artifacts while preserving fail-closed behavior for wrong-story artifacts and runtime implementation review.
-- US-AUTO-74 is no longer blocked by US-AUTO-75/US-AUTO-76 correctness work, but it is no longer the immediate next story: after US-AUTO-77, the active blocker is the Codex rerun / evidence-refresh loop, so US-AUTO-74 should resume only after US-AUTO-60, US-AUTO-58, and US-AUTO-31 are resolved or explicitly parked.
-- US-AUTO-77 is implemented and merged in PR #272. The active stabilization continuation now moves to US-AUTO-60 first, then US-AUTO-58 and US-AUTO-31, before US-AUTO-74 and broader business-feature work.
+- US-AUTO-74 is no longer blocked by US-AUTO-75/US-AUTO-76 correctness work, but it is no longer the immediate next story: after US-AUTO-77 and US-AUTO-60, the active blockers are stage-loop control and mandatory analyze-gate enforcement, so US-AUTO-74 should resume only after US-AUTO-58 and US-AUTO-31 are resolved or explicitly parked.
+- US-AUTO-77 is implemented and merged in PR #272. US-AUTO-60 is implemented and merged in PR #274. The active stabilization continuation now moves to US-AUTO-58 and US-AUTO-31 before US-AUTO-74 and broader business-feature work.
 - Remaining work after US-AUTO-77 is no longer about basic operator guidance; it is about **implementation freeze, review-evidence refresh without Codex rerun, loop caps, mandatory decision gates, observability, safer reuse, and stronger pre-code discipline**.
 - The next systemic blocker is explicit: the pipeline needs an accepted-implementation freeze boundary plus a way to regenerate review evidence for the current committed HEAD without invoking Codex again.
 
@@ -133,7 +133,7 @@ Violation of this separation (e.g., editing active bundle directly or duplicatin
 - P0/P1 rerun cost and cycle control after US-AUTO-77:
   - US-AUTO-76 — classifier scope semantics for governance story artifacts (completed in PR #270)
   - US-AUTO-77 — operator workflow simplification and decision model (completed in PR #272)
-  - US-AUTO-60 — implementation freeze and review-evidence refresh without Codex rerun (P0, next)
+  - US-AUTO-60 — implementation freeze and review-evidence refresh without Codex rerun (P0, implemented in PR #274)
   - US-AUTO-58 — stage-loop cap and forced escalation threshold
   - US-AUTO-31 — mandatory analyze gate before rerun or next phase
   - US-AUTO-74 — centralize semantic projection and companion-filter contract after freeze/loop-safety line
@@ -185,7 +185,7 @@ Violation of this separation (e.g., editing active bundle directly or duplicatin
 - US-AUTO-75 also exposed a classifier scope-semantics limitation: governance/story artifacts explicitly approved through bundle scope can still be misclassified as out-of-scope delivery files.
 - US-AUTO-75/PR #266 also confirmed a broader operator-UX gap: the pipeline is now highly fail-closed and correct, but operators still need a simpler decision model for rerun, review-stage continuation, classification rejects, escalation choices, and follow-up creation.
 - US-AUTO-75/PR #266 also confirmed that duplicated semantic projection / companion filtering / review-fidelity validation logic across analyze/review/ai_review/classify/gate is a P1 maintainability risk, not a current P0 correctness blocker. US-AUTO-74 should resume as a cleanup/refactor story after the classifier and operator-workflow follow-ups are resolved or explicitly parked.
-- US-AUTO-77 was completed in PR #272 and added the operator workflow guide plus explicit analyze operator-decision output. Its execution exposed a systemic Codex rerun loop: after accepted implementation, Codex may keep producing non-essential polish changes, causing dirty-tree -> commit/rerun or restore/rerun -> stale/fidelity-blocker cycles. Therefore US-AUTO-60 is raised to the next P0 story to support implementation freeze and review-evidence refresh without Codex rerun; US-AUTO-58 and US-AUTO-31 remain the next safety gates after that; US-AUTO-74 moves after this freeze/loop-safety line.
+- US-AUTO-77 was completed in PR #272 and added the operator workflow guide plus explicit analyze operator-decision output. Its execution exposed a systemic Codex rerun loop: after accepted implementation, Codex may keep producing non-essential polish changes, causing dirty-tree -> commit/rerun or restore/rerun -> stale/fidelity-blocker cycles. US-AUTO-60 was completed in PR #274 and added the no-Codex review-evidence refresh path for the current committed HEAD. US-AUTO-58 and US-AUTO-31 remain the next safety gates after that; US-AUTO-74 moves after this freeze/loop-safety line.
 - For contract-sensitive downstream stories, bundle instructions must explicitly forbid broad rewrites and preserve existing fallback and producer guard behavior unless a failing test proves a narrower change is impossible.
 
 
@@ -225,10 +225,9 @@ Follow-up:
 
 
 ### Next Recommended Story
-1. US-AUTO-60 — implementation freeze and review-evidence refresh without Codex rerun
-2. US-AUTO-58 — stage-loop cap and forced escalation threshold
-3. US-AUTO-31 — mandatory analyze gate before rerun or next phase
-4. US-AUTO-74 — centralize semantic projection and companion-filter contract
+1. US-AUTO-58 — stage-loop cap and forced escalation threshold
+2. US-AUTO-31 — mandatory analyze gate before rerun or next phase
+3. US-AUTO-74 — centralize semantic projection and companion-filter contract
 5. US-AUTO-61 — workflow telemetry registry for run stages, blockers, manual interventions, and timings
 6. US-AUTO-62 — manual workflow event logging and automation-opportunity tagging
 7. US-AUTO-63 — periodic workflow analytics and optimization reporting
@@ -298,7 +297,7 @@ Follow-up:
 | US-AUTO-31 | Mandatory analyze gate before rerun or next phase | Make `analyze_story_run.sh` an explicit decision gate before rerun, review continuation, or phase advance | follow-up | Planned | P1 | After US-AUTO-58 | Re-scoped from original US-AUTO-31 | N/A | Replaces vague checkpoint language with explicit decision-gate semantics. Keep after US-AUTO-60/58 so analyze can enforce decisions that include a non-Codex evidence-refresh path and loop-cap policy. |
 | US-AUTO-58 | Stage-loop cap and forced escalation threshold | Detect repeated stage/rerun/polish loops and force an explicit operator decision instead of allowing indefinite run_story cycles | enforcement | Planned | P1 | After US-AUTO-60 | Supersedes historical US-AUTO-27 | N/A | Raised after US-AUTO-77: needed to detect repeated Codex polish / dirty tree / stale-fidelity loops and route the operator to freeze, discard, escalation, or follow-up instead of another blind rerun. |
 | US-AUTO-59 | Failure-summary and operator decision UX | Produce compact operator-facing summaries of blockers, allowed next steps, forbidden actions, and cheapest safe path forward | follow-up | Planned | P3 | Draft bundle | US-AUTO-18 | N/A | Remainder of historical operator UX scope after US-AUTO-56 |
-| US-AUTO-60 | Implementation freeze and review-evidence refresh without Codex rerun | Freeze an accepted implementation and refresh review artifacts for the current committed HEAD without invoking Codex/materialization again | follow-up | Planned | P0 | Draft bundle next | New post-US-AUTO-56 optimization line | N/A | Raised from P2 cost optimization to P0 operational unblocker after US-AUTO-77. Scope: add an accepted-implementation/freeze boundary and a lightweight review-evidence refresh path that regenerates changed_files/diff/review_bundle/chatgpt_review_prompt metadata for current committed HEAD without `codex exec`, preventing non-essential Codex polish from causing dirty-tree/rerun/stale-fidelity loops. Separate from safe reuse; this is a refresh path for accepted implementation. |
+| US-AUTO-60 | Implementation freeze and review-evidence refresh without Codex rerun | Freeze an accepted implementation and refresh review artifacts for the current committed HEAD without invoking Codex/materialization again | follow-up | Implemented | P0 | None | New post-US-AUTO-56 optimization line | automation/bundle_packs/US-AUTO-60.bundle.md | Merged in PR #274. Added `automation/scripts/refresh_review_evidence.sh` and `tests/test_refresh_review_evidence.py`. Enables no-Codex refresh evidence generation for the current committed HEAD and review/classify/gate continuation on pinned refresh-run artifacts. Local targeted validation passed: `158 passed`; pinned refresh-run `automation/runs/US-AUTO-60/2026-05-03_08-40-08_refresh`; review classification `approve`; review gate `approve`. Follow-up line continues with US-AUTO-58 for stage-loop cap / forced escalation threshold and US-AUTO-31 for mandatory analyze gate enforcement. |
 
 | US-AUTO-61 | Workflow telemetry registry for run stages, blockers, manual interventions, and timings | Add append-only workflow telemetry separate from the durable story ledger | implementation | Planned | P1 | Draft bundle | New observability line after US-AUTO-56 | N/A | Must not overload the durable `story_change_ledger.jsonl` |
 | US-AUTO-62 | Manual workflow event logging and automation-opportunity tagging | Log manual commits, discards, manual-finish usage, and explicit automation candidates | follow-up | Planned | P1 | Draft bundle | US-AUTO-61 | N/A | Captures human intervention points for later optimization |
