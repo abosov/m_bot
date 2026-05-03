@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import os
 import subprocess
 
@@ -1427,6 +1428,31 @@ def test_run_story_blocks_same_head_stage_loop_cap_and_routes_to_analyze(tmp_pat
         (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
         (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
         (run_dir / "pytest.txt").write_text("refresh-only\n", encoding="utf-8")
+        (run_dir / "refresh_review_evidence.json").write_text(
+            json.dumps(
+                {
+                    "story_id": story_id,
+                    "current_head": head,
+                    "current_branch": "feature/us-auto-58",
+                    "base_ref": "main",
+                    "merge_base": head,
+                    "refresh_mode": "no_codex_review_evidence_refresh",
+                    "codex_invoked": False,
+                    "generated_at": "2026-05-02T10:00:00Z",
+                    "evidence_paths": {
+                        "run_dir": str(run_dir),
+                        "changed_files": str(run_dir / "changed_files.txt"),
+                        "diff_patch": str(run_dir / "diff.patch"),
+                        "manifest": str(run_dir / "manifest.md"),
+                        "review_bundle": str(run_dir / "review_bundle.md"),
+                        "chatgpt_review_prompt": str(run_dir / "chatgpt_review_prompt.md"),
+                        "pytest": str(run_dir / "pytest.txt"),
+                        "refresh_review_evidence": str(run_dir / "refresh_review_evidence.json"),
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
         (run_dir / "ai_review_result.md").write_text("# AI Review\n\nFinding\n\n# AI Review Result\n\nPASS\n", encoding="utf-8")
         (run_dir / "review_classification.md").write_text(
             "# Review Classification\n\nMERGE RECOMMENDATION: reject\n",

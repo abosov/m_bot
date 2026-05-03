@@ -120,6 +120,69 @@ story_stage_loop_run_has_terminal_escalation_resolution() {
   [[ "$resolution_action" == "accept-as-is" || "$resolution_action" == "abort" || "$resolution_action" == "force-followup" ]]
 }
 
+story_stage_loop_refresh_evidence_valid() {
+  local run_dir="$1"
+  local manifest_file="$run_dir/manifest.md"
+  local refresh_file="$run_dir/refresh_review_evidence.json"
+  local manifest_story_id manifest_refresh_mode manifest_head
+
+  [[ -f "$manifest_file" ]] || return 1
+  [[ -f "$refresh_file" ]] || return 1
+
+  manifest_story_id="$(story_stage_loop_manifest_value "$manifest_file" "story_id")"
+  manifest_refresh_mode="$(story_stage_loop_manifest_value "$manifest_file" "refresh_mode")"
+  manifest_head="$(story_stage_loop_manifest_source_of_truth_head "$manifest_file")"
+
+  [[ -n "$manifest_story_id" ]] || return 1
+  [[ "$manifest_refresh_mode" == "no_codex_review_evidence_refresh" ]] || return 1
+  [[ "$manifest_head" =~ ^[0-9a-f]{40}$ ]] || return 1
+
+  python3 - "$refresh_file" "$manifest_story_id" "$manifest_head" <<'PYREFRESH'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+expected_story_id = sys.argv[2]
+expected_head = sys.argv[3]
+
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+
+if not isinstance(payload, dict):
+    raise SystemExit(1)
+
+if payload.get("story_id") != expected_story_id:
+    raise SystemExit(1)
+if payload.get("refresh_mode") != "no_codex_review_evidence_refresh":
+    raise SystemExit(1)
+if payload.get("codex_invoked") is not False:
+    raise SystemExit(1)
+if payload.get("current_head") != expected_head:
+    raise SystemExit(1)
+
+evidence_paths = payload.get("evidence_paths")
+if not isinstance(evidence_paths, dict):
+    raise SystemExit(1)
+
+required_paths = [
+    "run_dir",
+    "changed_files",
+    "diff_patch",
+    "manifest",
+    "review_bundle",
+    "chatgpt_review_prompt",
+    "pytest",
+    "refresh_review_evidence",
+]
+for key in required_paths:
+    if not isinstance(evidence_paths.get(key), str) or not evidence_paths[key]:
+        raise SystemExit(1)
+PYREFRESH
+}
+
 story_stage_loop_run_participates() {
   local run_dir="$1"
   local manifest_file="$run_dir/manifest.md"
@@ -132,11 +195,12 @@ story_stage_loop_run_participates() {
   story_stage_loop_run_has_gate_approved "$run_dir" && return 1
   story_stage_loop_run_has_terminal_escalation_resolution "$run_dir" && return 1
 
-  if [[ -f "$run_dir/review_gate_result.json" ]] || [[ -f "$run_dir/review_classification.md" ]] || [[ -f "$run_dir/ai_review_result.md" ]]; then
-    return 0
+  if [[ -n "$(story_stage_loop_manifest_value "$manifest_file" "refresh_mode" || true)" ]]; then
+    story_stage_loop_refresh_evidence_valid "$run_dir" && return 0
+    return 1
   fi
 
-  if [[ -n "$(story_stage_loop_manifest_value "$manifest_file" "refresh_mode" || true)" ]]; then
+  if [[ -f "$run_dir/review_gate_result.json" ]] || [[ -f "$run_dir/review_classification.md" ]] || [[ -f "$run_dir/ai_review_result.md" ]]; then
     return 0
   fi
 

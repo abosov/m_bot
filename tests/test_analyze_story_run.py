@@ -2170,6 +2170,91 @@ def test_analyze_story_run_caps_repeated_refresh_classification_loop_with_operat
     assert "RUN STATUS: ESCALATION REQUIRED (loop cap reached)" in result.stdout
 
 
+def test_analyze_story_run_routes_safety_classification_loop_cap_to_narrow_fix(tmp_path: Path) -> None:
+    root_dir = tmp_path / "repo"
+    root_dir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.run(["git", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root_dir, check=True)
+    (root_dir / "README.md").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=root_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root_dir, check=True, capture_output=True, text=True)
+    head = current_head(root_dir)
+
+    story_id = "US-AUTO-58"
+    run_ids = [
+        "2026-05-02_12-30-00_refresh",
+        "2026-05-02_12-40-00_refresh",
+        "2026-05-02_12-50-00_refresh",
+    ]
+
+    for run_id in run_ids:
+        run_dir = make_run_dir(root_dir, story_id, run_id)
+        (run_dir / "manifest.md").write_text(
+          "# Refresh Manifest\n\n"
+          f"- story_id: {story_id}\n"
+          "- branch: feature/us-auto-58\n"
+          f"- starting_head: {head}\n"
+          f"- isolated_worktree_head: {head}\n"
+          "- review_artifact_base: HEAD\n"
+          "- changed_files_detected: yes\n"
+          "- pytest_exit_code: 0\n"
+          "- refresh_mode: no_codex_review_evidence_refresh\n",
+          encoding="utf-8",
+        )
+        (run_dir / "changed_files.txt").write_text("README.md\n", encoding="utf-8")
+        (run_dir / "diff.patch").write_text("diff --git a/README.md b/README.md\n", encoding="utf-8")
+        (run_dir / "review_bundle.md").write_text("# Review Bundle\n", encoding="utf-8")
+        (run_dir / "chatgpt_review_prompt.md").write_text("# Prompt\n", encoding="utf-8")
+        (run_dir / "pytest.txt").write_text("refresh-only\n", encoding="utf-8")
+        (run_dir / "refresh_review_evidence.json").write_text(
+          json.dumps(
+              {
+                  "story_id": story_id,
+                  "current_head": head,
+                  "current_branch": "feature/us-auto-58",
+                  "base_ref": "main",
+                  "merge_base": head,
+                  "refresh_mode": "no_codex_review_evidence_refresh",
+                  "codex_invoked": False,
+                  "generated_at": "2026-05-02T10:00:00Z",
+                  "evidence_paths": {
+                      "run_dir": str(run_dir),
+                      "changed_files": str(run_dir / "changed_files.txt"),
+                      "diff_patch": str(run_dir / "diff.patch"),
+                      "manifest": str(run_dir / "manifest.md"),
+                      "review_bundle": str(run_dir / "review_bundle.md"),
+                      "chatgpt_review_prompt": str(run_dir / "chatgpt_review_prompt.md"),
+                      "pytest": str(run_dir / "pytest.txt"),
+                      "refresh_review_evidence": str(run_dir / "refresh_review_evidence.json"),
+                  },
+              }
+          ),
+          encoding="utf-8",
+        )
+        (run_dir / "ai_review_result.md").write_text(VALID_AI_REVIEW, encoding="utf-8")
+        (run_dir / "review_classification.md").write_text(
+          "# Review Classification\n\n"
+          "**Findings By Classification**\n\n"
+          "`MERGE BLOCKER`\n"
+          "1. Safety/source-of-truth blocker requires a narrow fix.\n\n"
+          "MERGE RECOMMENDATION: reject\n",
+          encoding="utf-8",
+        )
+
+    latest_run_dir = root_dir / "automation" / "runs" / story_id / run_ids[-1]
+    result = run_script(root_dir, story_id, run_dir=latest_run_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Current stage: blocked_stage_loop_cap_safety" in result.stdout
+    assert "LOOP CAP: REACHED" in result.stdout
+    assert "REQUIRED DECISION: narrow_safety_fix" in result.stdout
+    assert "one narrow safety/source-of-truth fix is allowed" in result.stdout
+    assert "RUN STATUS: NARROW FIX REQUIRED (loop cap reached)" in result.stdout
+
+
+
 def test_analyze_story_run_caps_repeated_refresh_metadata_churn_as_narrow_fix(tmp_path: Path) -> None:
     root_dir = tmp_path / "repo"
     root_dir.mkdir(parents=True, exist_ok=True)
@@ -2238,12 +2323,10 @@ def test_analyze_story_run_caps_repeated_refresh_metadata_churn_as_narrow_fix(tm
     result = run_script(root_dir, story_id, run_dir=latest_run_dir)
 
     assert result.returncode == 0, result.stderr
-    assert "Current stage: blocked_stage_loop_cap_safety" in result.stdout
-    assert "LOOP CAP: REACHED" in result.stdout
-    assert "REQUIRED DECISION: narrow_safety_fix" in result.stdout
-    assert "one narrow safety/source-of-truth fix is allowed" in result.stdout
-    assert "use no-Codex refresh only if implementation is already accepted" in result.stdout
-    assert "RUN STATUS: NARROW FIX REQUIRED (loop cap reached)" in result.stdout
+    assert "Current stage: blocked_refresh_metadata_invalid" in result.stdout
+    assert "LOOP CAP: REACHED" not in result.stdout
+    assert "REQUIRED DECISION: narrow_safety_fix" not in result.stdout
+    assert "RUN STATUS: BLOCKED (invalid refresh evidence metadata:" in result.stdout
 
 
 def test_analyze_story_run_allows_normal_run_artifacts_when_changed_files_do_not_repeat(tmp_path: Path) -> None:

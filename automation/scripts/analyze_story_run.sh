@@ -716,6 +716,40 @@ detect_same_head_stage_loop_cap_for_run() {
   story_stage_loop_detect_same_head_cap_for_run "$1" "$2" "$3"
 }
 
+classification_or_gate_reject_is_safety_driven() {
+  local run_dir="$1"
+  local classification_file="$run_dir/review_classification.md"
+  local gate_file="$run_dir/review_gate_result.json"
+
+  if [[ -f "$classification_file" ]]; then
+    grep -Eiq 'MERGE BLOCKER|safety|source-of-truth|source of truth|security|stale|fidelity|regression|contract' "$classification_file" && return 0
+  fi
+
+  if [[ -f "$gate_file" ]]; then
+    grep -Eiq 'MERGE BLOCKER|safety|source-of-truth|source of truth|security|stale|fidelity|regression|contract' "$gate_file" && return 0
+  fi
+
+  return 1
+}
+
+stage_loop_cap_requires_narrow_safety_fix() {
+  local stage="$1"
+  local run_dir="$2"
+
+  case "$stage" in
+    blocked_refresh_metadata_invalid|blocked_review_artifact_fidelity)
+      return 0
+      ;;
+    blocked_classification_rejected|blocked_review_gate_rejected)
+      classification_or_gate_reject_is_safety_driven "$run_dir"
+      return $?
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 strict_manual_finish_continuation_allowed() {
   local story_runs_root="$1"
   local run_dir="$2"
@@ -2083,7 +2117,7 @@ summarize_workflow_resume() {
     loop_cap_status="true"
     next_command="none"
     resume_safety="blocked"
-    if [[ "$stage" == "blocked_refresh_metadata_invalid" || "$stage" == "blocked_review_artifact_fidelity" ]]; then
+    if stage_loop_cap_requires_narrow_safety_fix "$stage" "$run_dir"; then
       stage="blocked_stage_loop_cap_safety"
       latest_valid_stage="run_artifacts_ready"
       loop_cap_decision="narrow_safety_fix"
@@ -2219,9 +2253,20 @@ final_status_line() {
     return 0
   fi
 
-  loop_cap_state="$(detect_same_head_stage_loop_cap_for_run "$STORY_RUNS_ROOT" "$run_dir" "run_artifacts_ready" || true)"
+  loop_cap_final_stage="run_artifacts_ready"
+  if [[ "$refresh_metadata_status" == "invalid" ]]; then
+    loop_cap_final_stage="blocked_refresh_metadata_invalid"
+  elif [[ "$filtered_review_surface_status" == "invalid" ]]; then
+    loop_cap_final_stage="blocked_review_artifact_fidelity"
+  elif [[ "$recommendation" == "reject" ]]; then
+    loop_cap_final_stage="blocked_classification_rejected"
+  elif [[ -f "$gate_result_file" && "$gate_decision" != "approve" ]]; then
+    loop_cap_final_stage="blocked_review_gate_rejected"
+  fi
+
+  loop_cap_state="$(detect_same_head_stage_loop_cap_for_run "$STORY_RUNS_ROOT" "$run_dir" "$loop_cap_final_stage" || true)"
   if [[ -n "$loop_cap_state" ]]; then
-    if [[ "$filtered_review_surface_status" == "invalid" || "$refresh_metadata_status" == "invalid" ]]; then
+    if stage_loop_cap_requires_narrow_safety_fix "$loop_cap_final_stage" "$run_dir"; then
       printf 'RUN STATUS: NARROW FIX REQUIRED (loop cap reached)\n'
     else
       printf 'RUN STATUS: ESCALATION REQUIRED (loop cap reached)\n'
