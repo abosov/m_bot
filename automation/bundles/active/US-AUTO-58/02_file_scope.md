@@ -5,6 +5,7 @@ Runtime scripts:
     automation/scripts/analyze_story_run.sh
     automation/scripts/run_story.sh
     automation/scripts/refresh_review_evidence.sh
+    automation/scripts/story_stage_loop.sh
     automation/scripts/ai_review_story_run.sh
     automation/scripts/review_story_run.sh
     automation/scripts/classify_review_story_run.sh
@@ -40,6 +41,7 @@ Story artifacts:
 
 Optional new helper files, only if justified by existing project structure:
 
+    automation/scripts/story_stage_loop.sh
     automation/scripts/lib/*
     tests/test_*loop*.py
 

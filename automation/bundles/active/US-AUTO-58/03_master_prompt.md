@@ -23,6 +23,7 @@ Use these files as source of truth:
     automation/scripts/analyze_story_run.sh
     automation/scripts/run_story.sh
     automation/scripts/refresh_review_evidence.sh
+    automation/scripts/story_stage_loop.sh
     automation/scripts/ai_review_story_run.sh
     automation/scripts/review_story_run.sh
     automation/scripts/classify_review_story_run.sh
@@ -55,6 +56,7 @@ You may change:
     automation/scripts/analyze_story_run.sh
     automation/scripts/run_story.sh
     automation/scripts/refresh_review_evidence.sh
+    automation/scripts/story_stage_loop.sh
     automation/scripts/ai_review_story_run.sh
     automation/scripts/review_story_run.sh
     automation/scripts/classify_review_story_run.sh
@@ -74,6 +76,10 @@ You may change:
     automation/bundles/active/US-AUTO-58/*
 
 You may add a small helper module or helper script only if it keeps loop detection testable and follows existing project conventions.
+
+The preferred explicit helper path for shared stage-loop logic is:
+
+    automation/scripts/story_stage_loop.sh
 
 ## Files Not Allowed To Change
 
