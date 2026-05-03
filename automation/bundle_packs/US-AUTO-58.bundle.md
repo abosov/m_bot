@@ -339,49 +339,48 @@ Registry row may be clarified during implementation, but final status should be 
 
 Runtime scripts:
 
-    automation/scripts/analyze_story_run.sh
-    automation/scripts/run_story.sh
-    automation/scripts/refresh_review_evidence.sh
-    automation/scripts/story_stage_loop.sh
-    automation/scripts/ai_review_story_run.sh
-    automation/scripts/review_story_run.sh
-    automation/scripts/classify_review_story_run.sh
-    automation/scripts/review_gate_story_run.sh
+    - automation/scripts/analyze_story_run.sh
+    - automation/scripts/run_story.sh
+    - automation/scripts/refresh_review_evidence.sh
+    - automation/scripts/story_stage_loop.sh
+    - automation/scripts/ai_review_story_run.sh
+    - automation/scripts/review_story_run.sh
+    - automation/scripts/classify_review_story_run.sh
+    - automation/scripts/review_gate_story_run.sh
 
 Test files:
 
-    tests/test_analyze_story_run.py
-    tests/test_run_story.py
-    tests/test_refresh_review_evidence.py
-    tests/test_ai_review_story_run.py
-    tests/test_review_story_run.py
-    tests/test_classify_review_story_run.py
-    tests/test_review_classification_script.py
-    tests/test_review_gate_story_run.py
-    tests/test_review_pipeline_validation_contract.py
+    - tests/test_analyze_story_run.py
+    - tests/test_run_story.py
+    - tests/test_refresh_review_evidence.py
+    - tests/test_ai_review_story_run.py
+    - tests/test_review_story_run.py
+    - tests/test_classify_review_story_run.py
+    - tests/test_review_classification_script.py
+    - tests/test_review_gate_story_run.py
+    - tests/test_review_pipeline_validation_contract.py
 
 Documentation:
 
-    docs/90_codex/US_AUTO_OPERATOR_GUIDE.md
-    docs/90_codex/epics/US-AUTO_REGISTRY.md
+    - docs/90_codex/US_AUTO_OPERATOR_GUIDE.md
+    - docs/90_codex/epics/US-AUTO_REGISTRY.md
 
 Story artifacts:
 
-    automation/bundle_packs/US-AUTO-58.bundle.md
-    automation/bundles/active/US-AUTO-58/00_story.md
-    automation/bundles/active/US-AUTO-58/01_context_bundle.md
-    automation/bundles/active/US-AUTO-58/02_file_scope.md
-    automation/bundles/active/US-AUTO-58/03_master_prompt.md
-    automation/bundles/active/US-AUTO-58/04_review_checklist.md
-    automation/bundles/activ-AUTO-58/05_followups.md
-    automation/bundles/active/US-AUTO-58/06_manual_actions.md
+    - automation/bundle_packs/US-AUTO-58.bundle.md
+    - automation/bundles/active/US-AUTO-58/00_story.md
+    - automation/bundles/active/US-AUTO-58/01_context_bundle.md
+    - automation/bundles/active/US-AUTO-58/02_file_scope.md
+    - automation/bundles/active/US-AUTO-58/03_master_prompt.md
+    - automation/bundles/active/US-AUTO-58/04_review_checklist.md
+    - automation/bundles/active/US-AUTO-58/05_followups.md
+    - automation/bundles/active/US-AUTO-58/06_manual_actions.md
 
 Optional new helper files, only if justified by existing project structure:
 
-    automation/scripts/story_stage_loop.sh
-    automation/scripts/lib/*
-    tests/test_*loop*.py
-
+    - automation/scripts/story_stage_loop.sh
+    - automation/scripts/lib/*
+    - tests/test_*loop*.py
 ## Files Not Allowed To Change
 
 Do not modify unrelated business feature code.
