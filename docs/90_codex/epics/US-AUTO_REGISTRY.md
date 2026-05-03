@@ -230,22 +230,21 @@ Follow-up:
 
 
 ### Next Recommended Story
-1. US-AUTO-58 — stage-loop cap and forced escalation threshold
-2. US-AUTO-31 — mandatory analyze gate before rerun, refresh, review continuation, classification, gate, or phase advance
-3. US-AUTO-79 — story pipeline orchestrator for deterministic stage chaining
-4. US-AUTO-80 — compact operator/AI decision packet UX for non-deterministic stops
-5. US-AUTO-74 — centralize semantic projection and companion-filter contract
-6. US-AUTO-61 — workflow telemetry registry for run stages, blockers, manual interventions, and timings
-7. US-AUTO-62 — manual workflow event logging and automation-opportunity tagging
-8. US-AUTO-63 — periodic workflow analytics and optimization reporting
-9. US-AUTO-30 — safe review-artifact reuse eligibility
-10. US-AUTO-29 — deterministic story-scoped verification strategy
-11. US-AUTO-64 — fact-only research artifact for story execution
-12. US-AUTO-68 — structured failure packet for follow-up and retry decisions
-13. US-AUTO-67 — intent restatement and plan acknowledgement before code edits
-14. US-AUTO-65 — explicit design-complete gate before implementation run
-15. US-AUTO-66 — phase-scoped implementation runs for multi-step stories
-16. US-AUTO-59 — failure-summary and operator decision UX
+1. US-AUTO-31 — mandatory analyze gate before rerun, refresh, review continuation, classification, gate, or phase advance
+2. US-AUTO-79 — story pipeline orchestrator for deterministic stage chaining
+3. US-AUTO-80 — compact operator/AI decision packet UX for non-deterministic stops
+4. US-AUTO-74 — centralize semantic projection and companion-filter contract
+5. US-AUTO-61 — workflow telemetry registry for run stages, blockers, manual interventions, and timings
+6. US-AUTO-62 — manual workflow event logging and automation-opportunity tagging
+7. US-AUTO-63 — periodic workflow analytics and optimization reporting
+8. US-AUTO-30 — safe review-artifact reuse eligibility
+9. US-AUTO-29 — deterministic story-scoped verification strategy
+10. US-AUTO-64 — fact-only research artifact for story execution
+11. US-AUTO-68 — structured failure packet for follow-up and retry decisions
+12. US-AUTO-67 — intent restatement and plan acknowledgement before code edits
+13. US-AUTO-65 — explicit design-complete gate before implementation run
+14. US-AUTO-66 — phase-scoped implementation runs for multi-step stories
+15. US-AUTO-59 — failure-summary and operator decision UX
 
 ---
 
@@ -306,7 +305,7 @@ Follow-up:
 | US-AUTO-29 | Deterministic story-scoped verification strategy | Select the minimal required verification scope for the current story/run instead of always paying full validation cost | follow-up | Planned | P2 | Draft bundle | Re-scoped from original US-AUTO-29 | N/A | Formerly “targeted test strategy”; now broader but still deterministic and story-scoped |
 | US-AUTO-30 | Safe review-artifact reuse eligibility | Reuse review-stage artifacts only when the review surface is provably unchanged | follow-up | Planned | P2 | Draft bundle | Re-scoped from original US-AUTO-30 | N/A | Distinct from already-implemented deterministic gate reuse in US-AUTO-45 |
 | US-AUTO-31 | Mandatory analyze gate before rerun, refresh, review continuation, classification, gate, or phase advance | Make analyze the mandatory decision authority before any rerun, no-Codex refresh, review-stage continuation, classification, review gate, escalation, follow-up, or phase advance | enforcement | Planned | P1 | After US-AUTO-58 | Re-scoped from original US-AUTO-31 and broadened after US-AUTO-60 refresh path | N/A | Must preserve existing pinned-run and committed-HEAD safety invariants. This story should prevent operators and future orchestration from advancing stages without an explicit analyze decision. May formalize machine-readable operator decision output if needed for US-AUTO-79. |
-| US-AUTO-58 | Stage-loop cap and forced escalation threshold | Detect repeated stage/rerun/polish loops and force an explicit operator decision instead of allowing indefinite run_story cycles | enforcement | Planned | P1 | After US-AUTO-60 | Supersedes historical US-AUTO-27 | N/A | Raised after US-AUTO-77: needed to detect repeated Codex polish / dirty tree / stale-fidelity loops and route the operator to freeze, discard, escalation, or follow-up instead of another blind rerun. |
+| US-AUTO-58 | Stage-loop cap and forced escalation threshold | Detect repeated stage/rerun/polish loops and force an explicit operator decision instead of allowing indefinite run_story cycles | enforcement | Implemented | P1 | None | Supersedes historical US-AUTO-27 | PR #278 | Implemented stage-loop cap across run, refresh, analyze, review classification, gate, and manual-finish paths. Added shared `story_stage_loop.sh`, same-HEAD loop detection, forced operator decisions, safety/source-of-truth narrow-fix routing, invalid refresh-evidence churn handling, and tests. Closed before US-AUTO-31 analyze-gate enforcement. |
 | US-AUTO-59 | Failure-summary and operator decision UX | Produce compact operator-facing summaries of blockers, allowed next steps, forbidden actions, and cheapest safe path forward | follow-up | Planned | P3 | Draft bundle | US-AUTO-18 | N/A | Remainder of historical operator UX scope after US-AUTO-56 |
 | US-AUTO-60 | Implementation freeze and review-evidence refresh without Codex rerun | Freeze an accepted implementation and refresh review artifacts for the current committed HEAD without invoking Codex/materialization again | follow-up | Implemented | P0 | None | New post-US-AUTO-56 optimization line | automation/bundle_packs/US-AUTO-60.bundle.md | Merged in PR #274. Added `automation/scripts/refresh_review_evidence.sh` and `tests/test_refresh_review_evidence.py`. Enables no-Codex refresh evidence generation for the current committed HEAD and review/classify/gate continuation on pinned refresh-run artifacts. Local targeted validation passed: `158 passed`; pinned refresh-run `automation/runs/US-AUTO-60/2026-05-03_08-40-08_refresh`; review classification `approve`; review gate `approve`. Follow-up line continues with US-AUTO-58 for stage-loop cap / forced escalation threshold and US-AUTO-31 for mandatory analyze gate enforcement. Closed in PR #274 with registry closeout PR #275. Introduced `refresh_review_evidence.sh` and the accepted-implementation freeze path; accepted implementations should not invoke Codex rerun merely to refresh review evidence when a refresh-run can prove the current committed HEAD review surface. |
 
